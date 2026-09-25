@@ -164,6 +164,17 @@
         G.UI.text(x, { x: RX + RW, y: yy + 1 }, 'Lv' + lv, 11, G.UI.C.textDim, 'right');
         yy += 19;
       });
+
+      /* 称号：地狱难度通关该界所得（破狱·凡尘 / 灵渊 / 仙穹），**跨世保留**。
+         以前只有 meta.titles 记着、界面上没有任何展示位，玩家"拿了但看不见"（缺口 G15）。
+         固定在右栏底部，不随功法条数浮动。 */
+      var titles = (G.game.meta && G.game.meta.titles) || [];
+      var ty = P.y + P.h - 22;
+      G.UI.divider(x, RX + RW / 2, ty - 8, RW, 'rgba(216,183,104,0.22)');
+      G.UI.text(x, { x: RX, y: ty }, '称号', 11, G.UI.C.textDim);
+      G.UI.textOut(x, { x: RX + RW, y: ty - 0.5 },
+        titles.length ? titles.join('·') : '无', 11,
+        titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
     }
   };
 

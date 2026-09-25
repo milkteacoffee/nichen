@@ -129,6 +129,10 @@
            与 chest/boss 同一套"站到旁边才能触发"的走位约定。 */
         solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
         setInteract(sp.x, sp.y + 1, { type: 'entrance', id: sp.id, slot: sp.slot, arch: sp.arch });
+      } else if (sp.kind === 'worldgate') {
+        /* 界门：往返已解锁的界（设计 v1.1 §2.3）。同样占格实心、交互点在正下方一格。 */
+        solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
+        setInteract(sp.x, sp.y + 1, { type: 'worldgate', id: sp.id });
       }
     });
 

@@ -224,6 +224,20 @@
       }
     }
 
+    /* 界门：本界首区（`gate:true`）放一座，用于往返已解锁的界（设计 v1.1 §2.3）。
+       放完立刻 carve 一次，保证"站在旁边能点到、且走得过去"。 */
+    if (r.gate) {
+      for (var gt = 0; gt < 600; gt++) {
+        var gx = rng.int(3, w - 4), gy = rng.int(3, h - 4);
+        if (taken[gx + ',' + gy] || roads[gx + ',' + gy]) continue;
+        var gy2 = gy + 1;
+        if (taken[gx + ',' + gy2]) continue;
+        special.push({ id: 'gate', kind: 'worldgate', x: gx, y: gy });
+        carve(gx, gy2);
+        break;
+      }
+    }
+
     var md = {
       id: regionId, regionId: regionId, n: r.n, label: r.n,
       w: w, h: h, ground: r.ground, safe: !!r.safe,
@@ -274,6 +288,11 @@
           G.game.changeScene('dungeon', { entrance: { slot: o.slot, arch: o.arch, region: regionId } });
           return;
         }
+        /* 界门 → 往返已解锁的界 */
+        if (o.type === 'worldgate') {
+          G.RegionGen.openGate(s);
+          return;
+        }
       },
       renderOverlay: function (x, s) {
         if (G.TianDao.isMenuOverlay(s.overlay)) { G.TianDao.renderOverlay(x, s); return; }
@@ -291,10 +310,69 @@
     return sc;
   }
 
+  /* ===== 界门（设计 v1.1 §2.3）=====
+     往返**已解锁**的界：当前界一眼可见，未解锁的界置灰。
+     各界的首区各有一座界门（`regions.js` 里 `gate:true`）。 */
+  function openGate(scene) {
+    var meta = G.game.meta, save = G.game.save;
+    if (!meta || !save) { G.game.toast('尚无存档'); return; }
+    var pr = meta.progress || {};
+    var wd = pr.worlds || {};
+    var cur = G.Player.activeWorldId(meta);
+    var WN = G.Data.regions.worldNames;
+    var btns = [], y = 62;
+    ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+      var unlocked = (w === 'fan') || !!wd[w];
+      var isCur = (w === cur);
+      btns.push(new G.UI.Btn({
+        x: 70, y: y, w: 300, h: 26, small: true,
+        variant: isCur ? 'gold' : (unlocked ? 'default' : 'ghost'),
+        label: WN[w] + '　' + (isCur ? '（当前）' : (unlocked ? '可往' : '未解锁')),
+        onClick: function () {
+          if (isCur) { G.game.toast('已在' + WN[w]); return; }
+          if (!unlocked) { G.game.toast(WN[w] + '尚未解锁（先通关前一界）'); return; }
+          travelTo(meta, save, w);
+        }
+      }));
+      y += 34;
+    });
+    btns.push(new G.UI.Btn({ x: 190, y: 222, w: 100, h: 24, small: true, variant: 'ghost',
+      label: '返　回', onClick: function () { scene.clearOverlay(); } }));
+    scene.setOverlay('worldgate', btns);
+  }
+
+  /* 界门传送：切「当前界」→ 落在该界首区的出生点。
+     目标界的入口落位若还没 roll（第一次去），这里补一次。 */
+  function travelTo(meta, save, worldId) {
+    var first = G.Data.regions.of(worldId)[0];
+    if (!first) { G.game.toast('该界暂无区域'); return; }
+    ensure(save, first.id);
+    var mapId = G.Data.regions.mapIdOf(first.id);
+    var md = G.Data.maps[mapId];
+    if (!md) { G.game.toast('目标区域加载失败'); return; }
+
+    meta.progress = meta.progress || {};
+    meta.progress.activeWorld = worldId;
+    save.entrances = save.entrances || { fan: [], ling: [], xian: [], dao: [] };
+    if (!save.entrances[worldId] || !save.entrances[worldId].length) {
+      /* 第一次去该界：补一次落位。序列复用当世的 dungeonSet（缺口 G20）——
+         否则区域裂隙与秘境枢纽会各拿一条随机序列，互相打架。 */
+      save.entrances[worldId] = G.Data.regions.rollEntrances(worldId, save.worldSeed, save.dungeonSet);
+    }
+    save.map = mapId; save.scene = mapId;
+    save.pos = { x: md.spawn.x, y: md.spawn.y };
+    if (G.Storage.saveMeta) G.Storage.saveMeta(meta);
+    G.Storage.saveCurrent(save);
+    G.game.changeScene(mapId);
+    G.game.toast('行至 ' + (G.Data.regions.worldNames[worldId] || worldId));
+  }
+
   G.RegionGen = {
     build: build,
     ensure: ensure,
     sceneFor: sceneFor,
+    openGate: openGate,
+    travelTo: travelTo,
     landingOf: landingOf,
     exitCellOf: exitCellOf,
     /* 确保某界全部生成型区域的地图已注册（切换世界/新世时调） */

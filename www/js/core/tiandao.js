@@ -277,7 +277,7 @@
     /* 本模块负责渲染的 overlay 白名单。
        各探索场景的 renderOverlay 用它做路由 —— 以后**新增菜单页只改这里**，
        不用再去改 town/field/cave/regiongen/interiorgen 五处（漏一处就是"点了没反应"）。 */
-    MENU_OVERLAYS: { menu: 1, worlds: 1, tiandao: 1 },
+    MENU_OVERLAYS: { menu: 1, worlds: 1, tiandao: 1, worldgate: 1 },
     isMenuOverlay: function (name) { return !!this.MENU_OVERLAYS[name]; },
 
     openMenu: function (scene) {
@@ -300,7 +300,9 @@
     },
 
     /* ===== 界域难度（设计 v1.1 §2.5）=====
-       临时入口：先挂在通用菜单上；正式入口是轮回殿「飞升台」（未开工）。
+       **世内便捷入口**：通用菜单上挂一处，方便玩家在探索途中改档；
+       正式入口是轮回殿「飞升台」（`reincarnation-hall.js`）。两处共用
+       `Player.cycleWorldDiff` —— 口径只有一份，不会漂。
        每界难度独立、**立即生效** —— 这样"普通通关凡界 → 回刷凡界地狱拿碎片"才走得通。 */
     openWorlds: function (scene) {
       var self = this;
@@ -310,7 +312,6 @@
       var wd = pr.worldDiff || {};
       var WN = { fan: '凡界', ling: '灵界', xian: '仙界' };
       var DN = { normal: '普通', hard: '困难', hell: '地狱' };
-      var ORDER = ['normal', 'hard', 'hell'];
       function rebuild() { self.openWorlds(scene); }
 
       var btns = [], y = 62;
@@ -323,10 +324,9 @@
           label: WN[wid] + '　' + (unlocked ? DN[cur] : '未解锁'),
           onClick: function () {
             if (!unlocked) { G.game.toast(WN[wid] + '尚未解锁（先通关前一界）'); return; }
-            pr.worldDiff = pr.worldDiff || {};
-            pr.worldDiff[wid] = ORDER[(ORDER.indexOf(cur) + 1) % ORDER.length];
-            if (G.Storage.saveMeta) G.Storage.saveMeta(meta);
-            G.game.toast(WN[wid] + '难度 → ' + DN[pr.worldDiff[wid]]);
+            var next = G.Player.cycleWorldDiff(meta, wid);
+            if (!next) { G.game.toast(WN[wid] + '尚未解锁，无法调整难度'); return; }
+            G.game.toast(WN[wid] + '难度 → ' + DN[next]);
             rebuild();
           }
         }));
@@ -388,6 +388,13 @@
         G.UI.text(x, { x: WP.x + 30, y: 168 }, '地狱：Boss 气血×1.8 / 攻击×1.55、资源×0.6、Boss CD−1', 10, G.UI.C.textDim);
         G.UI.text(x, { x: WP.x + 30, y: 185 }, '地狱通关给：称号 + 跨世永久全属性+10% + 道之钥匙碎片', 10, G.UI.C.goldHi);
         G.UI.text(x, { x: WP.x + 30, y: 202 }, '三界碎片集齐 → 道界开启', 10, G.UI.C.goldHi);
+      } else if (scene.overlay === 'worldgate') {
+        var GP = this.WORLDS_P;
+        G.Overlays.dim(x);
+        G.UI.frame(x, GP, '界　门', { paper: true });
+        G.UI.text(x, { x: GP.x + 30, y: 44 }, '点击前往已解锁的界', 11, G.UI.C.textDim);
+        G.UI.text(x, { x: GP.x + 30, y: 185 }, '凡界 — 下品灵石　灵界 — 中品　仙界 — 上品/极品', 10, G.UI.C.textDim);
+        G.UI.text(x, { x: GP.x + 30, y: 202 }, '道界需集齐三界地狱的道之钥匙碎片', 10, G.UI.C.goldHi);
       } else if (scene.overlay === 'tiandao') {
         var P = this.SET_P;
         G.Overlays.dim(x);

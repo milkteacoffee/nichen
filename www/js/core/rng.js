@@ -35,6 +35,16 @@
     return idx.slice(0, Math.min(count, total));
   };
 
+  /* 字符串 → 32 位种子（FNV-1a）。用于"同一世同一区域/同一序列可复现"这类确定性生成。 */
+  RNG.hash = function (str) {
+    var h = 2166136261, s = String(str);
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  };
+
   G.RNG = RNG;
   G.rng = new RNG((Date.now() & 0xffffffff) ^ 0x9e3779b9);
 })();

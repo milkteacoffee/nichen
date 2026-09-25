@@ -217,8 +217,20 @@
          浮世由**天道抽定本世起始界**（未通关界优先），并把 5 个副本入口撒进该界区域。
          **当前界只有一个真相源 = `meta.progress.activeWorld`**（飞升时由 Player.ascend 上移），
          所以这里不另存 `save.mainWorld`；`save.entrances` 按界分桶，回访下界时落位仍在。 */
-      var mainWorld = anchor ? 'fan' : G.Data.regions.rollMainWorld(meta);
       meta.progress = meta.progress || {};
+      var mainWorld;
+      if (anchor) mainWorld = 'fan';
+      else {
+        /* 轮回殿「飞升台」指定的下一世主界优先（设计 v3.2 §10.3）。
+           只认已解锁的界 —— 未解锁 / 越界的值一律忽略、回落天道抽取，
+           免得旧档或手改档把玩家扔进还没开的世界。
+           道界（dao）即使有三枚碎片也**暂不作为入世主界**：道则回廊内容未开工
+           （缺口 U4），进去会是一个没有主线的界。 */
+        var pick = meta.progress.nextWorld;
+        var wd = meta.progress.worlds || {};
+        if (pick && pick !== 'dao' && (pick === 'fan' || wd[pick])) mainWorld = pick;
+        else mainWorld = G.Data.regions.rollMainWorld(meta);
+      }
       meta.progress.activeWorld = mainWorld;
 
       var save = {
@@ -236,8 +248,10 @@
         chestsOpened: [], bossKilled: false,
         /* 仙力结算与寿元（轮回 v0.4 §3.2 / §4） */
         maxGlobalLevel: 1, bossKills: 0, chronicle: [], _ageTick: 0,
-        /* 副本（v3.3）：本世秘境序列随入世抽取 */
-        dungeonSet: G.Data.dungeons.rollSet(),
+        /* 副本（v3.3）：本世秘境序列随入世抽取。**种子化**（缺口 U8）——
+           `dungeonSet` 与区域入口落位必须来自**同一条序列**（缺口 G20），
+           否则区域裂隙显示的副本与秘境枢纽的槽位对不上。 */
+        dungeonSet: G.Data.dungeons.rollSet(seed + ':set'),
         dungeonSlot: 0, dungeonRun: null, dungeonFarm: 0,
         dungeonPity: { mid: 0, clear: 0 },
         secrets: {}, daoCrystal: 0,
@@ -246,7 +260,10 @@
         visited: {}, indoor: {}
       };
       /* 锚世不抽随机副本池（走剧情锚定副本）；浮世为起始界 roll 一次落位 */
-      if (!anchor) save.entrances[mainWorld] = G.Data.regions.rollEntrances(mainWorld);
+      if (!anchor) {
+        save.entrances[mainWorld] =
+          G.Data.regions.rollEntrances(mainWorld, seed, save.dungeonSet);
+      }
 
       if (addQi || addPo || addStone || addRescue || (pf.body || 0)) {
         var gains = [];

@@ -206,6 +206,17 @@ python tools/assets-build.py --check
 | `obj.chest` | 未开启宝箱 |
 | `obj.chest.open` | 已开启宝箱 |
 | `obj.boss` | Boss 巢穴标记 |
+| `obj.rift` | 秘境裂隙（32×32，逻辑 32×32，锚点 `ox:-8, oy:-16`） |
+| `obj.worldgate` | 界门（32×40，逻辑 32×40，锚点 `ox:-8, oy:-28`） |
+
+> **`obj.rift` / `obj.worldgate` 目前未出图，走程序化兜底**
+> （`core/art.js` 的 `A.rift` / `A.worldgate`，`decorCanvas` 生成、带脉动光晕）。
+> 逻辑名已在此登记：日后出图只需把 PNG 放进 `_gen/` 并在 `tools/assets-build.py`
+> 的 `SIZES` 表登记尺寸，`G.Assets.img('obj.rift')` 会自动优先取图、无需改代码。
+> 尺寸须与上表一致，否则锚点 `ox/oy` 会错位。
+>
+> 两者都是 `map.md.special[]` 物件，绘制入口在 `core/explore.js` 的 `_drawSpecial`
+> → `_drawEntrance`（裂隙）/ `_drawWorldgate`（界门）。
 
 ### 6. 地图 NPC（✅ 已接线：镇内站桩 NPC）
 | 逻辑名 | 说明 |
@@ -409,7 +420,7 @@ NPC 与人物立绘目前全部走程序化画面 —— 键已接线，随时�
   另含关卡类型序列（大9/小5）与 Boss gl（大=锚/中=锚−2/头领=锚）结构断言。
 - `node tools/secret-test.js` —— **签名秘术效果**：品阶函数（凡1/灵1.5/仙2/道2.5）、
   圣术面板%聚合、神术战斗被动（吸血/封印/枯荣/护盾/每回合回灵）、仙术每场一次主动施放。
-- `node tools/shot.js [输出目录] [名字片段 ...]` —— 用 `@napi-rs/canvas` 真实光栅化，把 42 个场景导出 PNG。
+- `node tools/shot.js [输出目录] [名字片段 ...]` —— 用 `@napi-rs/canvas` 真实光栅化，把 46 个场景导出 PNG。
   **会先读 `assets/manifest.json` 把素材登记进去**，所以出图就是"装了素材"的真实画面。
   第一个参数只有**指向已存在的目录**时才当输出目录，其余参数是名字过滤
   （`node tools/shot.js 24_char` 只落盘这一张）。过滤时**所有帧照常推进** ——

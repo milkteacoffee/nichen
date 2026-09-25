@@ -151,18 +151,22 @@
       G.UI.text(x, { x: L.x + 12, y: L.y + 9 }, '一 世 账 目', 11.5, G.UI.C.gold);
       G.UI.divider(x, L.x + L.w / 2, L.y + 26, L.w - 24, 'rgba(216,183,104,0.28)');
 
-      var ly = L.y + 34;
+      var ly = L.y + 32;
       function kv(yy, k, v, col) {
         G.UI.text(x, { x: L.x + 12, y: yy }, k, 11.5, G.UI.C.textDim);
         G.UI.textOut(x, { x: L.x + L.w - 12, y: yy - 0.5 }, v, 12.5,
           col || G.UI.C.text, 'right');
       }
+      /* 行距 20（原 23）：多出的第六行放「称号」，地狱通关该界的永久所得（缺口 G15） */
       kv(ly, '转世之数', '第 ' + rec.life + ' 世', G.UI.C.goldHi);
-      kv(ly + 23, '陨落境界', rec.realm);
-      kv(ly + 46, '最终攻击', String(rec.atk));
-      kv(ly + 69, '遗留灵石', String(rec.stone));
-      kv(ly + 92, '斩杀首领', rec.boss ? '已斩' : '未斩',
+      kv(ly + 20, '陨落境界', rec.realm);
+      kv(ly + 40, '最终攻击', String(rec.atk));
+      kv(ly + 60, '遗留灵石', String(rec.stone));
+      kv(ly + 80, '斩杀首领', rec.boss ? '已斩' : '未斩',
         rec.boss ? G.UI.C.gold : G.UI.C.textDim);
+      var titles = (G.game.meta && G.game.meta.titles) || [];
+      kv(ly + 100, '称　　号', titles.length ? titles.join('·') : '—',
+        titles.length ? G.UI.C.goldHi : G.UI.C.textDim);
 
       /* 右栏：仙力入账明细（§4 逐项） */
       var R = { x: 232, y: 58, w: 232, h: 148 };

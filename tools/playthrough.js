@@ -337,9 +337,9 @@ step(function () {
   b._victory();
 }, 'm0-4.heartdemon');
 pump(40);
-if (save.globalLevel !== 10) errors.push('心魔战后应为炼气一段（10），实为 ' + save.globalLevel);
+if (save.globalLevel !== 10) errors.push('心魔战后应为炼气一重（10），实为 ' + save.globalLevel);
 if (save.quest.step !== 'm0-5') errors.push('心魔战后未推进到 m0-5（当前 ' + save.quest.step + '）');
-note('⑩ 心魔战 → 炼气一段');
+note('⑩ 心魔战 → 炼气一重');
 
 /* ---- 7) 炼气 1 → 3（赤牙洞门槛） ---- */
 enterMap('field');

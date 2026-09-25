@@ -46,6 +46,34 @@ function makeCtx() {
   };
   return ctx;
 }
+
+/* 文本探针：包一层 ctx 记录 fillText 的字符串。
+   为什么要它：新增 overlay / 菜单页时最容易漏的是**路由**，而漏路由的表现是
+   **静默不画、不报错** —— 只断言"render 不抛异常"抓不到。必须确认文案真的落到画布上。
+   注意：按钮文字是 game.js 画的、不在 scene.render 里，所以只能查面板标题与提示文案。 */
+function textSpy() {
+  const c = makeCtx();
+  const seen = [];
+  c.fillText = function (s) { seen.push(String(s)); return undefined; };
+  c.__seen = seen;
+  return c;
+}
+
+/* 绘制探针：记录每次 drawImage 的目标矩形。
+   桩 canvas 没有像素，但"有没有在正确的格子发起绘制"是查得到的 ——
+   这正是"物件登记了却忘了画"这类**静默**问题的抓法（它不报错、只是什么都不显示）。
+   用法见 region.visual.contract 的差分法：同一张图去掉该物件，每帧绘制次数必须减少。 */
+function drawSpy() {
+  const c = makeCtx();
+  const hits = [];
+  c.drawImage = function (img) {
+    if (!img) throw new Error('drawImage(null) —— 素材/精灵为空');
+    hits.push({ img, x: arguments[1], y: arguments[2], w: arguments[3], h: arguments[4] });
+  };
+  c.__hits = hits;
+  return c;
+}
+
 function makeCanvas(w, h) {
   const c = {
     width: w || 300, height: h || 150,
@@ -1803,13 +1831,6 @@ step(function () {
      只断言"render 不抛异常"是空的 —— 旧路由（只认 menu/tiandao）遇到 'worlds'
      既不匹配任何分支、也不报错，只是**什么都不画**，玩家看到的就是"点了没反应"。
      所以这里抓 fillText 的字符串，确认面板文案真的落到画布上。 */
-  function textSpy() {
-    const c = makeCtx();
-    const seen = [];
-    c.fillText = function (s) { seen.push(String(s)); return undefined; };
-    c.__seen = seen;
-    return c;
-  }
   sc.overlay = 'worlds';
   sc.buttons = [];
   const cx = textSpy();
@@ -1825,6 +1846,323 @@ step(function () {
     errors.push('overlay=menu 没有渲染出菜单面板');
   }
 }, 'worlds.panel.contract');
+
+/* ---------- 界门契约（设计 v1.1 §2.3 / 缺口 U1） ----------
+   每界首区都有界门 → 面板可开 → 能切当前界并落到目标界首区；未解锁的界去不了；
+   渲染分支真的画出来（同样用文本探针，只断言"不抛异常"是空的）。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null;
+  G.game.save = s;
+  G.game.meta = {
+    progress: {
+      difficulty: 'normal',
+      worlds: { fan: true, ling: true, xian: false, dao: false },
+      daoKey: false,
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      daoShards: { fan: false, ling: false, xian: false }
+    },
+    hellCleared: {}, titles: [], perfusion: {}, achieve: {}
+  };
+
+  function reachable(mp, from) {
+    const seen = {}, q = [[from.x, from.y]];
+    seen[from.x + ',' + from.y] = true;
+    while (q.length) {
+      const c = q.shift();
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+        const nx = c[0] + d[0], ny = c[1] + d[1];
+        if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
+        if (mp.solid[ny][nx]) return;
+        const k = nx + ',' + ny; if (seen[k]) return;
+        seen[k] = true; q.push([nx, ny]);
+      });
+    }
+    return seen;
+  }
+
+  /* ① 每界至少有一座界门；生成型界门区域真有物件、且走得到。
+       注意**不是"首区一定有"**：凡界的首区青溪镇是复用现有手写地图，
+       刻意不往里塞界门对象（会动到 M0 教学链与既有测试契约），
+       凡界的界门放在落霞镇（商旅重镇 = 交通枢纽）。 */
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (wid) {
+    const gates = G.Data.regions.of(wid).filter(function (r) { return r.gate; });
+    if (!gates.length) { errors.push(`${wid}: 没有任何区域标记为界门（gate:true）`); return; }
+    gates.forEach(function (first) {
+      if (first.map) return;                            /* 复用型地图不塞界门 */
+      G.RegionGen.ensure(s, first.id);
+      const md = G.Data.maps[first.id];
+      const mp = G.MapGen.buildMap(s, first.id);
+      const g = (md.special || []).filter(function (x) { return x.kind === 'worldgate'; })[0];
+      if (!g) { errors.push(`${wid}: 区域 ${first.id} 没有生成界门`); return; }
+      const o = mp.interact[g.x + ',' + (g.y + 1)];
+      if (!o || o.type !== 'worldgate') { errors.push(`${wid}: 区域 ${first.id} 界门交互点缺失`); return; }
+      if (!reachable(mp, md.spawn)[g.x + ',' + (g.y + 1)]) {
+        errors.push(`${wid}: 区域 ${first.id} 的界门从 spawn 走不到`);
+      }
+    });
+  });
+
+  /* ② 面板与传送 */
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  G.RegionGen.openGate(sc);
+  if (sc.overlay !== 'worldgate') { errors.push('openGate 未设置 overlay'); return; }
+  if (sc.buttons.length !== 5) errors.push(`界门面板应有 4 界 + 返回，实际 ${sc.buttons.length}`);
+
+  sc.buttons[2].onClick();                              /* 仙界：未解锁 */
+  if (G.Player.activeWorldId(G.game.meta) !== 'fan') errors.push('未解锁的界不该能传送');
+  G.RegionGen.openGate(sc);
+  sc.buttons[1].onClick();                              /* 灵界：已解锁 */
+  if (G.Player.activeWorldId(G.game.meta) !== 'ling') errors.push('已解锁的界应能传送');
+  /* 目标界的入口落位要补齐 */
+  if (!(s.entrances && s.entrances.ling && s.entrances.ling.length === 5)) {
+    errors.push('传送到新界后该界的入口落位未补齐');
+  }
+
+  /* ③ 渲染分支真的画出来 */
+  sc.overlay = 'worldgate';
+  sc.buttons = [];
+  const cg = textSpy(); sc.render(cg);
+  if (!cg.__seen.some(function (t) { return t.indexOf('门') >= 0; })) {
+    errors.push('overlay=worldgate 没有渲染出界门面板（路由漏了）');
+  }
+}, 'worldgate.contract');
+
+/* ---------- 区域可见性契约（缺口 G19） ----------
+   裂隙（entrance）与界门（worldgate）是"这片区域里有秘境 / 能去别的界"的唯一线索。
+   它们曾经只登记在 special 里、**没有任何绘制分支** —— 地图上什么都不出现，
+   玩家唯一的线索是走到正面冒出一个小三角，等于把入口藏了起来。
+   这里用**差分探针**钉住：同一张图去掉该物件后，每帧的 drawImage 次数必须减少。
+   只断言"绘制函数存在"不够（漏路由照样不画），所以必须跑整图渲染。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null;
+  s.worldSeed = 'visual-probe';
+  s.entrances = { fan: [], ling: [], xian: [], dao: [] };
+  G.game.save = s;
+  G.game.meta = {
+    progress: { activeWorld: 'fan', worlds: { fan: true }, difficulty: 'normal',
+      worldDiff: { fan: 'normal' }, daoKey: false,
+      daoShards: { fan: false, ling: false, xian: false } },
+    hellCleared: {}, titles: [], perfusion: {}, achieve: {}
+  };
+  s.entrances.fan = G.Data.regions.rollEntrances('fan', s.worldSeed);
+
+  /* 渲染一帧并数 drawImage 次数；dropKind 指定时临时摘掉该类物件。
+     摘/还都**原地改数组**（不换引用）—— mapgen 可能把这张数组交给 map.md。 */
+  function frames(regionId, dropKind) {
+    const md = G.Data.maps[regionId] || G.RegionGen.ensure(s, regionId);
+    const bak = md.special.slice();
+    if (dropKind) {
+      for (let i = md.special.length - 1; i >= 0; i--) {
+        if (md.special[i].kind === dropKind) md.special.splice(i, 1);
+      }
+    }
+    G.RegionGen.sceneFor(regionId);
+    G.game.changeScene(regionId, { toSpawn: true });
+    const sc = G.game.scene;
+    sc.render(makeCtx());                    /* 热身：地面烘焙与各级缓存 */
+    const cx = drawSpy(); sc.render(cx);
+    const n = cx.__hits.length;
+    md.special.length = 0; bak.forEach(function (x) { md.special.push(x); });
+    return n;
+  }
+
+  /* ① 裂隙：本世入口落位所在的区域 */
+  const entRegion = s.entrances.fan[0].region;
+  const emd = G.Data.maps[entRegion] || G.RegionGen.ensure(s, entRegion);
+  if (!(emd.special || []).some(function (x) { return x.kind === 'entrance'; })) {
+    errors.push(`${entRegion}: 落位区里没有生成入口裂隙`);
+  } else {
+    const a = frames(entRegion, null), b = frames(entRegion, 'entrance');
+    if (!(a > b)) errors.push(`裂隙没有画出来：摘掉 entrance 后每帧 drawImage 次数没减少（${a} vs ${b}）`);
+  }
+
+  /* ② 界门：本界标记 gate 的生成型区域 */
+  const gr = G.Data.regions.of('fan').filter(function (r) { return r.gate && !r.map; })[0];
+  if (!gr) errors.push('fan: 没有标记 gate 的生成型区域');
+  else {
+    const gmd = G.Data.maps[gr.id] || G.RegionGen.ensure(s, gr.id);
+    if (!(gmd.special || []).some(function (x) { return x.kind === 'worldgate'; })) {
+      errors.push(`${gr.id}: 没有生成界门`);
+    } else {
+      const a = frames(gr.id, null), b = frames(gr.id, 'worldgate');
+      if (!(a > b)) errors.push(`界门没有画出来：摘掉 worldgate 后每帧 drawImage 次数没减少（${a} vs ${b}）`);
+    }
+  }
+}, 'region.visual.contract');
+
+/* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------
+   裂隙点了必须开**那一处**秘境的面板（此前一律跳通用枢纽）；
+   并且裂隙的槽位副本要与秘境枢纽的序列**逐槽一致** ——
+   两处若各自随机，玩家会看到"裂隙点进去是万骨渊、枢纽第 3 槽是黑风寨"。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null;
+  s.worldSeed = 'entrance-probe';
+  s.entrances = { fan: [], ling: [], xian: [], dao: [] };
+  G.game.save = s;
+  G.game.meta = {
+    progress: { activeWorld: 'fan', worlds: { fan: true }, difficulty: 'normal',
+      worldDiff: { fan: 'normal' }, daoKey: false,
+      daoShards: { fan: false, ling: false, xian: false } },
+    hellCleared: {}, titles: [], perfusion: {}, achieve: {}
+  };
+
+  /* ① 序列一致（G20）：落位表与 dungeonSet 必须同源 */
+  s.dungeonSet = G.Data.dungeons.rollSet(s.worldSeed + ':set');
+  s.dungeonSlot = 2;
+  s.dungeonRun = null;
+  s.entrances.fan = G.Data.regions.rollEntrances('fan', s.worldSeed, s.dungeonSet);
+  s.entrances.fan.forEach(function (e, i) {
+    if (e.arch !== s.dungeonSet[i]) {
+      errors.push(`裂隙槽 ${i} 的副本（${e.arch}）与枢纽序列（${s.dungeonSet[i]}）不一致`);
+    }
+  });
+
+  /* ② 种子化可复现（U8）：同 seed 两次结果必须一致 */
+  const r1 = G.Data.dungeons.rollSet('same-seed');
+  const r2 = G.Data.dungeons.rollSet('same-seed');
+  if (r1.join(',') !== r2.join(',')) errors.push('rollSet 传同一 seed 结果不一致（未真正种子化）');
+  const r3 = G.Data.dungeons.rollSet('other-seed');
+  if (r1.join(',') === r3.join(',') && r1.length > 1) {
+    /* 两个不同 seed 撞同一序列概率极低，撞上说明 seed 根本没进随机源 */
+    errors.push('rollSet 对不同 seed 返回了同一序列');
+  }
+
+  const sc = G.scenes.dungeon;
+  /* ③ 已通关槽（slot 1 < dungeonSlot 2）：面板显示该槽副本 + 可重刷 */
+  sc.enter({ entrance: s.entrances.fan[1] });
+  if (sc.view !== 'entrance') { errors.push('从裂隙进入后没有切到入口面板'); return; }
+  const arch1 = G.Data.dungeons.archById(s.dungeonSet[1]);
+  let cx = textSpy(); sc.render(cx);
+  if (!cx.__seen.some(function (t) { return t.indexOf('秘 境 入 口') >= 0; })) {
+    errors.push('副本入口面板没有渲染出来（render 路由漏了 view=entrance）');
+  }
+  if (arch1 && !cx.__seen.some(function (t) { return t.indexOf(arch1.n) >= 0; })) {
+    errors.push(`入口面板没有显示该槽副本名（应为 ${arch1 && arch1.n}）`);
+  }
+  if (sc.buttons[0].label !== '重刷秘境') errors.push(`已通关槽的按钮应为「重刷秘境」，实际 ${sc.buttons[0].label}`);
+  if (sc.buttons[0].disabled) errors.push('已通关的槽应可重刷，不该置灰');
+
+  /* ④ 未开启槽（slot 3 > dungeonSlot 2）：置灰 + 点了不开始战斗 */
+  sc.enter({ entrance: s.entrances.fan[3] });
+  if (!sc.buttons[0].disabled) errors.push('封印中的秘境按钮应置灰');
+  if (sc.buttons[0].label !== '封印中') errors.push(`封印中的按钮应为「封印中」，实际 ${sc.buttons[0].label}`);
+  sc.buttons[0].onClick();
+  if (G.game.sceneName === 'battle') errors.push('封印中的秘境不该能被点进战斗');
+  if (sc.view !== 'entrance') errors.push('封印中点击后应停留在入口面板');
+
+  /* ⑤ 返回：回到裂隙所在的区域地图 */
+  const rid = s.entrances.fan[1].region;
+  G.RegionGen.sceneFor(rid);
+  sc.enter({ entrance: s.entrances.fan[1] });
+  sc.buttons[1].onClick();
+  if (G.game.sceneName !== G.Data.regions.mapIdOf(rid)) {
+    errors.push(`从入口面板返回应回到区域地图 ${G.Data.regions.mapIdOf(rid)}，实际 ${G.game.sceneName}`);
+  }
+}, 'dungeon.entrance.contract');
+
+/* ---------- 轮回殿·飞升台契约（缺口 U2 正式入口 + U3 展示位） ----------
+   飞升台要能：选下一世主界（未解锁置灰、再点取消）、调每界难度（正式入口）、
+   显示碎片与称号。文本探针同样是必须的 —— 新增视图漏路由的表现是"静默不画"。 */
+step(function () {
+  G.game.meta = {
+    lives: 3, xianli: 200, totalXianli: 900,
+    perfusion: { body: 2, qi: 0, po: 0, stone: 0, rescue: 0 },
+    achieve: {}, past: [],
+    titles: ['破狱·凡尘'],
+    hellCleared: { fan: true },
+    progress: { difficulty: 'normal', activeWorld: 'fan', nextWorld: null,
+      worlds: { fan: true, ling: false, xian: false, dao: false },
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      daoKey: false, daoShards: { fan: true, ling: false, xian: false } }
+  };
+  const sc = G.scenes.hall;
+  sc.enter();
+
+  const tog = sc.buttons.filter(function (b) { return b.label === '飞升台'; })[0];
+  if (!tog) { errors.push('轮回殿没有「飞升台」入口'); return; }
+  tog.onClick();
+  if (sc.view !== 'ascend') { errors.push('点击后没有切到飞升台视图'); return; }
+  /* 4 界 × (主界 + 难度) + 底部 3 键 */
+  if (sc.buttons.length !== 11) errors.push(`飞升台按钮数应为 11（4+4+3），实际 ${sc.buttons.length}`);
+
+  /* 未解锁的仙界（左列第 3 行 = index 4）点了不写 */
+  sc.buttons[4].onClick();
+  if (G.game.meta.progress.nextWorld) errors.push('未解锁的仙界不该能被选为下一世主界');
+
+  /* 已解锁的灵界（左列 index 2）可选，再点一次取消 */
+  G.game.meta.progress.worlds.ling = true;
+  sc._build();
+  sc.buttons[2].onClick();
+  if (G.game.meta.progress.nextWorld !== 'ling') errors.push('已解锁的灵界应能被选为下一世主界');
+  sc.buttons[2].onClick();
+  if (G.game.meta.progress.nextWorld) errors.push('再点一次应取消选择（交回天道抽定）');
+
+  /* 难度轮换（右列第一行 = index 1 = 凡界） */
+  const d0 = G.game.meta.progress.worldDiff.fan;
+  sc.buttons[1].onClick();
+  const d1 = G.game.meta.progress.worldDiff.fan;
+  if (d1 === d0) errors.push('飞升台调整界域难度无效');
+  if (G.Player.DIFF_ORDER.indexOf(d1) !== (G.Player.DIFF_ORDER.indexOf(d0) + 1) % 3) {
+    errors.push(`难度轮换顺序不对：${d0} → ${d1}`);
+  }
+
+  /* 渲染 + 文本探针 */
+  const cx = textSpy(); sc.buttons = []; sc.render(cx);
+  const has = function (t) { return cx.__seen.some(function (s2) { return s2.indexOf(t) >= 0; }); };
+  if (!has('下 一 世 主 界')) errors.push('飞升台没有渲染出「下一世主界」分区');
+  if (!has('界 域 难 度')) errors.push('飞升台没有渲染出「界域难度」分区');
+  if (!has('道之钥匙碎片')) errors.push('飞升台没有渲染出碎片进度');
+  if (!has('破狱·凡尘')) errors.push('飞升台没有展示称号（G15）');
+}, 'ascend.hall.contract');
+
+/* ---------- 飞升 / 道界 / 地狱成就契约（缺口 U3 / G13） ----------
+   这几项的进度在 meta 里（跨世），所以 hit 必须拿到 meta —— 只传 save 的话永不触发。 */
+step(function () {
+  const byId = {};
+  G.Player.ACHIEVE.forEach(function (a) { byId[a.id] = a; });
+  ['A6', 'A7', 'A8', 'A9'].forEach(function (id) {
+    if (!byId[id]) errors.push(`缺少成就 ${id}`);
+  });
+  if (!byId.A6) return;
+  if (byId.A8.xianli !== 1500) errors.push(`「叩门道界」应为 +1500 仙力，实际 ${byId.A8.xianli}`);
+
+  const s = { globalLevel: 10, skills: {}, age: 20, chronicle: [], bossKilled: false };
+  const mk = function () {
+    return { progress: { activeWorld: 'fan', worlds: { fan: true }, daoKey: false },
+      achieve: {}, titles: [] };
+  };
+  const hitIds = function (m) {
+    return G.Player.xianliOf(s, m).achieveList.map(function (a) { return a.id; });
+  };
+
+  /* 未飞升：不该发飞升类成就 */
+  let m = mk();
+  let got = hitIds(m);
+  if (got.indexOf('A6') >= 0) errors.push('还没飞升就发了「飞升上界」');
+  if (got.indexOf('A8') >= 0) errors.push('还没集齐碎片就发了「叩门道界」');
+
+  /* 飞升灵界 → A6；仍未到仙界 → 不发 A7 */
+  m.progress.activeWorld = 'ling';
+  got = hitIds(m);
+  if (got.indexOf('A6') < 0) errors.push('飞升灵界后未发「飞升上界」');
+  if (got.indexOf('A7') >= 0) errors.push('还没到仙界就发了「仙门中人」');
+
+  /* 一次性：再结算一次不该重复发 */
+  if (hitIds(m).indexOf('A6') >= 0) errors.push('成就重复发放（A6）');
+
+  /* 仙界 + 三碎片 + 称号 → A7 / A8 / A9 齐发 */
+  m.progress.worlds.xian = true;
+  m.progress.daoKey = true;
+  m.titles = ['破狱·凡尘'];
+  got = hitIds(m);
+  ['A7', 'A8', 'A9'].forEach(function (id) {
+    if (got.indexOf(id) < 0) errors.push(`条件满足后未发成就 ${id}（${byId[id].n}）`);
+  });
+}, 'achieve.contract');
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

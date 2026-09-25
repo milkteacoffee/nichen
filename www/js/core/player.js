@@ -133,6 +133,25 @@
       return this.worldById(this.activeWorldId(meta)).cap;
     },
 
+    /* ===== 界域难度（设计 v1.1 §2.5）=====
+       每界独立、可回刷（"普通通关凡界 → 日后回刷凡界地狱拿碎片"靠它成立）。
+       轮换 普通→困难→地狱→普通，**立即生效**并写 meta。
+       返回新难度 id；该界未解锁时返回 null（调用方负责提示）。
+       菜单「界域难度」与轮回殿「飞升台」共用这一份逻辑，避免两处口径漂移。 */
+    DIFF_ORDER: ['normal', 'hard', 'hell'],
+    cycleWorldDiff: function (meta, worldId) {
+      if (!meta) return null;
+      var pr = meta.progress = meta.progress || {};
+      var wd = pr.worlds || {};
+      if (!(worldId === 'fan' || wd[worldId])) return null;
+      pr.worldDiff = pr.worldDiff || {};
+      var cur = pr.worldDiff[worldId] || pr.difficulty || 'normal';
+      var next = this.DIFF_ORDER[(this.DIFF_ORDER.indexOf(cur) + 1) % this.DIFF_ORDER.length];
+      pr.worldDiff[worldId] = next;
+      if (G.Storage && G.Storage.saveMeta) G.Storage.saveMeta(meta);
+      return next;
+    },
+
     /* 该境界的寿元上限 */
     lifespanOf: function (gl) {
       var t = this.realmOf(gl || 1);
@@ -185,7 +204,22 @@
         var sk = s.skills || {};
         return Object.keys(sk).some(function (k) { return (sk[k].lv || 0) >= 5; });
       } },
-      { id: 'A5', n: '轮回新手', d: '完成第一次死亡结算', xianli: 30, hit: function () { return true; } }
+      { id: 'A5', n: '轮回新手', d: '完成第一次死亡结算', xianli: 30, hit: function () { return true; } },
+      /* ===== 飞升 / 道界 / 地狱（缺口 U3；设计 v3.2 §128 + v1.1 §2.5）=====
+         这几项的进度是**跨世**的（写在 meta 里，不在当世 save 上），
+         所以 hit 的第二个参数是 meta —— 结算时由 xianliOf 传进来。 */
+      { id: 'A6', n: '飞升上界', d: '首次飞离凡界', xianli: 200, hit: function (s, m) {
+        return !!(m && m.progress && m.progress.activeWorld && m.progress.activeWorld !== 'fan');
+      } },
+      { id: 'A7', n: '仙门中人', d: '首次飞升仙界', xianli: 400, hit: function (s, m) {
+        return !!(m && m.progress && m.progress.worlds && m.progress.worlds.xian);
+      } },
+      { id: 'A8', n: '叩门道界', d: '集齐三枚道之钥匙碎片', xianli: 1500, hit: function (s, m) {
+        return !!(m && m.progress && m.progress.daoKey);
+      } },
+      { id: 'A9', n: '破狱者', d: '以地狱难度踏破任一界', xianli: 300, hit: function (s, m) {
+        return !!(m && m.titles && m.titles.length);
+      } }
     ],
 
     /* 结算一世仙力。返回明细，便于结算屏逐项展示。
@@ -212,12 +246,12 @@
         base: 0, mul: cause.mul, total: 0
       };
 
-      /* 轮回成就：meta 一次性 */
+      /* 轮回成就：meta 一次性。hit 带 meta —— 飞升/道界/地狱这几项只有 meta 里才有
+         （A6–A9），只传 save 的话它们永远不触发。 */
       meta.achieve = meta.achieve || {};
-      var self = this;
       this.ACHIEVE.forEach(function (a) {
         if (meta.achieve[a.id]) return;
-        if (!a.hit(save)) return;
+        if (!a.hit(save, meta)) return;
         meta.achieve[a.id] = 1;
         d.achieve += a.xianli;
         d.achieveList.push(a);

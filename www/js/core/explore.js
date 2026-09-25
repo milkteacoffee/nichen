@@ -502,10 +502,12 @@
           else self._drawDecor(x, o, camX, camY);
         });
 
-        /* 宝箱 / Boss */
+        /* 宝箱 / Boss / 秘境裂隙 / 界门 */
         (this.map.md.special || []).forEach(function (sp) {
           if (sp.kind === 'chest') self._drawChest(x, sp, camX, camY);
           if (sp.kind === 'boss') self._drawBoss(x, sp, camX, camY);
+          if (sp.kind === 'entrance') self._drawEntrance(x, sp, camX, camY);
+          if (sp.kind === 'worldgate') self._drawWorldgate(x, sp, camX, camY);
         });
 
         /* 洞窟暗幕（火把可视范围） */
@@ -683,6 +685,33 @@
         x.beginPath();
         x.ellipse(px + 8, py + 8, 15, 12, 0, 0, 6.2832);
         x.fill();
+      },
+
+      /* 秘境裂隙（区域副本入口）：紫雾脉动 + 裂口。
+         它同时承担"这里有一处秘境"的信息量，所以光环比物件本身更醒目。 */
+      _drawEntrance: function (x, sp, camX, camY) {
+        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var t = performance.now() / 620;
+        x.save();
+        x.fillStyle = 'rgba(168,116,236,' + (0.12 + 0.09 * Math.sin(t)).toFixed(3) + ')';
+        x.beginPath();
+        x.ellipse(px + 8, py + 10, 17, 14, 0, 0, 6.2832);
+        x.fill();
+        x.restore();
+        G.Art.blit(x, G.Art.rift(), px, py);
+      },
+
+      /* 界门（四界往返）：蓝色光晕脉动 + 石拱光幕 */
+      _drawWorldgate: function (x, sp, camX, camY) {
+        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var t = performance.now() / 900;
+        x.save();
+        x.fillStyle = 'rgba(132,182,255,' + (0.10 + 0.07 * Math.sin(t)).toFixed(3) + ')';
+        x.beginPath();
+        x.ellipse(px + 8, py + 4, 14, 16, 0, 0, 6.2832);
+        x.fill();
+        x.restore();
+        G.Art.blit(x, G.Art.worldgate(), px, py);
       },
 
       _drawVeil: function (x, camX, camY) {

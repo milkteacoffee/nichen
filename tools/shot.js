@@ -433,6 +433,9 @@ step(() => {
   const sc = G.game.scene;
   G.game.save.age = 46;
   G.game.save.maxGlobalLevel = 5;
+  /* 称号行（缺口 G15）：角色面板右栏底部应显示 meta.titles */
+  G.game.meta = G.game.meta || {};
+  G.game.meta.titles = ['破狱·凡尘', '破狱·灵渊'];
   sc.clearOverlay();
   G.Overlays.openChar(sc);
 }, 'town.char');
@@ -452,6 +455,7 @@ step(() => {
     lives: 2, xianli: 260, totalXianli: 412,
     perfusion: { body: 2, qi: 1, po: 0, stone: 3, rescue: 0 },
     pity: 0, heaven: { talks: 0, watchTotal: 0, memory: [], karma: [] },
+    titles: ['破狱·凡尘'],
     past: [
       { life: 1, age: 27, realm: '炼气三段', level: 12, atk: 38, maxhp: 340, stone: 210, boss: false, xianli: 152, at: Date.now() },
       { life: 2, age: 34, realm: '筑基一段', level: 19, atk: 52, maxhp: 480, stone: 480, boss: true, xianli: 260, at: Date.now() }
@@ -476,6 +480,69 @@ step(() => {
 shot('19_death', 30);
 step(() => G.game.changeScene('hall'), 'hall');
 shot('20_hall', 30);
+
+/* 8) v0.7.0：区域可见性 + 副本入口面板 + 飞升台
+   —— 裂隙与界门此前**只登记不绘制**，这几张图就是"它们真的画出来了"的肉眼凭据。 */
+step(() => {
+  /* death 场景会把当世档清掉（G.game.save = null），所以每一步都要重建 */
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  s.worldSeed = 20260926;
+  s.entrances = { fan: [], ling: [], xian: [], dao: [] };
+  G.game.meta = {
+    lives: 3, xianli: 200, totalXianli: 900,
+    perfusion: { body: 2, qi: 0, po: 0, stone: 0, rescue: 0 },
+    achieve: {}, past: [], titles: ['破狱·凡尘'], hellCleared: { fan: true },
+    progress: { difficulty: 'normal', activeWorld: 'fan', nextWorld: null,
+      worlds: { fan: true, ling: false, xian: false, dao: false },
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      daoKey: false, daoShards: { fan: false, ling: false, xian: false } }
+  };
+  s.dungeonSet = G.Data.dungeons.rollSet(s.worldSeed + ':set');
+  s.dungeonSlot = 2;
+  s.dungeonRun = null;
+  s.entrances.fan = G.Data.regions.rollEntrances('fan', s.worldSeed, s.dungeonSet);
+  const rid = s.entrances.fan[0].region;
+  G.RegionGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+  const md = G.Data.maps[rid];
+  const sp = (md.special || []).filter((x) => x.kind === 'entrance')[0];
+  if (sp) s.pos = { x: sp.x, y: sp.y + 1 };      /* 站到裂隙旁边，让它进视口 */
+}, 'region.rift');
+shot('25_region_rift', 14);
+
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  const gr = G.Data.regions.of('fan').filter((r) => r.gate && !r.map)[0];
+  G.RegionGen.sceneFor(gr.id);
+  G.game.changeScene(gr.id, { toSpawn: true });
+  const md = G.Data.maps[gr.id];
+  const sp = (md.special || []).filter((x) => x.kind === 'worldgate')[0];
+  if (sp) s.pos = { x: sp.x, y: sp.y + 1 };
+}, 'worldgate');
+shot('26_worldgate', 14);
+
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  s.worldSeed = 20260926;
+  s.dungeonSet = G.Data.dungeons.rollSet(s.worldSeed + ':set');
+  s.dungeonSlot = 2;
+  s.dungeonRun = null;
+  const rid = G.Data.regions.entranceCandidates('fan')[0].id;
+  G.game.changeScene('dungeon', {
+    entrance: { slot: 1, arch: s.dungeonSet[1], region: rid }
+  });
+}, 'dungeon.entrance');
+shot('27_dungeon_entrance', 6);
+
+step(() => {
+  G.game.changeScene('hall');
+  G.scenes.hall.view = 'ascend';
+  G.scenes.hall._build();
+}, 'hall.ascend');
+shot('28_hall_ascend', 8);
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

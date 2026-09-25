@@ -1,4 +1,9 @@
-/* 轮回殿：轮回档案 + 仙躯灌注（消耗仙力，永久增益下一世） */
+/* 轮回殿：轮回档案 + 仙躯灌注（消耗仙力，永久增益下一世）
+ * 2026-09-26 增「飞升台」视图（缺口 U2 的正式入口 + U3 的展示位；设计 v3.2 §10.3 / v1.1 §2.5）：
+ *   · 左列选**下一世主界**（未解锁置灰并显条件；三枚碎片齐才现道界）；
+ *   · 右列调**每界难度**（普通→困难→地狱，与菜单「界域难度」共用 Player.cycleWorldDiff）；
+ *   · 底部显示道之钥匙碎片与已得称号。
+ * 两处难度入口共用同一份逻辑，菜单那处是"世内便捷入口"，此处是**正式入口**。 */
 (function () {
   var MAXLV = 10;
 
@@ -12,12 +17,22 @@
     { key: 'rescue', n: '遁法', d: '遁走次数', apply: '每级 开局遁走次数 +1' }
   ];
 
+  var WN = { fan: '凡界', ling: '灵界', xian: '仙界', dao: '道界' };
+  var WORDER = ['fan', 'ling', 'xian', 'dao'];
+  var DN = { normal: '普通', hard: '困难', hell: '地狱' };
+  var UNLOCK_HINT = {
+    ling: '需通关凡界第 5 秘境',
+    xian: '需通关灵界第 5 秘境',
+    dao: '需集齐三枚道之钥匙碎片'
+  };
+
   function costOf(lv) { return 20 + lv * 18; }
 
   var scene = {
     smooth: true,
     t: 0,
     hint: '',
+    view: 'perfuse',              /* 'perfuse' 仙躯灌注 / 'ascend' 飞升台 */
 
     enter: function () {
       if (!G.game.meta) {
@@ -34,15 +49,41 @@
       if (!m.perfusion) m.perfusion = { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 };
       if (!m.past) m.past = [];
       if (!m.achieve) m.achieve = {};
+      if (!m.titles) m.titles = [];
+      if (!m.progress) m.progress = {};
       if (typeof m.xianli !== 'number') m.xianli = 0;
       this.t = 0;
       this.hint = '';
+      this.view = 'perfuse';
       this._build();
     },
 
+    /* ===== 界域状态（飞升台用） ===== */
+    _unlocked: function (m, w) {
+      if (w === 'fan') return true;
+      var pr = (m && m.progress) || {};
+      if (w === 'dao') return !!pr.daoKey;
+      return !!(pr.worlds && pr.worlds[w]);
+    },
+    _curWorld: function (m) { return G.Player.activeWorldId(m); },
+    _diffOf: function (m, w) {
+      var pr = (m && m.progress) || {};
+      return ((pr.worldDiff || {})[w]) || pr.difficulty || 'normal';
+    },
+    _shards: function (m) {
+      var d = ((m && m.progress) || {}).daoShards || {};
+      return ['fan', 'ling', 'xian'].filter(function (k) { return d[k]; }).length;
+    },
+
+    /* ===== 按钮构建 ===== */
     _build: function () {
+      this.buttons = [];
+      if (this.view === 'ascend') this._buildAscend(); else this._buildPerfuse();
+      this._buildFooter();
+    },
+
+    _buildPerfuse: function () {
       var self = this, m = G.game.meta;
-      var btns = [];
       var y0 = 116, step = 21;
 
       PERFUSE.forEach(function (row, i) {
@@ -79,18 +120,98 @@
             full ? G.UI.C.goldHi : (can ? G.UI.C.gold : G.UI.C.danger), 'right');
           if (dis) xx.restore();
         };
-        btns.push(b);
-      });
+        this.buttons.push(b);
+      }, this);
+    },
 
-      btns.push(new G.UI.Btn({
-        x: 366, y: 232, w: 98, h: 26, small: true, variant: 'gold',
-        label: '转世重修', onClick: function () { G.game.changeScene('reincarnation'); }
-      }));
-      btns.push(new G.UI.Btn({
+    /* 飞升台：左列选下一世主界 / 右列调各界难度 */
+    _buildAscend: function () {
+      var self = this, m = G.game.meta;
+      var pr = m.progress;
+      var sel = pr.nextWorld || null;
+
+      WORDER.forEach(function (w, i) {
+        var unlocked = self._unlocked(m, w);
+        var y = 112 + i * 24;
+
+        /* —— 左：下一世主界（再点一次取消，交回天道抽定） —— */
+        var chosen = (sel === w);
+        var cur = (self._curWorld(m) === w);
+        var lb = new G.UI.Btn({
+          x: 28, y: y, w: 200, h: 21, small: true, label: '',
+          variant: chosen ? 'gold' : (unlocked ? 'default' : 'ghost'),
+          onClick: function () {
+            if (!unlocked) { G.game.toast(WN[w] + '尚未解锁（' + UNLOCK_HINT[w] + '）'); return; }
+            if (w === 'dao') { G.game.toast('道界内容尚未开放，暂不可选'); return; }
+            pr.nextWorld = chosen ? null : w;
+            G.Storage.saveMeta(m);
+            self.hint = pr.nextWorld ? ('下一世自' + WN[w] + '入世') : '下一世由天道抽定';
+            self._build();
+          }
+        });
+        lb.render = function (xx) {
+          G.UI.Btn.prototype.render.call(this, xx);
+          var dis = !unlocked;
+          if (dis) { xx.save(); xx.globalAlpha = 0.5; }
+          xx.fillStyle = chosen ? G.UI.C.goldHi : 'rgba(216,183,104,0.35)';
+          xx.fillRect(this.x + 9, this.y + 8, 5, 5);
+          G.UI.text(xx, { x: this.x + 22, y: this.y + 3.5 }, WN[w], 12,
+            chosen ? G.UI.C.goldHi : (dis ? G.UI.C.textDim : G.UI.C.text));
+          var tag = !unlocked ? '未解锁' : (w === 'dao' ? '未开放' : (chosen ? '下一世' : (cur ? '当前' : '可选')));
+          G.UI.text(xx, { x: this.x + this.w - 10, y: this.y + 4 }, tag, 10,
+            !unlocked ? G.UI.C.danger : (chosen ? G.UI.C.gold : G.UI.C.textDim), 'right');
+          if (dis) xx.restore();
+        };
+        self.buttons.push(lb);
+
+        /* —— 右：该界难度（点一下轮换，立即生效） —— */
+        var dn = DN[self._diffOf(m, w)];
+        var rb = new G.UI.Btn({
+          x: 264, y: y, w: 188, h: 21, small: true, label: '',
+          disabled: !unlocked,
+          variant: self._diffOf(m, w) === 'hell' ? 'gold' : 'default',
+          onClick: function () {
+            var next = G.Player.cycleWorldDiff(m, w);
+            if (!next) { G.game.toast(WN[w] + '尚未解锁，无法调整难度'); return; }
+            self.hint = WN[w] + '天道难度 → ' + DN[next];
+            self._build();
+          }
+        });
+        rb.render = function (xx) {
+          G.UI.Btn.prototype.render.call(this, xx);
+          var dis = this.disabled;
+          if (dis) { xx.save(); xx.globalAlpha = 0.5; }
+          G.UI.text(xx, { x: this.x + 12, y: this.y + 3.5 }, WN[w], 12,
+            dis ? G.UI.C.textDim : G.UI.C.text);
+          G.UI.text(xx, { x: this.x + this.w - 10, y: this.y + 4 },
+            dis ? '—' : dn, 11.5,
+            dis ? G.UI.C.textDim : (dn === '地狱' ? G.UI.C.goldHi : G.UI.C.jadeHi), 'right');
+          if (dis) xx.restore();
+        };
+        self.buttons.push(rb);
+      });
+    },
+
+    _buildFooter: function () {
+      var self = this;
+      this.buttons.push(new G.UI.Btn({
         x: 16, y: 232, w: 86, h: 26, small: true, variant: 'ghost',
         label: '返回标题', onClick: function () { G.game.changeScene('title'); }
       }));
-      this.buttons = btns;
+      this.buttons.push(new G.UI.Btn({
+        x: 116, y: 232, w: 92, h: 26, small: true,
+        variant: this.view === 'perfuse' ? 'default' : 'ghost',
+        label: this.view === 'perfuse' ? '飞升台' : '仙躯灌注',
+        onClick: function () {
+          self.view = (self.view === 'perfuse') ? 'ascend' : 'perfuse';
+          self.hint = '';
+          self._build();
+        }
+      }));
+      this.buttons.push(new G.UI.Btn({
+        x: 366, y: 232, w: 98, h: 26, small: true, variant: 'gold',
+        label: '转世重修', onClick: function () { G.game.changeScene('reincarnation'); }
+      }));
     },
 
     update: function (dt) { this.t += dt; },
@@ -131,10 +252,12 @@
       G.UI.textOut(x, { x: 16, y: 10 }, '轮 回 殿', 19, G.UI.C.goldHi);
       /* 提示直接占用副标题行，避免和底部按钮抢位置 */
       G.UI.text(x, { x: 16, y: 36 },
-        this.hint || '真灵不灭，仙力长存。以仙力灌注仙躯，可携往下一世。',
+        this.hint || (this.view === 'ascend'
+          ? '真灵不灭。此处定下一世入世之界，亦可调各界天道难度。'
+          : '真灵不灭，仙力长存。以仙力灌注仙躯，可携往下一世。'),
         11.5, this.hint ? G.UI.C.jadeHi : G.UI.C.textDim);
 
-      /* 档案条 */
+      /* 档案条（两视图共用；末格随视图切换） */
       G.UI.panel(x, { x: 16, y: 52, w: 448, h: 30 }, '#131828',
         'rgba(216,183,104,0.30)', 4, { paper: false, shadow: false });
       G.UI.text(x, { x: 30, y: 61 }, '轮回', 11, G.UI.C.textDim);
@@ -146,8 +269,26 @@
       G.UI.text(x, { x: 298, y: 61 }, '累计仙力', 11, G.UI.C.textDim);
       G.UI.textOut(x, { x: 364, y: 57 }, String(m.totalXianli || 0), 15, G.UI.C.textDim);
       /* 右对齐到面板内边距（x=424 左对齐会顶出 448 宽的面板边框） */
-      G.UI.text(x, { x: 448, y: 61 }, '仙躯 Lv' + (m.perfusion.body || 0), 11,
-        G.UI.C.jadeHi, 'right');
+      G.UI.text(x, { x: 448, y: 61 },
+        this.view === 'ascend'
+          ? ('碎片 ' + this._shards(m) + '/3')
+          : ('仙躯 Lv' + (m.perfusion.body || 0)),
+        11, G.UI.C.jadeHi, 'right');
+
+      if (this.view === 'ascend') this._renderAscend(x); else this._renderPerfuse(x);
+
+      /* 暗角 */
+      var vg = x.createRadialGradient(240, 136, 130, 240, 136, 330);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(0,0,0,0.50)');
+      x.fillStyle = vg; x.fillRect(0, 0, 480, 272);
+
+      for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+    },
+
+    /* ===== 仙躯灌注视图 ===== */
+    _renderPerfuse: function (x) {
+      var m = G.game.meta;
 
       /* 仙躯灌注（分区标题放在面板内部，避免压在边框上） */
       G.UI.frame(x, { x: 16, y: 88, w: 288, h: 134 }, null, { paper: true });
@@ -171,14 +312,33 @@
         G.UI.text(x, { x: 328, y: yy + 12 }, p.realm + ' · ' + p.age + ' 岁', 9.5, G.UI.C.textDim);
         G.UI.text(x, { x: 452, y: yy + 2 }, '+' + p.xianli, 11, G.UI.C.gold, 'right');
       });
+    },
 
-      /* 暗角 */
-      var vg = x.createRadialGradient(240, 136, 130, 240, 136, 330);
-      vg.addColorStop(0, 'rgba(0,0,0,0)');
-      vg.addColorStop(1, 'rgba(0,0,0,0.50)');
-      x.fillStyle = vg; x.fillRect(0, 0, 480, 272);
+    /* ===== 飞升台视图 ===== */
+    _renderAscend: function (x) {
+      var m = G.game.meta;
+      var pr = m.progress || {};
 
-      for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+      /* 左：下一世主界 */
+      G.UI.frame(x, { x: 16, y: 88, w: 228, h: 134 }, null, { paper: true });
+      G.UI.text(x, { x: 28, y: 94 }, '下 一 世 主 界', 12, G.UI.C.gold);
+      G.UI.divider(x, 130, 111, 204, 'rgba(216,183,104,0.28)');
+
+      /* 右：界域难度（正式入口；菜单里那处是世内便捷入口） */
+      G.UI.frame(x, { x: 252, y: 88, w: 212, h: 134 }, null, { paper: true });
+      G.UI.text(x, { x: 264, y: 94 }, '界 域 难 度', 12, G.UI.C.gold);
+      G.UI.divider(x, 358, 111, 188, 'rgba(216,183,104,0.28)');
+
+      /* 底部一行：碎片 / 称号 / 下一世落点 */
+      var sel = pr.nextWorld;
+      var shards = this._shards(m);
+      var titles = (m.titles && m.titles.length) ? m.titles.join('·') : '无';
+      G.UI.text(x, { x: 20, y: 212 },
+        '道之钥匙碎片 ' + shards + '/3　称号 ' + titles, 10,
+        shards >= 3 ? G.UI.C.goldHi : G.UI.C.textDim);
+      G.UI.text(x, { x: 448, y: 212 },
+        sel ? ('下一世：' + WN[sel]) : '下一世：天道抽定', 10,
+        sel ? G.UI.C.gold : G.UI.C.textDim, 'right');
     }
   };
 

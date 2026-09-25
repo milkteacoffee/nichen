@@ -4,6 +4,8 @@
 (function () {
   var ROW = { x: 16, w: 448, h: 32, gap: 8, y0: 42 };
   var BRIEF = { x: 40, y: 46, w: 400, h: 184 };
+  /* 区域裂隙 → 副本入口面板（缺口 U6） */
+  var ENT = { x: 40, y: 22, w: 400, h: 196 };
 
   var D = function () { return G.Data.dungeons; };
 
@@ -19,6 +21,7 @@
     rows: [],
     briefTitle: '',
     briefLines: [],
+    entrance: null,          /* 从区域裂隙进来时的落位 { slot, arch, region } */
     _pending: null,
 
     enter: function (params) {
@@ -26,13 +29,15 @@
       if (!save) { G.game.changeScene('title'); return; }
       /* 防御性补字段（旧档 / 未在转世初始化） */
       if (save.dungeonSet == null) {
-        save.dungeonSet = D().rollSet();
+        save.dungeonSet = D().rollSet(save.worldSeed == null ? null : save.worldSeed + ':set');
         save.dungeonSlot = 0;
         save.dungeonRun = null;
       }
       save.dungeonPity = save.dungeonPity || { mid: 0, clear: 0 };
 
       if (params && params.fromBattle) this._afterBattle();
+      /* 从区域裂隙进来：直接开**那一处**秘境的入口面板，而不是通用枢纽（缺口 U6） */
+      else if (params && params.entrance) this._showEntrance(params.entrance);
       else this._showHub();
     },
 
@@ -96,6 +101,68 @@
           G.game.changeScene(G.game.save.scene || 'town');
         }
       }));
+    },
+
+    /* ================= 区域裂隙 → 副本入口面板（缺口 U6）=================
+       `regiongen.onInteract` 早就在裂隙上 changeScene('dungeon', { entrance })，
+       但 enter() 只认 fromBattle —— 于是"点了裂隙"跳的是通用枢纽，
+       玩家看到的不是他点的那一处秘境（地图上的落位白撒了）。
+       这里按落位显示该处秘境：副本 / 推荐境界 / 最终首领 / 签名秘术 / 状态。
+       槽位语义与枢纽一致：slot < dungeonSlot 可重刷、= 可挑战、> 封印中。 */
+    _showEntrance: function (ent) {
+      var self = this;
+      this.entrance = ent;
+      this.view = 'entrance';
+      this.buttons = [];
+
+      var slot = (ent && ent.slot) | 0;
+      var arch = this._entranceArch(slot, ent);
+
+      if (!arch) {
+        this.buttons.push(new G.UI.Btn({
+          x: 130, y: 188, w: 110, h: 26, small: true, variant: 'ghost',
+          label: '返　回', onClick: function () { self._leaveEntrance(); }
+        }));
+        return;
+      }
+
+      var cur = G.game.save.dungeonSlot || 0;
+      var open = slot <= cur;
+      var farm = slot < cur;
+      var label = farm ? '重刷秘境' : (slot === cur ? '进入秘境' : '封印中');
+
+      this.buttons.push(new G.UI.Btn({
+        x: 130, y: 188, w: 110, h: 26, small: true,
+        variant: farm ? 'ghost' : 'gold', disabled: !open, label: label,
+        onClick: function () {
+          if (!open) { G.game.toast('封印未解：先通关前一秘境'); return; }
+          self._startOrResume(slot);
+        }
+      }));
+      this.buttons.push(new G.UI.Btn({
+        x: 250, y: 188, w: 100, h: 26, small: true, variant: 'ghost',
+        label: '返　回', onClick: function () { self._leaveEntrance(); }
+      }));
+    },
+
+    /* 裂隙对应的副本原型：**以当世 dungeonSet 为准**（缺口 G20）——
+       `ent.arch` 只在兜底时用，否则落位表与枢纽可能来自两条随机序列。 */
+    _entranceArch: function (slot, ent) {
+      var set = (G.game.save && G.game.save.dungeonSet) || [];
+      var id = set[slot] || (ent && ent.arch);
+      return id ? D().archById(id) : null;
+    },
+
+    _leaveEntrance: function () {
+      var ent = this.entrance;
+      var mapId = (ent && ent.region && G.Data.regions)
+        ? G.Data.regions.mapIdOf(ent.region) : null;
+      this.entrance = null;
+      G.game.changeScene(mapId || (G.game.save.scene || 'town'));
+    },
+
+    onKey: function (code) {
+      if (code === 'Escape' && this.view === 'entrance') this._leaveEntrance();
     },
 
     _startOrResume: function (slot) {
@@ -360,13 +427,14 @@
         var r = G.Player.ascend(save, meta, toId);
         if (r.ok) {
           /* 新界重抽秘境序列；该界的**天道入口落位**按界分桶写入（设计 v1.1 §6.1）。
-             当前界由 Player.ascend 写 meta.progress.activeWorld，这里不另存副本。 */
-          save.dungeonSet = D().rollSet();
+             当前界由 Player.ascend 写 meta.progress.activeWorld，这里不另存副本。
+             序列与落位**共用同一条序列**（缺口 G20），否则裂隙与枢纽对不上。 */
+          save.dungeonSet = D().rollSet(save.worldSeed + ':set:' + toId);
           save.dungeonSlot = 0;
           save.dungeonRun = null;
           if (G.Data.regions) {
             save.entrances = save.entrances || {};
-            save.entrances[toId] = G.Data.regions.rollEntrances(toId);
+            save.entrances[toId] = G.Data.regions.rollEntrances(toId, save.worldSeed, save.dungeonSet);
           }
           G.Storage.saveCurrent(save);
           G.game.toast('飞升 ' + G.Player.worldById(toId).n);
@@ -407,9 +475,54 @@
       x.fillStyle = g; x.fillRect(0, 0, 480, 272);
 
       if (this.view === 'hub') this._renderHub(x);
+      else if (this.view === 'entrance') this._renderEntrance(x);
       else this._renderBrief(x);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+    },
+
+    /* 区域裂隙的副本入口面板 */
+    _renderEntrance: function (x) {
+      var save = G.game.save, world = this._worldId(), P = ENT;
+      var slot = (this.entrance && this.entrance.slot) | 0;
+      var arch = this._entranceArch(slot, this.entrance);
+
+      G.Overlays.dim(x);
+      G.UI.frame(x, P, '秘 境 入 口', { paper: true });
+
+      if (!arch) {
+        G.UI.text(x, { x: 240, y: P.y + 74 }, '此处秘境尚未成形', 13, '#aab0c0', 'center');
+        return;
+      }
+
+      var dn = D().DIFF[this._diff()].n;
+      var ri = G.Player.realmInfo(D().anchorGL(world, slot));
+      var spec = arch.big || arch.mid || arch.leader;
+      var bossTitle = (spec && spec.title && (spec.title[world] || spec.title.fan)) || '—';
+      var secId = arch.drop, secName = D().SECRETS[secId] || '—';
+      var owned = !!(save.secrets && save.secrets[secId]);
+      var cur = save.dungeonSlot || 0;
+      var status = slot < cur ? '已通关 · 可重刷'
+        : (slot === cur ? '可挑战' : '封印中 · 需先通关前一秘境');
+
+      G.UI.text(x, { x: P.x + 20, y: P.y + 32 }, arch.n, 17, '#f0e2b0');
+      G.UI.text(x, { x: P.x + 20, y: P.y + 54 },
+        (arch.kind === 'big' ? '大副本' : '小副本') + ' · ' + arch.elem
+        + '属性 · ' + arch.stages + ' 关', 11, '#9aa0b0');
+
+      var rows = [
+        ['所在界域', G.Player.worldById(world).n + '　' + dn + '难度'],
+        ['推荐境界', ri.n],
+        ['最终首领', bossTitle],
+        ['签名秘术', secName + (owned ? '（已习）' : '（未习）')],
+        ['状　　态', status]
+      ];
+      rows.forEach(function (r, i) {
+        var yy = P.y + 74 + i * 19;
+        G.UI.text(x, { x: P.x + 20, y: yy }, r[0], 11.5, '#8f95a6');
+        G.UI.text(x, { x: P.x + 96, y: yy }, r[1], 11.5,
+          (i === 4 && slot <= cur) ? '#e0c878' : '#d8d2c0');
+      });
     },
 
     _renderHub: function (x) {

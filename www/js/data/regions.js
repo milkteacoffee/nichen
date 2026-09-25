@@ -21,7 +21,9 @@
     R({ id: 'fan2', n: '翠微山', map: 'field', theme: '城郊山野', gate: false, exits: [], b: [] }),
     R({ id: 'fan3', n: '赤牙洞', map: 'cave', theme: '山腹洞窟', gate: false, exits: [], b: [] }),
 
-    R({ id: 'fan4', n: '落霞镇', theme: '商旅重镇', w: 44, h: 28, ground: 'town', safe: true, gate: false,
+    /* 凡界的界门放在**落霞镇**（商旅重镇 = 交通枢纽），而不是青溪镇 ——
+       青溪镇是复用现有手写地图（`town`），往里塞界门对象会动到 M0 教学链与既有测试契约。 */
+    R({ id: 'fan4', n: '落霞镇', theme: '商旅重镇', w: 44, h: 28, ground: 'town', safe: true, gate: true,
         exits: [{ to: 'fan1', side: 'south' }, { to: 'fan5', side: 'east' }, { to: 'fan7', side: 'north' }, { to: 'fan8', side: 'west' }],
         b: [B('shop', '坊市', 6, 3), B('smithy', '铁匠铺', 5, 3), B('alchemy', '丹房', 5, 3),
             B('temple', '当铺', 5, 3), B('inn', '悦来客栈', 7, 4), B('inn', '同福客栈', 7, 4),
@@ -219,19 +221,25 @@
       return nonSafe.length >= 5 ? nonSafe : all;
     },
 
-    rollEntrances: function (worldId) {
+    rollEntrances: function (worldId, seed, set) {
       var list = G.Data.regions.entranceCandidates(worldId);
       if (!list.length) return [];
       var n = Math.min(5, list.length);
-      var picked = G.rng.sampleIndices(n, list.length).map(function (i) { return list[i]; });
+      /* seed 给了 → 区域抽签也走种子：同一世同一界的落位可复现（缺口 U8）。
+         不给则用全局 rng（无头测试靠它覆盖随机性）。 */
+      var rng = seed == null ? G.rng : new G.RNG(G.RNG.hash(seed + ':' + worldId + ':ent'));
+      var picked = rng.sampleIndices(n, list.length).map(function (i) { return list[i]; });
       if (worldId === 'dao') {
         return picked.map(function (r, i) {
           return { slot: i, arch: null, region: r.id, stage: 0, fixed: true };
         });
       }
-      var set = G.Data.dungeons.rollSet();
+      /* set 给了就**复用调用方的副本序列**（缺口 G20）：否则区域裂隙显示的副本
+         与秘境枢纽的槽位来自两次独立随机，玩家会看到"裂隙点进去是万骨渊、
+         枢纽里第 3 槽却是黑风寨"。 */
+      var seq = set || G.Data.dungeons.rollSet(seed == null ? null : seed + ':' + worldId + ':set');
       return picked.map(function (r, i) {
-        return { slot: i, arch: set[i], region: r.id, stage: 0 };
+        return { slot: i, arch: seq[i], region: r.id, stage: 0 };
       });
     }
   };

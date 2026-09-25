@@ -444,13 +444,23 @@
     }
     return arr;
   }
-  /* 抽 5：2 大 3 小、末位必大。返回原型 id 数组。 */
-  function rollSet() {
+  /* 种子化随机（缺口 U8）：传 seed（字符串/数字）→ 走 G.RNG，**同一世同一界可复现**；
+     不传 → 回落 Math.random（无头测试靠它覆盖随机性）。
+     也接受 G.RNG 实例（调用方要连抽多组时，自己建一个传进来）。 */
+  function seedRng(seed) {
+    if (seed == null) return null;
+    if (typeof seed === 'object' && typeof seed.next === 'function') return seed;
+    return new G.RNG(G.RNG.hash(seed));
+  }
+  /* 抽 5：2 大 3 小、末位必大。返回原型 id 数组。seed 可选（见 seedRng）。 */
+  function rollSet(seed) {
+    var rng = seedRng(seed);
+    var shuf = rng ? function (a) { return rng.shuffle(a); } : shuffle;
     var big = ARCH.filter(function (a) { return a.kind === 'big'; });
     var small = ARCH.filter(function (a) { return a.kind === 'small'; });
-    var b = shuffle(big.slice()).slice(0, 2);
-    var s = shuffle(small.slice()).slice(0, 3);
-    var head = shuffle([b[0]].concat(s));
+    var b = shuf(big.slice()).slice(0, 2);
+    var s = shuf(small.slice()).slice(0, 3);
+    var head = shuf([b[0]].concat(s));
     return head.concat([b[1]]).map(function (a) { return a.id; });
   }
 

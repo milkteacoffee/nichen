@@ -2021,6 +2021,93 @@
     return { c: o.c, ox: -8, oy: -16, w: 32, h: 32 };
   };
 
+  /* ===== 区域物件：秘境裂隙 / 界门 =====
+     《四界区域与副本落位设计 v1.1》§2.2 / §2.3。这两个 kind 由 `map.md.special` 承载、
+     `explore._drawSpecial` 消费。**必须画出来**：只登记不绘制时地图上什么都没有，
+     玩家唯一能看到的线索是"走到某处正面冒出一个小三角" —— 等于藏起了副本入口。
+     素材键 `obj.rift` / `obj.worldgate` 未登记（全程序化），登记后自动优先用素材。 */
+
+  /* 秘境裂隙（区域副本入口）：紫黑裂口 + 内芯幽光 + 逸散碎屑 */
+  A.rift = function () {
+    var im = G.Assets.img('obj.rift');
+    if (im) return { c: im, ox: -8, oy: -16, w: 32, h: 32 };
+    var o = decorCanvas('d|rift', 32, 32, function (x) {
+      shadowEllipse(x, 16, 28, 12, 4.5, 0.42);
+      /* 外圈紫雾 */
+      var g = x.createRadialGradient(16, 19, 2, 16, 19, 15);
+      g.addColorStop(0, 'rgba(178,132,236,0.50)');
+      g.addColorStop(0.55, 'rgba(108,72,168,0.26)');
+      g.addColorStop(1, 'rgba(60,40,100,0)');
+      x.fillStyle = g;
+      x.beginPath(); x.arc(16, 19, 15, 0, 6.2832); x.fill();
+      /* 裂口本体（锯齿状的不规则裂） */
+      x.beginPath();
+      x.moveTo(9, 27); x.lineTo(12, 17); x.lineTo(10, 11); x.lineTo(15, 6);
+      x.lineTo(19, 10); x.lineTo(23, 16); x.lineTo(21, 27);
+      x.closePath();
+      var lg = x.createLinearGradient(0, 6, 0, 28);
+      lg.addColorStop(0, '#2b1c48');
+      lg.addColorStop(0.45, '#4c3080');
+      lg.addColorStop(1, '#140c24');
+      x.fillStyle = lg; x.fill();
+      x.strokeStyle = 'rgba(198,160,248,0.62)';
+      x.lineWidth = 0.8; x.stroke();
+      /* 内芯幽光 */
+      var cg = x.createRadialGradient(16, 17, 0.5, 16, 17, 6.5);
+      cg.addColorStop(0, 'rgba(238,216,255,0.95)');
+      cg.addColorStop(0.5, 'rgba(172,124,242,0.55)');
+      cg.addColorStop(1, 'rgba(120,80,200,0)');
+      x.fillStyle = cg;
+      x.beginPath(); x.arc(16, 17, 6.5, 0, 6.2832); x.fill();
+      /* 逸散碎屑 */
+      x.fillStyle = 'rgba(184,152,232,0.55)';
+      x.fillRect(6.5, 23, 1.4, 1.4); x.fillRect(24, 21, 1.2, 1.2);
+      x.fillRect(11, 9, 1.2, 1.2); x.fillRect(22.5, 26, 1.4, 1.4);
+    });
+    return { c: o.c, ox: -8, oy: -16, w: 32, h: 32 };
+  };
+
+  /* 界门（四界往返）：石拱 + 光幕 + 门楣金符。高 40，锚在门格底沿 */
+  A.worldgate = function () {
+    var im = G.Assets.img('obj.worldgate');
+    if (im) return { c: im, ox: -8, oy: -28, w: 32, h: 40 };
+    var o = decorCanvas('d|worldgate', 32, 40, function (x) {
+      shadowEllipse(x, 16, 37, 12, 3.6, 0.40);
+      /* 光幕（拱形内芯，裁剪在拱内） */
+      x.save();
+      x.beginPath();
+      x.moveTo(9.5, 35); x.lineTo(9.5, 17);
+      x.quadraticCurveTo(16, 8, 22.5, 17); x.lineTo(22.5, 35);
+      x.closePath();
+      x.clip();
+      var sg = x.createLinearGradient(0, 9, 0, 35);
+      sg.addColorStop(0, 'rgba(168,212,255,0.62)');
+      sg.addColorStop(0.55, 'rgba(126,176,244,0.42)');
+      sg.addColorStop(1, 'rgba(88,132,212,0.22)');
+      x.fillStyle = sg; x.fillRect(8, 8, 16, 28);
+      x.fillStyle = 'rgba(226,240,255,0.22)';
+      x.fillRect(12, 12, 1.2, 22); x.fillRect(18.6, 15, 1.2, 19);
+      x.restore();
+      /* 石拱框 */
+      x.strokeStyle = '#6f6858'; x.lineWidth = 2.6; x.lineCap = 'round';
+      x.beginPath();
+      x.moveTo(8.6, 36); x.lineTo(8.6, 17);
+      x.quadraticCurveTo(16, 4.6, 23.4, 17); x.lineTo(23.4, 36);
+      x.stroke();
+      x.strokeStyle = 'rgba(216,183,104,0.55)'; x.lineWidth = 0.9;
+      x.beginPath();
+      x.moveTo(10.2, 36); x.lineTo(10.2, 17.4);
+      x.quadraticCurveTo(16, 6.8, 21.8, 17.4); x.lineTo(21.8, 36);
+      x.stroke();
+      /* 门楣金符 + 基座 */
+      x.fillStyle = 'rgba(236,206,116,0.92)';
+      x.fillRect(15.2, 7.6, 1.6, 1.6);
+      x.fillStyle = '#5b5546';
+      x.fillRect(5.5, 35, 6.5, 2.6); x.fillRect(20, 35, 6.5, 2.6);
+    });
+    return { c: o.c, ox: -8, oy: -28, w: 32, h: 40 };
+  };
+
   /* Boss 巢穴 */
   A.boss = function (pal) {
     var im = G.Assets.img('obj.boss');
