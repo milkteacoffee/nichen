@@ -2063,6 +2063,8 @@
      外加泛用的 villager。狼王只作敌人，立绘走 battle.enemy.wolfking，不在此表。
      ============================================================ */
   var PORTRAIT_LW = 74, PORTRAIT_LH = 74;
+  /* 素材立绘按内容裁完后的"呼吸位"系数（见 A.portrait） */
+  var PORTRAIT_FIT = 0.92;
 
   var PORTRAIT_P = {
     luchen: { hair: '#2b2833', skin: '#efc49c', robe: '#3f6f8c', robe2: '#2d5470',
@@ -2267,17 +2269,64 @@
     }
   }
 
+  /* 立绘的"素材兜底链"：这些角色本来就有 AI 生成的战斗立绘，
+     立绘优先用它 —— 否则角色面板里的脸跟地图上走着的人对不上（用户报过）。
+     顺序：portrait.<key> 专属立绘 > 下表里的战斗立绘 > 程序化半身像。 */
+  var PORTRAIT_ART = {
+    luchen: 'battle.hero',
+    killer: 'battle.enemy.killer',
+    demon: 'battle.enemy.heartDemon'
+  };
+
+  /* 量一张素材"不透明像素"的包围盒。
+     为什么要这一步：AI 出的立绘四周留白**不对称**（战斗立绘的刀往左伸、
+     头发往右飘），直接按整图"内含"缩放居中，可见内容就会整体偏出画框中心 ——
+     角色面板里看着就是"人没站在框中间"。按内容居中才稳。
+     量不到（桩环境 getImageData 只给 4 字节 / 整图全透明）就返回 null，退回整图。 */
+  function contentBox(im, iw, ih) {
+    try {
+      var t = document.createElement('canvas');
+      t.width = iw; t.height = ih;
+      var tx = t.getContext('2d');
+      tx.drawImage(im, 0, 0);
+      var d = tx.getImageData(0, 0, iw, ih).data;
+      var x0 = iw, y0 = ih, x1 = -1, y1 = -1;
+      for (var y = 0; y < ih; y++) {
+        for (var x = 0; x < iw; x++) {
+          if (d[(y * iw + x) * 4 + 3] > 8) {
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+          }
+        }
+      }
+      if (x1 < x0 || y1 < y0) return null;
+      return [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+    } catch (e) { return null; }
+  }
+
   /* 立绘：返回 {c, ox, oy, w, h}。素材走"内含"缩放居中，绝不裁切。
-     立绘不吃调色板（程序化配色写在 PORTRAIT_P 里），所以缓存键只带 key。 */
+     立绘不吃调色板（程序化配色写在 PORTRAIT_P 里），所以缓存键只带 key。
+     注意：素材到货后必须让缓存失效 —— game.js 的素材回调会调 G.Art.clear()。 */
   A.portrait = function (key) {
     key = key || 'villager';
     var o = cached('portrait|' + key, PORTRAIT_LW, PORTRAIT_LH, function (x) {
       var im = G.Assets && G.Assets.img ? G.Assets.img('portrait.' + key) : null;
+      if (!im && PORTRAIT_ART[key] && G.Assets && G.Assets.img) {
+        im = G.Assets.img(PORTRAIT_ART[key]);
+      }
       if (im) {
         var iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
-        var s = Math.min(PORTRAIT_LW / iw, PORTRAIT_LH / ih);
-        var dw = iw * s, dh = ih * s;
-        x.drawImage(im, (PORTRAIT_LW - dw) / 2, (PORTRAIT_LH - dh) / 2, dw, dh);
+        var cb = contentBox(im, iw, ih);
+        var sx = cb ? cb[0] : 0, sy = cb ? cb[1] : 0;
+        var sw = cb ? cb[2] : iw, sh = cb ? cb[3] : ih;
+        /* 按内容裁完还要留一点呼吸位：贴着框边看着像被切了（头顶留白 0.7px 就是这问题）。
+           PORTRAIT_FIT 是"内容最多占框的多少"，0.92 大约上下各留 3px。 */
+        var s = Math.min(PORTRAIT_LW / sw, PORTRAIT_LH / sh) * PORTRAIT_FIT;
+        var dw = sw * s, dh = sh * s;
+        x.drawImage(im, sx, sy, sw, sh,
+          (PORTRAIT_LW - dw) / 2, (PORTRAIT_LH - dh) / 2, dw, dh);
         return;
       }
       portraitDraw(x, PORTRAIT_P[key] || PORTRAIT_P.villager);
@@ -2286,6 +2335,7 @@
   };
   A.PORTRAIT_SIZE = [PORTRAIT_LW, PORTRAIT_LH];
   A.PORTRAIT_KEYS = Object.keys(PORTRAIT_P);
+  A.PORTRAIT_ART = PORTRAIT_ART;
 
   /* ============================================================
      六、氛围 / 特效

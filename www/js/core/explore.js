@@ -38,6 +38,12 @@
         this.moving = false; this.path = []; this.pendingAct = null; this.mark = null;
         this.hintT = 0;
         this.overlay = null;
+        /* 遭遇状态必须一并清空 —— 它属于"刚才那张图"。
+           探索场景是**单例**，状态跨进出复用；漏掉这三行会出现一种很阴的串味：
+           在 A 图踩到暗雷、闪白还没走完就离开了（走出出口/被剧情切走），
+           再回 A 图时 flash/flashDir/_pending 原封不动地留着，
+           进门第一帧闪白补满、当场莫名其妙进战斗。 */
+        this.flash = 0; this.flashDir = 0; this._pending = null;
         if (params.returned) { this.flash = 1; this.flashDir = -1; this.prot = 3; this.steps = 0; }
         this._padButtons();
         G.Storage.saveCurrent(save);
@@ -74,6 +80,17 @@
         /* 寿元尽 → 坐化。年龄在战斗/打坐/突破后推进，这里统一裁决；
            切场景后 this.save 已被清空，必须立刻 return。 */
         if (G.game.checkAged && G.game.checkAged()) return;
+        /* 遭遇闪白：flashDir=1 是"闪出去"（0 → 1 之后交给 _checkFlash 进战斗），
+           -1 是"打完回来"（1 → 0 淡入）。
+           这条推进原本整个漏了：_encounter 只把 flash 置 0、flashDir 置 1，
+           而 _checkFlash 要求 flash >= 1 —— 于是暗雷一踩中就是**永久卡死**：
+           _pending 永远排队、onTap 因为 flashDir===1 永远 early return，
+           玩家看到的就是"这个地图动不了"。回归用例见 smoke 的 encounter.enter。 */
+        if (this.flashDir === 1) {
+          this.flash += dt * 3.2;
+          if (this.flash > 1) this.flash = 1;
+          return;                     /* 闪白期间冻结操作，免得边走边打 */
+        }
         if (this.flashDir === -1) {
           this.flash -= dt * 3;
           if (this.flash <= 0) { this.flash = 0; this.flashDir = 0; }

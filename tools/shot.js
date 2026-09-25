@@ -1,12 +1,18 @@
 /* 无头真实光栅化截图：用 @napi-rs/canvas 提供真 Canvas2D，在 Node 中把各场景渲染成 PNG。
-   用法：node tools/shot.js [输出目录]
+   用法：node tools/shot.js [输出目录] [名字片段 ...]
+     · 第一个参数若指向**已存在的目录**，就当作输出目录（保持旧用法不变）；
+     · 其余参数当作截图名字过滤，只落盘名字里含该片段的图。
    依赖：NODE_PATH 指向已安装 @napi-rs/canvas 的 node_modules */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
 const WWW = path.join(__dirname, '..', 'www');
-const OUT = process.argv[2] ? path.resolve(process.argv[2]) : path.join(__dirname, '..', '_shots');
+/* 输出目录用"存在且是目录"来判定，避免和名字过滤器抢同一个位置：
+   以前 argv[2] 一律当目录，于是 `shot.js 24_char` 会悄悄建出一个 ./24_char 目录。 */
+const ARGS = process.argv.slice(2);
+const HAS_DIR = ARGS.length && fs.existsSync(ARGS[0]) && fs.statSync(ARGS[0]).isDirectory();
+const OUT = HAS_DIR ? path.resolve(ARGS[0]) : path.join(__dirname, '..', '_shots');
 fs.mkdirSync(OUT, { recursive: true });
 
 /* ---------- 真 Canvas 后端 ---------- */
@@ -93,14 +99,17 @@ for (const rel of srcs) {
 
 /* ---------- 驱动 ---------- */
 const errors = [];
+/* 虚拟时钟跨 pump 调用单调递增（与 tools/smoke.js 同理）：
+   每次从 performance.now() 重新起算会让第一帧 now - game._last 变成负数，
+   dt 为负时所有 `-= dt` 的计时器倒着走，截图就会拍到"动画没播完/播反了"的中间态。 */
+let vclock = sandbox.performance.now();
 function pump(frames) {
-  let t = sandbox.performance.now();
   for (let i = 0; i < frames; i++) {
     const q = rafQueue; rafQueue = [];
     if (!q.length) break;
-    t += 16.7;
+    vclock += 16.7;
     for (const fn of q) {
-      try { fn(t); } catch (e) { errors.push('帧异常: ' + e.stack.split('\n').slice(0, 3).join(' | ')); return; }
+      try { fn(vclock); } catch (e) { errors.push('帧异常: ' + e.stack.split('\n').slice(0, 3).join(' | ')); return; }
     }
   }
 }
@@ -108,9 +117,14 @@ function step(fn, label) {
   try { fn(); } catch (e) { errors.push('[' + label + '] ' + e.message); }
 }
 let n = 0;
+/* 用法：node tools/shot.js [名字片段 ...]
+   带参数时只落盘名字里含该片段的截图 —— 但**所有帧照常推进**：
+   后面的截图依赖前面的场景状态，跳过 pump 会让状态对不上、拍到错的画面。 */
+const ONLY = (HAS_DIR ? ARGS.slice(1) : ARGS).filter((a) => !a.startsWith('-'));
 function shot(name, frames) {
-  log('  … ' + name);
   pump(frames || 6);
+  if (ONLY.length && !ONLY.some((p) => name.indexOf(p) >= 0)) return;
+  log('  … ' + name);
   const file = path.join(OUT, name + '.png');
   fs.writeFileSync(file, gameCanvas.toBuffer('image/png'));
   n++;

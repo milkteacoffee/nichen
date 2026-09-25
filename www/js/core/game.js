@@ -113,7 +113,12 @@
     },
 
     loop: function (now) {
-      var dt = Math.min(0.05, (now - this._last) / 1000);
+      /* dt 必须**上下都夹**：上夹 50ms 防切回前台时一帧跳几秒；
+         下夹 0 防时间源回拨 —— 只要 dt 变负，所有 `-= dt` 的计时器就一起倒着走
+         （闪白越收越亮、战斗 cue 永不结束、Toast 永不消失）。
+         无头测试里虚拟时钟回拨过一次，就是这么炸的。 */
+      var dt = (now - this._last) / 1000;
+      if (!(dt > 0)) dt = 0; else if (dt > 0.05) dt = 0.05;
       this._last = now;
       var x = this.ctx, inp = G.Input;
 

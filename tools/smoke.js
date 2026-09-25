@@ -119,14 +119,21 @@ for (const rel of srcs) {
 }
 
 /* ---------- 驱动 ---------- */
+/* 虚拟时钟必须**跨 pump 调用单调递增**，只在模块加载时取一次基准。
+   以前每次 pump 都重新 `let t = sandbox.performance.now()`，而 game.loop 的
+   this._last 还停在上一次 pump 的末尾 —— 虚拟时间每帧 +16.7ms，跑几十帧就
+   比真实时间快出 1 秒多，于是下一次 pump 的第一帧 now - _last 是**负数**：
+   dt 变负 → 所有 `-= dt` 的计时器倒着走 → 闪白越收越亮（flash 从 1 涨到 4）、
+   战斗 cue 永不结束（"自动战斗 2000 帧仍未结束"）、结算演出收不了尾。
+   一个时钟 bug 能伪造出一整屏"游戏逻辑坏了"，所以这里必须单调。 */
+let vclock = sandbox.performance.now();
 function pump(frames, label) {
-  let t = sandbox.performance.now();
   for (let i = 0; i < frames; i++) {
     const q = rafQueue; rafQueue = [];
     if (!q.length) break;
-    t += 16.7;
+    vclock += 16.7;
     for (const fn of q) {
-      try { fn(t); }
+      try { fn(vclock); }
       catch (e) { errors.push(`[${label}] 帧 ${i} 异常: ${e.stack.split('\n').slice(0, 3).join(' | ')}`); return; }
     }
   }
@@ -297,11 +304,19 @@ const INDOOR = ['town_home', 'town_shop', 'town_market', 'field_temple'];
   }
   /* 走几步 + 点地寻路 */
   step(() => {
+    /* `_heldDir` 是**桩**，只用来在这几十帧里把角色推着走；跑完必须原样还回去。
+       以前这里直接覆盖后就再也不管了 —— 探索场景是单例，于是"按住下"这个桩
+       永久留在了 field/cave 上：后面任何一次战斗打完切回 field，
+       角色都会自己一路向下走，踩到暗雷又进战斗，`loop.check` 读到的是
+       刚被重新 enter 过的战斗实例（round=1、auto=false），看起来就像"自动战斗死锁"。
+       顺带一提，这个假象以前被闪白 P0 掩盖着：闪白永不推进，暗雷根本进不了战斗。 */
+    const realHeld = sc._heldDir;
     sc._heldDir = () => 'down';
     for (let i = 0; i < 40; i++) sc.update(0.05);
     sc.onTap({ x: 240, y: 140 });
     for (let i = 0; i < 60; i++) sc.update(0.05);
     sc._interact();
+    sc._heldDir = realHeld;
   }, 'walk:' + m);
   pump(10, 'walk:' + m);
 
@@ -437,6 +452,62 @@ step(function () {
   }
 }, 'npc.mark');
 
+/* 3a-4) 暗雷遭遇：踩中暗雷必须真的进战斗，绝不能把玩家锁死。
+   这条曾经是 P0：`_encounter` 只把 flash 置 0、flashDir 置 1，
+   而进战斗要求 flash >= 1，**全项目没有一行推进过 flash** ——
+   于是暗雷一踩中就是永久卡死：_pending 永远排队、onTap 因为
+   flashDir===1 永远 early return，玩家看到的就是"这张图动不了"。
+   为什么以前没抓到：`zone.weights` / `zone.cave.weights` 是**直接调 `_encounter`**
+   造数据的，只验了"生成对不对"，从没验过 flash → 进战斗这一段；
+   而 `walk:*` 虽然真的踩到过暗雷，却只断言"没抛异常"——
+   卡死的表现恰恰就是**什么都不发生**，没有任何断言能看见它。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.pos = null;
+  G.game.save = s;
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+
+  /* ① 保护期内不该排队 */
+  sc.prot = 3;
+  const realNext = G.rng.next;
+  G.rng.next = function () { return 0; };
+  sc._onEnterTile(sc.map.md.spawn.x, 30);
+  if (sc._pending) errors.push('prot>0 的保护期内不应触发遭遇');
+  sc.prot = 0;
+  if (!sc._zone(30)) { errors.push('翠微山 y=30 没有遭遇分区'); G.rng.next = realNext; return; }
+  /* ② 踩中暗雷 → 排队 + 闪白方向为 1 */
+  sc._onEnterTile(sc.map.md.spawn.x, 30);
+  G.rng.next = realNext;
+  if (!sc._pending) { errors.push('踩中暗雷没有排队遭遇'); return; }
+  if (sc.flashDir !== 1) errors.push('遭遇后 flashDir 应为 1，实为 ' + sc.flashDir);
+
+  /* ③ 闪白期间不接受点击（免得边走边打） */
+  sc.path = [];
+  sc.onTap({ x: 240, y: 200 });
+  if (sc.path.length) errors.push('闪白期间不该接受寻路点击');
+
+  /* ④ 推进真实帧循环：闪白必须自己走完并切进战斗 */
+  pump(90, 'encounter.enter');
+  if (G.game.sceneName !== 'battle') {
+    errors.push('踩中暗雷后没能进战斗（停在 ' + G.game.sceneName + '）—— 玩家会被锁死');
+    return;
+  }
+
+  /* ⑤ 打完回图：闪白方向翻成 -1 并自己收干净，之后点击必须能重新寻路 */
+  G.game.changeScene('field', { returned: true });
+  const sc2 = G.game.scene;
+  if (sc2.flashDir !== -1) errors.push('战斗返回后 flashDir 应为 -1，实为 ' + sc2.flashDir);
+  pump(40, 'encounter.return');
+  if (sc2.flashDir !== 0 || sc2.flash !== 0) {
+    errors.push('返回闪白没自己收干净（flashDir=' + sc2.flashDir + ' flash=' + sc2.flash + '）');
+  }
+  sc2.path = [];
+  sc2.onTap({ x: 240, y: 200 });
+  if (!sc2.path.length) errors.push('返回后点击不能寻路 —— 玩家仍被锁着');
+}, 'encounter.enter');
+
 /* 3b-0) m0-1 主线不能断链：进山打赢 1 场 → won1 → 回镇找沈伯领灵石 50 → m0-2
    此前 won1 全项目无人写入，主线会永久卡死在 m0-1（违反 v0.9 §验收「m0-1..5 无卡死」）。 */
 let m01Stone = 0;
@@ -571,23 +642,36 @@ step(function () {
   if (s.stone !== 200) errors.push('m0-4 赠丹应附 200 灵石，实为 ' + s.stone);
 }, 'quest.shenbo');
 
+/* 战斗指令步骤的公共前置：上一段 pump 里战斗**可能已经打完了**。
+   `_finish` 的 cue 走完会 `_cut` 切回 field，此时 G.game.scene 上根本没有 `_cmd`，
+   步骤直接抛 "b._cmd is not a function"。战斗几时结束取决于暴击/闪避，
+   随机种子一变就偶发（实测约 1/12），所以每个指令步骤先确认还站在战斗里。 */
+function ensureBattle(label) {
+  if (G.game.sceneName === 'battle' && typeof G.game.scene._cmd === 'function') return true;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field' });
+  pump(10, label + '.reenter');
+  return G.game.sceneName === 'battle' && typeof G.game.scene._cmd === 'function';
+}
+
 step(() => {
   save.pos = null;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field' });
 }, 'battle.enter');
 pump(10, 'battle');
 step(() => {
-  const b = G.game.scene;
-  b._cmd('攻击');
+  if (!ensureBattle('battle.attack')) { errors.push('未能进入战斗（battle.attack）'); return; }
+  G.game.scene._cmd('攻击');
 }, 'battle.attack');
 pump(90, 'battle.attack');
 step(() => {
+  if (!ensureBattle('battle.skill')) { errors.push('未能进入战斗（battle.skill）'); return; }
   const b = G.game.scene;
   b._cmd('功法');
   if (b.buttons[0]) b.buttons[0].onClick();
 }, 'battle.skill');
 pump(120, 'battle.skill');
 step(() => {
+  if (!ensureBattle('battle.item')) { errors.push('未能进入战斗（battle.item）'); return; }
   const b = G.game.scene;
   b._cmd('道具');
   if (b.buttons[0]) b.buttons[0].onClick();

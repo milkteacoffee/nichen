@@ -551,11 +551,13 @@ const DRIVER = `(async function () {
       console.log('        要看真实开销请用 ablate 模式。');
       console.log('');
       console.log('  ' + pad('场景', 14) + pad('cold', 9) + pad('cold2', 9) + pad('烘焙', 9)
-        + pad('rAF p50', 9) + pad('rAF p95', 9));
+        + pad('每帧', 9) + pad('rAF p50', 9) + pad('rAF p95', 9));
       for (const s of report.scenes) {
-        const flag = s.cold2 > 33 ? '  ⚠️ 进图顿挫' : '';
+        /* 每帧 = update+render 的 60 帧平均（同步量，不受合成器影响）。
+           > 16.7ms 就是跑不满 60fps 的硬证据，比 rAF 分位更稳。 */
+        const flag = s.cold2 > 33 ? '  ⚠️ 进图顿挫' : (s.hot > 16.7 ? '  ⚠️ 稳态掉帧' : '');
         console.log('  ' + pad(s.scene, 14) + pad(s.cold + ' ms', 9) + pad(s.cold2 + ' ms', 9) + pad(s.bake + ' ms', 9)
-          + pad(s.rafP50 + ' ms', 9) + pad(s.rafP95 + ' ms', 9) + flag);
+          + pad(s.hot + ' ms', 9) + pad(s.rafP50 + ' ms', 9) + pad(s.rafP95 + ' ms', 9) + flag);
       }
       console.log('');
       for (const s of report.scenes) {
