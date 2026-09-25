@@ -80,6 +80,9 @@
       }
       var doorX = s.x + Math.floor(s.w / 2);
       var doorY = s.y + s.h;
+      /* 门格必须标成"已占用"：随机散布的树/石会落在未占用的空格上，
+         正好压在门口就把门堵死了（区域图上门被堵 = 那栋建筑永远进不去）。 */
+      mark(doorX, doorY);
       if (s.kind === 'house') {
         setInteract(doorX, doorY, { type: 'door', id: s.id });
       } else if (s.kind === 'ruin') {
@@ -121,6 +124,11 @@
         solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
         boss = sp;
         setInteract(sp.x, sp.y + 1, { type: 'boss' });
+      } else if (sp.kind === 'entrance') {
+        /* 副本入口（秘境裂隙）：占格实心，交互点登记在正下方一格，
+           与 chest/boss 同一套"站到旁边才能触发"的走位约定。 */
+        solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
+        setInteract(sp.x, sp.y + 1, { type: 'entrance', id: sp.id, slot: sp.slot, arch: sp.arch });
       }
     });
 

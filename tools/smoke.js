@@ -257,6 +257,63 @@ step(function () {
   G.Sprites.clear();
 }, 'assets.wiring');
 
+/* 0c) 副本 Boss 立绘接线（磁盘级）。无头环境拿不到 manifest（fetch 被桩成 reject），
+      但 manifest.json 就在磁盘上，可以直接读。这里钉两件事：
+      ① dungeons 里每个 Boss 的 artKey 都在 manifest 里登记了「battle.enemy.<artKey>」；
+      ② 登记的文件真实存在、且是 RGBA 透明底。
+      漏登记/改名**不会报错**，只会静默退回程序化兜底（beastResolve 的 fallback），
+      表现是"Boss 长得跟设计稿完全不一样"却查不出原因 —— 所以必须在这里锁死。 */
+step(function () {
+  const mfPath = path.join(WWW, 'assets', 'manifest.json');
+  if (!fs.existsSync(mfPath)) { errors.push('缺少 www/assets/manifest.json'); return; }
+  const mf = JSON.parse(fs.readFileSync(mfPath, 'utf8'));
+  const want = [];
+  G.Data.dungeons.ARCH.forEach((a) => {
+    ['big', 'mid', 'leader'].forEach((t) => {
+      if (a[t] && a[t].artKey) want.push(a[t].artKey);
+    });
+  });
+  if (want.length !== 20) errors.push(`副本 Boss artKey 应为 20 个，实际 ${want.length}`);
+  want.forEach((ak) => {
+    const key = 'battle.enemy.' + ak;
+    const rel = mf[key];
+    if (!rel) { errors.push(`manifest 未登记 Boss 立绘：${key}（会静默退回程序化兜底）`); return; }
+    const p = path.join(WWW, rel);
+    if (!fs.existsSync(p)) { errors.push(`manifest 登记的 Boss 立绘不存在：${key} → ${rel}`); return; }
+    /* PNG 第 26 字节是 IHDR 的 color type，6 = truecolor+alpha（透明底） */
+    if (fs.readFileSync(p)[25] !== 6) errors.push(`${key} 不是 RGBA 透明底：${rel}`);
+  });
+}, 'dungeon.boss.assets');
+
+/* 0d) NPC 精灵 / 人物立绘接线（磁盘级）：与 dungeon.boss.assets 同理。
+      要检查的键不写死，直接从 data/maps.js 的 npcs[] 里取 kind 与 portrait ——
+      地图里加了新 NPC 但忘了出图/登记，这里会立刻报出来。
+      再补几个"只由场景代码引用、maps 里没有 NPC 条目"的立绘键。 */
+step(function () {
+  const mfPath = path.join(WWW, 'assets', 'manifest.json');
+  if (!fs.existsSync(mfPath)) { errors.push('缺少 www/assets/manifest.json'); return; }
+  const mf = JSON.parse(fs.readFileSync(mfPath, 'utf8'));
+  const kinds = new Set(), ports = new Set();
+  Object.keys(G.Data.maps).forEach((id) => {
+    (G.Data.maps[id].npcs || []).forEach((n) => {
+      if (n.kind) kinds.add(n.kind);
+      if (n.portrait) ports.add(n.portrait);
+    });
+  });
+  /* 只由场景引用的立绘键：山神庙重伤老者 / 杀手战 / 珠内梦境心魔 / M1 阿阮 */
+  ['elder', 'killer', 'demon', 'aran'].forEach((k) => ports.add(k));
+  const want = [];
+  kinds.forEach((k) => want.push('char.npc.' + k));
+  ports.forEach((k) => want.push('portrait.' + k));
+  want.forEach((key) => {
+    const rel = mf[key];
+    if (!rel) { errors.push(`manifest 未登记角色形象：${key}（会静默退回程序化兜底）`); return; }
+    const p = path.join(WWW, rel);
+    if (!fs.existsSync(p)) { errors.push(`manifest 登记的角色形象不存在：${key} → ${rel}`); return; }
+    if (fs.readFileSync(p)[25] !== 6) errors.push(`${key} 不是 RGBA 透明底：${rel}`);
+  });
+}, 'npc.portrait.assets');
+
 /* 1) 启动 → 标题 */
 step(() => G.game.start(), 'start');
 pump(30, 'title');
@@ -1004,7 +1061,7 @@ step(function () {
   if (s.items['淬体突破丹']) errors.push('心魔战开始时未消耗突破丹');
   const info = P.winBigBreak(s);
   if (s.globalLevel !== 10) errors.push('心魔战胜利后应为炼气1（10），实为 ' + s.globalLevel);
-  if (info.n !== '炼气一段') errors.push('境界名异常：' + info.n);
+  if (info.n !== '炼气一重') errors.push('境界名异常：' + info.n);
   if (s.qi !== 0) errors.push('突破后灵气应为 3240-3240=0，实为 ' + s.qi);
   /* 失败：不降级、灵气保留 80% */
   s.globalLevel = 9; s.qi = 1000;
@@ -1300,10 +1357,15 @@ step(function () {
   if (G.Player.deathCause({}).id !== 'war') errors.push('缺省死因应为战死');
 }, 'xianli.aged');
 
-/* 5b-3) 寿元上限与年龄推进（§3.2） */
+/* 5b-3) 寿元上限与年龄推进（境界 v3.2 §3） */
 step(function () {
   const P = G.Player;
-  [['淬体', 1, 80], ['炼气', 10, 120], ['筑基', 19, 200], ['金丹', 28, 400], ['元婴', 37, 800]]
+  [['淬体', 1, 100], ['炼气', 10, 150], ['筑基', 19, 200], ['金丹', 28, 300],
+   ['元婴', 37, 500], ['化神', 46, 800], ['炼虚', 55, 1000], ['合体', 64, 1500],
+   ['大乘', 73, 2000], ['渡劫', 82, 3000], ['人仙', 91, 5000], ['地仙', 100, 8000],
+   ['天仙', 109, 12000], ['金仙', 118, 20000], ['太乙金仙', 127, 30000],
+   ['大罗金仙', 136, 50000], ['准圣', 145, 100000], ['圣人', 154, 200000],
+   ['道祖', 163, Infinity]]
     .forEach(function (c) {
       if (P.lifespanOf(c[1]) !== c[2]) {
         errors.push(c[0] + ' 寿元应为 ' + c[2] + '，实为 ' + P.lifespanOf(c[1]));
@@ -1321,8 +1383,8 @@ step(function () {
   P.agePush(s, 'break');
   if (s.age !== 20) errors.push('突破应 +2 岁，实为 ' + s.age);
   if (P.isAged(s)) errors.push('20 岁不应判为寿元尽');
-  s.age = 80;
-  if (!P.isAged(s)) errors.push('淬体 80 岁应判为寿元尽');
+  s.age = 100;
+  if (!P.isAged(s)) errors.push('淬体 100 岁应判为寿元尽');
   if (P.lifespanLeft(s) !== 0) errors.push('寿元尽时剩余应为 0');
 }, 'lifespan');
 
@@ -1340,7 +1402,7 @@ step(function () {
 step(() => {
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
-  s.globalLevel = 1; s.age = 80; s.pos = null;
+  s.globalLevel = 1; s.age = 100; s.pos = null;
   G.game.meta = {
     lives: 1, xianli: 0, totalXianli: 0, perfusion: {}, pity: 0,
     achieve: {}, past: [],
@@ -1426,6 +1488,343 @@ step(() => {
   if (sv.qi < 120) errors.push('灵息灌注未折算到开局灵气（qi=' + sv.qi + '）');
   if (sv.escapeLeft < 4) errors.push('遁法灌注未折算到遁走次数（' + sv.escapeLeft + '）');
 }, 'reinc2.check');
+
+/* ---------- 新场景走查：难度选择 / 副本枢纽 ---------- */
+step(() => { G.game.changeScene('difficulty'); pump(12, 'difficulty'); }, 'scene.difficulty');
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.dungeonSet = G.Data.dungeons.rollSet();
+  s.dungeonSlot = 0; s.dungeonRun = null; s.dungeonFarm = 0;
+  s.dungeonPity = { mid: 0, clear: 0 }; s.secrets = {}; s.daoCrystal = 0;
+  G.game.save = s;
+  G.game.changeScene('dungeon');
+  pump(20, 'dungeon');
+}, 'scene.dungeon');
+
+/* ---------- 四界 28 区域契约（《四界区域与副本落位设计 v1.0》§4.3 / §5） ----------
+   凡界 F1–F3 复用现有手写地图（由上面的场景走查覆盖），其余 25 个生成型区域全走这里：
+     · 地图能生成、spawn 可行走
+     · 每个 exit 指向真实场景，且出口格不被实心堵死
+     · 每栋建筑都有门交互点，该格可行走、且从 spawn BFS 可达
+     · 每栋建筑的内部能生成，并满足室内契约（出口 / 家具 y≥3 / 逐格实心 + 登记交互 / 至少一件有 act）
+   这条契约的价值在于：**"地图里加了建筑却忘了让它可进"是静默失败** ——
+   门交互点没登记就只是"点了没反应"，肉眼很难归因，所以必须钉死。 */
+step(function () {
+  G.game.save = save;
+  function bfs(mp, from) {
+    const seen = {};
+    const q = [[from.x, from.y]];
+    seen[from.x + ',' + from.y] = true;
+    while (q.length) {
+      const c = q.shift();
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+        const nx = c[0] + d[0], ny = c[1] + d[1];
+        if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
+        if (mp.solid[ny][nx]) return;
+        const k = nx + ',' + ny;
+        if (seen[k]) return;
+        seen[k] = true; q.push([nx, ny]);
+      });
+    }
+    return seen;
+  }
+
+  let regionN = 0, buildingN = 0, interiorN = 0;
+  /* 先全部 ensure 一遍再校验：出口的 to 指向的是**目标区域**的场景，
+     边生成边查会因为"目标还没注册"误报。 */
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (wid) { G.RegionGen.ensureWorld(save, wid); });
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (wid) {
+    G.Data.regions.of(wid).forEach(function (r) {
+      if (r.map) return;                                  /* 复用型：已有场景契约 */
+      regionN++;
+      const md = G.RegionGen.ensure(save, r.id);
+      if (!md) { errors.push(`区域 ${r.id} 生成失败`); return; }
+      const mp = G.MapGen.buildMap(save, r.id);
+
+      if (mp.solid[md.spawn.y][md.spawn.x]) errors.push(`区域 ${r.id}: spawn 落在实心格`);
+      if (!(md.exits || []).length) errors.push(`区域 ${r.id}: 没有任何出口`);
+      (md.exits || []).forEach(function (e) {
+        for (let x = e.x0; x <= e.x1; x++) {
+          if (mp.solid[e.y][x]) errors.push(`区域 ${r.id}: 出口格 (${x},${e.y}) 被实心堵死`);
+        }
+        if (!G.Data.maps[e.to]) errors.push(`区域 ${r.id}: 出口指向不存在的场景 ${e.to}`);
+      });
+
+      const reach = bfs(mp, md.spawn);
+      if (!(md.structures || []).length) errors.push(`区域 ${r.id}: 一栋建筑都没有`);
+      (md.structures || []).forEach(function (st) {
+        buildingN++;
+        const dx = st.x + Math.floor(st.w / 2), dy = st.y + st.h;
+        const o = mp.interact[dx + ',' + dy];
+        if (!o || (o.type !== 'door' && o.type !== 'ruin')) {
+          errors.push(`区域 ${r.id}: 建筑 ${st.id}(${st.n}) 门下沿 (${dx},${dy}) 没有门交互点`);
+        } else if (!reach[dx + ',' + dy]) {
+          const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(function (d) {
+            const x2 = dx + d[0], y2 = dy + d[1];
+            if (x2 < 0 || y2 < 0 || x2 >= mp.w || y2 >= mp.h) return 'OOB';
+            return mp.solid[y2][x2] ? 'X' : '.';
+          }).join('');
+          errors.push(`区域 ${r.id}: 建筑 ${st.id}(${st.n}) 的门 (${dx},${dy}) 从 spawn 走不到`
+            + ` [门格solid=${mp.solid[dy][dx]}, 上右下左=${nb}]`);
+        }
+
+        const iid = 'int.' + r.id + '.' + st.id;
+        const imd = G.InteriorGen.ensure(save, iid, st, r);
+        if (!imd) { errors.push(`区域 ${r.id}: 建筑 ${st.id} 内部生成失败`); return; }
+        interiorN++;
+        const imp = G.MapGen.buildMap(save, iid);
+        if (!(imd.exits || []).length) errors.push(`${iid}: 没有出口，进去出不来`);
+        (imd.exits || []).forEach(function (e) {
+          for (let x = e.x0; x <= e.x1; x++) {
+            if (imp.solid[e.y][x]) errors.push(`${iid}: 出口格 (${x},${e.y}) 被实心堵死`);
+          }
+          if (!G.Data.maps[e.to]) errors.push(`${iid}: 出口指向不存在的场景 ${e.to}`);
+        });
+        if (!(imd.furn || []).length) errors.push(`${iid}: 没有任何家具`);
+        (imd.furn || []).forEach(function (f) {
+          if (f.y < 3) errors.push(`${iid}: 家具 ${f.id} 摆在 y=${f.y}，会被顶部 HUD 遮住`);
+          for (let y = f.y; y < f.y + (f.h || 1); y++) {
+            for (let x = f.x; x < f.x + (f.w || 1); x++) {
+              if (!imp.solid[y][x]) errors.push(`${iid}: 家具 ${f.id} 的格子 (${x},${y}) 不是实心`);
+              const o2 = imp.interact[x + ',' + y];
+              if (!o2 || o2.type !== 'furn') errors.push(`${iid}: 家具 ${f.id} 的格子 (${x},${y}) 没有交互点`);
+            }
+          }
+        });
+        if (!(imd.furn || []).some(function (f) { return f.act; })) errors.push(`${iid}: 所有家具都没有动作`);
+      });
+    });
+  });
+
+  if (regionN !== 25) errors.push(`生成型区域应为 25 个，实际 ${regionN}`);
+  if (interiorN !== buildingN) errors.push(`建筑内部数(${interiorN})与建筑数(${buildingN})不符`);
+  if (buildingN < 60) errors.push(`建筑总数偏少（${buildingN}），检查 regions.js 的建筑清单`);
+
+  /* 入口落位**真的落到地图上**：给每个界造一份落位 → 断言裂隙 special 与交互点齐、
+     且从 spawn 走得到。（只验算法不验落图，会漏掉"算法对但地图上什么都没有"。） */
+  ['fan', 'ling', 'xian'].forEach(function (wid) {
+    const s2 = JSON.parse(JSON.stringify(save));
+    s2.entrances = { fan: [], ling: [], xian: [], dao: [] };
+    s2.entrances[wid] = G.Data.regions.rollEntrances(wid);
+    s2.worldSeed = 'entrance-probe:' + wid;
+    G.Data.regions.of(wid).forEach(function (r) { if (!r.map) delete G.Data.maps[r.id]; });
+    s2.entrances[wid].forEach(function (e) {
+      try {
+        const md = G.RegionGen.ensure(s2, e.region);
+        if (!md) { errors.push(`${wid}: 落位区域 ${e.region} 生成失败`); return; }
+        const mp = G.MapGen.buildMap(s2, md.id || e.region);
+        const sp = (md.special || []).filter(function (x) { return x.kind === 'entrance'; })[0];
+        if (!sp) { errors.push(`${wid}: 落位区域 ${e.region} 没有生成入口裂隙`); return; }
+        if (sp.slot !== e.slot || sp.arch !== e.arch) errors.push(`${wid}: 区域 ${e.region} 裂隙的槽位/原型与落位不符`);
+        const o = mp.interact[sp.x + ',' + (sp.y + 1)];
+        if (!o || o.type !== 'entrance') { errors.push(`${wid}: 区域 ${e.region} 入口交互点缺失`); return; }
+        if (!bfs(mp, md.spawn)[sp.x + ',' + (sp.y + 1)]) errors.push(`${wid}: 区域 ${e.region} 入口裂隙从 spawn 走不到`);
+      } catch (err) {
+        errors.push(`${wid}: 区域 ${e.region} 入口落图校验异常：${err.message}`);
+      }
+    });
+  });
+
+  console.log(`  · 区域 ${regionN} 个 / 建筑 ${buildingN} 栋 / 内部 ${interiorN} 间`);
+}, 'regions.contract');
+
+/* ---------- 副本入口天道随机落位契约（《四界区域与副本落位设计 v1.0》§2.2 / §6.1） ----------
+   抽 5 个入口必须满足：落在**主界**区域内、区域不重复、原型不重复、
+   恰 2 大 3 小、**第 5 个必大**、槽位编号与下标一致。跑 30 轮覆盖随机性。 */
+step(function () {
+  const kindOf = {};
+  G.Data.dungeons.ARCH.forEach(function (a) { kindOf[a.id] = a.kind; });
+
+  ['fan', 'ling', 'xian'].forEach(function (wid) {
+    const of = G.Data.regions.of(wid);
+    const want = Math.min(5, of.length);
+    /* 落位候选必须够 5 个：只落在生成型、非安全区（市镇/天宫门阙不冒裂隙） */
+    const cand = G.Data.regions.entranceCandidates(wid);
+    if (cand.length < 5) errors.push(`${wid}: 入口落位候选不足 5 个（实际 ${cand.length}）`);
+    cand.forEach(function (r) {
+      if (r.safe) errors.push(`${wid}: 候选区 ${r.id} 是安全区，不该作为裂隙落位点`);
+      if (r.map) errors.push(`${wid}: 候选区 ${r.id} 复用现有地图，没有裂隙位`);
+    });
+    for (let round = 0; round < 30; round++) {
+      const es = G.Data.regions.rollEntrances(wid);
+      if (es.length !== want) { errors.push(`${wid}: 入口数应为 ${want}，实际 ${es.length}`); break; }
+      const seenR = {}, seenA = {};
+      let bigs = 0, smalls = 0;
+      es.forEach(function (e, i) {
+        if (e.slot !== i) errors.push(`${wid}: 槽位编号与下标不符（${e.slot} vs ${i}）`);
+        if (seenR[e.region]) errors.push(`${wid}: 区域重复落位 ${e.region}`);
+        seenR[e.region] = 1;
+        if (!of.some(function (r) { return r.id === e.region; })) errors.push(`${wid}: 落位区域 ${e.region} 不属于该界`);
+        if (seenA[e.arch]) errors.push(`${wid}: 副本原型重复 ${e.arch}`);
+        seenA[e.arch] = 1;
+        if (kindOf[e.arch] === 'big') bigs++; else if (kindOf[e.arch] === 'small') smalls++;
+      });
+      if (bigs !== 2) errors.push(`${wid}: 大副本应为 2 个，实际 ${bigs}`);
+      if (smalls !== 3) errors.push(`${wid}: 小副本应为 3 个，实际 ${smalls}`);
+      if (kindOf[es[4].arch] !== 'big') errors.push(`${wid}: 第 5 个入口必须是【大副本】（实际 ${es[4].arch}）`);
+    }
+  });
+
+  /* 道界：固定试炼，不走随机池 */
+  const de = G.Data.regions.rollEntrances('dao');
+  if (de.length !== 5) errors.push(`dao: 入口数应为 5，实际 ${de.length}`);
+  if (!de.every(function (e) { return e.fixed && e.arch === null; })) {
+    errors.push('dao: 道界入口应为固定试炼（arch=null, fixed=true）');
+  }
+
+  /* 主界抽取：**未通关的界优先**（否则会反复回已通关的凡界刷，主线推不动） */
+  const meta = { progress: { worlds: { fan: { cleared: true }, ling: { cleared: false }, xian: false, dao: false }, daoKey: false } };
+  for (let i = 0; i < 40; i++) {
+    const w = G.Data.regions.rollMainWorld(meta);
+    if (w !== 'ling') { errors.push(`主界抽取应优先未通关的 ling，实际 ${w}`); break; }
+  }
+  /* 全部通关后：只能在已解锁界里随机，不得越界到未解锁的界 */
+  const meta2 = { progress: { worlds: { fan: { cleared: true }, ling: { cleared: true }, xian: false, dao: false }, daoKey: false } };
+  for (let i = 0; i < 40; i++) {
+    const w = G.Data.regions.rollMainWorld(meta2);
+    if (['fan', 'ling'].indexOf(w) < 0) { errors.push(`全通关后主界只能在已解锁界内，实际 ${w}`); break; }
+  }
+}, 'entrances.contract');
+
+/* ---------- 地狱难度体系契约（《四界区域与副本落位设计 v1.1》§2.5） ----------
+   ① grantHell 幂等：同一界只发一次（已通关界回刷地狱不重复发）
+   ② 三枚碎片齐才开道界；只通两界不开
+   ③ 永久 +10% 的生效时机：**飞升过该界之后**才生效（凡界地狱 → 飞升灵界起）
+   ④ 加成真的进了 computeStats（不是只写了个字段） */
+step(function () {
+  const gh = G.scenes.dungeon && G.scenes.dungeon.grantHell;
+  if (typeof gh !== 'function') { errors.push('dungeon.grantHell 缺失'); return; }
+
+  const mk = () => ({
+    progress: {
+      difficulty: 'normal',
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      worlds: { fan: true, ling: false, xian: false, dao: false },
+      daoKey: false,
+      daoShards: { fan: false, ling: false, xian: false }
+    },
+    hellCleared: {}, titles: [], perfusion: {}, achieve: {}
+  });
+
+  /* ① 幂等 */
+  const m1 = mk();
+  gh(m1, 'fan');
+  if (!m1.hellCleared.fan || !m1.progress.daoShards.fan) errors.push('grantHell(fan) 未发称号/碎片');
+  if (m1.titles.indexOf('破狱·凡尘') < 0) errors.push('grantHell(fan) 未记称号');
+  const l2 = gh(m1, 'fan');
+  if (l2.length) errors.push('grantHell 不幂等：同一界重复发放');
+  if (m1.titles.filter(function (t) { return t === '破狱·凡尘'; }).length !== 1) errors.push('称号被重复写入');
+
+  /* ② 三碎片齐才开道界 */
+  const m2 = mk();
+  gh(m2, 'fan'); gh(m2, 'ling');
+  if (m2.progress.daoKey) errors.push('只通两界地狱就开了道界');
+  if (m2.progress.daoShards.xian) errors.push('未通关的界不应有碎片');
+  gh(m2, 'xian');
+  if (!m2.progress.daoKey) errors.push('三界地狱齐通后未开道界');
+  if (m2.titles.length !== 3) errors.push(`称号应有 3 个，实际 ${m2.titles.length}`);
+
+  /* ③ 生效时机 */
+  const m3 = mk();
+  gh(m3, 'fan');
+  if (G.Player.hellBonusPct(m3) !== 0) errors.push('未飞升灵界前不应生效 +10%');
+  m3.progress.worlds.ling = true;
+  if (Math.abs(G.Player.hellBonusPct(m3) - 0.10) > 1e-9) errors.push('飞升灵界后应 +10%');
+  m3.progress.worlds.xian = true;
+  if (Math.abs(G.Player.hellBonusPct(m3) - 0.10) > 1e-9) errors.push('只通凡界地狱时不应变成 20%');
+  gh(m3, 'ling');
+  if (Math.abs(G.Player.hellBonusPct(m3) - 0.20) > 1e-9) errors.push('凡+灵地狱且已飞升仙界应 +20%');
+  /* 此时 daoKey 仍为 false、仙界碎片未得 → 仙界那 10% 不应生效（上一条已隐含校验） */
+  if (m3.progress.daoKey) errors.push('只通凡灵两界地狱不应开道界');
+  gh(m3, 'xian');
+  if (!m3.progress.daoKey) errors.push('三碎片齐应开道界');
+  if (Math.abs(G.Player.hellBonusPct(m3) - 0.30) > 1e-9) errors.push('道界开启后应 +30%');
+
+  /* ④ 加成确实进了 computeStats（四维同乘；注意返回字段是 maxhp 不是 hp） */
+  const base = JSON.parse(JSON.stringify(save));
+  const s0 = G.Player.computeStats(base, mk());
+  const s1 = G.Player.computeStats(base, m3);
+  if (!(s1.atk > s0.atk && s1.maxhp > s0.maxhp && s1.def > s0.def && s1.spd > s0.spd)) {
+    errors.push('地狱永久加成没有进 computeStats：'
+      + `pct=${G.Player.hellBonusPct(m3)} atk ${s0.atk}→${s1.atk} hp ${s0.maxhp}→${s1.maxhp}`
+      + ` def ${s0.def}→${s1.def} spd ${s0.spd}→${s1.spd}`);
+  }
+  /* 精确比值：应为 1.30（三界地狱全通且道界已开） */
+  const ratio = s1.atk / s0.atk;
+  if (Math.abs(ratio - 1.30) > 0.02) errors.push(`永久加成倍率应约 1.30，实际 ${ratio.toFixed(3)}`);
+}, 'hell.contract');
+
+/* ---------- 界域难度面板契约（设计 v1.1 §2.5 / 缺口 U2） ----------
+   菜单里有入口 → 能打开 → 点击按 普通→困难→地狱→普通 轮换并落盘；
+   未解锁的界改不动；渲染分支不炸（新增 overlay 时最容易漏掉路由，这里一并钉住）。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null;
+  G.game.save = s;
+  G.game.meta = {
+    progress: {
+      difficulty: 'normal',
+      worlds: { fan: true, ling: false, xian: false, dao: false },
+      daoKey: false,
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      daoShards: { fan: false, ling: false, xian: false }
+    },
+    hellCleared: {}, titles: [], perfusion: {}, achieve: {}
+  };
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+
+  G.TianDao.openMenu(sc);
+  if (sc.overlay !== 'menu') { errors.push('openMenu 未设置 overlay'); return; }
+  if (!sc.buttons.some(function (b) { return (b.label || '').indexOf('界域') >= 0; })) {
+    errors.push('菜单里没有「界域难度」入口');
+  }
+
+  G.TianDao.openWorlds(sc);
+  if (sc.overlay !== 'worlds') { errors.push('openWorlds 未设置 overlay'); return; }
+  if (sc.buttons.length !== 4) errors.push(`界域面板按钮数应为 4（3 界 + 返回），实际 ${sc.buttons.length}`);
+
+  /* 轮换：普通 → 困难 → 地狱 → 普通 */
+  const cycle = ['hard', 'hell', 'normal'];
+  cycle.forEach(function (want, i) {
+    G.TianDao.openWorlds(sc);
+    sc.buttons[0].onClick();
+    if (G.game.meta.progress.worldDiff.fan !== want) {
+      errors.push(`第 ${i + 1} 次点击后凡界难度应为 ${want}，实际 ${G.game.meta.progress.worldDiff.fan}`);
+    }
+  });
+
+  /* 未解锁的界改不动 */
+  G.TianDao.openWorlds(sc);
+  sc.buttons[1].onClick();
+  if (G.game.meta.progress.worldDiff.ling !== 'normal') errors.push('未解锁的界不该能改难度');
+
+  /* 渲染路由：**必须用文本探针**。
+     只断言"render 不抛异常"是空的 —— 旧路由（只认 menu/tiandao）遇到 'worlds'
+     既不匹配任何分支、也不报错，只是**什么都不画**，玩家看到的就是"点了没反应"。
+     所以这里抓 fillText 的字符串，确认面板文案真的落到画布上。 */
+  function textSpy() {
+    const c = makeCtx();
+    const seen = [];
+    c.fillText = function (s) { seen.push(String(s)); return undefined; };
+    c.__seen = seen;
+    return c;
+  }
+  sc.overlay = 'worlds';
+  sc.buttons = [];
+  const cx = textSpy();
+  sc.render(cx);
+  if (!cx.__seen.some(function (t) { return t.indexOf('三界碎片集齐') >= 0; })) {
+    errors.push('overlay=worlds 没有渲染出面板文案（场景 renderOverlay 路由漏了）');
+  }
+  sc.overlay = 'menu';
+  const cm = textSpy();
+  sc.render(cm);
+  /* 按钮文字是 game.js 画的、不在 scene.render 里，所以这里只查面板标题 */
+  if (!cm.__seen.some(function (t) { return t.indexOf('菜') >= 0; })) {
+    errors.push('overlay=menu 没有渲染出菜单面板');
+  }
+}, 'worlds.panel.contract');
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

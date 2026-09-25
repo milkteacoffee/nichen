@@ -114,8 +114,9 @@
         crit: st.crit, critDmg: st.critDmg,
         elem: st.attackElem, im: st.im,
         skills: skills, buffs: { atk: 0, turns: 0 },
-        guard: false, statuses: {}
+        guard: false, statuses: {}, shield: 0
       };
+      this._applySecretPassives();
 
       /* 敌方：脚本分支优先，其次参数里的敌群/单敌 */
       var p = this.params, list;
@@ -139,6 +140,8 @@
         e.statuses = e.statuses || {};
         e.im = e.im || [];
         e.charge = null;
+        e.shield = e.shield || 0;
+        e._phDone = {};
         e.skills = e.skills || [];
         e.skills.forEach(function (s) { if (s.cdLeft == null) s.cdLeft = 0; });
       });
@@ -177,6 +180,30 @@
       });
     },
 
+    /* ===== 秘术·战斗被动（神术）初始化 =====
+       血海=全局吸血 / 诛邪=命中概率封印 / 枯荣=受击回血次数 / 四象=开局护盾 */
+    _applySecretPassives: function () {
+      var save = G.game.save, Dg = G.Data.dungeons, p = this.p;
+      p.shield = 0; p._secretVamp = 0; p._zhuxie = 0;
+      p._kurongLeft = 0; p._kurong = null; p._mangshan = 0; p._secretUsed = {};
+      var secs = save.secrets || {};
+      Object.keys(secs).forEach(function (id) {
+        var ef = Dg.secretEffectById(id);
+        if (!ef) return;
+        var g = Dg.gradeOf(save, id);
+        if (ef.vamp) p._secretVamp += ef.vamp * g;
+        if (ef.zhuxie) p._zhuxie = Math.max(p._zhuxie, ef.zhuxie);
+        if (ef.kurong) {
+          p._kurongLeft = Math.max(p._kurongLeft, ef.kurong.max);
+          p._kurong = { chance: ef.kurong.chance, pct: ef.kurong.pct * g };
+        }
+        if (ef.mangshan) p._mangshan = Math.max(p._mangshan, Math.round(ef.mangshan * g));
+        if (ef.startShield) {
+          p.shield = Math.max(p.shield, Math.round(p.maxhp * ef.startShield * g));
+        }
+      });
+    },
+
     /* ===== 单位寻址 ===== */
     _keys: function () {
       var ks = ['P'];
@@ -199,6 +226,10 @@
       var a = [];
       for (var i = 0; i < this.es.length; i++) if (this.es[i].hp > 0) a.push(this.es[i]);
       return a;
+    },
+    /* 我方存活单位（敌方全体技的目标；未来扩展队友时在此归并） */
+    _alivePlayer: function () {
+      return this.p.hp > 0 ? [this.p] : [];
     },
 
     /* ===== 指令区（v0.3 §10 裁剪：攻击 / 功法 / 道具 / 防御 / 逃跑） ===== */
@@ -282,27 +313,81 @@
     _openSkill: function () {
       var self = this;
       var btns = [];
-      /* 面板放得下 3 行 × 2 列；M0 装配上限 3，UI 预留 4 格 */
-      var list = this.p.skills.slice(0, 4);
-      list.forEach(function (sk, i) {
-        var ready = sk.cdLeft <= 0;
-        var ec = sk.elem && sk.elem !== '无' ? '　' + sk.elem : '';
-        btns.push(new G.UI.Btn({
-          x: 22 + (i % 2) * 218, y: 74 + Math.floor(i / 2) * 30, w: 206, h: 26,
-          small: true, disabled: !ready,
-          label: sk.n + ec + (sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）' : (sk.cd > 0 ? '（CD ' + sk.cd + '）' : '')),
-          onClick: function () {
-            if (sk.kind === 'heal') { self._playerAction(sk, 'P'); return; }
-            self._pickTarget(sk);
-          }
-        }));
+
+      /* 装配功法 + 仙术主动秘术，合并为最多 8 项（4 行 × 2 列） */
+      var entries = [];
+      this.p.skills.slice(0, 4).forEach(function (sk) {
+        entries.push({ kind: 'skill', sk: sk });
       });
+      var Dg = G.Data.dungeons, save = G.game.save;
+      Object.keys(save.secrets || {}).forEach(function (id) {
+        var ef = Dg.secretEffectById(id);
+        if (ef && ef.cat === '仙') entries.push({ kind: 'secret', id: id, ef: ef });
+      });
+      entries = entries.slice(0, 8);
+
+      entries.forEach(function (en, i) {
+        var x = 22 + (i % 2) * 218, y = 58 + Math.floor(i / 2) * 26;
+        if (en.kind === 'skill') {
+          var sk = en.sk, ready = sk.cdLeft <= 0;
+          var ec = sk.elem && sk.elem !== '无' ? '　' + sk.elem : '';
+          btns.push(new G.UI.Btn({
+            x: x, y: y, w: 206, h: 24, small: true, disabled: !ready,
+            label: sk.n + ec + (sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）'
+              : (sk.cd > 0 ? '（CD ' + sk.cd + '）' : '')),
+            onClick: function () {
+              if (sk.kind === 'heal') { self._playerAction(sk, 'P'); return; }
+              self._pickTarget(sk);
+            }
+          }));
+        } else {
+          var used = self.p._secretUsed[en.id];
+          btns.push(new G.UI.Btn({
+            x: x, y: y, w: 206, h: 24, small: true, disabled: !!used,
+            variant: 'gold',
+            label: Dg.SECRETS[en.id] + (used ? '（已用）' : '　秘术'),
+            onClick: function () { self._castSecret(en.id); }
+          }));
+        }
+      });
+
       btns.push(new G.UI.Btn({
-        x: 190, y: 176, w: 100, h: 24, small: true, variant: 'ghost', label: '返回',
+        x: 190, y: 164, w: 100, h: 22, small: true, variant: 'ghost', label: '返回',
         onClick: function () { self.phase = 'command'; self._buildCommand(); }
       }));
       this.buttons = btns;
       this.phase = 'skill';
+    },
+
+    /* 施放仙术主动秘术：按 cast.target 路由（self 治疗 / single 选目标 / all 直接出手）。
+       数值随品阶 grade；每场每道限一次。 */
+    _castSecret: function (id) {
+      var self = this, Dg = G.Data.dungeons, save = G.game.save;
+      var ef = Dg.secretEffectById(id), c = ef.cast, grade = Dg.gradeOf(save, id);
+      this.p._secretUsed[id] = true;
+
+      var sk = {
+        n: Dg.SECRETS[id], elem: c.elem || '无', kind: 'atk',
+        _secret: true
+      };
+      if (c.mult) sk.mult = +(c.mult * grade).toFixed(2);
+      if (c.status) sk.status = c.status;
+      if (c.pierce) sk.pierce = c.pierce;
+
+      if (c.target === 'self') {
+        sk.kind = 'healSelf';
+        sk.healSelf = +(c.healSelf * grade).toFixed(2);
+        this._playerAction(sk, 'P');
+        return;
+      }
+      sk.target = c.target === 'all' ? '全体' : (c.target || 'single');
+      if (sk.target === '全体') {
+        var alive = this._aliveEs();
+        if (!alive.length) { this._victory(); return; }
+        this._playerAction(sk, alive[0].key);
+        return;
+      }
+      this._pickTarget(sk);
     },
 
     _openItem: function () {
@@ -315,14 +400,14 @@
       if (!names.length) this._log('囊中并无可用之物。');
       names.forEach(function (nm, i) {
         btns.push(new G.UI.Btn({
-          x: 22 + (i % 2) * 218, y: 74 + Math.floor(i / 2) * 30, w: 206, h: 26,
+          x: 22 + (i % 2) * 218, y: 58 + Math.floor(i / 2) * 26, w: 206, h: 24,
           small: true, variant: 'default',
           label: nm + ' ×' + save.items[nm],
           onClick: function () { self._useItem(nm); }
         }));
       });
       btns.push(new G.UI.Btn({
-        x: 190, y: 176, w: 100, h: 24, small: true, variant: 'ghost', label: '返回',
+        x: 190, y: 164, w: 100, h: 22, small: true, variant: 'ghost', label: '返回',
         onClick: function () { self.phase = 'command'; self._buildCommand(); }
       }));
       this.buttons = btns;
@@ -345,7 +430,7 @@
       var self = this, btns = [];
       pool.forEach(function (e, i) {
         btns.push(new G.UI.Btn({
-          x: 22 + (i % 2) * 218, y: 74 + Math.floor(i / 2) * 30, w: 206, h: 26,
+          x: 22 + (i % 2) * 218, y: 58 + Math.floor(i / 2) * 26, w: 206, h: 24,
           small: true,
           label: e.name + (e.front ? '·前排' : '·后排') + '　'
             + Math.max(0, Math.round(e.hp)) + '/' + e.maxhp,
@@ -353,7 +438,7 @@
         }));
       });
       btns.push(new G.UI.Btn({
-        x: 190, y: 176, w: 100, h: 24, small: true, variant: 'ghost', label: '返回',
+        x: 190, y: 164, w: 100, h: 22, small: true, variant: 'ghost', label: '返回',
         onClick: function () { self.phase = 'command'; self._buildCommand(); }
       }));
       this.buttons = btns;
@@ -450,21 +535,88 @@
       next();
     },
 
-    /* Boss 血量阈值技：<50% 召唤群狼（仅 1 次）；<30% 烈焰风暴 CD 缩短 */
+    /* Boss 血量阈值技：有 phases 配置走通用引擎，否则退回 M0 狼王写死逻辑。 */
     _bossPhase: function (boss) {
+      if (boss.phases && boss.phases.length) { this._genericPhases(boss); return; }
+      this._wolfPhases(boss);
+    },
+
+    /* 通用阶段：每条 phase 血量过线一次（done 标记挂在单位上，各 Boss 独立）。 */
+    _genericPhases: function (boss) {
+      for (var i = 0; i < boss.phases.length; i++) {
+        var ph = boss.phases[i];
+        if (boss._phDone[i]) continue;
+        if (boss.hp > 0 && boss.hp <= boss.maxhp * ph.trig) {
+          boss._phDone[i] = true;
+          this._runPhase(boss, ph);
+        }
+      }
+    },
+
+    _runPhase: function (boss, ph) {
+      var self = this, n;
+      if (ph.kind === 'summon') {
+        n = Math.min(MAX_E - this.es.length, ph.n || 1);
+        for (var i = 0; i < n; i++) {
+          this._addEnemy(G.Data.dungeons.makeSummon(ph.spec, boss.level));
+        }
+        this._log(boss.name + ' 召来「' + ph.spec.name + '」×' + n + '！');
+      } else if (ph.kind === 'clone') {
+        n = Math.min(MAX_E - this.es.length, ph.n || 2);
+        for (var j = 0; j < n; j++) this._addEnemy(this._makeClone(boss, ph.pct || .45));
+        this._log(boss.name + ' 分裂出影身 ×' + n + '！');
+      } else if (ph.kind === 'enrage') {
+        boss._rage = (boss._rage || 1) * (1 + (ph.atk || 0));
+        if (ph.cdCut) ph.cdCut.forEach(function (c) {
+          boss.skills.forEach(function (s) {
+            if (s && c.match && s.n.indexOf(c.match) >= 0) s.cd = c.cd;
+          });
+        });
+        this._log(boss.name + ' 凶性大发，攻势暴涨 ' + Math.round((ph.atk || 0) * 100) + '%！');
+      } else if (ph.kind === 'heal') {
+        var amt = Math.round(boss.maxhp * (ph.pct || .2));
+        this._heal(boss.key, amt);
+        this._log(boss.name + ' 运转玄功，回复 ' + amt + ' 气血！');
+      }
+    },
+
+    _makeClone: function (boss, pct) {
+      function r(v) { return Math.max(1, Math.round(v * pct)); }
+      var hp = r(boss.maxhp);
+      return {
+        name: boss.name + '·影', species: boss.species, artKey: null, sprite: boss.sprite,
+        level: boss.level, maxhp: hp, hp: hp,
+        atk: r(boss.atk), def: r(boss.def), spd: boss.spd,
+        elem: boss.elem, boss: false,
+        skills: boss.skills.map(function (s) { return JSON.parse(JSON.stringify(s)); }),
+        phases: [], shield: 0, buffs: { atk: 0, turns: 0 },
+        guard: false, statuses: {}, im: [], charge: null
+      };
+    },
+
+    /* 战中增员：补全字段 → 入列 → 重排 → 初始化演出追踪。 */
+    _addEnemy: function (u) {
+      u.key = 'E' + this.es.length;
+      u.hp = (u.hp != null) ? u.hp : u.maxhp;
+      u.buffs = u.buffs || { atk: 0, turns: 0 };
+      u.guard = false; u.statuses = u.statuses || {}; u.im = u.im || [];
+      u.charge = null; u.shield = u.shield || 0; u._phDone = {};
+      u.skills = u.skills || [];
+      u.skills.forEach(function (s) { if (s.cdLeft == null) s.cdLeft = 0; });
+      this.es.push(u);
+      this._layout();
+      this.shown[u.key] = u.hp;
+      this.lunge[u.key] = 0; this.lungeT[u.key] = 0;
+      this.flash[u.key] = 0; this.chargeMark[u.key] = null;
+    },
+
+    /* M0 狼王：<50% 召唤群狼（仅 1 次）；<30% 烈焰风暴 CD 缩短 */
+    _wolfPhases: function (boss) {
       if (!this.summonDone && boss.hp > 0 && boss.hp < boss.maxhp * 0.5) {
         this.summonDone = true;
         if (this.es.length < MAX_E) {
           var w = G.Data.makeEnemy('赤炎狼', 5, '群狼');
-          w.key = 'E' + this.es.length;
-          w.hp = w.maxhp;
-          w.buffs = { atk: 0, turns: 0 };
-          w.statuses = {}; w.im = []; w.charge = null; w.guard = false;
-          this.es.push(w);
-          this._layout();
-          this.shown[w.key] = w.hp;
-          this.lunge[w.key] = 0; this.lungeT[w.key] = 0;
-          this.flash[w.key] = 0; this.chargeMark[w.key] = null;
+          this._addEnemy(w);
           this._log(boss.name + ' 仰首长嗥，呼唤群狼！');
         }
       }
@@ -516,6 +668,44 @@
         return;
       }
 
+      if (skill.kind === 'shield') {
+        steps.push([0.30, function () {
+          var amt = Math.round(atk.maxhp * (skill.pct || .15));
+          atk.shield = Math.min(atk.maxhp, (atk.shield || 0) + amt);
+          self._float(aKey, '护盾', '#9ac8ff');
+          self._log(atk.name + ' 凝出护盾，可吸收 ' + amt + ' 点伤害。');
+        }]);
+        steps.push([0.25, function () {}]);
+        this._cut(steps, done);
+        return;
+      }
+
+      if (skill.kind === 'status') {
+        steps.push([0.18, function () {
+          self._log(atk.name + ' 施展「' + skill.n + '」！');
+          self.lungeT[aKey] = aKey === 'P' ? 34 : -30;
+        }]);
+        steps.push([0.26, function () {
+          self.lungeT[aKey] = 0;
+          var mkey = aKey + '|' + skill.n;
+          var streak = self.miss[mkey] || 0;
+          var hit = Math.max(5, skill.hit == null ? 100 : skill.hit);
+          if (streak < 2 && Math.random() * 100 > hit) {
+            self.miss[mkey] = streak + 1;
+            self._log('—— 落空了。');
+            return;
+          }
+          self.miss[mkey] = 0;
+          if (skill.status) {
+            var chance = skill.status.chance || 0;
+            if (def.level != null && atk.level != null && def.level > atk.level + 5) chance *= .5;
+            if (Math.random() < chance) self._applyStatus(def, dKey, skill.status.t);
+          }
+        }]);
+        this._cut(steps, done);
+        return;
+      }
+
       if (skill.buff) {
         steps.push([0.3, function () {
           atk.buffs.atk = skill.buff.atk; atk.buffs.turns = skill.buff.turns;
@@ -545,17 +735,21 @@
         self.lungeT[aKey] = 0;
         if (skill.charge) self.chargeMark[aKey] = null;   /* 蓄力已释放 */
 
-        /* 命中：技能自带命中率，下限 5%；连续失手两次后第三次保底命中 */
+        /* 命中（单体）：技能自带命中率，下限 5%；连续失手两次后第三次保底命中。
+           全体技改为逐目标判定（见下），跳过此处的整段失手计数。 */
+        var isAll = skill.target === '全体';
         var mkey = aKey + '|' + (skill.n || '攻击');
         var streak = self.miss[mkey] || 0;
         var hit = Math.max(5, skill.hit == null ? 100 : skill.hit);
-        if (streak < 2 && Math.random() * 100 > hit) {
-          self.miss[mkey] = streak + 1;
-          self._log('—— 落空了。');
-          return;
+        if (!isAll) {
+          if (streak < 2 && Math.random() * 100 > hit) {
+            self.miss[mkey] = streak + 1;
+            self._log('—— 落空了。');
+            return;
+          }
+          if (streak >= 2) self._log('（连失两度，此番必中）');
+          self.miss[mkey] = 0;
         }
-        if (streak >= 2) self._log('（连失两度，此番必中）');
-        self.miss[mkey] = 0;
 
         if (skill.kind === 'heal' && skill.heal) {
           /* 技能治疗 = 施法者 ATK × 倍率 × 浮动 × 暴击系数（v0.2 §6.3） */
@@ -568,17 +762,48 @@
           return;
         }
 
-        var r = self._calc(atk, def, skill);
-        self._impact(dKey, r);
-        var extra = G.Data.elem.label(r.ec);
-        if (r.crit) extra = ' 会心一击！' + extra;
-        self._log(atk.name + ' 命中 ' + def.name + '，造成 ' + r.dmg + ' 点伤害。' + extra);
+        /* 目标列表：全体技打对方全部存活单位，否则只打选定目标 */
+        var targets;
+        if (isAll) {
+          var pool = aKey === 'P'
+            ? self._aliveEs().map(function (e) { return { u: e, key: e.key }; })
+            : self._alivePlayer().map(function (u) { return { u: u, key: 'P' }; });
+          targets = pool;
+        } else targets = [{ u: def, key: dKey }];
 
-        /* 附加状态：命中最多 1 种；目标高 5 级以上概率减半（v0.2 §8.2） */
-        if (skill.status) {
-          var chance = skill.status.chance || 0;
-          if (def.level != null && atk.level != null && def.level > atk.level + 5) chance *= 0.5;
-          if (Math.random() < chance) self._applyStatus(def, dKey, skill.status.t);
+        var totalHp = 0;
+        targets.forEach(function (t) {
+          if (!t.u || t.u.hp <= 0) return;
+          /* 全体技逐目标命中（无 hit 字段默认必中） */
+          if (isAll) {
+            var hh = Math.max(5, skill.hit == null ? 100 : skill.hit);
+            if (Math.random() * 100 > hh) { self._log(atk.name + ' 攻向 ' + t.u.name + '，却落空了。'); return; }
+          }
+          var r = self._calc(atk, t.u, skill);
+          var hpDmg = self._impact(t.key, r);
+          totalHp += hpDmg;
+          var extra = G.Data.elem.label(r.ec);
+          if (r.crit) extra = ' 会心一击！' + extra;
+          self._log(atk.name + ' 命中 ' + t.u.name + '，造成 ' + hpDmg + ' 点伤害。' + extra);
+
+          /* 附加状态：命中最多 1 种；目标高 5 级以上概率减半（v0.2 §8.2） */
+          if (skill.status) {
+            var chance = skill.status.chance || 0;
+            if (t.u.level != null && atk.level != null && t.u.level > atk.level + 5) chance *= 0.5;
+            if (Math.random() < chance) self._applyStatus(t.u, t.key, skill.status.t);
+          }
+          /* 诛邪神光：玩家命中额外概率封印目标 */
+          if (aKey === 'P' && atk._zhuxie && t.u.hp > 0
+            && Math.random() < atk._zhuxie) {
+            self._applyStatus(t.u, t.key, '封');
+          }
+        });
+
+        /* 吸血：技能自带 vamp + 玩家「血海神术」全局吸血，按实际气血伤害回复 */
+        var vampRate = (skill.vamp || 0) + (aKey === 'P' ? (atk._secretVamp || 0) : 0);
+        if (vampRate > 0 && totalHp > 0) {
+          var vh = Math.round(totalHp * vampRate);
+          if (vh > 0) { self._heal(aKey, vh); self._log(atk.name + ' 汲取气血，回复 ' + vh + '。'); }
         }
       }]);
       this._cut(steps, done);
@@ -602,11 +827,14 @@
       }
     },
 
-    /* 伤害 = (攻×倍率×增益 − 防×0.55) × 属性克制 × 浮动 × 守御 × 暴击 */
+    /* 伤害 = (攻×倍率×增益×狂暴 − 防×0.55×(1−破防)) × 属性克制 × 浮动 × 守御 × 暴击 */
     _calc: function (atk, def, skill) {
       var mult = skill.mult == null ? 1 : skill.mult;
       var buff = 1 + (atk.buffs && atk.buffs.atk || 0);
-      var base = Math.max(1, atk.atk * mult * buff - def.def * 0.55);
+      var rage = atk._rage || 1;
+      var defTerm = def.def * 0.55;
+      if (skill.pierce) defTerm *= (1 - skill.pierce);
+      var base = Math.max(1, atk.atk * mult * buff * rage - defTerm);
       var ec = G.Data.elem.coef(skill.elem, def.elem);
       base *= ec;
       var guard = def.guard ? 0.55 : 1;
@@ -650,6 +878,12 @@
         }
         u.guard = false;
       });
+      /* 芒山聚灵：每回合回复灵力（写回 save.po） */
+      var save = G.game.save;
+      if (this.p._mangshan) {
+        save.po = (save.po || 0) + this.p._mangshan;
+        this._float('P', '灵力 +' + this.p._mangshan, '#9ad0ff');
+      }
       this.pSkill = null;
       this.round += 1;
       this._log('—— 第 ' + this.round + ' 回合 ——');
@@ -684,15 +918,32 @@
     _impact: function (key, r) {
       this.flash[key] = 1;
       var u = this._unit(key);
-      if (!u) return;
-      u.hp = Math.max(0, u.hp - r.dmg);
-      /* 睡眠：受直接伤害即醒（DOT 不醒，v0.2 §8.1） */
-      if (u.statuses && u.statuses['睡']) {
+      if (!u) return 0;
+      var dmg = r.dmg;
+      /* 护盾池优先吸收；吸收完才扣气血 */
+      if (u.shield > 0) {
+        var ab = Math.min(u.shield, dmg);
+        u.shield -= ab; dmg -= ab;
+        if (ab > 0) this._float(key, '护盾 -' + ab, '#9ac8ff');
+      }
+      u.hp = Math.max(0, u.hp - dmg);
+      /* 睡眠：受直接气血伤害即醒（DOT 不醒，护盾全挡也不醒，v0.2 §8.1） */
+      if (dmg > 0 && u.statuses && u.statuses['睡']) {
         delete u.statuses['睡'];
         this._log(u.name + ' 受创惊醒！');
       }
-      this._float(key, '-' + r.dmg, r.crit ? '#ffd45a' : '#ffd8d0', r.crit);
+      /* 枯荣神术：玩家受直接伤害后概率回 maxHP 的一定比例，每场限次 */
+      if (key === 'P' && dmg > 0 && u._kurong && u._kurongLeft > 0
+        && Math.random() < u._kurong.chance) {
+        u._kurongLeft -= 1;
+        var kh = Math.round(u.maxhp * u._kurong.pct);
+        this._heal(key, kh);
+        this._log('枯荣轮转，受创反生，回复 ' + kh + ' 气血。');
+      }
+      if (dmg > 0) this._float(key, '-' + dmg, r.crit ? '#ffd45a' : '#ffd8d0', r.crit);
+      else this._float(key, '格挡', '#9ac8ff');
       this.shake = r.crit ? 7 : 3;
+      return dmg;
     },
 
     _heal: function (key, amt) {
@@ -774,6 +1025,34 @@
         return;
       }
 
+      /* 副本战：杂兵/精英走通用收益，Boss 关由副本场景结算；打完回副本场景推进。 */
+      if (p.dungeon) {
+        var dg = p.dungeon;
+        var darch = G.Data.dungeons.archById(dg.archId);
+        var dtype = G.Data.dungeons.stageType(darch, dg.stage);
+        if (dtype === 'trash' || dtype === 'elite') {
+          var dr = G.Player.rates(save);
+          var dlg = save.linggen || { elems: ['无'], coef: {} };
+          var dlgCoef = (dlg.coef && dlg.coef[(dlg.elems && dlg.elems[0]) || '无']) || 1;
+          var dqi = 0, dpo = 0, dst = 0, dcut = false;
+          this.es.forEach(function (e) {
+            var L = e.level;
+            var gap = ((save.globalLevel || 1) - L) > 5 ? .5 : 1;
+            if (gap < 1) dcut = true;
+            dqi += Math.round(80 * L * dlgCoef * (1 + (dr.qi || 0)) * gap);
+            dpo += Math.round(8 * L * (1 + (dr.po || 0)) * gap);
+            dst += Math.round(6 * L * (1 + (dr.st || 0)) * gap);
+          });
+          save.qi = (save.qi || 0) + dqi;
+          save.po = (save.po || 0) + dpo; save.stone += dst;
+          this._log('战利：灵气 +' + dqi + '　灵力 +' + dpo + '　灵石 +' + dst
+            + (dcut ? '（境界压制，收益减半）' : ''));
+        }
+        G.Storage.saveCurrent(save);
+        this._finishDungeon();
+        return;
+      }
+
       /* 普通遭遇（经济表 v0.2 §4）：逐只结算再合计
          灵气 80×L×灵根系数×(1+灵气加成) / 灵力 8×L×(1+灵力加成)
          灵石 6×L×(1+灵石加成)；主角境界 − L > 5 → 该只 ×0.5 */
@@ -824,6 +1103,19 @@
       save.hp = Math.max(1, this.p.hp);
       G.Storage.saveCurrent(save);
       this._finish(true, this.mapId);
+    },
+
+    /* 副本战胜利：回副本场景（由其推进关卡 / 发 Boss 奖励） */
+    _finishDungeon: function () {
+      this.over = true;
+      this.buttons = [];
+      this.phase = 'result';
+      var save = G.game.save;
+      save.hp = Math.max(1, this.p.hp);
+      this._cut([[0.9, function () {
+        G.game.toast('战斗胜利');
+        G.game.changeScene('dungeon', { fromBattle: true });
+      }]]);
     },
 
     _finish: function (win, target, soft) {
@@ -928,7 +1220,7 @@
             ? (this.p.statuses['封'] ? '封印中：本回合无法施展功法'
               : '消耗灵力施展，冷却完毕方可再用')
             : '选中即消耗一份，本回合交由敌方行动';
-        G.UI.text(x, { x: 240, y: 160 }, hint, 10.5, G.UI.C.textDim, 'center');
+        G.UI.text(x, { x: 240, y: 196 }, hint, 10.5, G.UI.C.textDim, 'center');
       }
 
       if (this.phase === 'result') {
@@ -1025,7 +1317,8 @@
       var spr;
       if (isP) spr = G.Sprites.heroBattle();
       else if (u.species === '心魔' && G.Sprites.heartDemon) spr = G.Sprites.heartDemon();
-      else spr = G.Sprites.beast(SPECIES_SPRITE[u.species] || 'snake');
+      else spr = G.Sprites.beastResolve(u.artKey,
+        u.sprite || SPECIES_SPRITE[u.species] || 'snake');
       if (!isP && u.boss) s = Math.max(s, 72);
 
       /* 已倒下：只留一个淡影，不再画立绘与名牌 */
@@ -1115,6 +1408,12 @@
       G.UI.bar(x, { x: bx + 4, y: byy + 15, w: bw - 8, h: 6 },
         u.maxhp ? (this.shown[key] == null ? u.hp : this.shown[key]) / u.maxhp : 0,
         isP ? G.UI.C.hp : '#d24b4b');
+      /* 护盾条：叠在血条上沿的青色段 */
+      if (u.shield > 0) {
+        var sw2 = (bw - 8) * Math.min(1, u.shield / u.maxhp);
+        x.fillStyle = 'rgba(120,190,255,0.9)';
+        x.fillRect(bx + 4, byy + 13, sw2, 2);
+      }
 
       /* 血条残余（白影） */
       var cur = u.maxhp ? Math.max(0, u.hp) / u.maxhp : 0;

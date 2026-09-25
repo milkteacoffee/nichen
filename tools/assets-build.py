@@ -45,10 +45,47 @@ SIZES = {
     'battle.enemy.wolfking': (192, 192),
     'battle.enemy.killer': (192, 192),
     'battle.enemy.heartDemon': (192, 192),
+    # 副本 Boss 立绘（20 张，设计见《副本Boss形象与关卡结构设计 v3.3》§7.1）
+    #   大副本：b<n>big = 第 9 关大 Boss；b<n>mid = 第 5 关小 Boss
+    #   小副本：s<n>    = 第 5 关头领
+    'battle.enemy.b1big': (192, 192),
+    'battle.enemy.b1mid': (192, 192),
+    'battle.enemy.b2big': (192, 192),
+    'battle.enemy.b2mid': (192, 192),
+    'battle.enemy.b3big': (192, 192),
+    'battle.enemy.b3mid': (192, 192),
+    'battle.enemy.b4big': (192, 192),
+    'battle.enemy.b4mid': (192, 192),
+    'battle.enemy.b5big': (192, 192),
+    'battle.enemy.b5mid': (192, 192),
+    'battle.enemy.s1': (192, 192),
+    'battle.enemy.s2': (192, 192),
+    'battle.enemy.s3': (192, 192),
+    'battle.enemy.s4': (192, 192),
+    'battle.enemy.s5': (192, 192),
+    'battle.enemy.s6': (192, 192),
+    'battle.enemy.s7': (192, 192),
+    'battle.enemy.s8': (192, 192),
+    'battle.enemy.s9': (192, 192),
+    'battle.enemy.s10': (192, 192),
     'char.hero.down': (168, 252),
     'char.hero.up': (168, 252),
     'char.hero.left': (168, 252),
     'char.hero.right': (168, 252),
+    # 地图 NPC（设计见《人物形象与文生图设定集 v2.3》§1.2 P_MAP；尺寸同主角，比例 2:3 必须一致）
+    #   elder = 沈伯 / keeper = 刘掌柜 / villager = 泛用村民（浣衣妇与老樵夫共用）
+    'char.npc.elder': (168, 252),
+    'char.npc.keeper': (168, 252),
+    'char.npc.villager': (168, 252),
+    # 对话立绘（逻辑框 74×74，见 art.js PORTRAIT_LW/LH）
+    #   74×4 倍超采样 = 296 是"不被放大"的下限，这里给到 512 留足余量、避免 K=4 时发虚
+    'portrait.shenbo': (512, 512),
+    'portrait.keeper': (512, 512),
+    'portrait.villager': (512, 512),
+    'portrait.elder': (512, 512),
+    'portrait.killer': (512, 512),
+    'portrait.demon': (512, 512),
+    'portrait.aran': (512, 512),
 }
 # 地图角色的三帧：同一张图登记三次，动感由引擎的上下浮动提供
 HERO_DIRS = ['down', 'up', 'left', 'right']

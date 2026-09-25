@@ -1,10 +1,26 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 1;
+  var VERSION = 4;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
+  function defaultProgress() {
+    return {
+      difficulty: 'normal',
+      /* 世界解锁：新档只开凡界；飞升后解锁灵界、仙界；道界需**三枚道之钥匙碎片**（隐藏） */
+      worlds: { fan: true, ling: false, xian: false, dao: false },
+      daoKey: false,
+      activeWorld: 'fan',
+      /* 每界独立难度（设计 v1.1 §2.5）；未设的界回落到 difficulty */
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      /* 三枚道之钥匙碎片（凡/灵/仙 各自的地狱难度通关各给一枚）；三枚齐 → daoKey = true */
+      daoShards: { fan: false, ling: false, xian: false }
+    };
+  }
+
   var Storage = {
+    defaultProgress: defaultProgress,
+
     /* 通用读写（带 .bak） */
     _write: function (key, obj) {
       try {
@@ -21,7 +37,8 @@
       }
       var bak = localStorage.getItem(key + '_bak');
       if (bak) {
-        try { return JSON.parse(bak); } catch (e) {}
+        try { return JSON.parse(bak); }
+        catch (e) {}
       }
       return null;
     },
@@ -45,9 +62,78 @@
       } catch (e) {}
     },
 
+    _isMeta: function (d) {
+      return d && (d.past || d.perfusion || d.xianli != null);
+    },
+
     _migrate: function (data) {
-      /* 后续版本：while (data.version < VERSION) { ... } */
-      data.version = data.version || VERSION;
+      data.version = data.version || 1;
+
+      /* v1 → v2：四界进度 / 道钥（meta），副本运行态 / 道晶（save） */
+      if (data.version < 2) {
+        if (this._isMeta(data)) {
+          data.progress = data.progress || defaultProgress();
+          var pr = data.progress;
+          pr.difficulty = pr.difficulty || 'normal';
+          pr.worlds = pr.worlds || { fan: true, ling: false, xian: false, dao: false };
+          ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+            if (pr.worlds[w] == null) pr.worlds[w] = (w === 'fan');
+          });
+          pr.daoKey = !!pr.daoKey;
+          pr.activeWorld = pr.activeWorld || 'fan';
+        } else {
+          data.dungeonSet = data.dungeonSet || null;   /* 本世 5 副本 id 序列 */
+          data.dungeonSlot = data.dungeonSlot || 0;     /* 当前槽位 0–4 */
+          data.dungeonRun = data.dungeonRun || null;    /* {arch,stage,midBeaten,bigBeaten} */
+          data.dungeonFarm = data.dungeonFarm || 0;     /* 刷本次数（影响产出衰减） */
+          data.secrets = data.secrets || {};            /* 秘境奇遇/秘术拾取记录 */
+          data.daoCrystal = data.daoCrystal || 0;       /* 道晶（道界货币） */
+        }
+        data.version = 2;
+      }
+
+      /* v2 → v3：四界区域层（《四界区域与副本落位设计 v1.0》§7.2）
+         save 侧补 mainWorld（本世主界）/ entrances（5 个副本入口落位）/
+         visited（已到访区域）/ indoor（已进过的建筑）。缺字段一律补默认，不白屏。 */
+      if (data.version < 3) {
+        if (!this._isMeta(data)) {
+          data.entrances = data.entrances || {};
+          data.visited = data.visited || {};
+          data.indoor = data.indoor || {};
+        }
+        data.version = 3;
+      }
+
+      /* v3 → v4：地狱难度体系（《四界区域与副本落位设计 v1.1》§2.5）
+         meta 侧加 hellCleared（跨世永久）/ titles / progress.worldDiff（每界独立难度）/
+         progress.daoShards（三枚道之钥匙碎片）。
+         旧档若 daoKey 已为 true（旧规则 = 地狱通关仙界掉整把钥匙），把三枚碎片一并标为已得，
+         避免老玩家"道界被收回"。 */
+      if (data.version < 4) {
+        if (this._isMeta(data)) {
+          data.hellCleared = data.hellCleared || {};
+          data.titles = data.titles || [];
+          var pr4 = data.progress = data.progress || defaultProgress();
+          pr4.worldDiff = pr4.worldDiff || {};
+          ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+            if (!pr4.worldDiff[w]) pr4.worldDiff[w] = pr4.difficulty || 'normal';
+          });
+          pr4.daoShards = pr4.daoShards || { fan: false, ling: false, xian: false };
+          if (pr4.daoKey) pr4.daoShards = { fan: true, ling: true, xian: true };
+        } else {
+          /* save 侧：入口落位由「数组」改为「按界分桶的对象」；
+             `mainWorld` 删除 —— 当前界只有一个真相源 = meta.progress.activeWorld。 */
+          if (Array.isArray(data.entrances)) {
+            var old = data.entrances;
+            data.entrances = { fan: [], ling: [], xian: [], dao: [] };
+            if (data.mainWorld) data.entrances[data.mainWorld] = old;
+          } else if (!data.entrances) {
+            data.entrances = { fan: [], ling: [], xian: [], dao: [] };
+          }
+          delete data.mainWorld;
+        }
+        data.version = 4;
+      }
       return data;
     },
 

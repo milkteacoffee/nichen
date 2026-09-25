@@ -254,7 +254,7 @@
 
   hooks.renderOverlay = function (x, scene) {
     var save = G.game.save;
-    if (scene.overlay === 'menu' || scene.overlay === 'tiandao') {
+    if (G.TianDao.isMenuOverlay(scene.overlay)) {
       G.TianDao.renderOverlay(x, scene);
       return;
     }

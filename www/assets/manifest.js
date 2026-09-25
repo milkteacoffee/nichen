@@ -4,8 +4,28 @@
 (function (root) {
   var G = root.G || (root.G = {});
   G.AssetManifest = {
+    "battle.enemy.b1big": "assets/img/battle.enemy.b1big.png",
+    "battle.enemy.b1mid": "assets/img/battle.enemy.b1mid.png",
+    "battle.enemy.b2big": "assets/img/battle.enemy.b2big.png",
+    "battle.enemy.b2mid": "assets/img/battle.enemy.b2mid.png",
+    "battle.enemy.b3big": "assets/img/battle.enemy.b3big.png",
+    "battle.enemy.b3mid": "assets/img/battle.enemy.b3mid.png",
+    "battle.enemy.b4big": "assets/img/battle.enemy.b4big.png",
+    "battle.enemy.b4mid": "assets/img/battle.enemy.b4mid.png",
+    "battle.enemy.b5big": "assets/img/battle.enemy.b5big.png",
+    "battle.enemy.b5mid": "assets/img/battle.enemy.b5mid.png",
     "battle.enemy.heartDemon": "assets/img/battle.enemy.heartDemon.png",
     "battle.enemy.killer": "assets/img/battle.enemy.killer.png",
+    "battle.enemy.s1": "assets/img/battle.enemy.s1.png",
+    "battle.enemy.s10": "assets/img/battle.enemy.s10.png",
+    "battle.enemy.s2": "assets/img/battle.enemy.s2.png",
+    "battle.enemy.s3": "assets/img/battle.enemy.s3.png",
+    "battle.enemy.s4": "assets/img/battle.enemy.s4.png",
+    "battle.enemy.s5": "assets/img/battle.enemy.s5.png",
+    "battle.enemy.s6": "assets/img/battle.enemy.s6.png",
+    "battle.enemy.s7": "assets/img/battle.enemy.s7.png",
+    "battle.enemy.s8": "assets/img/battle.enemy.s8.png",
+    "battle.enemy.s9": "assets/img/battle.enemy.s9.png",
     "battle.enemy.snake": "assets/img/battle.enemy.snake.png",
     "battle.enemy.tree": "assets/img/battle.enemy.tree.png",
     "battle.enemy.wolf": "assets/img/battle.enemy.wolf.png",
@@ -26,6 +46,16 @@
     "char.hero.up": "assets/img/char.hero.up.png",
     "char.hero.up.0": "assets/img/char.hero.up.png",
     "char.hero.up.1": "assets/img/char.hero.up.png",
-    "char.hero.up.2": "assets/img/char.hero.up.png"
+    "char.hero.up.2": "assets/img/char.hero.up.png",
+    "char.npc.elder": "assets/img/char.npc.elder.png",
+    "char.npc.keeper": "assets/img/char.npc.keeper.png",
+    "char.npc.villager": "assets/img/char.npc.villager.png",
+    "portrait.aran": "assets/img/portrait.aran.png",
+    "portrait.demon": "assets/img/portrait.demon.png",
+    "portrait.elder": "assets/img/portrait.elder.png",
+    "portrait.keeper": "assets/img/portrait.keeper.png",
+    "portrait.killer": "assets/img/portrait.killer.png",
+    "portrait.shenbo": "assets/img/portrait.shenbo.png",
+    "portrait.villager": "assets/img/portrait.villager.png"
   };
 })(typeof window !== 'undefined' ? window : this);

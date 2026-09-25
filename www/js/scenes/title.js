@@ -54,7 +54,7 @@
         G.game.changeScene(G.game.save.scene || 'town');
       });
       add(hasMeta ? '转世重修' : '新游戏', 'gold', function () {
-        G.game.changeScene('reincarnation');
+        G.game.changeScene(hasMeta ? 'reincarnation' : 'difficulty');
       });
       if (hasMeta) add('轮回殿', 'ghost', function () { G.game.changeScene('hall'); });
 

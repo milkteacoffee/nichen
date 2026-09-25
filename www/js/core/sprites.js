@@ -312,6 +312,26 @@
     return c;
   }
 
+  /* 未来 Boss 素材解析：先查 manifest「battle.enemy.<artKey>」，缺图时退回程序化
+     底怪 fallback（如 b1big 缺图 → killer）。后期出图登记后自动替换，无需改逻辑。 */
+  function beastResolve(artKey, fallback) {
+    var ck = artKey + '|' + fallback;
+    if (beastCache[ck]) return beastCache[ck];
+    var im = (artKey && G.Assets && G.Assets.img) ? G.Assets.img('battle.enemy.' + artKey) : null;
+    var c;
+    if (im) {
+      var o = A.cv(BEAST_LW, BEAST_LH);
+      o.x.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
+      o.x.drawImage(im, 0, 0, BEAST_LW, BEAST_LH);
+      c = o.c;
+    } else {
+      c = beastSprite(fallback || 'snake');
+    }
+    beastCache[ck] = c;
+    return c;
+  }
+
   function body(x, P, cx, cy, rx, ry, base, hi, dark, r) {
     x.fillStyle = dark; A.blob(x, cx, cy + ry * 0.10, rx, ry / rx);
     x.fillStyle = base; A.blob(x, cx, cy, rx * 0.97, ry / rx * 0.97);
@@ -1052,6 +1072,7 @@
       return [npcSprite(kind), npcSprite(kind), npcSprite(kind)];
     },
     beast: beastSprite,
+    beastResolve: beastResolve,
     heroBattle: function () { return beastSprite('hero'); },
     heartDemon: heartDemonSprite,
     HERO_PAL: HERO,

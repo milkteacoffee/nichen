@@ -32,23 +32,32 @@
 <script src="js/data/skills.js"></script>
 <script src="js/data/elements.js"></script>
 <script src="js/data/enemies.js"></script>
+<script src="js/data/dungeons.js"></script>
 <script src="js/data/worlds.js"></script>
 <script src="js/data/maps.js"></script>
+<!-- 四界 28 区域规格（设计见《四界区域与副本落位设计 v1.0》§3/§4.1） -->
+<script src="js/data/regions.js"></script>
 
 <!-- ===== 玩法逻辑 ===== -->
 <script src="js/core/player.js"></script>
 <script src="js/core/mapgen.js"></script>
 <script src="js/core/explore.js"></script>
+<!-- 区域地图生成 + 建筑内部生成：都由紧凑规格确定性产出完整地图定义，
+     注册进 G.Data.maps 后 mapgen.buildMap 直接可用（mapgen 零改动）。 -->
+<script src="js/core/regiongen.js"></script>
+<script src="js/core/interiorgen.js"></script>
 <script src="js/core/overlays.js"></script>
 <script src="js/core/tiandao.js"></script>
 
 <!-- ===== 场景 ===== -->
 <script src="js/scenes/title.js"></script>
+<script src="js/scenes/difficulty.js"></script>
 <script src="js/scenes/reincarnation.js"></script>
 <script src="js/scenes/town.js"></script>
 <script src="js/scenes/field.js"></script>
 <script src="js/scenes/cave.js"></script>
 <script src="js/scenes/battle.js"></script>
+<script src="js/scenes/dungeon.js"></script>
 <script src="js/scenes/heaven.js"></script>
 <script src="js/scenes/death.js"></script>
 <script src="js/scenes/reincarnation-hall.js"></script>

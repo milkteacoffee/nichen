@@ -28,6 +28,7 @@
     return {
       lives: 0, xianli: 0, totalXianli: 0,
       perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
+      progress: G.Storage.defaultProgress(),
       pity: 0, achieve: {},
       heaven: { talks: 0, watchTotal: 0, memory: [], karma: [] },
       past: []
@@ -211,6 +212,15 @@
       var addStone = (pf.stone || 0) * 60;
       var addRescue = pf.rescue || 0;
 
+      /* 四界区域层（《四界区域与副本落位设计 v1.1》§2.1 / §6.1）：
+         锚世（第 1 世）固定凡界、走剧情锚定副本、不抽随机池；
+         浮世由**天道抽定本世起始界**（未通关界优先），并把 5 个副本入口撒进该界区域。
+         **当前界只有一个真相源 = `meta.progress.activeWorld`**（飞升时由 Player.ascend 上移），
+         所以这里不另存 `save.mainWorld`；`save.entrances` 按界分桶，回访下界时落位仍在。 */
+      var mainWorld = anchor ? 'fan' : G.Data.regions.rollMainWorld(meta);
+      meta.progress = meta.progress || {};
+      meta.progress.activeWorld = mainWorld;
+
       var save = {
         life: life, worldSeed: seed, world: world,
         origin: og.id, originFx: originFx,
@@ -225,8 +235,18 @@
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,
         /* 仙力结算与寿元（轮回 v0.4 §3.2 / §4） */
-        maxGlobalLevel: 1, bossKills: 0, chronicle: [], _ageTick: 0
+        maxGlobalLevel: 1, bossKills: 0, chronicle: [], _ageTick: 0,
+        /* 副本（v3.3）：本世秘境序列随入世抽取 */
+        dungeonSet: G.Data.dungeons.rollSet(),
+        dungeonSlot: 0, dungeonRun: null, dungeonFarm: 0,
+        dungeonPity: { mid: 0, clear: 0 },
+        secrets: {}, daoCrystal: 0,
+        /* 区域层：入口落位按界分桶（锚世不抽池）/ 到访记录 / 已进建筑 */
+        entrances: { fan: [], ling: [], xian: [], dao: [] },
+        visited: {}, indoor: {}
       };
+      /* 锚世不抽随机副本池（走剧情锚定副本）；浮世为起始界 roll 一次落位 */
+      if (!anchor) save.entrances[mainWorld] = G.Data.regions.rollEntrances(mainWorld);
 
       if (addQi || addPo || addStone || addRescue || (pf.body || 0)) {
         var gains = [];

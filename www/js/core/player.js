@@ -34,12 +34,13 @@
     Object.keys(src).forEach(function (k) { dst[k] = (dst[k] || 0) + src[k]; });
   }
 
-  /* ===== 境界体系 =====
-     十境九段（成长规格 v0.1）；全局境界等级 = (境序号-1)×9 + 段数，范围 1—90。
+  /* ===== 境界体系（19 境，gl 1–171）=====
+     淬体九段 + 炼气…道祖 各九重；全局境界等级 gl 范围 1—171。
      所需灵气 = 100 × 升级门槛系数 × 当前段数²
      新手境校准（经济表 v0.2 §5）：淬体境全部突破灵气 ×0.4
        → 淬体 1→9 合计 8,160（8 次小突破），淬体 9→10 = 8,100×0.4 = 3,240
-     大境界 9→10 另需一枚对应「突破丹」，并触发「问心魔劫」剧情战。 */
+     同界大境界切换（如 9→10、18→19）：另需一枚对应「突破丹」，并触发「问心魔劫」剧情战。
+     跨界边界（63→64 / 90→91 / 144→145）：不由破境走，由「通关第5副本·飞升接引」完成（见 ascend）。 */
   var REALMS = [
     { n: '淬体', y0: 1, y1: 9, gate: 1, calib: .4 },
     { n: '炼气', y0: 10, y1: 18, gate: 2, calib: 1 },
@@ -50,16 +51,51 @@
     { n: '炼虚', y0: 55, y1: 63, gate: 64, calib: 1 },
     { n: '合体', y0: 64, y1: 72, gate: 128, calib: 1 },
     { n: '大乘', y0: 73, y1: 81, gate: 256, calib: 1 },
-    { n: '渡劫', y0: 82, y1: 90, gate: 512, calib: 1 }
+    { n: '渡劫', y0: 82, y1: 90, gate: 512, calib: 1 },
+    { n: '人仙', y0: 91, y1: 99, gate: 1024, calib: 1 },
+    { n: '地仙', y0: 100, y1: 108, gate: 2048, calib: 1 },
+    { n: '天仙', y0: 109, y1: 117, gate: 4096, calib: 1 },
+    { n: '金仙', y0: 118, y1: 126, gate: 8192, calib: 1 },
+    { n: '太乙金仙', y0: 127, y1: 135, gate: 16384, calib: 1 },
+    { n: '大罗金仙', y0: 136, y1: 144, gate: 32768, calib: 1 },
+    { n: '准圣', y0: 145, y1: 153, gate: 65536, calib: 1 },
+    { n: '圣人', y0: 154, y1: 162, gate: 131072, calib: 1 },
+    { n: '道祖', y0: 163, y1: 171, gate: 262144, calib: 1 }
   ];
-  var MAX_GL = 90;
+  var MAX_GL = 171;
   var CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  /* 阶段单位（境界 v3.2 §1.1）：默认「重」，例外如下 */
+  var REALM_UNIT = { 淬体: '段', 炼虚: '层', 准圣: '转', 圣人: '转', 道祖: '转' };
+  /* 这三境用「初期/中期/后期/圆满」而非数序 */
+  var PHASE_REALMS = { 筑基: 1, 金丹: 1, 元婴: 1 };
+  function stageName(t, stage) {
+    if (PHASE_REALMS[t.n]) {
+      if (stage <= 3) return t.n + '初期';
+      if (stage <= 6) return t.n + '中期';
+      if (stage <= 8) return t.n + '后期';
+      return t.n + (t.n === '元婴' ? '大圆满' : '圆满');
+    }
+    return t.n + CN[stage - 1] + (REALM_UNIT[t.n] || '重');
+  }
 
-  /* ===== 寿元（轮回转世 v0.4 §3.2）=====
+  /* ===== 四界天花板（境界 v3.2 / 副本 v3.3）===== */
+  var WORLDS = [
+    { id: 'fan',  n: '凡界', start: 1,   cap: 63 },
+    { id: 'ling', n: '灵界', start: 64,  cap: 90 },
+    { id: 'xian', n: '仙界', start: 91,  cap: 144 },
+    { id: 'dao',  n: '道界', start: 145, cap: 171 }
+  ];
+
+  /* ===== 寿元（境界 v3.2 §3）=====
      境界寿元上限；入世时 16 岁起算，年龄按游戏内行为推进。
-     寿元尽 → 「坐化」，按善终结算（仙力 ×1.1）。 */
-  var LIFESPAN = { 淬体: 80, 炼气: 120, 筑基: 200, 金丹: 400 };
-  var LIFESPAN_HIGH = 800;          /* 元婴及以上，按卷设定，M1 统一取 800 */
+     寿元尽 → 「坐化」，按善终结算（仙力 ×1.1）。道祖不朽。 */
+  var LIFESPAN = {
+    淬体: 100, 炼气: 150, 筑基: 200, 金丹: 300, 元婴: 500,
+    化神: 800, 炼虚: 1000, 合体: 1500, 大乘: 2000, 渡劫: 3000,
+    人仙: 5000, 地仙: 8000, 天仙: 12000, 金仙: 20000,
+    太乙金仙: 30000, 大罗金仙: 50000, 准圣: 100000, 圣人: 200000,
+    道祖: Infinity
+  };
   var AGE_PER_BATTLE = 10;          /* 每 10 场战斗 +1 岁 */
   var AGE_PER_MEDITATE = 60;        /* 打坐每 60 分钟 +1 岁 */
   var AGE_PER_BREAK = 2;            /* 每次突破 +2 岁 */
@@ -67,14 +103,40 @@
   var Player = {
     REALMS: REALMS,
     MAX_GL: MAX_GL,
+    WORLDS: WORLDS,
     AGE_PER_BATTLE: AGE_PER_BATTLE,
     AGE_PER_MEDITATE: AGE_PER_MEDITATE,
     AGE_PER_BREAK: AGE_PER_BREAK,
 
+    /* ===== 世界（四界）===== */
+    /* 按 id 取世界条目 */
+    worldById: function (id) {
+      for (var i = 0; i < WORLDS.length; i++) if (WORLDS[i].id === id) return WORLDS[i];
+      return WORLDS[0];
+    },
+    /* 某 gl 所属世界 */
+    worldOfGL: function (gl) {
+      gl = gl || 1;
+      for (var i = 0; i < WORLDS.length; i++) {
+        if (gl >= WORLDS[i].start && gl <= WORLDS[i].cap) return WORLDS[i];
+      }
+      return WORLDS[WORLDS.length - 1];
+    },
+    /* 当前所在世界 id：优先 meta.progress.activeWorld，兜底按 gl 推断 */
+    activeWorldId: function (meta) {
+      meta = meta || (G.game && G.game.meta) || (G.Storage && G.Storage.loadMeta && G.Storage.loadMeta());
+      if (meta && meta.progress && meta.progress.activeWorld) return meta.progress.activeWorld;
+      return this.worldOfGL(1).id;
+    },
+    /* 当前世界天花板 gl */
+    worldCap: function (meta) {
+      return this.worldById(this.activeWorldId(meta)).cap;
+    },
+
     /* 该境界的寿元上限 */
     lifespanOf: function (gl) {
       var t = this.realmOf(gl || 1);
-      return LIFESPAN[t.n] || LIFESPAN_HIGH;
+      return LIFESPAN[t.n];
     },
 
     /* 年龄推进。reason: 'battle' | 'meditate' | 'break'
@@ -197,11 +259,27 @@
       return e;
     },
 
+    /* 圣术（签名秘术·面板百分比）：随品阶 grade 缩放（凡1/灵1.5/仙2） */
+    secretPct: function (save) {
+      var p = { a: 0, f: 0, h: 0, s: 0 }, Dg = G.Data.dungeons;
+      var secs = save.secrets || {};
+      Object.keys(secs).forEach(function (id) {
+        var ef = Dg.secretEffectById(id);
+        if (!ef || ef.cat !== '圣') return;
+        var g = Dg.gradeOf(save, id);
+        if (ef.atk) p.a += ef.atk * g;
+        if (ef.def) p.f += ef.def * g;
+        if (ef.hp) p.h += ef.hp * g;
+        if (ef.spd) p.s += ef.spd * g;
+      });
+      return p;
+    },
+
     realmInfo: function (gl) {
       gl = Math.max(1, Math.min(MAX_GL, gl || 1));
       var t = this.realmOf(gl);
       var stage = gl - t.y0 + 1;
-      return { realm: t.n, stage: stage, n: t.n + CN[stage - 1] + '段' };
+      return { realm: t.n, stage: stage, n: stageName(t, stage) };
     },
 
     /* 所在大境界条目 */
@@ -245,18 +323,22 @@
       var have = Math.floor(save.qi || 0);
       var pill = this.breakPill(gl);
       var owned = (save.items && save.items[pill]) || 0;
+      var cap = this.worldCap();
       var st = {
         gl: gl, realm: t.n, stage: stage, big: big,
         need: need, have: have, lack: Math.max(0, need - have),
         pill: pill, pillOwned: owned,
         maxed: gl >= MAX_GL,
+        worldcap: gl >= cap && gl < MAX_GL,
+        cap: cap,
         next: this.realmInfo(Math.min(MAX_GL, gl + 1))
       };
-      st.ready = !st.maxed && have >= need && (!big || owned > 0);
-      st.reason = st.maxed ? '已至渡劫圆满，无路可破'
-        : (big && !owned) ? '需「' + pill + '」'
-          : (have < need) ? '灵气不足，还需 ' + st.lack
-            : '';
+      st.ready = !st.maxed && !st.worldcap && have >= need && (!big || owned > 0);
+      st.reason = st.maxed ? '已至道祖圆满，无路可破'
+        : st.worldcap ? '此界天道所限，飞升方可再进一步'
+          : (big && !owned) ? '需「' + pill + '」'
+            : (have < need) ? '灵气不足，还需 ' + st.lack
+              : '';
       return st;
     },
 
@@ -264,6 +346,7 @@
     breakthrough: function (save, meta) {
       var st = this.breakState(save);
       if (st.maxed) return { ok: false, reason: st.reason };
+      if (st.worldcap) return { ok: false, worldcap: true, reason: st.reason };
       if (st.big) return { ok: false, big: true, reason: st.reason || ('需「' + st.pill + '」') };
       if (st.have < st.need) return { ok: false, reason: st.reason };
       save.qi = Math.max(0, (save.qi || 0) - st.need);
@@ -275,6 +358,7 @@
     startBigBreak: function (save) {
       var st = this.breakState(save);
       if (st.maxed) return { ok: false, reason: st.reason };
+      if (st.worldcap) return { ok: false, worldcap: true, reason: st.reason };
       if (!st.big) return { ok: false, reason: '尚未修至大圆满' };
       if (st.have < st.need) return { ok: false, reason: st.reason };
       if (!st.pillOwned) return { ok: false, reason: '需「' + st.pill + '」' };
@@ -299,6 +383,31 @@
       return save.qi;
     },
 
+    /* 飞升接引（副本 v3.3）：通关第5副本后跨界，不走破境、不需丹/心魔。
+       targetId = 目标世界 id；前置当前 gl 已达当前世界 cap（由副本结算保证）。 */
+    ascend: function (save, meta, targetId) {
+      meta = meta || (G.game && G.game.meta);
+      var fromW = this.worldById(this.activeWorldId(meta));
+      var toW = this.worldById(targetId);
+      if (!toW) return { ok: false, reason: '无此界' };
+      if (toW.start <= fromW.cap) return { ok: false, reason: '目标界未高于当前界' };
+      save.globalLevel = toW.start;
+      save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
+      this.chronicle(save, 'ascend:' + targetId, '自' + fromW.n + '飞升' + toW.n);
+      if (meta) {
+        meta.progress = meta.progress || {};
+        meta.progress.activeWorld = targetId;
+      }
+      var st = this.computeStats(save, meta);
+      save.hp = st.maxhp;     /* 飞升跨界，气血回满 */
+      if (G.Storage) {
+        if (G.Storage.saveMeta) G.Storage.saveMeta(meta);
+        if (G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      }
+      if (G.TianDao) G.TianDao.notify('ascend');
+      return { ok: true, from: fromW.id, to: targetId, gl: save.globalLevel };
+    },
+
     _applyBreak: function (save, meta, big) {
       save.globalLevel = Math.min(MAX_GL, (save.globalLevel || 1) + 1);
       /* 本世到达过的最高等级（仙力结算用，规格 v0.4 §4） */
@@ -313,6 +422,21 @@
       /* 天道注视 + 低语（v2.7：注视累加与阈值判定统一走 TianDao） */
       if (G.TianDao) G.TianDao.notify(big ? 'breakBig' : 'breakSmall');
       return save.globalLevel;
+    },
+
+    /* 地狱难度永久加成（《四界区域与副本落位设计 v1.1》§2.5）
+       每界地狱通关 → meta.hellCleared[界]=true；**从飞升到上一界起**生效，跨世永久。
+       返回百分比（0.1 = +10%），三界都满足时叠加到 +30%。 */
+    hellBonusPct: function (meta) {
+      meta = meta || G.game.meta;
+      var hc = (meta && meta.hellCleared) || {};
+      var pr = (meta && meta.progress) || {};
+      var wd = pr.worlds || {};
+      var pct = 0;
+      if (hc.fan && wd.ling) pct += 0.10;        /* 凡界地狱 → 飞升灵界后 */
+      if (hc.ling && wd.xian) pct += 0.10;       /* 灵界地狱 → 飞升仙界后 */
+      if (hc.xian && pr.daoKey) pct += 0.10;     /* 仙界地狱 → 道界开启后 */
+      return pct;
     },
 
     computeStats: function (save, meta) {
@@ -355,6 +479,15 @@
       hp *= 1 + we.h;
       def *= 1 + we.f;
       spd *= 1 + we.s;
+
+      /* 地狱难度永久加成（跨世；生效时机见设计 v1.1 §2.5）——全属性同乘 */
+      var hb = this.hellBonusPct(meta);
+      if (hb > 0) { atk *= 1 + hb; def *= 1 + hb; hp *= 1 + hb; spd *= 1 + hb; }
+
+      /* 圣术（签名秘术）百分比 */
+      var sp2 = this.secretPct(save);
+      atk *= 1 + sp2.a; def *= 1 + sp2.f;
+      hp *= 1 + sp2.h; spd *= 1 + sp2.s;
 
       var st = {
         maxhp: Math.round(hp), atk: Math.round(atk), def: Math.round(def),

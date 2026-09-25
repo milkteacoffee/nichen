@@ -270,19 +270,71 @@
     },
 
     /* ============ 菜单 / 设置面板 ============ */
-    MENU_P: { x: 130, y: 52, w: 220, h: 168 },
+    MENU_P: { x: 130, y: 40, w: 220, h: 196 },
     SET_P: { x: 40, y: 16, w: 400, h: 240 },
+    WORLDS_P: { x: 40, y: 16, w: 400, h: 240 },
+
+    /* 本模块负责渲染的 overlay 白名单。
+       各探索场景的 renderOverlay 用它做路由 —— 以后**新增菜单页只改这里**，
+       不用再去改 town/field/cave/regiongen/interiorgen 五处（漏一处就是"点了没反应"）。 */
+    MENU_OVERLAYS: { menu: 1, worlds: 1, tiandao: 1 },
+    isMenuOverlay: function (name) { return !!this.MENU_OVERLAYS[name]; },
 
     openMenu: function (scene) {
       var self = this;
       scene.setOverlay('menu', [
-        new G.UI.Btn({ x: 160, y: 92, w: 160, h: 24, small: true,
+        new G.UI.Btn({ x: 160, y: 64, w: 160, h: 24, small: true,
           label: '角　色', onClick: function () { G.Overlays.openChar(scene); } }),
-        new G.UI.Btn({ x: 160, y: 126, w: 160, h: 24, small: true,
+        new G.UI.Btn({ x: 160, y: 96, w: 160, h: 24, small: true, variant: 'gold',
+          label: '秘　境', onClick: function () {
+            scene.clearOverlay();
+            G.game.changeScene('dungeon');
+          } }),
+        new G.UI.Btn({ x: 160, y: 128, w: 160, h: 24, small: true,
+          label: '界域难度', onClick: function () { self.openWorlds(scene); } }),
+        new G.UI.Btn({ x: 160, y: 160, w: 160, h: 24, small: true,
           label: '天道设置', onClick: function () { self.openSettings(scene); } }),
-        new G.UI.Btn({ x: 160, y: 160, w: 160, h: 24, small: true, variant: 'ghost',
+        new G.UI.Btn({ x: 160, y: 192, w: 160, h: 24, small: true, variant: 'ghost',
           label: '返　回', onClick: function () { scene.clearOverlay(); } })
       ]);
+    },
+
+    /* ===== 界域难度（设计 v1.1 §2.5）=====
+       临时入口：先挂在通用菜单上；正式入口是轮回殿「飞升台」（未开工）。
+       每界难度独立、**立即生效** —— 这样"普通通关凡界 → 回刷凡界地狱拿碎片"才走得通。 */
+    openWorlds: function (scene) {
+      var self = this;
+      var meta = G.game.meta;
+      if (!meta) { G.game.toast('尚无存档，无法调整界域难度'); return; }
+      var pr = (meta && meta.progress) || {};
+      var wd = pr.worldDiff || {};
+      var WN = { fan: '凡界', ling: '灵界', xian: '仙界' };
+      var DN = { normal: '普通', hard: '困难', hell: '地狱' };
+      var ORDER = ['normal', 'hard', 'hell'];
+      function rebuild() { self.openWorlds(scene); }
+
+      var btns = [], y = 62;
+      ['fan', 'ling', 'xian'].forEach(function (wid) {
+        var unlocked = !!(pr.worlds && pr.worlds[wid]);
+        var cur = wd[wid] || pr.difficulty || 'normal';
+        btns.push(new G.UI.Btn({
+          x: 70, y: y, w: 300, h: 26, small: true,
+          variant: unlocked ? (cur === 'hell' ? 'gold' : 'default') : 'ghost',
+          label: WN[wid] + '　' + (unlocked ? DN[cur] : '未解锁'),
+          onClick: function () {
+            if (!unlocked) { G.game.toast(WN[wid] + '尚未解锁（先通关前一界）'); return; }
+            pr.worldDiff = pr.worldDiff || {};
+            pr.worldDiff[wid] = ORDER[(ORDER.indexOf(cur) + 1) % ORDER.length];
+            if (G.Storage.saveMeta) G.Storage.saveMeta(meta);
+            G.game.toast(WN[wid] + '难度 → ' + DN[pr.worldDiff[wid]]);
+            rebuild();
+          }
+        }));
+        y += 34;
+      });
+      btns.push(new G.UI.Btn({ x: 190, y: 222, w: 100, h: 24, small: true, variant: 'ghost',
+        label: '返　回', onClick: function () { self.openMenu(scene); } }));
+      scene.setOverlay('worlds', btns);
     },
 
     openSettings: function (scene) {
@@ -327,7 +379,15 @@
       if (scene.overlay === 'menu') {
         G.Overlays.dim(x);
         G.UI.frame(x, this.MENU_P, '菜　单', { paper: true });
-        G.UI.text(x, { x: 240, y: 178 }, 'Esc 关闭', 10, G.UI.C.textDim, 'center');
+        G.UI.text(x, { x: 240, y: 222 }, 'Esc 关闭', 10, G.UI.C.textDim, 'center');
+      } else if (scene.overlay === 'worlds') {
+        var WP = this.WORLDS_P;
+        G.Overlays.dim(x);
+        G.UI.frame(x, WP, '界 域 难 度', { paper: true });
+        G.UI.text(x, { x: WP.x + 30, y: 44 }, '点击切换该界难度，立即生效', 11, G.UI.C.textDim);
+        G.UI.text(x, { x: WP.x + 30, y: 168 }, '地狱：Boss 气血×1.8 / 攻击×1.55、资源×0.6、Boss CD−1', 10, G.UI.C.textDim);
+        G.UI.text(x, { x: WP.x + 30, y: 185 }, '地狱通关给：称号 + 跨世永久全属性+10% + 道之钥匙碎片', 10, G.UI.C.goldHi);
+        G.UI.text(x, { x: WP.x + 30, y: 202 }, '三界碎片集齐 → 道界开启', 10, G.UI.C.goldHi);
       } else if (scene.overlay === 'tiandao') {
         var P = this.SET_P;
         G.Overlays.dim(x);
