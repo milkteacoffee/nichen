@@ -80,6 +80,7 @@
       npcMarkOf: function (npc) { return hooks.npcMark ? hooks.npcMark(npc) : null; },
       clearOverlay: function () {
         this.overlay = null;
+        if (G.TianDao) G.TianDao.Field.hide();
         G.Storage.saveCurrent(G.game.save);
         this._padButtons();
       },
@@ -335,7 +336,11 @@
          ─ 点到可行走地面 → A* 走过去；
          ─ 点到自己脚下 → 原地交互（等价于旧版 A 键）。 */
       onTap: function (p) {
-        if (this.overlay || this.flashDir === 1) return;
+        if (this.overlay) {
+          if (hooks.overlayTap) hooks.overlayTap(p, this);
+          return;
+        }
+        if (this.flashDir === 1) return;
         if (p.y < HUD_H) return;                    /* 顶栏不响应，避免误触 HUD */
         var tx = Math.floor(this._camX() / 16 + p.x / 16);
         var ty = Math.floor(this._camY() / 16 + p.y / 16);
@@ -935,6 +940,10 @@
       },
 
       onKey: function (code) {
+        if (this.overlay) {
+          if (hooks.overlayKey) hooks.overlayKey(code, this);
+          return;
+        }
         if (code === 'Space' || code === 'Enter') this._interact();
         if (code === 'Escape' && hooks.menu) hooks.menu(this);
       }

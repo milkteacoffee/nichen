@@ -5,6 +5,7 @@
     canvas: null, ctx: null,
     scene: null, sceneName: '',
     toasts: [],
+    whisper: null,   // 天道低语（非阻断，顶部，自动淡去）
     meta: null, save: null,
     speedMul: 1,
     S: 2,   // 内部分辨率倍率（逻辑坐标仍为 480×272）
@@ -90,15 +91,16 @@
       this.toasts.push({ text: text, t: sec || 1.6 });
     },
 
-    /* 统一死亡入口（轮回转世 v0.4 §3.1）：cause = 'war' | 'aged' | 'event' */
+    /* 统一死亡入口（轮回转世 v0.4 §3.1 / v2.7）：
+       先入「天道拦魂」，问话结束后再进 death 结算。cause = 'war' | 'aged' | 'event' */
     die: function (cause) {
-      if (this.sceneName === 'death') return;
+      if (this.sceneName === 'death' || this.sceneName === 'heaven') return;
       if (this.save) {
         this.save._cause = cause || 'war';
         this.save.hp = 0;
         G.Storage.saveCurrent(this.save);
       }
-      this.changeScene('death');
+      this.changeScene('heaven');
     },
 
     /* 寿元尽 → 坐化。年龄推进（战斗/打坐/突破）后统一裁决。
@@ -140,6 +142,13 @@
 
       if (this.scene.update) this.scene.update(dt);
 
+      /* 天道低语计时（与场景无关） */
+      if (this.whisper) {
+        this.whisper.tw.update(dt);
+        this.whisper.t -= dt;
+        if (this.whisper.t <= 0) this.whisper = null;
+      }
+
       /* 高分渲染：逻辑坐标 480×272；UI 场景开平滑，像素场景关平滑 */
       x.setTransform(this.S, 0, 0, this.S, 0, 0);
       x.imageSmoothingEnabled = !!this.scene.smooth;
@@ -153,6 +162,8 @@
         if (allBtns[bi].tick) allBtns[bi].tick(dt);
       }
 
+      this._renderWhisper(x);
+
       /* Toast 覆盖层 */
       for (var t = this.toasts.length - 1; t >= 0; t--) {
         var to = this.toasts[t];
@@ -163,6 +174,28 @@
 
       inp.endFrame();
       requestAnimationFrame(this.loop.bind(this));
+    },
+
+    /* 天道低语：顶部金框谶语，淡入 → 停留 → 淡出，不阻断操作 */
+    _renderWhisper: function (x) {
+      var w = this.whisper;
+      if (!w || !w.tw) return;
+      var life = 8.5 - w.t;
+      var a = Math.min(1, life * 2.4) * Math.min(1, w.t / 1.4);
+      var part = w.tw.part();
+      var lines = G.UI.wrap(x, part, 12.5, 360);
+      var h = 22 + lines.length * 18;
+      var y0 = 56;
+      x.save();
+      x.globalAlpha = a;
+      G.UI.panel(x, { x: 60, y: y0, w: 360, h: h },
+        'rgba(10,13,24,0.92)', 'rgba(216,183,104,0.7)', 5, { paper: false });
+      G.UI.text(x, { x: 240, y: y0 + 5 }, '天 道 低 语', 10, G.UI.C.gold, 'center');
+      lines.forEach(function (l, i) {
+        G.UI.text(x, { x: 240, y: y0 + 19 + i * 18 }, l, 12.5,
+          G.UI.C.text, 'center');
+      });
+      x.restore();
     },
 
     _renderToasts: function (x) {

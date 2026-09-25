@@ -736,8 +736,9 @@
         save.quest.flags.templeDone = true;
         save.quest.flags.vessel = true;
         save.quest.step = 'm0-3';
-        save.watch += 10;
         G.Player.chronicle(save, 'vessel', '山神庙得' + (save.world.vessel || '逆命珠'));
+        /* 天道注视 +10（v2.7） */
+        if (G.TianDao) G.TianDao.notify('vessel');
         this._log('灵石 +100　灵气 +1000');
         this._log('杀手倒地。你握着那枚器物，只觉心口发烫。');
         /* 打斗就发生在庙里 → 打完了还站在庙里，而不是被丢回山道 */
@@ -765,8 +766,9 @@
         save.quest.step = 'free';
         var drop = G.rng.pick(G.Data.skillDropPool);
         if (!save.skills[drop]) save.skills[drop] = { lv: 1 };
-        save.watch += 18;
         G.Player.chronicle(save, 'wolfKing', '手刃赤炎狼王');
+        /* 天道注视 +8（v2.7，统一走 notify；可能触发低语） */
+        if (G.TianDao) G.TianDao.notify('boss');
         this._log('灵石 +500　灵气 +3000　妖丹 ×3　功法：' + G.Data.skills[drop].n);
         this._finish(true, 'cave');
         return;
@@ -844,7 +846,7 @@
           G.game.toast('心魔未破');
           G.game.changeScene(target || 'town', { returned: true });
         } else {
-          G.game.changeScene('death');
+          G.game.die(save._cause || 'war');
         }
       }]]);
     },

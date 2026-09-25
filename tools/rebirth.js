@@ -401,8 +401,21 @@ step(() => {
 pump(120);
 
 step(() => {
+  if (G.game.sceneName !== 'heaven') {
+    errors.push('战死后应先入天道拦魂，实为 ' + G.game.sceneName);
+    return;
+  }
+  /* 走完拦魂三轮（模板模式同步返回）→ 入死亡结算 */
+  const hv = G.scenes.heaven;
+  hv._reply('（默然）');
+  hv._reply('（默然）');
+  hv._finish();
+}, 'heaven.pass');
+pump(4);
+
+step(() => {
   if (G.game.sceneName !== 'death') {
-    errors.push('战死后应进入死亡结算，实为 ' + G.game.sceneName);
+    errors.push('拦魂后应进入死亡结算，实为 ' + G.game.sceneName);
     return;
   }
   const m = G.game.meta;

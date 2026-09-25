@@ -1343,15 +1343,28 @@ step(() => {
   s.globalLevel = 1; s.age = 80; s.pos = null;
   G.game.meta = {
     lives: 1, xianli: 0, totalXianli: 0, perfusion: {}, pity: 0,
-    achieve: {}, past: []
+    achieve: {}, past: [],
+    heaven: { talks: 0, watchTotal: 0, memory: [], karma: [] }
   };
   G.game.save = s;
   G.game.changeScene('field', { toSpawn: true });
 }, 'aged.enter');
 pump(10, 'aged.enter');
 step(function () {
+  if (G.game.sceneName !== 'heaven') {
+    errors.push('寿元尽后应先入天道拦魂，实为 ' + G.game.sceneName);
+    return;
+  }
+  /* 走完拦魂三轮（模板模式同步返回）→ 入死亡结算 */
+  const hv = G.scenes.heaven;
+  hv._reply('（默然）');
+  hv._reply('（默然）');
+  hv._finish();
+}, 'aged.heaven');
+pump(2, 'aged.heaven');
+step(function () {
   if (G.game.sceneName !== 'death') {
-    errors.push('寿元尽后应进入死亡结算，实为 ' + G.game.sceneName);
+    errors.push('拦魂后应进入死亡结算，实为 ' + G.game.sceneName);
     return;
   }
   const m = G.game.meta;

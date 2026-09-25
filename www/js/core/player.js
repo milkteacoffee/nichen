@@ -303,8 +303,6 @@
       save.globalLevel = Math.min(MAX_GL, (save.globalLevel || 1) + 1);
       /* 本世到达过的最高等级（仙力结算用，规格 v0.4 §4） */
       save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
-      /* 天道注视：小境界 +3，大境界 +15（天道意志规格 v0.5 §2） */
-      save.watch = (save.watch || 0) + (big ? 15 : 3);
       /* 突破耗岁（§3.2）：每次 +2 岁 */
       this.agePush(save, 'break');
       if (big) this.chronicle(save, 'break:' + save.globalLevel,
@@ -312,6 +310,8 @@
       var st = this.computeStats(save, meta);
       save.hp = st.maxhp;     /* 突破刷新上限并回满气血 */
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      /* 天道注视 + 低语（v2.7：注视累加与阈值判定统一走 TianDao） */
+      if (G.TianDao) G.TianDao.notify(big ? 'breakBig' : 'breakSmall');
       return save.globalLevel;
     },
 

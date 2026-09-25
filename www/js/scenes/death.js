@@ -53,6 +53,17 @@
       meta.lives = (meta.lives || 0) + 1;
       meta.xianli = (meta.xianli || 0) + xianli;
       meta.totalXianli = (meta.totalXianli || 0) + xianli;
+
+      /* 跨世记忆：本世摘要压入天道记忆（v2.7，最近 30 世；
+         状态包只取最近 10 条）；注视值累计入总账 */
+      var hv = meta.heaven;
+      hv.memory = hv.memory || [];
+      hv.memory.push({
+        life: rec.life, realm: rec.realm, level: rec.level, cause: rec.causeName
+      });
+      if (hv.memory.length > 30) hv.memory.shift();
+      hv.watchTotal = (hv.watchTotal || 0) + (save.watch || 0);
+
       meta.past.push(rec);
       if (meta.past.length > 60) meta.past.shift();
       G.Storage.saveMeta(meta);

@@ -13,7 +13,11 @@
 
   var hooks = {};
 
-  hooks.menu = function (scene) { G.Overlays.openChar(scene); };
+  hooks.menu = function (scene) { G.TianDao.openMenu(scene); };
+
+  /* 天道面板的点击/按键转发（输入框失焦、Esc 关闭） */
+  hooks.overlayTap = G.TianDao.overlayTap;
+  hooks.overlayKey = G.TianDao.overlayKey;
 
   /* 门 → 对应室内地图（镇内三栋房子都能走进去） */
   var DOOR_TO_MAP = { home: 'town_home', shop: 'town_shop', market: 'town_market' };
@@ -250,6 +254,10 @@
 
   hooks.renderOverlay = function (x, scene) {
     var save = G.game.save;
+    if (scene.overlay === 'menu' || scene.overlay === 'tiandao') {
+      G.TianDao.renderOverlay(x, scene);
+      return;
+    }
     /* 对话类覆盖层统一走 dialog（立绘 + 名牌 + 折行台词） */
     var d = DIALOGS[scene.overlay];
     if (d) {
@@ -311,7 +319,9 @@
      ============================================================ */
   function makeInterior(mapId, acts) {
     return G.Explore.create(mapId, {
-      menu: function (scene) { G.Overlays.openChar(scene); },
+      menu: function (scene) { G.TianDao.openMenu(scene); },
+      overlayTap: G.TianDao.overlayTap,
+      overlayKey: G.TianDao.overlayKey,
       onInteract: function (o, scene) {
         if (o.type !== 'furn') return;
         var fn = acts[o.act];

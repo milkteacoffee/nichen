@@ -1,7 +1,9 @@
 /* 赤牙洞：探索引擎包装，狼王巢触发 Boss 战 */
 (function () {
   var hooks = {};
-  hooks.menu = function (scene) { G.Overlays.openChar(scene); };
+  hooks.menu = function (scene) { G.TianDao.openMenu(scene); };
+  hooks.overlayTap = G.TianDao.overlayTap;
+  hooks.overlayKey = G.TianDao.overlayKey;
 
   hooks.onInteract = function (o, scene) {
     var save = G.game.save, q = save.quest;
@@ -17,6 +19,10 @@
   };
 
   hooks.renderOverlay = function (x, scene) {
+    if (scene.overlay === 'menu' || scene.overlay === 'tiandao') {
+      G.TianDao.renderOverlay(x, scene);
+      return;
+    }
     if (scene.overlay === 'char') G.Overlays.renderChar(x);
   };
 
