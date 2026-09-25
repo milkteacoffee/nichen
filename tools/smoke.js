@@ -264,17 +264,21 @@ step(() => G.scenes.title._openAbout(), 'title.about');
 pump(10, 'title.about');
 step(() => { G.scenes.title.about = false; G.scenes.title._buildMenu(); }, 'title.menu');
 
-/* 2) 转世 / 幼年场景 */
+/* 2) 转世（v0.5.2 起幼年阶段整段删除：出身直接决定开局，中间不再有
+   1~16 岁的随机事件加属性。这里顺带钉死"幼年不得复活" ——
+   只要 index.html 里还留着 childhood.js 的 script 标签，这条就会炸）。 */
 step(() => G.game.changeScene('reincarnation'), 'reincarnation');
 pump(20, 'reincarnation');
-step(() => G.game.changeScene('childhood'), 'childhood');
-pump(20, 'childhood');
+step(() => {
+  if (G.scenes.childhood) errors.push('幼年场景应已删除，但 G.scenes.childhood 仍在');
+  if (G.Data.events) errors.push('幼年事件表应已删除，但 G.Data.events 仍在');
+}, 'childhood.gone');
 
 /* 3) 造一份存档 → 镇 / 山 / 洞 */
 const world = G.Data.generateWorld(12345, true);
 const save = {
   life: 1, worldSeed: 12345, world: world,
-  origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+  origin: 'test', originFx: { a: .05, h: .05 },
   linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
   talents: [], skills: { 缠藤指: { lv: 2 }, 回春诀: { lv: 1 } }, skillEquip: ['缠藤指'],
   items: { 回春丹: 3, 妖囊: 2, 解封符: 1 },
@@ -283,7 +287,6 @@ const save = {
   quest: { step: 'free', flags: {} },
   scene: 'town', map: 'town', pos: null,
   chestsOpened: [], bossKilled: false,
-  childhood: { randomDrawn: [], log: [] },
   hp: 200
 };
 G.game.save = save;
@@ -1015,7 +1018,7 @@ step(() => {
   const s = JSON.parse(JSON.stringify(save));
   s.globalLevel = 6; s.qi = 0; s.po = 0; s.stone = 0;
   s.linggen = { elems: ['木'], coef: { 木: 1.0 }, kind: '单灵根', stoneBonus: 0 };
-  s.six = { 勇猛: 0, 灵巧: 0, 体质: 0, 智力: 0, 魅力: 0, 家境: 0 };
+  s.originFx = {};
   s.bonus = {};
   G.game.save = s;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
@@ -1417,5 +1420,5 @@ if (errors.length) {
   errors.forEach((e) => console.log(' - ' + e));
   process.exit(1);
 } else {
-  console.log('冒烟测试通过：脚本加载 + 标题/转世/幼年/镇/山/洞/战斗/死亡/轮回殿 全场景渲染无异常。');
+  console.log('冒烟测试通过：脚本加载 + 标题/转世/镇/山/洞/战斗/死亡/轮回殿 全场景渲染无异常。');
 }

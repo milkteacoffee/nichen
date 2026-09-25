@@ -129,7 +129,7 @@ pump(10);
 const world = G.Data.generateWorld(20240924, true);
 const save = {
   life: 1, worldSeed: 20240924, world: world,
-  origin: 'herb', six: { 勇猛: 6, 灵巧: 7, 体质: 8, 智力: 9, 魅力: 5, 家境: 0 },
+  origin: 'herb', originFx: { qi: .08, br: -.04 },
   linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '五行单', stoneBonus: 0 },
   talents: [], skills: { 缠藤指: { lv: 1 }, 铁布衫: { lv: 1 }, 吐纳术: { lv: 1 } },
   skillEquip: ['缠藤指'],
@@ -137,8 +137,7 @@ const save = {
   globalLevel: 1, age: 16, watch: 0, whispers: 0, escapeLeft: 3,
   quest: { step: 'm0-1', flags: {} },
   scene: 'town', map: 'town', pos: null,
-  chestsOpened: [], bossKilled: false,
-  childhood: { randomDrawn: [], log: [] }
+  chestsOpened: [], bossKilled: false
 };
 G.game.save = save;
 note('① 入世');

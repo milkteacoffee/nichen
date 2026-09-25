@@ -1,10 +1,17 @@
-/* 转世流程：出身选择 → 灵根推演 → 天赋降世（任务#18） */
+/* 转世流程：出身选择 → 灵根推演 → 天赋降世 → 直接入世（16 岁） */
 (function () {
+  /* 出身：只给「百分比加成 + 开局物品/灵石」，不给任何固定值。
+     六维系统已整体删除，角色数值只由 境界 + 功法 + 天赋百分比 + 仙躯 决定 ——
+     出身如果发固定属性，面板上就会多出一份"看不见来源"的数值。 */
   var origins = [
-    { id: 'farm', n: '农家子弟', d: ['体质 +8', '勇猛 +3'] },
-    { id: 'hunter', n: '猎户之子', d: ['勇猛 +5', '灵巧 +6', '伤药 ×2'] },
-    { id: 'herb', n: '药铺学徒', d: ['智力 +6', '魅力 +3', '回春丹 ×2'] },
-    { id: 'merchant', n: '商贾之家', d: ['魅力 +5', '家境 +8', '灵石 +120'] }
+    { id: 'farm', n: '农家子弟', fx: { h: .06, f: .04 },
+      d: ['气血 +6%', '防御 +4%'] },
+    { id: 'hunter', n: '猎户之子', fx: { a: .06, s: .04 }, items: { '伤药': 2 },
+      d: ['攻击 +6%', '速度 +4%', '伤药 ×2'] },
+    { id: 'herb', n: '药铺学徒', fx: { qi: .08, br: -.04 }, items: { '回春丹': 2 },
+      d: ['灵气获取 +8%', '突破灵气 -4%', '回春丹 ×2'] },
+    { id: 'merchant', n: '商贾之家', fx: { st: .10 }, stone: 120,
+      d: ['灵石获取 +10%', '灵石 +120'] }
   ];
 
   var elemInfo = {
@@ -167,23 +174,21 @@
       var seed = anchor ? 20260924 : (Date.now() & 0x7fffffff);
       var world = G.Data.generateWorld(seed, anchor);
 
-      /* 六维 */
-      var six = { '勇猛': 0, '灵巧': 0, '体质': 0, '智力': 0, '魅力': 0, '家境': 0 };
+      /* 开局物品与灵石；出身与天赋都只往这两个口袋里加东西 */
       var items = {}, stone = 50;
       var zeroStone = false;
 
-      /* 出身 */
-      var og = origins[this.originSel];
-      if (og.id === 'farm') { six['体质'] += 8; six['勇猛'] += 3; }
-      if (og.id === 'hunter') { six['勇猛'] += 5; six['灵巧'] += 6; items['伤药'] = 2; }
-      if (og.id === 'herb') { six['智力'] += 6; six['魅力'] += 3; items['回春丹'] = 2; }
-      if (og.id === 'merchant') { six['魅力'] += 5; six['家境'] += 8; stone += 120; }
+      /* 出身：百分比效果 + 开局物品/灵石（六维已删，见 origins 注释） */
+      var og = origins[this.originSel] || origins[0];
+      var originFx = {};
+      if (og.fx) Object.keys(og.fx).forEach(function (k) { originFx[k] = og.fx[k]; });
+      if (og.items) Object.keys(og.items).forEach(function (k) { items[k] = (items[k] || 0) + og.items[k]; });
+      if (og.stone) stone += og.stone;
 
       /* 天赋 */
       var talentIds = this.talentCards.map(function (t) { return t.id; });
       this.talentCards.forEach(function (t) {
         var e = t.e || {};
-        if (e.six) Object.keys(e.six).forEach(function (k) { six[k] = (six[k] || 0) + e.six[k]; });
         if (e.items) Object.keys(e.items).forEach(function (k) { items[k] = (items[k] || 0) + e.items[k]; });
         if (e.stone) stone += e.stone;
         if (e.zeroStone) zeroStone = true;
@@ -208,18 +213,19 @@
 
       var save = {
         life: life, worldSeed: seed, world: world,
-        origin: og.id, six: six,
+        origin: og.id, originFx: originFx,
         linggen: this.linggen, talents: talentIds,
         skills: skills, skillEquip: equip,
         items: items, stone: stone + addStone, qi: 100 + addQi, po: addPo,
-        globalLevel: 1, age: 1,
+        /* 直接 16 岁入世：幼年阶段（1-15 岁事件卡）已整体删除 */
+        globalLevel: 1, age: 16,
         watch: 0, whispers: 0, escapeLeft: 3 + addRescue,
-        quest: { step: 'childhood', flags: {} },
-        scene: 'childhood', map: null, pos: null,
+        quest: { step: 'm0-1', flags: {} },
+        scene: 'town', map: 'town',
+        pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,
         /* 仙力结算与寿元（轮回 v0.4 §3.2 / §4） */
-        maxGlobalLevel: 1, bossKills: 0, chronicle: [], _ageTick: 0,
-        childhood: { randomDrawn: [], log: [] }
+        maxGlobalLevel: 1, bossKills: 0, chronicle: [], _ageTick: 0
       };
 
       if (addQi || addPo || addStone || addRescue || (pf.body || 0)) {
@@ -231,14 +237,20 @@
         if (addRescue) gains.push('遁走 +' + addRescue);
         G.game.toast('仙力灌注：' + gains.join('　'));
       }
+      /* 走马灯第一条：入世。必须在 saveCurrent 之前写，否则落不了盘。
+         镇名要取当前世界的（非锚世的镇名是随机的），不能写死"青溪镇" ——
+         锚世才叫青溪镇。 */
+      G.Player.chronicle(save, 'birth',
+        '入世' + ((world.names && world.names.town) || '青溪镇'));
       G.Storage.saveCurrent(save);
       G.game.save = save;
       /* 新世界的调色板是随机取的（非锚世），地面纹理的缓存键里带调色板 ——
-         不预热的话，玩家进第一张地图时要现场烘 10 张 224² 纹理（约 110~145ms），
-         表现就是"进图卡一下"。这里提前在后台烘掉：接下来还要走幼年场景
-         （读事件文本、点几下），时间足够。 */
+         不预热的话，玩家进第一张地图时要现场烘 10 张 224² 纹理（约 110~145ms）。
+         以前靠 15 张幼年事件卡把这段时间铺掉，现在直接入世，所以这里的预热
+         只对"后面才去的地图"（山/洞/室内）有效；青溪镇这一张会在进门时现场烘。
+         那一下发生在玩家刚点完「入世」的转场瞬间，不打断任何操作，可以接受。 */
       if (G.Art.warmup) G.Art.warmup(world.pal);
-      G.game.changeScene('childhood');
+      G.game.changeScene('town');
     },
 
     onTap: function (p) {
@@ -279,7 +291,7 @@
 
     renderOrigin: function (x) {
       this._header(x, '第 ' + ((G.game.meta.past.length || 0) + 1) + ' 世 · 降世出身',
-        '你将以何种身份降生？（出身影响六维与开局之物）');
+        '你将以何种身份降生？（出身影响百分比加成与开局之物）');
       for (var i = 0; i < origins.length; i++) {
         var r = this._originRect(i), sel = i === this.originSel;
         G.UI.panel(x, r, sel ? '#20263c' : '#151a2a',

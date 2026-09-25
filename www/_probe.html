@@ -25,7 +25,6 @@
 
 <!-- ===== 数据 ===== -->
 <script src="js/data/talents.js"></script>
-<script src="js/data/events.js"></script>
 <script src="js/data/skills.js"></script>
 <script src="js/data/elements.js"></script>
 <script src="js/data/enemies.js"></script>
@@ -41,7 +40,6 @@
 <!-- ===== 场景 ===== -->
 <script src="js/scenes/title.js"></script>
 <script src="js/scenes/reincarnation.js"></script>
-<script src="js/scenes/childhood.js"></script>
 <script src="js/scenes/town.js"></script>
 <script src="js/scenes/field.js"></script>
 <script src="js/scenes/cave.js"></script>
@@ -85,7 +83,7 @@
     /* 进场景，走四个方向，看每一向拿到的是素材还是程序化兜底 */
     var save = {
       life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
-      origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+      origin: 'test', originFx: { a: .05, h: .05 },
       linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
       talents: [], skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
       items: { 回春丹: 3 }, stone: 500, qi: 1200, po: 30,

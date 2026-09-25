@@ -3,7 +3,16 @@
 (function () {
   var MOVE_T = 0.18;
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
-  var HUD_H = 34;                         /* 顶栏高度：这一段不响应点地 */
+  var HUD_H = 48;                         /* 顶栏高度：这一段不响应点地 */
+
+  /* 资源数值压缩：超过一万用「万」。
+     资源格只有 62px 宽，五行灵石中后期是五位数，不压缩就会顶到图标上。 */
+  function num(n) {
+    n = Math.floor(n || 0);
+    if (n < 10000) return String(n);
+    var v = n / 10000;
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + '万';
+  }
 
   function create(mapId, hooks) {
     hooks = hooks || {};
@@ -57,7 +66,7 @@
         this.buttons = [];
         if (hooks.menu) {
           this.buttons.push(new G.UI.Btn({
-            x: 408, y: 6, w: 64, h: 21, small: true, variant: 'ghost', label: '菜单',
+            x: 412, y: 5, w: 60, h: 20, small: true, variant: 'ghost', label: '菜单',
             onClick: function () { hooks.menu(self); }
           }));
         }
@@ -819,72 +828,97 @@
         return this.mapId;
       },
 
-      /* ===== HUD ===== */
+      /* ===== HUD =====
+         烟雨江湖式：左上圆形头像（立绘裁圆 + 金环），右侧竖排
+         「境界 · 第N世 / 气血 / 修为」，右上角是资源与菜单。
+         四条硬约束，改之前先读：
+         ① 数值一律排在条的**右侧**，绝不压在条上 —— 压在条上时数字和条的高光
+            叠在一起，亮色地面背景直接糊成一片（旧版 155/155 就是这个问题）；
+         ② 顶栏高度必须等于 HUD_H：onTap 靠它挡掉误触，画得比 HUD_H 高就会出现
+            "点在 HUD 上人却动了"；
+         ③ 资源三格与菜单各占一块固定宽度，数值再长（五位数）也不会互相压字；
+         ④ 头像走 G.UI.avatar，内部已经把立绘按头部裁好，这里只给圆心与半径。 */
       _drawHUD: function (x) {
         var save = G.game.save;
         var st = G.Player.computeStats(save);
-
-        /* 顶栏背板 */
-        var g = x.createLinearGradient(0, 0, 0, 34);
-        g.addColorStop(0, 'rgba(6,8,14,0.88)');
-        g.addColorStop(0.68, 'rgba(6,8,14,0.60)');
-        g.addColorStop(1, 'rgba(6,8,14,0)');
-        x.fillStyle = g; x.fillRect(0, 0, 480, 34);
-        x.fillStyle = 'rgba(216,183,104,0.26)';
-        x.fillRect(0, 33.2, 480, 0.8);
-
-        /* 境界印章 + 名称 */
         var ri = G.Player.realmInfo(save.globalLevel);
-        G.UI.seal(x, 21, 16, 12.5, ri.realm[0]);
-        G.UI.textOut(x, { x: 37, y: 4 }, ri.n, 13, G.UI.C.goldHi);
-
-        /* 灵气满 → 脉动的"可突破"提示（回沈家小院 · 珠内空间） */
         var bs = G.Player.breakState(save);
-        if (bs.ready) {
-          var pu = 0.55 + 0.45 * Math.sin(performance.now() / 260);
+        var t = performance.now();
+
+        /* 背板：墨色渐隐 + 底部金线 */
+        var g = x.createLinearGradient(0, 0, 0, HUD_H);
+        g.addColorStop(0, 'rgba(6,8,14,0.90)');
+        g.addColorStop(0.62, 'rgba(6,8,14,0.62)');
+        g.addColorStop(1, 'rgba(6,8,14,0)');
+        x.fillStyle = g; x.fillRect(0, 0, 480, HUD_H);
+        x.fillStyle = 'rgba(216,183,104,0.26)';
+        x.fillRect(0, HUD_H - 1.6, 480, 0.8);
+
+        /* --- 左：圆形头像 --- */
+        G.UI.avatar(x, 26, 24, 18, 'luchen');
+
+        /* --- 左：境界 · 第N世 --- */
+        G.UI.textOut(x, { x: 52, y: 4 }, ri.n, 14, G.UI.C.goldHi);
+        G.UI.textOut(x, { x: 114, y: 7.5 }, '第 ' + save.life + ' 世', 10.5, G.UI.C.textDim);
+
+        /* --- 气血 --- */
+        var ratio = st.maxhp ? save.hp / st.maxhp : 0;
+        var low = ratio <= 0.3;
+        G.UI.text(x, { x: 52, y: 21 }, '气血', 10.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: 80, y: 22, w: 84, h: 8 }, ratio, low ? '#e2605a' : G.UI.C.hp);
+        if (low) {                       /* 濒死：条外一圈脉动红晕 */
           x.save();
-          x.globalAlpha = 0.45 + 0.55 * pu;
-          G.UI.textOut(x, { x: 100, y: 5 }, '可突破', 11.5,
-            bs.big ? '#ff9a7a' : '#8fe0a0');
+          x.globalAlpha = 0.30 + 0.30 * Math.sin(t / 220);
+          G.UI.rr(x, { x: 78.5, y: 20.5, w: 87, h: 11 }, 3);
+          x.strokeStyle = '#ff8a80'; x.lineWidth = 1.2; x.stroke();
           x.restore();
         }
+        G.UI.textOut(x, { x: 170, y: 21 }, Math.round(save.hp) + ' / ' + st.maxhp, 10.5,
+          low ? '#ff9a92' : G.UI.C.text);
 
-        /* 气血 */
-        var ratio = st.maxhp ? save.hp / st.maxhp : 0;
-        G.UI.bar(x, { x: 37, y: 20, w: 130, h: 9 }, ratio, G.UI.C.hp);
-        x.font = G.UI.F(9);
-        x.fillStyle = 'rgba(245,238,222,0.95)';
-        x.textAlign = 'right'; x.textBaseline = 'middle';
-        x.fillText(Math.round(save.hp) + ' / ' + st.maxhp, 163, 25);
+        /* --- 修为（突破进度）---
+           数值列与「可突破」**互斥**：灵气满时数值会变成 1200 / 100 这种超宽串，
+           两个都画就会糊在一起（首版实测 "1200 / 100可突破" 连成一片）。
+           灵气余额右边资源格里一直看得见，所以这里让位给可操作信息。 */
+        var pr = bs.need ? Math.min(1, bs.have / bs.need) : 1;
+        G.UI.text(x, { x: 52, y: 36 }, '修为', 10.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: 80, y: 37.5, w: 84, h: 7 }, pr, bs.ready ? '#f5e3a8' : G.UI.C.qi);
+        if (bs.ready) {
+          x.save();
+          x.globalAlpha = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t / 260));
+          G.UI.textOut(x, { x: 170, y: 35.5 }, '可突破', 11.5,
+            bs.big ? '#ff9a7a' : '#8fe0a0');
+          x.restore();
+        } else {
+          G.UI.textOut(x, { x: 170, y: 36 }, bs.have + ' / ' + bs.need, 10.5, G.UI.C.textDim);
+        }
 
-        /* 资源栏 */
-        x.fillStyle = 'rgba(216,183,104,0.20)';
-        x.fillRect(196, 9, 0.8, 16);
-        var slots = [
+        /* --- 右：资源（三格等宽，图标 + 右对齐数值）---
+           背板要够暗：顶栏渐变到这一行已经快透明了，格子底压不住的话
+           屋脊/树梢会从数字底下穿过去，数字就读不清了。
+           底走 G.UI.panel（带缓存 → 1 次 blit）：HUD 每帧都画，
+           三个圆角矩形现描路径 + 现填 + 现描边是纯浪费。 */
+        [
           ['stone', save.stone, '#a9d4f2'],
-          ['qi', Math.floor(save.qi || 0), '#a8dcc4'],
-          ['po', Math.floor(save.po || 0), '#e8c08a']
-        ];
-        slots.forEach(function (s, i) {
-          var sx = 204 + i * 66;
-          G.UI.icon(x, s[0], sx + 7, 17, 7.4);
-          G.UI.textOut(x, { x: sx + 18, y: 10 }, String(s[1]), 13, G.UI.C.text);
+          ['qi', save.qi, '#a8dcc4'],
+          ['po', save.po, '#e8c08a']
+        ].forEach(function (s, i) {
+          var sx = 278 + i * 66;
+          G.UI.panel(x, { x: sx, y: 27, w: 62, h: 17 }, 'rgba(8,11,19,0.86)',
+            'rgba(216,183,104,0.32)', 4, { paper: false, shadow: false });
+          G.UI.icon(x, s[0], sx + 11, 35.5, 6.2);
+          G.UI.textOut(x, { x: sx + 55, y: 29.5 }, num(s[1]), 11.5, s[2], 'right');
         });
 
-        /* 场景名称铭牌：左上角、顶栏之下。金框小牌，亮色地面也清晰。 */
+        /* 场景名称铭牌：顶栏之下。金框小牌，亮色地面也清晰。 */
         var sname = this._sceneName();
-        x.save();
         x.font = G.UI.F(13);
         var sw = x.measureText(sname).width;
-        var px = 8, py = 39, ph = 19, pw = sw + 27;
-        G.UI.rr(x, { x: px, y: py, w: pw, h: ph }, 5);
-        x.fillStyle = 'rgba(6,8,14,0.74)';
-        x.fill();
-        x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.55)';
-        x.stroke();
+        var px = 8, py = HUD_H + 5, ph = 19, pw = sw + 27;
+        G.UI.panel(x, { x: px, y: py, w: pw, h: ph }, 'rgba(6,8,14,0.74)',
+          'rgba(216,183,104,0.55)', 5, { paper: false, shadow: false });
         x.fillStyle = G.UI.C.goldHi;
         x.beginPath(); x.arc(px + 11, py + ph / 2, 2.4, 0, 6.2832); x.fill();
-        x.restore();
         G.UI.textOut(x, { x: px + 18, y: py + 3.5 }, sname, 13, G.UI.C.goldHi);
       },
 

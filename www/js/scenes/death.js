@@ -1,7 +1,6 @@
 /* 死亡结算（轮回转世 v0.4 §3 / §4）：
    死因 + 享年 → 一世走马灯 → 仙力入账明细 → 写入轮回档案 → 入轮回殿 */
 (function () {
-  var SIX_KEYS = ['勇猛', '灵巧', '体质', '智力', '魅力'];
   var MAX_CHRONICLE = 8;          /* 走马灯最多 8 条（§3.3） */
 
   var scene = {
@@ -29,9 +28,8 @@
 
       var gl = save.maxGlobalLevel || save.globalLevel || 1;
       var age = save.age || 16;
-      var six = save.six || {};
-      var sixSum = 0;
-      SIX_KEYS.forEach(function (k) { sixSum += six[k] || 0; });
+      /* 六维已整体删除：账目改记「最终攻击」，它是玩家真正感知到的强度指标 */
+      var st = G.Player.computeStats(save);
       var ri = G.Player.realmInfo(gl);
       var stone = save.stone || 0;
       var boss = !!save.bossKilled;
@@ -44,7 +42,7 @@
       var life = (meta.past.length || 0) + 1;
       var rec = {
         life: life, age: age, realm: ri.n, level: gl,
-        sixSum: sixSum, stone: stone, boss: boss,
+        atk: st.atk, maxhp: st.maxhp, stone: stone, boss: boss,
         xianli: xianli, detail: d, cause: d.cause, causeName: d.causeName,
         chronicle: (save.chronicle || []).slice(-MAX_CHRONICLE),
         at: Date.now()
@@ -150,7 +148,7 @@
       }
       kv(ly, '转世之数', '第 ' + rec.life + ' 世', G.UI.C.goldHi);
       kv(ly + 23, '陨落境界', rec.realm);
-      kv(ly + 46, '六维总和', String(rec.sixSum));
+      kv(ly + 46, '最终攻击', String(rec.atk));
       kv(ly + 69, '遗留灵石', String(rec.stone));
       kv(ly + 92, '斩杀首领', rec.boss ? '已斩' : '未斩',
         rec.boss ? G.UI.C.gold : G.UI.C.textDim);

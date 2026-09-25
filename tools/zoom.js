@@ -124,7 +124,7 @@ pump(10);
 const save = {
   life: 1, age: 24, globalLevel: 6, maxGlobalLevel: 6, hp: 300,
   qi: 900, po: 220, stone: 640, watch: 12,
-  six: { 勇猛: 9, 灵巧: 8, 体质: 8, 智力: 7, 魅力: 6 },
+  originFx: { a: .05, h: .05 },
   linggen: { kind: '五行', elems: ['木'], coef: { 木: 1.2 }, stoneBonus: 0 },
   skills: { 缠藤指: { lv: 2 }, 铁布衫: { lv: 1 }, 吐纳术: { lv: 1 } },
   items: {}, chestsOpened: [], escapeLeft: 3, bossKills: 0, bossKilled: false,

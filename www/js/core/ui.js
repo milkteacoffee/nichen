@@ -26,6 +26,82 @@
     return size + 'px "LXGW WenKai", "KaiTi", "Microsoft YaHei", serif';
   }
 
+  /* 图标绘制本体（坐标以 0,0 为中心，s 为半尺寸）。
+     抽成独立函数是为了让 UI.icon 能把它预烘成小画布再 blit。 */
+  function drawIcon(x, kind, s) {
+    if (kind === 'stone') {           /* 灵石：菱形宝石 */
+      var g = x.createLinearGradient(-s, -s, s, s);
+      g.addColorStop(0, '#cfe8ff');
+      g.addColorStop(0.5, '#7fb6e6');
+      g.addColorStop(1, '#3d6fa8');
+      x.fillStyle = g;
+      x.beginPath();
+      x.moveTo(0, -s * 0.95); x.lineTo(s * 0.78, 0);
+      x.lineTo(0, s * 0.95); x.lineTo(-s * 0.78, 0);
+      x.closePath(); x.fill();
+      x.strokeStyle = 'rgba(230,245,255,0.8)'; x.lineWidth = 0.7; x.stroke();
+      x.fillStyle = 'rgba(255,255,255,0.55)';
+      x.beginPath(); x.moveTo(-s * 0.3, -s * 0.4); x.lineTo(0, -s * 0.6);
+      x.lineTo(s * 0.1, -s * 0.1); x.closePath(); x.fill();
+    } else if (kind === 'qi') {        /* 灵气：云气旋 */
+      x.strokeStyle = '#8fe0c4';
+      x.lineWidth = Math.max(1, s * 0.2);
+      x.lineCap = 'round';
+      for (var i = 0; i < 2; i++) {
+        x.beginPath();
+        x.arc(0, 0, s * (0.42 + i * 0.4), 0.5 + i * 1.2, 3.4 + i * 1.2);
+        x.stroke();
+      }
+      x.fillStyle = '#d8fff0';
+      x.beginPath(); x.arc(0, 0, s * 0.17, 0, 6.2832); x.fill();
+    } else if (kind === 'po') {        /* 力：拳 */
+      x.fillStyle = '#e0a060';
+      x.beginPath();
+      x.moveTo(-s * 0.7, s * 0.75);
+      x.lineTo(-s * 0.62, -s * 0.3);
+      x.quadraticCurveTo(0, -s * 0.95, s * 0.62, -s * 0.3);
+      x.lineTo(s * 0.7, s * 0.75);
+      x.closePath(); x.fill();
+      x.strokeStyle = 'rgba(80,40,10,0.55)'; x.lineWidth = 0.7;
+      x.beginPath(); x.moveTo(-s * 0.3, -s * 0.5); x.lineTo(-s * 0.3, s * 0.5);
+      x.moveTo(0, -s * 0.65); x.lineTo(0, s * 0.6);
+      x.moveTo(s * 0.3, -s * 0.5); x.lineTo(s * 0.3, s * 0.5);
+      x.stroke();
+    } else if (kind === 'hp') {
+      x.fillStyle = '#d9534f';
+      x.beginPath();
+      x.moveTo(0, s * 0.8);
+      x.bezierCurveTo(-s * 1.3, -s * 0.1, -s * 0.5, -s * 1.1, 0, -s * 0.35);
+      x.bezierCurveTo(s * 0.5, -s * 1.1, s * 1.3, -s * 0.1, 0, s * 0.8);
+      x.fill();
+    } else if (kind === 'atk') {
+      x.strokeStyle = '#d8dde8'; x.lineWidth = Math.max(1, s * 0.24);
+      x.beginPath(); x.moveTo(-s * 0.5, s * 0.7); x.lineTo(s * 0.6, -s * 0.6); x.stroke();
+      x.strokeStyle = '#c8a24e'; x.lineWidth = Math.max(1, s * 0.22);
+      x.beginPath(); x.moveTo(-s * 0.75, s * 0.35); x.lineTo(-s * 0.35, s * 0.8); x.stroke();
+    } else if (kind === 'def') {
+      x.fillStyle = '#8fa8c8';
+      x.beginPath();
+      x.moveTo(0, -s * 0.85);
+      x.lineTo(s * 0.75, -s * 0.5);
+      x.lineTo(s * 0.62, s * 0.35);
+      x.lineTo(0, s * 0.9);
+      x.lineTo(-s * 0.62, s * 0.35);
+      x.lineTo(-s * 0.75, -s * 0.5);
+      x.closePath(); x.fill();
+      x.strokeStyle = 'rgba(255,255,255,0.5)'; x.lineWidth = 0.7; x.stroke();
+    } else if (kind === 'spd') {
+      x.strokeStyle = '#a8e0f0'; x.lineWidth = Math.max(1, s * 0.2);
+      x.lineCap = 'round';
+      [-0.45, 0, 0.45].forEach(function (dy, i) {
+        x.beginPath();
+        x.moveTo(-s * 0.8 + i * 0.1, dy * s);
+        x.lineTo(s * 0.7 - i * s * 0.1, dy * s);
+        x.stroke();
+      });
+    }
+  }
+
   function rr(x, s, r) {
     r = r == null ? 3 : r;
     x.beginPath();
@@ -309,84 +385,74 @@
       x.fillText(ch, cx, cy + r * 0.06);
     },
 
-    /* 五行/资源图标 */
+    /* 圆形头像（HUD 左上角）：把立绘按「头部优先」裁进圆里，外套金环。
+       两个坑：
+       ① 立绘缓存画布是 K 倍超采样，源矩形必须乘 K —— 直接拿逻辑坐标当源，
+          取到的是放大 K 倍后画布左上角那一小块，等于随机截一块出来；
+       ② 缓存键必须带 K：窗口缩放会改倍率，不带 K 的旧圆会残留错误倍率。
+       头的位置不写死 —— 立绘既有全身站姿（头只占顶端一小块）又有半身像，
+       写死头心必然有一边裁到腰带。走 A.headBox 按 alpha 轮廓现量（见 art.js）。 */
+    avatar: function (x, cx, cy, r, key, opt) {
+      opt = opt || {};
+      var K = A.K, pad = 3;
+      var c = cachedCanvas('av|' + (key || 'villager') + '|' + r + '|' + K,
+        r * 2 + pad * 2, r * 2 + pad * 2, function (xx) {
+          var cc = r + pad;
+          /* 外圈墨晕 */
+          var og = xx.createRadialGradient(cc, cc, r * 0.86, cc, cc, r + pad);
+          og.addColorStop(0, 'rgba(0,0,0,0.42)');
+          og.addColorStop(1, 'rgba(0,0,0,0)');
+          xx.fillStyle = og;
+          xx.beginPath(); xx.arc(cc, cc, r + pad, 0, 6.2832); xx.fill();
+
+          xx.save();
+          xx.beginPath(); xx.arc(cc, cc, r, 0, 6.2832); xx.clip();
+          xx.fillStyle = '#0d1018';
+          xx.fillRect(cc - r, cc - r, r * 2, r * 2);
+          var art = A.portrait(key);
+          if (art) {
+            var hb = A.headBox(key);
+            var sw = hb[2];
+            xx.drawImage(art.c, (hb[0] - sw / 2) * K, (hb[1] - sw / 2) * K, sw * K, sw * K,
+              cc - r, cc - r, r * 2, r * 2);
+          }
+          /* 内暗角：贴边压暗，头像不会「顶」到金环上 */
+          var vg = xx.createRadialGradient(cc, cc, r * 0.52, cc, cc, r);
+          vg.addColorStop(0, 'rgba(6,8,14,0)');
+          vg.addColorStop(1, 'rgba(6,8,14,0.58)');
+          xx.fillStyle = vg;
+          xx.fillRect(cc - r, cc - r, r * 2, r * 2);
+          xx.restore();
+
+          /* 金环 + 内细环 + 左上高光弧 */
+          xx.strokeStyle = 'rgba(216,183,104,0.95)';
+          xx.lineWidth = 1.5;
+          xx.beginPath(); xx.arc(cc, cc, r - 0.8, 0, 6.2832); xx.stroke();
+          xx.strokeStyle = 'rgba(216,183,104,0.32)';
+          xx.lineWidth = 0.8;
+          xx.beginPath(); xx.arc(cc, cc, r + 1.6, 0, 6.2832); xx.stroke();
+          xx.strokeStyle = 'rgba(255,248,225,0.50)';
+          xx.lineWidth = 1.2;
+          xx.beginPath(); xx.arc(cc, cc, r - 2.8, Math.PI * 1.12, Math.PI * 1.62); xx.stroke();
+        });
+      x.drawImage(c, Math.round(cx - r - pad), Math.round(cy - r - pad),
+        r * 2 + pad * 2, r * 2 + pad * 2);
+    },
+
+    /* 五行/资源图标
+       预烘成小画布再 blit：图标是**每帧都画**的（HUD 三格资源 + 角色面板属性行），
+       而 stone 每次都要现建线性渐变、qi/po 要现描路径。HUD 是常驻层，
+       这些"每帧重建的渐变"直接吃掉整帧的 1/3。颜色全是写死的，缓存安全。 */
     icon: function (x, kind, cx, cy, s) {
       s = s || 8;
-      x.save();
-      x.translate(cx, cy);
-      if (kind === 'stone') {           /* 灵石：菱形宝石 */
-        var g = x.createLinearGradient(-s, -s, s, s);
-        g.addColorStop(0, '#cfe8ff');
-        g.addColorStop(0.5, '#7fb6e6');
-        g.addColorStop(1, '#3d6fa8');
-        x.fillStyle = g;
-        x.beginPath();
-        x.moveTo(0, -s * 0.95); x.lineTo(s * 0.78, 0);
-        x.lineTo(0, s * 0.95); x.lineTo(-s * 0.78, 0);
-        x.closePath(); x.fill();
-        x.strokeStyle = 'rgba(230,245,255,0.8)'; x.lineWidth = 0.7; x.stroke();
-        x.fillStyle = 'rgba(255,255,255,0.55)';
-        x.beginPath(); x.moveTo(-s * 0.3, -s * 0.4); x.lineTo(0, -s * 0.6);
-        x.lineTo(s * 0.1, -s * 0.1); x.closePath(); x.fill();
-      } else if (kind === 'qi') {        /* 灵气：云气旋 */
-        x.strokeStyle = '#8fe0c4';
-        x.lineWidth = Math.max(1, s * 0.2);
-        x.lineCap = 'round';
-        for (var i = 0; i < 2; i++) {
-          x.beginPath();
-          x.arc(0, 0, s * (0.42 + i * 0.4), 0.5 + i * 1.2, 3.4 + i * 1.2);
-          x.stroke();
-        }
-        x.fillStyle = '#d8fff0';
-        x.beginPath(); x.arc(0, 0, s * 0.17, 0, 6.2832); x.fill();
-      } else if (kind === 'po') {        /* 力：拳 */
-        x.fillStyle = '#e0a060';
-        x.beginPath();
-        x.moveTo(-s * 0.7, s * 0.75);
-        x.lineTo(-s * 0.62, -s * 0.3);
-        x.quadraticCurveTo(0, -s * 0.95, s * 0.62, -s * 0.3);
-        x.lineTo(s * 0.7, s * 0.75);
-        x.closePath(); x.fill();
-        x.strokeStyle = 'rgba(80,40,10,0.55)'; x.lineWidth = 0.7;
-        x.beginPath(); x.moveTo(-s * 0.3, -s * 0.5); x.lineTo(-s * 0.3, s * 0.5);
-        x.moveTo(0, -s * 0.65); x.lineTo(0, s * 0.6);
-        x.moveTo(s * 0.3, -s * 0.5); x.lineTo(s * 0.3, s * 0.5);
-        x.stroke();
-      } else if (kind === 'hp') {
-        x.fillStyle = '#d9534f';
-        x.beginPath();
-        x.moveTo(0, s * 0.8);
-        x.bezierCurveTo(-s * 1.3, -s * 0.1, -s * 0.5, -s * 1.1, 0, -s * 0.35);
-        x.bezierCurveTo(s * 0.5, -s * 1.1, s * 1.3, -s * 0.1, 0, s * 0.8);
-        x.fill();
-      } else if (kind === 'atk') {
-        x.strokeStyle = '#d8dde8'; x.lineWidth = Math.max(1, s * 0.24);
-        x.beginPath(); x.moveTo(-s * 0.5, s * 0.7); x.lineTo(s * 0.6, -s * 0.6); x.stroke();
-        x.strokeStyle = '#c8a24e'; x.lineWidth = Math.max(1, s * 0.22);
-        x.beginPath(); x.moveTo(-s * 0.75, s * 0.35); x.lineTo(-s * 0.35, s * 0.8); x.stroke();
-      } else if (kind === 'def') {
-        x.fillStyle = '#8fa8c8';
-        x.beginPath();
-        x.moveTo(0, -s * 0.85);
-        x.lineTo(s * 0.75, -s * 0.5);
-        x.lineTo(s * 0.62, s * 0.35);
-        x.lineTo(0, s * 0.9);
-        x.lineTo(-s * 0.62, s * 0.35);
-        x.lineTo(-s * 0.75, -s * 0.5);
-        x.closePath(); x.fill();
-        x.strokeStyle = 'rgba(255,255,255,0.5)'; x.lineWidth = 0.7; x.stroke();
-      } else if (kind === 'spd') {
-        x.strokeStyle = '#a8e0f0'; x.lineWidth = Math.max(1, s * 0.2);
-        x.lineCap = 'round';
-        [-0.45, 0, 0.45].forEach(function (dy, i) {
-          x.beginPath();
-          x.moveTo(-s * 0.8 + i * 0.1, dy * s);
-          x.lineTo(s * 0.7 - i * s * 0.1, dy * s);
-          x.stroke();
-        });
-      }
-      x.restore();
+      var box = s * 2.4;
+      var c = cachedCanvas('ic|' + kind + '|' + s, box, box, function (xx) {
+        xx.translate(box / 2, box / 2);
+        drawIcon(xx, kind, s);
+      });
+      x.drawImage(c, Math.round(cx - box / 2), Math.round(cy - box / 2), box, box);
     },
+
 
     /* 回纹分隔线 */
     divider: function (x, cx, y, w, col) {

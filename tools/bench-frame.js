@@ -74,7 +74,7 @@ async function preloadAssets() {
   const save = {
     life: 1, age: 16, globalLevel: 5, maxGlobalLevel: 5, hp: 274,
     qi: 1200, po: 30, stone: 500, watch: 0, worldSeed: 12345,
-    six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+    originFx: { a: .05, h: .05 },
     linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
     skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
     items: {}, chestsOpened: [], escapeLeft: 3, bossKills: 0, bossKilled: false,

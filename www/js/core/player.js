@@ -176,6 +176,10 @@
     /* 天赋效果合并（运行时） */
     talentEffects: function (save) {
       var e = empty();
+      /* 出身效果与天赋走同一套聚合：出身只给百分比加成（originFx），不给固定值。
+         六维系统已整体删除，所以面板数值的来源只剩四处 ——
+         境界成长 + 功法 + 这里的百分比 + 仙躯（meta.perfusion.body）。 */
+      mergeInto(e, save.originFx);
       (save.talents || []).forEach(function (id) {
         var t = G.Data.talentById(id);
         if (t) mergeInto(e, t.e);
@@ -209,7 +213,7 @@
       return REALMS[REALMS.length - 1];
     },
 
-    /* 突破灵气折扣（天赋/世界特质/幼年奇遇；br 为负值即减免） */
+    /* 突破灵气折扣（天赋/世界特质；br 为负值即减免） */
     breakCut: function (save) {
       var te = this.talentEffects(save), we = this.worldEffects(save);
       var b = save.bonus || {};
@@ -334,13 +338,6 @@
         else hp += lv * 20 * m;
       });
 
-      /* 六维 */
-      var six = save.six || {};
-      atk += (six['勇猛'] || 0) * .5;
-      var crit = .05 + (six['勇猛'] || 0) * .002;
-      spd += (six['灵巧'] || 0) * .3;
-      hp += (six['体质'] || 0) * 5; def += (six['体质'] || 0) * .3;
-
       /* 仙躯灌注 */
       var bk = (meta && meta.perfusion && meta.perfusion.body) || 0;
       atk += 2 * bk; def += bk; hp += 12 * bk; spd += bk;
@@ -349,7 +346,7 @@
       var te = this.talentEffects(save);
       atk *= 1 + te.a; def *= 1 + te.f;
       hp *= 1 + te.h; spd *= 1 + te.s;
-      crit += te.c;
+      var crit = .05 + te.c;
       var critDmg = 1.5 + te.cd;
 
       /* 世界特质 */
@@ -379,12 +376,12 @@
 
     /* 资源获取加成（分数） */
     rates: function (save) {
-      var six = save.six || {}, te = this.talentEffects(save), we = this.worldEffects(save);
+      var te = this.talentEffects(save), we = this.worldEffects(save);
       var bonus = save.bonus || {};
       return {
-        qi: Math.min(.4, (six['智力'] || 0) * .008) + te.qi + we.qi + (bonus.qi || 0),
-        po: Math.min(.4, (six['智力'] || 0) * .012) + te.po + we.po + (bonus.po || 0),
-        st: Math.min(.4, (six['魅力'] || 0) * .008) + te.st + we.st
+        qi: te.qi + we.qi + (bonus.qi || 0),
+        po: te.po + we.po + (bonus.po || 0),
+        st: te.st + we.st
           + ((save.linggen && save.linggen.stoneBonus) || 0)
       };
     },

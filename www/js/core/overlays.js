@@ -71,12 +71,23 @@
       scene.setOverlay('char', [this.closeBtn(scene, 246)]);
     },
 
-    /* 属性行：图标 + 标签 + 数值（w = 数值右对齐位置相对 sx 的偏移） */
-    statRow: function (x, sx, sy, icon, label, val, col, w) {
-      G.UI.icon(x, icon, sx + 6, sy + 6, 6);
-      G.UI.text(x, { x: sx + 16, y: sy }, label, 11.5, G.UI.C.textDim);
-      G.UI.textOut(x, { x: sx + (w == null ? 118 : w), y: sy - 0.5 },
-        String(val), 12.5, col || G.UI.C.text, 'right');
+    /* 主属性卡：图标 + 标签在上、数值在下，横排三张。
+       角色只有 攻击 / 气血 / 防御 三项主属性，摊成卡片一眼就读得出来 ——
+       塞进列表里它们和速度/暴击长得一模一样，玩家根本分不清哪个是"命根子"。 */
+    statCard: function (x, s, icon, label, val, col) {
+      G.UI.rr(x, s, 4);
+      x.fillStyle = 'rgba(9,12,20,0.72)'; x.fill();
+      x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.26)'; x.stroke();
+      G.UI.icon(x, icon, s.x + s.w / 2, s.y + 10, 5.8);
+      G.UI.text(x, { x: s.x + s.w / 2, y: s.y + 18 }, label, 10.5, G.UI.C.textDim, 'center');
+      G.UI.textOut(x, { x: s.x + s.w / 2, y: s.y + 30 }, String(val), 14.5, col, 'center');
+    },
+
+    /* 次要属性格：标签 + 右对齐数值（无图标，两列排） */
+    statCell: function (x, sx, sy, label, val, col, w) {
+      G.UI.text(x, { x: sx, y: sy }, label, 11, G.UI.C.textDim);
+      G.UI.textOut(x, { x: sx + (w == null ? 80 : w), y: sy - 0.5 },
+        String(val), 11.5, col || G.UI.C.text, 'right');
     },
 
     renderChar: function (x) {
@@ -109,40 +120,30 @@
       var lg = save.linggen;
       G.UI.textOut(x, { x: tx, y: box.y + 66 }, lg.elems.join('·'), 11.5, G.UI.C.jadeHi);
 
-      /* ---- 左栏：属性（两列，避免与右栏功法重叠） ---- */
+      /* ---- 左栏：属性 ----
+         三项主属性走卡片（攻击/气血/防御），其余四项走两列小格。
+         数值列必须留够宽度——「16/120」这类长数值会把标签压住（曾出现「寿元」被压成乱码）。 */
       var sy = P.y + 130;             /* 138 */
       G.UI.text(x, { x: LX, y: sy }, '属 性', 11.5, G.UI.C.gold);
-      var rows = [
+      [
         ['atk', '攻击', st.atk, '#e8b0a0'],
-        ['def', '防御', st.def, '#a8c0e0'],
         ['hp', '气血', st.maxhp, '#e0a0a0'],
-        ['spd', '速度', st.spd, '#a8dcdc']
-      ];
-      rows.forEach(function (r, i) {
-        O.statRow(x, LX, sy + 14 + i * 15, r[0], r[1], r[2], r[3], 84);
+        ['def', '防御', st.def, '#a8c0e0']
+      ].forEach(function (r, i) {
+        O.statCard(x, { x: LX + i * 58, y: sy + 12, w: 52, h: 46 }, r[0], r[1], r[2], r[3]);
       });
-      /* 右半列：标签左端 LX+92，数值右端 LX+LW。
-         数值列必须留够宽度——「46/800」这类长数值会把标签压住（曾出现「寿元」被压成乱码）。 */
-      G.UI.text(x, { x: LX + 92, y: sy + 14 }, '暴击', 11.5, G.UI.C.textDim);
-      G.UI.textOut(x, { x: LX + LW, y: sy + 13.5 },
-        (st.crit * 100).toFixed(1) + '%', 12, G.UI.C.gold, 'right');
 
+      /* 次要属性：2×2（速度/暴击 · 寿元/暴伤） */
+      var s2 = P.y + 200;             /* 208 */
+      G.UI.divider(x, LX + LW / 2, s2 - 8, LW);
+      O.statCell(x, LX, s2, '速度', st.spd, G.UI.C.text, 80);
+      O.statCell(x, LX + 92, s2, '暴击', (st.crit * 100).toFixed(1) + '%', G.UI.C.gold, 76);
       /* 寿元（轮回 v0.4 §3.2）：年龄 / 该境界上限，逼近上限转红 */
       var lifeMax = G.Player.lifespanOf(save.globalLevel);
       var lifeAge = save.age || 16;
-      G.UI.text(x, { x: LX + 92, y: sy + 29 }, '寿元', 11.5, G.UI.C.textDim);
-      G.UI.textOut(x, { x: LX + LW, y: sy + 28.5 }, lifeAge + '/' + lifeMax, 11,
-        lifeAge >= lifeMax * 0.85 ? G.UI.C.danger : G.UI.C.text, 'right');
-
-      /* ---- 左栏：六维 ---- */
-      var s2 = P.y + 204;             /* 212 */
-      G.UI.text(x, { x: LX, y: s2 }, '六 维', 11, G.UI.C.gold);
-      var six = ['勇猛', '灵巧', '体质', '智力', '魅力'];
-      six.forEach(function (k, i) {
-        var cx = LX + i * 34;
-        G.UI.text(x, { x: cx, y: s2 + 14 }, k[0], 11, G.UI.C.textDim);
-        G.UI.textOut(x, { x: cx + 12, y: s2 + 13.5 }, String(save.six[k] || 0), 11.5, G.UI.C.text);
-      });
+      O.statCell(x, LX, s2 + 16, '寿元', lifeAge + '/' + lifeMax,
+        lifeAge >= lifeMax * 0.85 ? G.UI.C.danger : G.UI.C.text, 80);
+      O.statCell(x, LX + 92, s2 + 16, '暴伤', Math.round(st.critDmg * 100) + '%', G.UI.C.gold, 76);
 
       /* ---- 右栏：功法 ---- */
       G.UI.text(x, { x: RX, y: P.y + 36 }, '功 法', 11.5, G.UI.C.gold);

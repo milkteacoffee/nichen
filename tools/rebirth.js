@@ -5,7 +5,7 @@
      2) 轮回殿五线灌注真实消耗仙力；
      3) 第 2 世是「浮世」（非锚世、新种子、地名重掷）；
      4) 第 2 世开局资源与同等级战力确实高于第 1 世。
-   全程走真实场景与真实公式：转世 → 幼年 → 入世 → 战斗/突破 → 战死 → 轮回殿 → 再转世。 */
+   全程走真实场景与真实公式：转世 → 入世 → 战斗/突破 → 战死 → 轮回殿 → 再转世。 */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -173,13 +173,12 @@ step(() => {
   life1.escapeLeft = s.escapeLeft;
 }, 'life1.snapshot');
 
-/* 幼年走完 → 入世（真实 _growUp） */
-step(() => G.game.changeScene('childhood'), 'childhood');
-pump(6);
-step(() => G.scenes.childhood._growUp(G.game.save), 'growUp');
-pump(6);
+/* 入世断言。幼年阶段（1~15 岁事件卡）已在 v0.5.2 整段删除：
+   finish() 直接产出"入世态"，中间不再有 _growUp 这一步。
+   这里钉的东西没变，只是产出者从 _growUp 换成了 finish()。 */
 step(() => {
   const s = G.game.save;
+  if (G.game.sceneName !== 'town') errors.push('入世后应直接进青溪镇，实为 ' + G.game.sceneName);
   if (s.quest.step !== 'm0-1') errors.push('入世后任务应推进到 m0-1，实为 ' + s.quest.step);
   if (s.age !== 16) errors.push('入世年龄应为 16，实为 ' + s.age);
   if (s.maxGlobalLevel !== 1) errors.push('入世应初始化 maxGlobalLevel');
@@ -463,7 +462,7 @@ step(() => G.game.changeScene('reincarnation'), 'reinc2');
 pump(6);
 step(() => {
   const s = G.game.scene;
-  s.originSel = 0;                       /* 同出身，排除六维差异 */
+  s.originSel = 0;                       /* 同出身，排除出身百分比差异 */
   s.step = 'linggen'; rollFixed(s);
   s.step = 'talent';
   s.finish();
@@ -476,11 +475,16 @@ step(() => {
   if (s.life !== 2) errors.push('第 2 世 life 应为 2，实为 ' + s.life);
   if (s.world.anchor !== false) errors.push('第 2 世不应是锚世');
   if (s.worldSeed === life1.seed) errors.push('第 2 世世界种子与第 1 世相同');
-  if (s.quest.step !== 'childhood') errors.push('第 2 世应从幼年开始');
+  if (s.quest.step !== 'm0-1') errors.push('第 2 世应直接入世（m0-1），实为 ' + s.quest.step);
   if (s.maxGlobalLevel !== 1) errors.push('第 2 世应重置 maxGlobalLevel');
   if (s.bossKills !== 0) errors.push('第 2 世应重置首领击杀数');
-  if ((s.chronicle || []).length) errors.push('第 2 世大事记应为空');
-  if (s.age !== 1) errors.push('第 2 世应从 1 岁开始');
+  /* finish() 现在自己就写「入世」这条大事记（幼年阶段没了，没人替它写），
+     所以新一世的大事记不是空的，而是恰好一条 birth。 */
+  var ch = s.chronicle || [];
+  if (ch.length !== 1 || ch[0].id !== 'birth') {
+    errors.push('第 2 世大事记应只有「入世」一条，实为 ' + ch.length + ' 条');
+  }
+  if (s.age !== 16) errors.push('第 2 世应从 16 岁入世，实为 ' + s.age);
 }, 'life2.fresh');
 
 /* 灌注兑现：资源侧 */
@@ -498,7 +502,7 @@ step(() => {
   if (!(s.escapeLeft > life1.escapeLeft)) errors.push('第 2 世遁走次数应高于第 1 世');
 }, 'life2.resources');
 
-/* 灌注兑现：战力侧（同等级、同灵根、同功法、同六维 → 差值只可能来自仙躯） */
+/* 灌注兑现：战力侧（同等级、同灵根、同功法、同出身 → 差值只可能来自仙躯） */
 step(() => {
   const s2 = G.game.save;
   const tmp = JSON.parse(JSON.stringify(s2));

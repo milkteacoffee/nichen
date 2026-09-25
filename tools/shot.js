@@ -174,28 +174,31 @@ step(() => { G.scenes.title.about = false; G.scenes.title._buildMenu(); }, 'titl
 step(() => G.game.changeScene('reincarnation'), 'reincarnation');
 shot('03_reincarnation', 30);
 
-/* 3) 世界存档（幼年场景要求已有存档，否则会退回标题） */
+/* 3) 世界存档 */
 const world = G.Data.generateWorld(12345, true);
 const save = {
   life: 1, worldSeed: 12345, world: world,
-  origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+  origin: 'test', originFx: { a: .05, h: .05 },
   linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
   talents: [], skills: { 缠藤指: { lv: 2 }, 回春诀: { lv: 1 } }, skillEquip: ['缠藤指'],
   items: { 回春丹: 3, 妖囊: 2, 解封符: 1 },
   stone: 500, qi: 1200, po: 30,
-  globalLevel: 5, age: 1, watch: 0, whispers: 0, escapeLeft: 3,
+  globalLevel: 5, age: 16, watch: 0, whispers: 0, escapeLeft: 3,
   quest: { step: 'free', flags: {} },
   scene: 'town', map: 'town', pos: null,
   chestsOpened: [], bossKilled: false,
-  childhood: { randomDrawn: [], log: [] },
   hp: 200
 };
 G.game.save = save;
 
-/* 3b) 幼年（打字机需要足够帧数把卡面文字打完） */
-step(() => G.game.changeScene('childhood'), 'childhood');
-shot('04_childhood', 110);
-save.age = 16;
+/* 3b) HUD 走查：满血 / 濒死 两态各留一张。
+   HUD 是这轮重做的重点（圆头像 + 境界·第N世 + 气血/修为双条 + 资源格），
+   单独留档才好做视觉回归 —— 旧版 155/155 压在血条上的问题就在这两张里看得见。 */
+step(() => { save.pos = null; G.game.changeScene('town', { toSpawn: true }); }, 'hud.enter');
+shot('04_hud', 24);
+step(() => { save.hp = Math.max(1, Math.round(200 * 0.12)); }, 'hud.low');
+shot('04b_hud_lowhp', 24);
+step(() => { save.hp = 200; }, 'hud.restore');
 
 /* 4) 镇 / 山 / 洞 */
 [['05_town', 'town'], ['07_field', 'field'], ['09_cave', 'cave']].forEach(function (m) {
@@ -450,8 +453,8 @@ step(() => {
     perfusion: { body: 2, qi: 1, po: 0, stone: 3, rescue: 0 },
     pity: 0, heaven: { talks: 0, watchTotal: 0, memory: [], karma: [] },
     past: [
-      { life: 1, age: 27, realm: '炼气三段', level: 12, sixSum: 38, stone: 210, boss: false, xianli: 152, at: Date.now() },
-      { life: 2, age: 34, realm: '筑基一段', level: 19, sixSum: 52, stone: 480, boss: true, xianli: 260, at: Date.now() }
+      { life: 1, age: 27, realm: '炼气三段', level: 12, atk: 38, maxhp: 340, stone: 210, boss: false, xianli: 152, at: Date.now() },
+      { life: 2, age: 34, realm: '筑基一段', level: 19, atk: 52, maxhp: 480, stone: 480, boss: true, xianli: 260, at: Date.now() }
     ]
   };
   G.game.save = JSON.parse(JSON.stringify(save));

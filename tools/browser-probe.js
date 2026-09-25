@@ -51,7 +51,7 @@ const PERF_DRIVER = `(async function () {
 
   var save = {
     life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
-    origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+    origin: 'test', originFx: { a: .05, h: .05 },
     linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
     talents: [], skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
     items: { 回春丹: 3 }, stone: 500, qi: 1200, po: 30,
@@ -160,7 +160,7 @@ const GROUND_DRIVER = `(async function () {
 
   var save = {
     life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
-    origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+    origin: 'test', originFx: { a: .05, h: .05 },
     linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
     talents: [], skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
     items: {}, stone: 500, qi: 1200, po: 30,
@@ -228,7 +228,7 @@ const ABLATE_DRIVER = `(async function () {
 
   var save = {
     life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
-    origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+    origin: 'test', originFx: { a: .05, h: .05 },
     linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
     talents: [], skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
     items: { 回春丹: 3 }, stone: 500, qi: 1200, po: 30,
@@ -337,7 +337,7 @@ const DRIVER = `(async function () {
   var assets = {};
   probeKeys.forEach(function (k) { assets[k] = !!G.Assets.img(k); });
 
-  /* ---- 真实点击链：标题「开始」→ 转世 → 幼年 → 进镇 ---- */
+  /* ---- 真实点击链：标题「开始」→ 转世 → 入世进镇 ---- */
   var clicked = [];
   function clickBtn(scene, re) {
     var b = (scene.buttons || []).filter(function (x) { return re.test(x.label || ''); })[0];
@@ -351,7 +351,7 @@ const DRIVER = `(async function () {
   /* 造一份存档直接进场景（点击链太长，诊断用直接进；真实点击在下面单独验一次标题页） */
   var save = {
     life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
-    origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+    origin: 'test', originFx: { a: .05, h: .05 },
     linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
     talents: [], skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
     items: { 回春丹: 3 }, stone: 500, qi: 1200, po: 30,
