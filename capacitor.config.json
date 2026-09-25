@@ -1,0 +1,10 @@
+{
+  "appId": "com.nichen.game",
+  "appName": "逆尘",
+  "webDir": "www",
+  "backgroundColor": "#12141f",
+  "orientation": "landscape",
+  "android": {
+    "allowMixedContent": false
+  }
+}

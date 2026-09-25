@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>逆尘</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2312141f'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%23e8c96a' stroke-width='3'/%3E%3Ctext x='32' y='43' font-size='28' text-anchor='middle' fill='%23e8c96a' font-family='serif'%3E%E5%B0%98%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="game" width="480" height="272"></canvas>
+</div>
+
+<!-- ===== 核心 ===== -->
+<script src="js/core/ns.js"></script>
+<script src="js/core/rng.js"></script>
+<script src="js/core/input.js"></script>
+<script src="js/core/storage.js"></script>
+<script src="js/core/assets.js"></script>
+<script src="js/core/art.js"></script>
+<script src="js/core/ui.js"></script>
+<script src="js/core/sprites.js"></script>
+<script src="js/core/game.js"></script>
+
+<!-- ===== 数据 ===== -->
+<script src="js/data/talents.js"></script>
+<script src="js/data/events.js"></script>
+<script src="js/data/skills.js"></script>
+<script src="js/data/elements.js"></script>
+<script src="js/data/enemies.js"></script>
+<script src="js/data/worlds.js"></script>
+<script src="js/data/maps.js"></script>
+
+<!-- ===== 玩法逻辑 ===== -->
+<script src="js/core/player.js"></script>
+<script src="js/core/mapgen.js"></script>
+<script src="js/core/explore.js"></script>
+<script src="js/core/overlays.js"></script>
+
+<!-- ===== 场景 ===== -->
+<script src="js/scenes/title.js"></script>
+<script src="js/scenes/reincarnation.js"></script>
+<script src="js/scenes/childhood.js"></script>
+<script src="js/scenes/town.js"></script>
+<script src="js/scenes/field.js"></script>
+<script src="js/scenes/cave.js"></script>
+<script src="js/scenes/battle.js"></script>
+<script src="js/scenes/death.js"></script>
+<script src="js/scenes/reincarnation-hall.js"></script>
+
+
+<script>
+(function () {
+  var G = window.G, log = [];
+  var errors = [];
+  window.addEventListener('error', function (e) {
+    errors.push('window.onerror: ' + (e.message || e.error));
+  });
+  var origErr = console.error;
+  console.error = function () {
+    errors.push('console.error: ' + Array.prototype.join.call(arguments, ' '));
+    origErr.apply(console, arguments);
+  };
+  var origWarn = console.warn;
+  console.warn = function () {
+    log.push('console.warn: ' + Array.prototype.join.call(arguments, ' '));
+    origWarn.apply(console, arguments);
+  };
+
+  G.game.start();
+
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    if (!G.Assets.ready && tries < 100) return;
+    clearInterval(timer);
+
+    var keys = Object.keys(G.Assets.images);
+    var probeKeys = ['char.hero.down.0', 'char.hero.up.0', 'char.hero.left.0', 'char.hero.right.0',
+                     'battle.hero', 'battle.enemy.wolf'];
+    var assets = {};
+    probeKeys.forEach(function (k) { assets[k] = !!G.Assets.img(k); });
+
+    /* 进场景，走四个方向，看每一向拿到的是素材还是程序化兜底 */
+    var save = {
+      life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
+      origin: 'test', six: { 勇猛: 8, 灵巧: 7, 体质: 9, 智力: 6, 魅力: 5 },
+      linggen: { elems: ['木'], coef: { 木: 1.2 }, kind: '单灵根', stoneBonus: 0 },
+      talents: [], skills: { 缠藤指: { lv: 2 } }, skillEquip: ['缠藤指'],
+      items: { 回春丹: 3 }, stone: 500, qi: 1200, po: 30,
+      globalLevel: 5, maxGlobalLevel: 5, age: 16, watch: 0, whispers: 0, escapeLeft: 3,
+      quest: { step: 'free', flags: {} }, scene: 'town', map: 'town', pos: null,
+      chestsOpened: [], bossKilled: false, chronicle: [], _ageTick: 0, hp: 200
+    };
+    G.game.save = save;
+
+    var sceneName = "town";
+    G.game.changeScene(sceneName, { toSpawn: true });
+
+    /* 四向帧的来源判定：素材命中 → 烘焙出来的位图会比程序化更"厚"，
+       这里直接看 Assets 有没有这个键，最直接。 */
+    var frames = {};
+    ['down', 'up', 'left', 'right'].forEach(function (d) {
+      frames[d] = {
+        asset: !!G.Assets.img('char.hero.' + d + '.0'),
+        w: G.Sprites.heroFrames().down[0].width
+      };
+    });
+
+    /* 走两步让方向变化，再停下 */
+    var sc = G.game.scene;
+    for (var i = 0; i < 30; i++) sc.update(0.05);
+    var dirs = ['down', 'left', 'up', 'right'];
+    dirs.forEach(function (d) { sc.dir = d; sc.frame = 1; sc.render(G.game.ctx); });
+
+    /* 战斗场景也渲染一帧，确认战斗立绘走的是素材 */
+    G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field' });
+    for (var j = 0; j < 5; j++) G.game.scene.update(1 / 60);
+    G.game.scene.render(G.game.ctx);
+
+    G.game.changeScene(sceneName, { toSpawn: true });
+    for (var k = 0; k < 5; k++) G.game.scene.update(1 / 60);
+    G.game.scene.render(G.game.ctx);
+
+    var report = {
+      manifestKeys: Object.keys(G.Assets.manifest || {}).length,
+      registeredImages: keys.length,
+      images: keys.slice(0, 8),
+      assets: assets,
+      frames: frames,
+      spriteK: G.Art.K, gameS: G.game.S,
+      errors: errors,
+      notes: log
+    };
+    var pre = document.createElement('pre');
+    pre.id = 'probe-report';
+    pre.textContent = JSON.stringify(report, null, 2);
+    document.body.appendChild(pre);
+    document.title = 'PROBE_DONE';
+  }, 100);
+})();
+</script>
+</body>
+</html>

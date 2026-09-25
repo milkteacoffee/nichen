@@ -1,0 +1,18 @@
+{
+  "name": "nichen",
+  "version": "0.0.1",
+  "description": "逆尘 - 横屏单机仙侠轮回RPG",
+  "private": true,
+  "scripts": {
+    "serve": "npx serve www -l 8173",
+    "cap:sync": "cap sync android",
+    "apk:debug": "cd android && gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

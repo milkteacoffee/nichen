@@ -1,0 +1,14 @@
+# 生成物（非源码，可重新生成）
+_gen/
+_shots/
+
+# 依赖
+node_modules/
+
+# 内部工具数据（WorkBuddy AI 项目记忆，不入库）
+.workbuddy-ai/
+
+# 系统
+.DS_Store
+Thumbs.db
+*.log
