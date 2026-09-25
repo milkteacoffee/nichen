@@ -196,18 +196,32 @@
       x.fillText(str, s.x, s.y);
     },
 
+    /* 中文折行：① 不能把标点丢到行首（「险恶。」的句号单独占一行）；
+       ② 不能把开引号/开括号留在行末。
+       做法是先把"基字 + 紧随其后的禁则字符"打包成不可拆的簇，再按簇折行 ——
+       否则「。」被强行留在上一行后，紧跟的「”」会孤零零掉到下一行。 */
     wrap: function (x, str, size, maxW) {
-      var lines = [], cur = '', w = 0;
       x.font = F(size);
-      var noHead = '，。、；：？！）】」》…·';
+      var noHead = '，。、；：？！）】」》”’…·';
+      var noTail = '“（【「《‘';
+      var cl = [];
       for (var i = 0; i < str.length; i++) {
         var ch = str[i];
-        var cw = x.measureText(ch).width;
+        if (cl.length && noHead.indexOf(ch) >= 0) cl[cl.length - 1] += ch;
+        else cl.push(ch);
+      }
+      var lines = [], cur = '', w = 0;
+      for (var j = 0; j < cl.length; j++) {
+        var c = cl[j], cw = x.measureText(c).width;
         if (w + cw > maxW && cur) {
-          if (noHead.indexOf(ch) >= 0) { lines.push(cur + ch); cur = ''; w = 0; continue; }
-          lines.push(cur); cur = ''; w = 0;
+          var tail = cur[cur.length - 1];
+          if (noTail.indexOf(tail) >= 0) {
+            cur = cur.slice(0, -1);
+            if (cur) lines.push(cur);
+            cur = tail; w = x.measureText(tail).width;
+          } else { lines.push(cur); cur = ''; w = 0; }
         }
-        cur += ch; w += cw;
+        cur += c; w += cw;
       }
       if (cur) lines.push(cur);
       return lines;

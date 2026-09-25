@@ -2056,6 +2056,238 @@
   };
 
   /* ============================================================
+     五b、人物立绘（半身像）
+     逻辑尺寸就是覆盖层立绘框的 74×74 —— 1:1 绘制，不缩放、不裁切。
+     装了 portrait.<key> 素材就整张替换（等比"内含"缩放居中），否则按参数表程序化画。
+     key 取美术 v0.2 §3 的 M0 七位（陆尘/沈伯/重伤老者/尘逆残影/杀手/刘掌柜/狼王）
+     外加泛用的 villager。狼王只作敌人，立绘走 battle.enemy.wolfking，不在此表。
+     ============================================================ */
+  var PORTRAIT_LW = 74, PORTRAIT_LH = 74;
+
+  var PORTRAIT_P = {
+    luchen: { hair: '#2b2833', skin: '#efc49c', robe: '#3f6f8c', robe2: '#2d5470',
+      collar: '#e8e2d0', eye: '#241f2b', brow: '#2b2833' },
+    shenbo: { hair: '#8d8b86', skin: '#e8bd94', robe: '#5f7261', robe2: '#47574a',
+      collar: '#e6ddc2', eye: '#2a2530', brow: '#6e6c68', beard: '#cfccc0' },
+    elder: { hair: '#d8d5cc', skin: '#dcae86', robe: '#6b6257', robe2: '#4e4740',
+      collar: '#ddd4bd', eye: '#2a2530', brow: '#cfccc0', beard: '#efeee8' },
+    keeper: { hair: '#332f3a', skin: '#e8b890', robe: '#7a6a52', robe2: '#5a4d3a',
+      collar: '#e6ddc2', eye: '#241f2b', brow: '#332f3a',
+      hat: '#3a3f52', hat2: '#525870', stache: '#332f3a' },
+    killer: { hair: '#1c1a22', skin: '#c9a184', robe: '#3a2730', robe2: '#26181f',
+      collar: '#5a2b2f', eye: '#c8543f', brow: '#1c1a22',
+      hood: '#2a1e26', mask: '#15121a', glow: true },
+    demon: { hair: '#171520', skin: '#8e8798', robe: '#241a2e', robe2: '#170f20',
+      collar: '#4a2a52', eye: '#ff7a4a', brow: '#171520',
+      hood: '#1b1424', glow: true },
+    aran: { hair: '#2f2a34', skin: '#f2c9a4', robe: '#b06a72', robe2: '#8d4f58',
+      collar: '#f0e6d4', eye: '#2b2530', brow: '#2f2a34' },
+    villager: { hair: '#3a3440', skin: '#e6b98e', robe: '#8a8a92', robe2: '#66666e',
+      collar: '#e6ddc2', eye: '#241f2b', brow: '#3a3440' }
+  };
+
+  function portraitDraw(x, P) {
+    var W = PORTRAIT_LW, H = PORTRAIT_LH;
+    var cx = W / 2, hy = 27, hr = 16;         /* 头心与头半径 */
+
+    /* 底：四角压暗的暗角 —— 立绘框落在深色面板里，没有暗角时半身像会"浮"在底色上 */
+    var vg = x.createRadialGradient(cx, hy + 6, 18, cx, hy + 10, 50);
+    vg.addColorStop(0, 'rgba(6,8,14,0)');
+    vg.addColorStop(1, 'rgba(6,8,14,0.46)');
+    x.fillStyle = vg;
+    x.fillRect(0, 0, W, H);
+
+    /* 头后紧光晕（不能大：和袍子同色的大光晕会把肩膀吃掉，轮廓就散了） */
+    var rg = x.createRadialGradient(cx, hy + 2, 2, cx, hy + 2, 30);
+    rg.addColorStop(0, alpha(P.robe, 0.28));
+    rg.addColorStop(1, alpha(P.robe, 0));
+    x.fillStyle = rg;
+    x.fillRect(0, 0, W, H);
+
+    /* 兜帽先铺在头后，脸再压上去 */
+    if (P.hood) {
+      x.beginPath();
+      x.ellipse(cx, hy - 2, hr * 1.30, hr * 1.38, 0, 0, 6.2832);
+      x.fillStyle = P.hood; x.fill();
+    }
+
+    /* 肩与身 */
+    x.beginPath();
+    x.moveTo(cx - 33, H);
+    x.quadraticCurveTo(cx - 29, 54, cx - 13, 47);
+    x.lineTo(cx + 13, 47);
+    x.quadraticCurveTo(cx + 29, 54, cx + 33, H);
+    x.closePath();
+    x.fillStyle = P.robe; x.fill();
+    /* 轮廓描边：亮地面/暗底都要能读出人形 */
+    x.lineWidth = 1;
+    x.strokeStyle = 'rgba(0,0,0,0.38)';
+    x.stroke();
+    /* 左肩受光 + 下摆压暗，避免读成一块平色 */
+    x.fillStyle = alpha('#ffffff', 0.13);
+    x.beginPath();
+    x.moveTo(cx - 31, 58); x.quadraticCurveTo(cx - 25, 50, cx - 11, 48);
+    x.lineTo(cx - 3, 48); x.lineTo(cx - 7, 58); x.closePath(); x.fill();
+    x.fillStyle = alpha(P.robe2, 0.85);
+    x.fillRect(cx - 33, 66, 66, H - 66);
+
+    /* 交领 */
+    x.beginPath();
+    x.moveTo(cx - 9, 47); x.lineTo(cx, 64); x.lineTo(cx + 9, 47);
+    x.closePath(); x.fillStyle = P.collar; x.fill();
+    x.beginPath();
+    x.moveTo(cx - 9, 47); x.lineTo(cx - 1.5, 57); x.lineTo(cx - 4, 47);
+    x.closePath(); x.fillStyle = alpha('#000000', 0.16); x.fill();
+
+    /* 颈 */
+    x.fillStyle = shade(P.skin, -0.16);
+    x.fillRect(cx - 6.5, 36, 13, 12);
+
+    /* 头发底 → 脸（脸略小略下，自然留出发际线）。
+       先垫一圈暗描边：沈伯/重伤老者是浅发色，没有它会在光晕里糊成一团。 */
+    x.beginPath();
+    x.ellipse(cx, hy - 0.5, hr * 1.02, hr * 1.09, 0, 0, 6.2832);
+    x.fillStyle = 'rgba(0,0,0,0.32)'; x.fill();
+    x.beginPath();
+    x.ellipse(cx, hy - 1.5, hr * 0.96, hr * 1.03, 0, 0, 6.2832);
+    x.fillStyle = P.hair; x.fill();
+    x.beginPath();
+    x.ellipse(cx, hy + 1.8, hr * 0.86, hr * 0.95, 0, 0, 6.2832);
+    x.fillStyle = P.skin; x.fill();
+
+    /* 耳 */
+    [-1, 1].forEach(function (s) {
+      x.beginPath();
+      x.ellipse(cx + s * hr * 0.88, hy + 3.4, 2.6, 4.0, 0, 0, 6.2832);
+      x.fillStyle = shade(P.skin, -0.10); x.fill();
+    });
+
+    /* 右颊与下颌的侧影 */
+    x.beginPath();
+    x.ellipse(cx + hr * 0.50, hy + 4, hr * 0.36, hr * 0.60, 0, 0, 6.2832);
+    x.fillStyle = alpha('#3a2418', 0.14); x.fill();
+
+    /* 眉 + 眼 */
+    [-1, 1].forEach(function (s) {
+      var ex = cx + s * 5.4;
+      x.fillStyle = P.brow;
+      x.fillRect(ex - 2.6, hy - 5.2, 5.2, 1.3);
+      x.beginPath(); x.ellipse(ex, hy + 0.6, 2.2, 1.6, 0, 0, 6.2832);
+      x.fillStyle = '#f2ece0'; x.fill();
+      x.beginPath(); x.arc(ex, hy + 0.6, 1.25, 0, 6.2832);
+      x.fillStyle = P.eye; x.fill();
+      /* 上眼睑：压住眼球上缘，眼睛才不"瞪" */
+      x.fillStyle = alpha('#2a1f28', 0.55);
+      x.fillRect(ex - 2.2, hy - 1.1, 4.4, 0.9);
+    });
+
+    /* 鼻 */
+    x.fillStyle = alpha('#6b3f2a', 0.32);
+    x.fillRect(cx - 0.7, hy + 3.4, 1.4, 4.6);
+    x.beginPath(); x.ellipse(cx, hy + 8.2, 2.0, 1.0, 0, 0, 6.2832); x.fill();
+
+    /* 嘴 */
+    x.fillStyle = alpha('#7a3a3a', 0.62);
+    x.fillRect(cx - 3.2, hy + 11.6, 6.4, 1.3);
+
+    /* 髭须 / 络腮胡 */
+    if (P.stache) {
+      x.fillStyle = P.stache;
+      x.fillRect(cx - 5.6, hy + 9.4, 4.6, 1.8);
+      x.fillRect(cx + 1.0, hy + 9.4, 4.6, 1.8);
+    }
+    if (P.beard) {
+      x.beginPath();
+      x.moveTo(cx - 8.4, hy + 8.6);
+      x.quadraticCurveTo(cx - 9.6, hy + 20, cx - 3.0, hy + 23.5);
+      x.quadraticCurveTo(cx, hy + 25, cx + 3.0, hy + 23.5);
+      x.quadraticCurveTo(cx + 9.6, hy + 20, cx + 8.4, hy + 8.6);
+      x.quadraticCurveTo(cx, hy + 15.5, cx - 8.4, hy + 8.6);
+      x.closePath();
+      x.fillStyle = P.beard; x.fill();
+      x.fillStyle = alpha('#ffffff', 0.26);
+      x.beginPath();
+      x.ellipse(cx - 3.4, hy + 12.8, 2.8, 4.4, 0, 0, 6.2832); x.fill();
+    }
+
+    /* 面罩（杀手） */
+    if (P.mask) {
+      x.beginPath();
+      x.moveTo(cx - 12.2, hy + 5.2);
+      x.quadraticCurveTo(cx, hy + 9.4, cx + 12.2, hy + 5.2);
+      x.lineTo(cx + 10.4, hy + 15.5);
+      x.quadraticCurveTo(cx, hy + 19.5, cx - 10.4, hy + 15.5);
+      x.closePath();
+      x.fillStyle = P.mask; x.fill();
+    }
+
+    /* 发髻与鬓发（戴帽/戴兜帽时不画，免得从帽檐下钻出来） */
+    if (!P.hood && !P.hat) {
+      x.fillStyle = P.hair;
+      x.beginPath(); x.ellipse(cx, hy - hr * 0.98, 5.2, 4.2, 0, 0, 6.2832); x.fill();
+      [-1, 1].forEach(function (s) {
+        x.beginPath();
+        x.ellipse(cx + s * hr * 0.80, hy + 6.5, 2.8, 7.0, 0, 0, 6.2832);
+        x.fill();
+      });
+    }
+
+    /* 头巾/帽（掌柜） */
+    if (P.hat) {
+      x.beginPath();
+      x.ellipse(cx, hy - 5.2, hr * 0.92, hr * 0.74, 0, Math.PI, 6.2832);
+      x.closePath(); x.fillStyle = P.hat; x.fill();
+      x.fillStyle = P.hat2 || P.hat;
+      x.fillRect(cx - hr * 0.98, hy - 6.8, hr * 1.96, 2.6);
+      x.beginPath(); x.ellipse(cx, hy - hr * 1.04, 4.4, 3.4, 0, 0, 6.2832);
+      x.fillStyle = P.hat2 || P.hat; x.fill();
+    }
+
+    /* 兜帽内圈：只在脸的外缘留一圈帽檐（内孔与脸同形，绝不切到脸） */
+    if (P.hood) {
+      x.beginPath();
+      x.ellipse(cx, hy - 2, hr * 1.30, hr * 1.38, 0, 0, 6.2832);
+      x.ellipse(cx, hy + 1.8, hr * 0.88, hr * 0.97, 0, 6.2832, 0, true);
+      x.fillStyle = P.hood; x.fill();
+    }
+
+    /* 目露凶光（杀手 / 心魔） */
+    if (P.glow) {
+      x.save();
+      x.globalCompositeOperation = 'lighter';
+      [-1, 1].forEach(function (s) {
+        var ex = cx + s * 5.4;
+        var gg = x.createRadialGradient(ex, hy + 0.6, 0.4, ex, hy + 0.6, 5.2);
+        gg.addColorStop(0, alpha(P.eye, 0.95));
+        gg.addColorStop(1, alpha(P.eye, 0));
+        x.fillStyle = gg;
+        x.fillRect(ex - 6, hy - 5.5, 12, 12);
+      });
+      x.restore();
+    }
+  }
+
+  /* 立绘：返回 {c, ox, oy, w, h}。素材走"内含"缩放居中，绝不裁切。
+     立绘不吃调色板（程序化配色写在 PORTRAIT_P 里），所以缓存键只带 key。 */
+  A.portrait = function (key) {
+    key = key || 'villager';
+    var o = cached('portrait|' + key, PORTRAIT_LW, PORTRAIT_LH, function (x) {
+      var im = G.Assets && G.Assets.img ? G.Assets.img('portrait.' + key) : null;
+      if (im) {
+        var iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+        var s = Math.min(PORTRAIT_LW / iw, PORTRAIT_LH / ih);
+        var dw = iw * s, dh = ih * s;
+        x.drawImage(im, (PORTRAIT_LW - dw) / 2, (PORTRAIT_LH - dh) / 2, dw, dh);
+        return;
+      }
+      portraitDraw(x, PORTRAIT_P[key] || PORTRAIT_P.villager);
+    });
+    return { c: o.c, ox: 0, oy: 0, w: PORTRAIT_LW, h: PORTRAIT_LH };
+  };
+  A.PORTRAIT_SIZE = [PORTRAIT_LW, PORTRAIT_LH];
+  A.PORTRAIT_KEYS = Object.keys(PORTRAIT_P);
+
+  /* ============================================================
      六、氛围 / 特效
      ============================================================ */
   /* 洞窟光晕：以玩家为中心的暗幕 */

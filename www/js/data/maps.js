@@ -32,6 +32,15 @@
       ],
       scatter: { trees: 6, rocks: 2 },
       special: [ { id: 'well', kind: 'well', x: 23, y: 16 } ],
+      /* 站桩 NPC（探图 v0.2 §NPC）：占格实心、按 y 排序渲染、可点可面对交互。
+         位置必须避开道路 —— 镇里的主路只有 1 格宽，NPC 站上去就把路堵死了。
+         NPC 只有正面一套画法（程序化或 char.npc.<kind>），所以不配朝向。 */
+      npcs: [
+        { id: 'washer', kind: 'villager', name: '浣衣妇', portrait: 'villager',
+          x: 22, y: 18, act: 'chat.washer' },
+        { id: 'woodman', kind: 'villager', name: '老樵夫', portrait: 'villager',
+          x: 7, y: 13, act: 'chat.woodman' }
+      ],
       exits: [ { x0: 17, x1: 19, y: 23, to: 'field', spawn: { x: 24, y: 37 }, label: '翠微山' } ]
     },
 
@@ -115,7 +124,7 @@
         { id: 'shelfB', kind: 'shelf', x: 25, y: 3, w: 3, h: 1 },
         { id: 'lanternL', kind: 'lantern', x: 1, y: 5, w: 1, h: 2 },
         { id: 'lanternR', kind: 'lantern', x: 28, y: 5, w: 1, h: 2 },
-        { id: 'counter', kind: 'counter', x: 11, y: 4, w: 5, h: 1, act: 'shenbo', label: '柜台' },
+        { id: 'counter', kind: 'counter', x: 11, y: 6, w: 5, h: 1, act: 'shenbo', label: '柜台' },
         { id: 'jarA', kind: 'jar', x: 2, y: 7, w: 1, h: 1 },
         { id: 'jarB', kind: 'jar', x: 27, y: 7, w: 1, h: 1 },
         { id: 'jarC', kind: 'jar', x: 2, y: 11, w: 1, h: 1 },
@@ -123,6 +132,12 @@
         { id: 'crate', kind: 'crate', x: 26, y: 10, w: 1, h: 1 },
         { id: 'shelfC', kind: 'shelf', x: 2, y: 13, w: 3, h: 1 },
         { id: 'shelfD', kind: 'shelf', x: 25, y: 13, w: 3, h: 1 }
+      ],
+      /* 沈伯站在柜台之后（y=5，柜台 y=6）。室内 y<5 的话头顶会被顶部 HUD 压住，
+         连任务标记都会藏进 HUD 里，所以掌柜一律摆到 y≥5。 */
+      npcs: [
+        { id: 'shenbo', kind: 'elder', name: '沈伯', portrait: 'shenbo',
+          x: 13, y: 5, act: 'shenbo' }
       ],
       exits: [ { x0: 14, x1: 15, y: 16, to: 'town', spawn: { x: 17, y: 12 }, label: '出门' } ]
     },
@@ -140,11 +155,15 @@
         { id: 'crateG', kind: 'crate', x: 25, y: 4, w: 1, h: 1 },
         { id: 'lanternL', kind: 'lantern', x: 1, y: 7, w: 1, h: 2 },
         { id: 'lanternR', kind: 'lantern', x: 28, y: 7, w: 1, h: 2 },
-        { id: 'counter', kind: 'counter', x: 10, y: 5, w: 5, h: 1, act: 'market', label: '柜台' },
+        { id: 'counter', kind: 'counter', x: 10, y: 7, w: 5, h: 1, act: 'market', label: '柜台' },
         { id: 'table', kind: 'table', x: 20, y: 9, w: 3, h: 2 },
         { id: 'jarA', kind: 'jar', x: 2, y: 13, w: 1, h: 1 },
         { id: 'jarB', kind: 'jar', x: 3, y: 13, w: 1, h: 1 },
         { id: 'shelf', kind: 'shelf', x: 25, y: 13, w: 3, h: 1 }
+      ],
+      npcs: [
+        { id: 'keeper', kind: 'keeper', name: '刘掌柜', portrait: 'keeper',
+          x: 12, y: 6, act: 'market' }
       ],
       exits: [ { x0: 14, x1: 15, y: 16, to: 'town', spawn: { x: 28, y: 12 }, label: '出门' } ]
     },

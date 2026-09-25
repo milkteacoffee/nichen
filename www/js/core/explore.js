@@ -61,6 +61,8 @@
         this.overlay = name;
         this.buttons = btns || [];
       },
+      /* 供调试与测试查询：某个 NPC 此刻头顶该挂什么标记（'!' / '?' / null） */
+      npcMarkOf: function (npc) { return hooks.npcMark ? hooks.npcMark(npc) : null; },
       clearOverlay: function () {
         this.overlay = null;
         G.Storage.saveCurrent(G.game.save);
@@ -259,6 +261,7 @@
         if (!o) return;
         if (o.type === 'chest') this._openChest(o);
         else if (o.type === 'gate') this._useGate(o);
+        else if (o.type === 'npc' && hooks.onNpc) hooks.onNpc(o.npc, this);
         else if (hooks.onInteract) hooks.onInteract(o, this);
       },
 
@@ -450,10 +453,13 @@
           self._drawStructure(x, s, camX, camY);
         });
 
-        /* 装饰、家具与玩家按 y 交错（家具按"最下一格"参与排序，否则会被玩家穿过去） */
+        /* 装饰、家具、NPC 与玩家按 y 交错（家具按"最下一格"参与排序，否则会被玩家穿过去） */
         var list = this.map.decor.slice();
         (this.map.md.furn || []).forEach(function (f) {
           list.push({ furn: f, x: f.x, y: f.y + (f.h || 1) - 1 });
+        });
+        (this.map.npcs || []).forEach(function (n) {
+          list.push({ npc: n, x: n.x, y: n.y });
         });
         var pp = this._px();
         list.push({ player: true, x: pp.x / 16, y: pp.y / 16 });
@@ -461,6 +467,7 @@
         list.forEach(function (o) {
           if (o.player) self._drawPlayer(x, camX, camY);
           else if (o.furn) self._drawFurn(x, o.furn, camX, camY);
+          else if (o.npc) self._drawNpc(x, o.npc, camX, camY);
           else self._drawDecor(x, o, camX, camY);
         });
 
@@ -712,6 +719,38 @@
         x.restore();
         var spr = G.Sprites.heroFrames()[this.dir][this.frame];
         x.drawImage(spr, Math.round(px - HW / 2), Math.round(py + 3 - HH), HW, HH);
+      },
+
+      /* 站桩 NPC：落地投影 + 待机浮动（相位按坐标错开，一排人不会同频点头）。
+         头顶挂任务标记（探图 v0.2 §NPC：可接 ！/ 可交 ？；无任务不显示）。 */
+      _drawNpc: function (x, n, camX, camY) {
+        var px = n.x * 16 - camX + 8, py = n.y * 16 - camY + 12;
+        var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
+        var bob = Math.sin(performance.now() / 620 + n.x * 1.7 + n.y * 2.3) * 0.8;
+        var top = py + 3 - HH + bob;
+        x.save();
+        x.fillStyle = 'rgba(0,0,0,0.28)';
+        x.beginPath();
+        x.ellipse(px, py - 1, HW * 0.32, HW * 0.12, 0, 0, 6.2832);
+        x.fill();
+        x.restore();
+        x.drawImage(G.Sprites.npc(n.kind), Math.round(px - HW / 2), Math.round(top), HW, HH);
+        var mk = hooks.npcMark ? hooks.npcMark(n) : null;
+        if (mk) this._drawNpcMark(x, px, top - 4, mk);
+      },
+
+      /* 头顶任务标记：金/玉色 ！？，暗描边 + 上下浮动，亮地面也看得清 */
+      _drawNpcMark: function (x, px, py, kind) {
+        var pu = Math.sin(performance.now() / 300);
+        x.save();
+        x.font = G.UI.F(14);
+        x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+        x.lineJoin = 'round'; x.lineWidth = 3.2;
+        x.strokeStyle = 'rgba(6,8,14,0.85)';
+        x.fillStyle = kind === '?' ? '#a8dcc4' : '#f5e3a8';
+        x.strokeText(kind, px, py + pu * 1.6);
+        x.fillText(kind, px, py + pu * 1.6);
+        x.restore();
       },
 
       /* 点击落点标记：一个收束的金环，告诉玩家"我收到这一下了" */

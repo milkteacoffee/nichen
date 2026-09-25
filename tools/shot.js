@@ -377,6 +377,40 @@ shot('21c_town_market', 10);
 step(() => { G.game.changeScene('field_temple', { toSpawn: true }); }, 'shot.temple');
 shot('21d_field_temple', 10);
 
+/* 6b-2) 站桩 NPC：头顶任务标记 + 对话立绘（探图 v0.2 §NPC） */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'm0-1', flags: {} };        /* 沈伯头顶应挂「！」 */
+  s.stone = 300;
+  G.game.save = s;
+  G.game.changeScene('town_shop', { toSpawn: true });
+}, 'npc.mark.enter');
+shot('21e_npc_mark', 10);
+step(() => {
+  const sc = G.game.scene;
+  const n = (sc.map.npcs || []).filter((x) => x.act === 'shenbo')[0];
+  sc.overlay = null;
+  G.game.save.pos = { x: n.x, y: n.y + 2 };
+  sc.dir = 'up';
+  sc._interact();
+}, 'npc.shenbo.talk');
+shot('21f_npc_dialog', 10);
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  G.game.changeScene('town', { toSpawn: true });
+}, 'npc.town.enter');
+step(() => {
+  const sc = G.game.scene;
+  const n = (sc.map.npcs || [])[0];
+  sc.overlay = null;
+  G.game.save.pos = { x: n.x, y: n.y + 1 };
+  sc.dir = 'up';
+  sc._interact();
+}, 'npc.chat');
+shot('21g_npc_chat', 10);
+
 /* 6c) 角色面板：寿元行（轮回 v0.4 §3.2）—— 含长数值「700/800」与转红告警 */
 step(() => {
   const sc = G.game.scene;

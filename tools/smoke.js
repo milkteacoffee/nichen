@@ -187,6 +187,23 @@ step(function () {
     });
     if (!(a.w > 0) || !(a.h > 0)) errors.push(`美术契约：${c[0]} 逻辑尺寸非法 (${a.w}x${a.h})`);
   });
+  /* 立绘：每个 key 都要能画，且逻辑尺寸必须等于覆盖层立绘框（74×74）——
+     对不上就会被缩放绘制，像素立绘会糊。 */
+  const PS = G.Art.PORTRAIT_SIZE;
+  if (!G.Art.PORTRAIT_KEYS || !G.Art.PORTRAIT_KEYS.length) {
+    errors.push('立绘：PORTRAIT_KEYS 为空');
+  } else {
+    G.Art.PORTRAIT_KEYS.forEach(function (k) {
+      const a = G.Art.portrait(k);
+      if (!a || !a.c) { errors.push(`立绘：${k} 未返回 {c}`); return; }
+      if (a.w !== PS[0] || a.h !== PS[1]) {
+        errors.push(`立绘：${k} 逻辑尺寸 ${a.w}×${a.h}，应为 ${PS[0]}×${PS[1]}`);
+      }
+      if (a.ox !== 0 || a.oy !== 0) errors.push(`立绘：${k} 锚点偏移应为 0`);
+    });
+    /* 未知 key 必须退回 villager，不能返回空 */
+    if (!G.Art.portrait('__nope__').c) errors.push('立绘：未知 key 没有兜底');
+  }
   /* 瓦片与边缘 */
   ['grass', 'path', 'town', 'cave'].forEach(function (k) {
     for (let v = 0; v < 4; v++) {
@@ -319,6 +336,106 @@ const INDOOR = ['town_home', 'town_shop', 'town_market', 'field_temple'];
     }, 'indoor:' + m);
   }
 });
+
+/* 3a-2) 站桩 NPC 契约：占格实心、本格登记 npc 交互点、不站路上（单宽路会被堵死）、
+   从出生点可达（走不到就等于没有），且交互后确实开出对话覆盖层。 */
+step(function () {
+  ['town', 'town_shop', 'town_market'].forEach(function (m) {
+    const md = G.Data.maps[m];
+    const npcs = md.npcs || [];
+    if (!npcs.length) { errors.push(`${m}: 没有配置站桩 NPC`); return; }
+    const mp = G.MapGen.buildMap(save, m);
+
+    /* 从出生点 BFS 求可达集（不走实心格） */
+    const seen = {};
+    const q = [[md.spawn.x, md.spawn.y]];
+    seen[md.spawn.x + ',' + md.spawn.y] = true;
+    while (q.length) {
+      const c = q.shift();
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+        const nx = c[0] + d[0], ny = c[1] + d[1];
+        if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
+        const k = nx + ',' + ny;
+        if (seen[k] || mp.solid[ny][nx]) return;
+        seen[k] = true; q.push([nx, ny]);
+      });
+    }
+
+    npcs.forEach(function (n) {
+      if (!n.act) errors.push(`${m}: NPC ${n.id} 没有 act`);
+      if (!n.name) errors.push(`${m}: NPC ${n.id} 没有名字`);
+      if (!mp.solid[n.y][n.x]) {
+        errors.push(`${m}: NPC ${n.id} 的格子 (${n.x},${n.y}) 不是实心 —— 玩家会从他身上走过去`);
+      }
+      const o = mp.interact[n.x + ',' + n.y];
+      if (!o || o.type !== 'npc') errors.push(`${m}: NPC ${n.id} 的格子没有登记 npc 交互点`);
+      else if (!o.npc || o.npc.id !== n.id) errors.push(`${m}: NPC ${n.id} 的交互点挂错了对象`);
+      if (mp.ground[n.y][n.x].t === 'path') {
+        errors.push(`${m}: NPC ${n.id} 站在路上 (${n.x},${n.y}) —— 单宽道路会被堵死`);
+      }
+      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(function (d) {
+        return !!seen[(n.x + d[0]) + ',' + (n.y + d[1])];
+      });
+      if (!near) errors.push(`${m}: NPC ${n.id} 从出生点走不到 —— 玩家永远说不上话`);
+    });
+
+    /* 交互必须真的开出对话（quest 取 free，避开"领赏后不留面板"的分支） */
+    const s2 = JSON.parse(JSON.stringify(save));
+    s2.quest = { step: 'free', flags: {} };
+    s2.pos = null;
+    G.game.save = s2;
+    G.game.changeScene(m, { toSpawn: true });
+    npcs.forEach(function (n) {
+      const sc = G.game.scene;
+      sc.overlay = null;
+      let placed = false;
+      [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']].forEach(function (d) {
+        if (placed) return;
+        const px = n.x + d[0], py = n.y + d[1];
+        if (px < 0 || py < 0 || px >= sc.map.w || py >= sc.map.h) return;
+        if (sc.map.solid[py][px]) return;
+        s2.pos = { x: px, y: py }; sc.dir = d[2]; placed = true;
+      });
+      if (!placed) { errors.push(`${m}: NPC ${n.id} 四周没有可站位`); return; }
+      sc._interact();
+      if (!sc.overlay) errors.push(`${m}: 与 NPC ${n.id} 对话没有开出覆盖层`);
+      sc.clearOverlay();
+    });
+  });
+}, 'npc.contract');
+
+/* 3a-3) 头顶任务标记（探图 v0.2 §NPC：！可接 / ？可交 / 无任务不挂） */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null;
+  s.globalLevel = 5;
+  G.game.save = s;
+  G.game.changeScene('town_shop', { toSpawn: true });
+  const sc = G.game.scene;
+  const sb = (G.Data.maps.town_shop.npcs || []).filter(function (n) { return n.act === 'shenbo'; })[0];
+  if (!sb) { errors.push('药铺里找不到沈伯 NPC'); return; }
+
+  const want = function (quest, level, mark, label) {
+    s.quest = quest; s.globalLevel = level;
+    const got = sc.npcMarkOf(sb);
+    if (got !== mark) {
+      errors.push(`任务标记错（${label}）：应为 ${mark}，实为 ${got}`);
+    }
+  };
+  want({ step: 'm0-1', flags: {} }, 5, '!', 'm0-1 未打首战');
+  want({ step: 'm0-1', flags: { won1: true } }, 5, '?', 'm0-1 已打首战待领赏');
+  want({ step: 'm0-4', flags: {} }, 5, null, 'm0-4 未到淬体九段');
+  want({ step: 'm0-4', flags: {} }, 9, '?', 'm0-4 淬体九段待领丹');
+  want({ step: 'm0-4', flags: { gotBreakPill: true } }, 9, null, 'm0-4 已领丹');
+  want({ step: 'free', flags: {} }, 9, null, '自由游玩期');
+  want({ step: 'm0-5', flags: {} }, 12, null, 'm0-5 已出镇');
+
+  /* 非任务 NPC（村民 / 刘掌柜）任何时候都不挂标记 */
+  const keeper = (G.Data.maps.town_market.npcs || [])[0];
+  if (keeper && G.scenes.town_market.npcMarkOf(keeper) !== null) {
+    errors.push('任务标记错：刘掌柜不应挂标记');
+  }
+}, 'npc.mark');
 
 /* 3b-0) m0-1 主线不能断链：进山打赢 1 场 → won1 → 回镇找沈伯领灵石 50 → m0-2
    此前 won1 全项目无人写入，主线会永久卡死在 m0-1（违反 v0.9 §验收「m0-1..5 无卡死」）。 */

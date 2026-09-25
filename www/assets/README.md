@@ -88,6 +88,18 @@ python tools/assets-build.py --check
 > 出图规格：**透明底、单个角色居中占满画面、不要文字/边框/地面/阴影**。
 > 切图脚本会自己裁边补白，所以原图留多少边距都行。
 
+### 0b. 地图 NPC（✅ 已接线：镇里的站桩 NPC）
+| 逻辑名 | 尺寸 | 说明 |
+|---|---|---|
+| `char.npc.elder` | 168×252（逻辑 28×42） | 沈伯（药铺柜台后） |
+| `char.npc.keeper` | 168×252 | 刘掌柜（杂货铺柜台后） |
+| `char.npc.villager` | 168×252 | 村民（浣衣妇 / 老樵夫） |
+
+> 与主角同一套规格（168×252、脚底对齐画布下沿）。**没有素材时用程序化 NPC**
+> （`sprites.js` 的 `npcParts`），已按 kind 区分：`elder` 白须、`keeper` 戴帽、
+> 其余走普通村民。NPC 只有正面朝向，四向不做要求。
+> 站位与对话写在 `data/maps.js` 的 `npcs[]` 里（见下"地图 NPC"节）。
+
 ### 1. 地面纹理（**首选替换点**）
 
 地面现在不是 16×16 小瓦片，而是一张 **224×224 的无缝周期大纹理**，按世界坐标取子块铺满。
@@ -156,14 +168,32 @@ python tools/assets-build.py --check
 | `obj.chest.open` | 已开启宝箱 |
 | `obj.boss` | Boss 巢穴标记 |
 
-### 6. 地图 NPC（引擎已支持读取，但**目前没有绘制点**：镇里还没有站桩 NPC）
+### 6. 地图 NPC（✅ 已接线：镇内站桩 NPC）
 | 逻辑名 | 说明 |
 |---|---|
 | `char.npc.elder` | 老者（沈伯） |
-| `char.npc.keeper` | 掌柜 |
+| `char.npc.keeper` | 掌柜（刘掌柜） |
 | `char.npc.villager` | 村民 |
 
-> 尺寸同主角：168×252。想启用需要先在 `mapgen.js` 里加 NPC 实体（占格 + 交互 + 按 y 排序渲染）。
+> 尺寸同主角：168×252。绘制点 = `core/explore.js` 的 `_drawNpc`：
+> NPC 占格实心（不可穿过）、按 y 与装饰/家具/玩家交错排序、带落地投影与待机浮动；
+> 头顶按 `hooks.npcMark` 挂金色任务标记（`！` 可接 / `？` 可交）。
+>
+> **NPC 的站位、姓名、对话与立绘 key 都写在 `data/maps.js` 的 `npcs[]` 里**：
+> ```js
+> npcs: [
+>   { id: 'shenbo', kind: 'elder', name: '沈伯', portrait: 'shenbo',
+>     x: 13, y: 5, act: 'shenbo' }
+> ]
+> ```
+> `kind` 决定地图精灵（查 `char.npc.<kind>`），`portrait` 决定对话立绘（查
+> `portrait.<portrait>`），`act` 决定点他触发什么（`scenes/town.js` 的 `NPC_ACTS`）。
+> NPC 只有正面一套画法，**不配朝向**。
+>
+> **两条硬约束**（`smoke.js` 的 `npc.contract` 会卡）：
+> ① 不许站在 `ground` 为 `path` 的格子上 —— 镇里的主路只有 1 格宽，站上去就把路堵死；
+> ② 必须从出生点走得到，否则玩家永远说不上话。
+> 室内图另有一条：**y 必须 ≥ 5**，否则头顶（连同任务标记）会被顶部 HUD 压住。
 
 ### 7. 场景背景（480×272 逻辑，建议 1920×1088）
 | 逻辑名 | 说明 | 绘制点 |
@@ -174,20 +204,27 @@ python tools/assets-build.py --check
 | `bg.battle` | 战斗背景 | ❌ 尚未接线 |
 | `bg.cave` | 洞窟氛围底图 | ❌ 尚未接线 |
 
-### 8. 人物立绘（建议 256×256 方图）
+### 8. 人物立绘（逻辑 74×74，建议出 256×256 方图）
 | 逻辑名 | 说明 | 绘制点 |
 |---|---|---|
 | `portrait.luchen` | 陆尘（主角） | ✅ 角色面板 `core/overlays.js` |
-| `portrait.shenbo` | 沈伯 | ❌ 尚未接线 |
-| `portrait.elder` | 重伤老者 | ❌ 尚未接线 |
-| `portrait.aran` | 阿阮 | ❌ 尚未接线 |
-| `portrait.killer` | 杀手 | ❌ 尚未接线 |
-| `portrait.zhou` | 周老板 | ❌ 尚未接线 |
-| `portrait.demon` | 尘逆残影 / 心魔 | ❌ 尚未接线 |
+| `portrait.shenbo` | 沈伯 | ✅ 药铺对话 |
+| `portrait.elder` | 重伤老者 | ✅ 山神庙剧情（预留） |
+| `portrait.keeper` | 刘掌柜 | ✅ 杂货铺对话 |
+| `portrait.killer` | 血煞教杀手 | ✅ 杀手战对白（预留） |
+| `portrait.demon` | 尘逆残影 / 心魔 | ✅ 珠内梦境对话 |
+| `portrait.villager` | 村民（泛用） | ✅ 镇内闲聊 |
+| `portrait.aran` | 阿阮 | M1（key 已备好） |
 
-> 角色面板的立绘框是 **74×74**，画面一律**等比"内含"缩放、整图居中、不裁切**。
-> 所以方图/长图都能完整显示，不会被切掉头或脚。没装 `portrait.luchen` 时，
-> 退回用 `battle.hero` 战斗立绘整图铺进框内。
+> **一律走 `G.Art.portrait(key)`**：装了 `portrait.<key>` 就用素材（等比"内含"
+> 缩放、居中、绝不裁切），没有就用**程序化半身像**（`art.js` 的 `PORTRAIT_P`
+> 参数表 + `portraitDraw`）。
+>
+> 逻辑尺寸就是立绘框的 **74×74**，1:1 绘制 —— 所以素材会被烘进 74×74 的
+> 逻辑画布（×K 超采样），不需要你自己缩到 74。出图建议 256×256 方图、透明底。
+> 想换某个角色的长相，改 `PORTRAIT_P` 里的配色，或直接丢一张 `portrait.<key>.png`
+> 进 `_gen/` 走切图流程。
+
 
 ---
 
@@ -196,8 +233,9 @@ python tools/assets-build.py --check
 | 项 | 建议 |
 |---|---|
 | 瓦片 | 48×48 PNG（等于 3× 逻辑像素，最锐利） |
-| 地图角色 | 168×252 PNG（逻辑 28×42，比例 2:3 必须一致），脚底对齐画布下沿 |
+| 地图角色（主角 / NPC） | 168×252 PNG（逻辑 28×42，比例 2:3 必须一致），脚底对齐画布下沿 |
 | 战斗立绘 | 192×192 PNG（逻辑 40×40，正方形槽位，内部按原比例居中） |
+| 人物立绘 | 256×256 方图 PNG（透明底，会被烘进 74×74 的逻辑立绘框） |
 | 立绘/背景 | 1920×1088 WebP（体积小） |
 | 透明底 | 瓦片、角色、立绘必须透明底；背景不透明 |
 | 色彩 | 与 `doc/《逆尘》美术音频与技术打包圣经 v0.2.md` §2.2 主题色板保持一致 |
@@ -212,15 +250,19 @@ python tools/assets-build.py --check
 程序化画面已经是"高保真档"：3—4 倍自适应超采样绘制、**224×224 无缝周期地面纹理**
 （无网格、无重复点阵）、大尺度低频明暗、地形过渡、建筑投影、树冠叶片斑驳与轮廓光、
 有机路径角色立绘、装饰物按位置做缩放/翻转以打散重复感、室内木地板与砖墙、
-室内暖光与暗角。
+室内暖光与暗角、**站桩 NPC（含待机浮动与头顶任务标记）**、
+**人物半身立绘（8 个 key，参数化配色）**。
 
 素材层已装：主角地图行走图（四向）+ 战斗立绘（我方 1 张、敌方 6 张）。
-其余键留空，随时可继续整包替换为手绘 / AI 生成素材。
+NPC 与人物立绘目前全部走程序化画面 —— 键已接线，随时可整包替换为手绘 / AI 生成素材。
 
 ### 无头验证工具
 - `node tools/smoke.js` —— 加载全部脚本并跑通各场景，校验美术契约、颜色解析、
   素材层接线（素材命中的烘焙尺寸必须是 逻辑尺寸 × 超采样倍率）、
   室内地图契约（门开在边界墙上、家具占格实心且逐格登记交互、家具不得摆进顶部 HUD 区）、
+  **立绘契约（每个 key 的逻辑尺寸必须是 74×74、未知 key 有兜底）**、
+  **NPC 契约（占格实心、本格登记 npc 交互点、不站路上、从出生点可达、交互必开对话）**、
+  **头顶任务标记（！/？/无）**、
   属性克制矩阵、突破公式与规则、战斗奖励公式、状态系统、分区遭遇权重与双只组、
   多敌前后排与技能目标行、自动战斗选目标权重、指令集裁剪、自动战斗防死锁、
   m0-1 主线不断链（首战置 won1 → 沈伯领赏 → m0-2）、
@@ -232,8 +274,10 @@ python tools/assets-build.py --check
   轮回殿五线灌注 → 第 2 世重生。断言：世界换种子（非锚世）、五线全部兑现
   （仙躯进 `computeStats`、灵息/魂力/财禄/遁法进开局资源）、同等级同灵根同功法下
   第 2 世战力确实更高。
-- `node tools/shot.js [输出目录]` —— 用 `@napi-rs/canvas` 真实光栅化，把 38 个场景导出 PNG。
+- `node tools/shot.js [输出目录]` —— 用 `@napi-rs/canvas` 真实光栅化，把 41 个场景导出 PNG。
   **会先读 `assets/manifest.json` 把素材登记进去**，所以出图就是"装了素材"的真实画面。
+  其中 `21e_npc_mark` / `21f_npc_dialog` / `21g_npc_chat` 三张专门盯 NPC：
+  头顶标记、对话立绘、镇内闲聊。
 - `node tools/zoom.js [场景] [倍数|full] [输出目录]` —— 单场景局部放大审查，用来确认
   精灵清晰度 / 有没有被低倍率位图放大糊掉。场景支持
   `town | field | cave | town_home | town_shop | town_market | field_temple | title | battle | death | hall`。
@@ -249,14 +293,20 @@ python tools/assets-build.py --check
 - `python tools/assets-build.py [--check]` —— 素材切图与 manifest 生成/校验（需要 Pillow）。
   `--check` 会校验：四向行走图 `.0/.1/.2` 帧键齐全、文件存在且带透明底、
   `manifest.js` 与 `manifest.json` 内容同步。
+- `node tools/portrait-sheet.js [key ...]` —— **立绘审查**：把 `G.Art.portrait` 的每个
+  key 以 6 倍放大并排导出 `_shots/portraits.png`，并逐个打印 26×26 的 ASCII 亮度缩略图
+  （图片直读在会话里会间歇性失败，文本化更可靠）。改 `PORTRAIT_P` 配色后跑一遍就能看效果。
 - `node tools/browser-probe.js [场景] [输出目录]` —— **真实浏览器探针**（CDP 驱动本机 Chrome）。
-  场景 `town | field | town_home | battle | charpanel | perf | ablate | ground`。
+  场景 `town | field | cave | town_home | town_shop | town_market | field_temple |
+  battle | charpanel | perf | ablate | ground`。
   为什么必须有它：上面那些 node 工具用的是桩 canvas + 桩 fetch，**fetch 被桩成 reject，
   manifest 永远加载失败，素材路径在无头环境里根本跑不到**。只有真浏览器能回答
   "素材到底生效没有"。它会报：manifest 键数与来源、超采样 S 与美术 K 是否一致、
-  四向帧是素材还是程序化兜底、页面错误；`charpanel` 还会量出立绘框内内容的包围盒
-  并打印 ASCII 缩略图，用于确认角色没有被框裁切。需要本机 Chrome/Edge，
-  且要先用 `python -m http.server 8173`（在 `www/` 下）起一个服务。
+  四向帧是素材还是程序化兜底、**站桩 NPC 数量/头顶标记/对话覆盖层能否打开**、页面错误；
+  `charpanel` 还会量出立绘框内内容的包围盒并打印 ASCII 缩略图。
+  需要本机 Chrome/Edge，且要先用 `python -m http.server 8173`（在 `www/` 下）起一个服务
+  —— **服务必须常驻**（用后台任务起），中途断掉会让页面所有子资源变 502、
+  表现为"驱动里 `window.G` 是 undefined"。
   另外三个模式：`perf`（冷启动/稳态/rAF 分场景测量）、`ablate`（消融定位瓶颈）、
   `ground`（地面渲染等价性逐像素比对）。
 

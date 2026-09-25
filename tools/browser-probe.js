@@ -396,6 +396,30 @@ const DRIVER = `(async function () {
   }
   if (G.game.scene.render) { G.game.scene.dir = 'down'; G.game.scene.frame = 1; G.game.scene.render(G.game.ctx); }
 
+  /* 站桩 NPC：在真浏览器里确认"画得出来 + 说得上话"。
+     无头桩环境里 NPC 也能跑，但素材层与真实 Canvas 的差异只有这里能看出来。 */
+  var npcInfo = { count: 0, marks: [], talked: false };
+  var scN = G.game.scene;
+  if (scN.map && (scN.map.npcs || []).length) {
+    npcInfo.count = scN.map.npcs.length;
+    scN.map.npcs.forEach(function (n) {
+      npcInfo.marks.push(n.id + ':' + (scN.npcMarkOf(n) || '-'));
+    });
+    var n0 = scN.map.npcs[0];
+    var ndirs = [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']];
+    for (var di = 0; di < ndirs.length && !npcInfo.talked; di++) {
+      var npx = n0.x + ndirs[di][0], npy = n0.y + ndirs[di][1];
+      if (npx < 0 || npy < 0 || npx >= scN.map.w || npy >= scN.map.h) continue;
+      if (scN.map.solid[npy][npx]) continue;
+      G.game.save.pos = { x: npx, y: npy };
+      scN.dir = ndirs[di][2];
+      scN._interact();
+      npcInfo.talked = !!scN.overlay;
+    }
+    /* 把对话覆盖层真的画一遍（含立绘），有异常会被页面错误钩子抓到 */
+    if (scN.render) scN.render(G.game.ctx);
+  }
+
   /* 立绘框像素体检：量出框内"有内容"的包围盒。
      被裁切时内容会顶死四边（bbox 贴 0 和 74）；完整展示时四周应留有留白。
      同时输出一张 ASCII 缩略图，肉眼/文本都能判断角色是否完整。 */
@@ -434,7 +458,10 @@ const DRIVER = `(async function () {
         x: +(minX / S).toFixed(1), y: +(minY / S).toFixed(1),
         r: +((maxX + 1) / S).toFixed(1), b: +((maxY + 1) / S).toFixed(1),
         coverage: +(lit / (bw * bh * S * S) * 100).toFixed(1),
-        touchesEdge: (minX <= 1 || minY <= 1 || maxX >= bw * S - 2 || maxY >= bh * S - 2)
+        /* 半身立绘本来就该顶到左右与下沿（肩与胸），所以"贴边"不再是问题；
+           真正要防的是**头顶被切**：内容贴到框上沿说明头被裁了。 */
+        headroom: +(minY / S).toFixed(1),
+        topClipped: minY <= 1
       };
     }
     /* ASCII 缩略图：24×24，用亮度分档 */
@@ -467,6 +494,7 @@ const DRIVER = `(async function () {
     frames: frames4,
     heroSprite: { w: heroW, h: heroH },
     spriteK: G.Art.K, gameS: G.game.S,
+    npc: npcInfo,
     errors: errors, notes: log
   });
 })()`;
@@ -598,6 +626,13 @@ const DRIVER = `(async function () {
     Object.keys(report.frames).forEach(function (d) {
       console.log('    ' + (report.frames[d].asset ? '✅ 素材' : '❌ 程序化兜底') + '  char.hero.' + d);
     });
+    if (report.npc && report.npc.count) {
+      console.log('  站桩 NPC            ' + report.npc.count + ' 个 · 头顶标记 '
+        + report.npc.marks.join(' '));
+      console.log('  ' + (report.npc.talked
+        ? '✅ 对话覆盖层已打开（立绘 + 台词渲染无异常）'
+        : '❌ 交互没有打开对话覆盖层'));
+    }
     if (report.errors.length) {
       console.log('  ⚠️ 页面错误 (' + report.errors.length + ')：');
       report.errors.forEach((e) => console.log('    - ' + e));
@@ -613,7 +648,10 @@ const DRIVER = `(async function () {
       var k = report.ink;
       console.log('  立绘框内容包围盒    x ' + k.x + '..' + k.r + '  y ' + k.y + '..' + k.b
         + '（框内 0..74）占 ' + k.coverage + '%');
-      console.log('  ' + (k.touchesEdge ? '⚠️ 内容顶到框边 —— 可能仍在裁切' : '✅ 四周有留白 —— 角色完整展示'));
+      /* 半身立绘顶到左右/下沿是正常的（肩与胸），只有头顶被切才算裁切 */
+      console.log('  ' + (k.topClipped
+        ? '⚠️ 内容顶到框上沿 —— 头顶被裁，立绘可能仍偏大'
+        : '✅ 头顶留白 ' + k.headroom + 'px —— 头部完整（肩部顶到左右/下沿属正常半身构图）'));
       if (report.ascii) {
         console.log('  立绘框 ASCII 缩略图：');
         report.ascii.forEach((l) => console.log('    |' + l + '|'));

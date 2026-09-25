@@ -138,6 +138,15 @@
       }
     });
 
+    /* 站桩 NPC：占格设实心（不可穿过），并在**自己这一格**登记交互点 ——
+       这样"面对他"和"直接点他"两条路都能走位到相邻格再开口说话。
+       必须在随机散布之前处理：否则树/石可能正好落在他脚下，把人埋了。 */
+    var npcs = md.npcs || [];
+    npcs.forEach(function (n) {
+      solid[n.y][n.x] = true; mark(n.x, n.y);
+      setInteract(n.x, n.y, { type: 'npc', npc: n, id: n.id, act: n.act });
+    });
+
     /* 随机散布 */
     var sc = md.scatter || {};
     function scatterN(t, n) {
@@ -157,7 +166,7 @@
     return {
       md: md, w: w, h: h, solid: solid, ground: ground,
       decor: decor, interact: interact, exitCells: exitCells,
-      chests: chests, boss: boss, rng: rng
+      chests: chests, boss: boss, rng: rng, npcs: npcs
     };
   }
 

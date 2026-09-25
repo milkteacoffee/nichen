@@ -19,6 +19,47 @@
       G.UI.frame(x, rect || PANEL, title, { paper: true });
     },
 
+    /* 对话覆盖层：立绘 + 名牌 + 台词。
+       opt = { title, name, portrait, lines:[], reward }
+       立绘框 74×74 固定在面板内左上角，台词列在它右侧并按 UI.wrap 自动折行；
+       reward 挂在台词下方（自适应位置，不会顶到面板底边的按钮）。
+       立绘走 G.Art.portrait(key)：装了 portrait.<key> 素材用素材，否则程序化半身像。 */
+    dialog: function (x, opt) {
+      opt = opt || {};
+      var P = this.PANEL;
+      this.dim(x);
+      G.UI.frame(x, P, opt.title, { paper: true });
+
+      var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
+      G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4,
+        { paper: false, shadow: false });
+      var art = G.Art.portrait(opt.portrait || 'villager');
+      if (art) x.drawImage(art.c, box.x, box.y, art.w, art.h);
+
+      var tx = box.x + box.w + 14;                 /* 台词列左端 */
+      var tw = P.x + P.w - 18 - tx;                /* 台词列宽 */
+      if (opt.name) {
+        x.font = G.UI.F(13);
+        var nw = x.measureText(opt.name).width + 20;
+        G.UI.rr(x, { x: tx, y: box.y - 3, w: nw, h: 19 }, 4);
+        x.fillStyle = 'rgba(216,183,104,0.16)'; x.fill();
+        x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.45)'; x.stroke();
+        G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
+      }
+      var ly = box.y + (opt.name ? 25 : 0);
+      (opt.lines || []).forEach(function (l) {
+        G.UI.wrap(x, l, 13, tw).forEach(function (row) {
+          G.UI.text(x, { x: tx, y: ly }, row, 13, G.UI.C.text);
+          ly += 21;
+        });
+        ly += 4;
+      });
+      if (opt.reward) {
+        G.UI.textOut(x, { x: tx, y: ly + 4 }, opt.reward, 15, G.UI.C.goldHi);
+      }
+      return P;
+    },
+
     closeBtn: function (scene, y) {
       return new G.UI.Btn({
         x: 190, y: y == null ? 218 : y, w: 100, h: 24, small: true, variant: 'ghost',
@@ -53,21 +94,13 @@
       var box = { x: LX, y: P.y + 36, w: LW, h: 84 };   /* 44..128 */
       G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4, { paper: false, shadow: false });
 
-      /* 立绘框：74×74。之前把 40×40 的战斗立绘按 102×102 硬塞进来再 clip，
-         框只留中心一块 —— 玩家只看到脸和领口，读不出"这是谁"。
-         现在一律等比"内含"（contain）缩放、整图居中，绝不裁切。 */
+      /* 立绘框：74×74，与 G.Art.portrait 的逻辑尺寸一致 —— 1:1 绘制。
+         一律走 portrait：装了 portrait.luchen 用素材，否则程序化半身像；
+         素材路径是等比"内含"缩放、整图居中、绝不裁切（曾把 40×40 战斗立绘按
+         102×102 硬塞进来再 clip，框里只剩脸和领口，读不出"这是谁"）。 */
       var ib = { x: box.x + 5, y: box.y + 5, w: 74, h: 74 };
-      var pt = G.Assets.img('portrait.luchen');
-      if (pt) {
-        var iw = pt.naturalWidth || pt.width, ih = pt.naturalHeight || pt.height;
-        var s = Math.min(ib.w / iw, ib.h / ih);
-        var dw = iw * s, dh = ih * s;
-        x.drawImage(pt, ib.x + (ib.w - dw) / 2, ib.y + (ib.h - dh) / 2, dw, dh);
-      } else {
-        /* 程序化头像：主角战斗立绘（40×40 逻辑，含接地阴影）整图铺进框内 */
-        var hero = G.Sprites.beast('hero');
-        x.drawImage(hero, ib.x, ib.y, ib.w, ib.h);
-      }
+      var art = G.Art.portrait('luchen');
+      if (art) x.drawImage(art.c, ib.x, ib.y, art.w, art.h);
       var tx = box.x + 86;            /* 148 */
       G.UI.textOut(x, { x: tx, y: box.y + 7 }, ri.n, 14, G.UI.C.goldHi);
       G.UI.divider(x, tx + 40, box.y + 29, 76);
