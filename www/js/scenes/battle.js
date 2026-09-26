@@ -1165,6 +1165,10 @@
             if (t.u.hp <= 0) break;
             var r = self._calc(atk, t.u, skill);
             var hpDmg = self._impact(t.key, r);
+            /* 技能爆发：按**功法属性**上色（普攻只有刀光，技能才出扩散环） */
+            self._fx('burst', t.key, {
+              col: (G.Data.elem && G.Data.elem.color && G.Data.elem.color[skill.elem]) || '#e8f0ff'
+            });
             totalHp += hpDmg;
             var extra = G.Data.elem.label(r.ec);
             if (r.crit) extra = ' 会心一击！' + extra;
@@ -1343,6 +1347,8 @@
       }
       if (dmg > 0) this._float(key, '-' + dmg, r.crit ? '#ffd45a' : '#ffd8d0', r.crit);
       else this._float(key, '格挡', '#9ac8ff');
+      /* 刀光：普攻与技能**都会**打到这里（`_impact` 是唯一的伤害漏斗） */
+      this._fx('slash', key, { col: r.crit ? '#ffd45a' : '#e8f0ff' });
       this.shake = r.crit ? 7 : 3;
       return dmg;
     },
@@ -1361,6 +1367,63 @@
       if (!u) return;
       u.hp = Math.max(min == null ? 0 : min, u.hp - amt);
       this._float(key, '-' + amt, '#ff9a7a', true);
+    },
+
+    /* ===== 打击特效（v0.30.0）=====
+       用户口径：「战斗画面，是不是可以做特效了，普通攻击的特效，技能的特效加动画之类的」。
+       战斗**已经有**伤害数字（`_float`）与受击白闪（`flash`）——缺的是**动作层**：
+       刀光、技能爆发、元素色。这里补一层轻量的弧光/扩散环（零出图）。
+       ⚠️ 时间源一律 `dt`（帧推进），**不用 `performance.now()`** —— 截图与契约要钉得住。
+       ⚠️ 特效挂在**单位的 key** 上（'P' / 'E0'…），位置每帧用 `_pos(key)` 现取 ——
+          存屏幕坐标会在镜头抖动/换位后错位。 */
+    _fx: function (kind, key, opt) {
+      opt = opt || {};
+      if (!this._fxs) this._fxs = [];
+      /* 上限保护：连击/多段时别把列表撑爆 */
+      if (this._fxs.length > 24) this._fxs.shift();
+      this._fxs.push({
+        kind: kind, key: key, t: 0,
+        dur: opt.dur || (kind === 'burst' ? 0.42 : 0.22),
+        col: opt.col || '#e8f0ff', r: opt.r || 0
+      });
+    },
+    _tickFx: function (dt) {
+      if (!this._fxs || !this._fxs.length) return;
+      for (var i = this._fxs.length - 1; i >= 0; i--) {
+        this._fxs[i].t += dt;
+        if (this._fxs[i].t >= this._fxs[i].dur) this._fxs.splice(i, 1);
+      }
+    },
+    _drawFx: function (x) {
+      if (!this._fxs || !this._fxs.length) return;
+      for (var i = 0; i < this._fxs.length; i++) {
+        var f = this._fxs[i];
+        var pos = this._pos(f.key);
+        if (!pos) continue;
+        var k = Math.min(1, f.t / f.dur);
+        x.save();
+        if (f.kind === 'slash') {
+          /* 刀光：从右上到左下的弧，快速划过并淡出 */
+          var a = 1 - k;
+          x.globalAlpha = a * 0.9;
+          x.strokeStyle = f.col; x.lineWidth = 3 * a + 1; x.lineCap = 'round';
+          x.beginPath();
+          x.arc(pos.x, pos.y - 26, 30, -0.9 + k * 1.2, 0.7 + k * 1.2);
+          x.stroke();
+        } else if (f.kind === 'burst') {
+          /* 技能爆发：扩散环 + 六向飞散的火花，按**功法属性**上色 */
+          x.globalAlpha = (1 - k) * 0.85;
+          x.strokeStyle = f.col; x.lineWidth = 2.5;
+          x.beginPath(); x.arc(pos.x, pos.y - 26, 8 + k * 42, 0, 6.2832); x.stroke();
+          x.fillStyle = f.col;
+          for (var j = 0; j < 6; j++) {
+            var ang = j * 1.047 + f.r, rr = 10 + k * 40;
+            x.fillRect(pos.x + Math.cos(ang) * rr - 1.5,
+              pos.y - 26 + Math.sin(ang) * rr - 1.5, 3, 3);
+          }
+        }
+        x.restore();
+      }
     },
 
     _float: function (key, txt, col, big) {
@@ -1662,6 +1725,7 @@
         self.flash[key] = Math.max(0, (self.flash[key] || 0) - dt * 3.2);
       });
       if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 22);
+      this._tickFx(dt);
 
       /* 血条追赶 */
       var sp = dt * 140;
@@ -1723,6 +1787,8 @@
       /* 后排先画，前排后画；主角最后（始终在最上层） */
       for (var i = this.es.length - 1; i >= 0; i--) this._drawUnit(x, 'E' + i);
       this._drawUnit(x, 'P');
+      /* 打击特效画在**单位之后**（刀光/爆发要盖在立绘上） */
+      this._drawFx(x);
 
       this._drawTopBar(x);
       this._drawFloaters(x);

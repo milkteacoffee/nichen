@@ -416,6 +416,16 @@ step(() => {
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field' });
 }, 'battle.enter');
 shot('11_battle', 30);
+/* 战斗打击特效（v0.30.0）：刀光 + 属性色爆发 */
+step(() => {
+  const b = G.game.scene;
+  b._fxs = [];
+  b._fx('slash', 'E0', { col: '#e8f0ff' });
+  b._fx('burst', 'E0', { col: '#ff8844' });
+  b._fxs[0].t = 0.06; b._fxs[1].t = 0.16;
+  b._tickFx(0);
+}, 'battle.fx');
+shot('11b_battle_fx', 2);
 /* 战利品浮层（v0.17.0）：**直接压两条**而不是真打赢 —— 真打赢会切场景，
    后面那一串战斗帧全部崩掉（本轮踩过）。浮层只活 3 秒，所以紧接着就拍。 */
 step(() => { G.game.loot('战利品：灵气 +120　灵力 +9　灵石 +36'); G.game.loot('拾得「凡品功法碎片」×2', true); }, 'battle.loot');

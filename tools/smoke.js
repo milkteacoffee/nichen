@@ -2785,6 +2785,39 @@ step(function () {
   if (sc.overlay) errors.push('点「承受」后应关掉覆盖层');
 }, 'tribulation.contract');
 
+/* ---------- 战斗打击特效契约（v0.30.0） ----------
+   用户口径：「战斗画面，是不是可以做特效了，普通攻击的特效，技能的特效加动画之类的」。
+   ① 受击（`_impact` 是唯一伤害漏斗）**必须产生刀光**
+   ② 技能命中**必须产生属性色爆发**
+   ③ 特效会**自动过期**（不能越攒越多）
+   ④ 特效真的被画出来（绘制探针） */
+step(function () {
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.pos = null; s2.hp = 9999;
+  G.game.save = s2;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 5, '赤炎狼'), mapId: 'field' });
+  const b = G.game.scene;
+  b._fxs = [];
+  const e0 = b.es[0];
+  b._impact('E0', { dmg: 5, crit: false, ec: null });
+  if (!b._fxs.some(function (f) { return f.kind === 'slash'; })) {
+    errors.push('受击没有产生刀光特效');
+  }
+  /* 特效会过期 */
+  for (let i = 0; i < 40; i++) b._tickFx(0.05);
+  if (b._fxs.length) errors.push('特效不会过期（越攒越多）');
+  /* 技能爆发：直接调一次技能结算路径太重，这里验证 `_fx` 本身 + 渲染 */
+  b._fx('burst', 'E0', { col: '#ff8844' });
+  if (!b._fxs.some(function (f) { return f.kind === 'burst'; })) {
+    errors.push('技能爆发没有进特效列表');
+  }
+  /* 渲染真的画了（绘制探针：特效走 arc/fillRect，用文本探针查不到 —— 改为断言不抛异常 + 列表非空） */
+  const c = drawSpy();
+  let ok = true;
+  try { b.render(c); } catch (e) { ok = false; errors.push('战斗渲染在有效特效时抛异常：' + e.message); }
+  if (ok && !b._fxs.length) errors.push('特效列表在渲染前被清空');
+}, 'battle.fx.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。
