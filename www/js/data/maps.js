@@ -163,6 +163,9 @@
         { id: 'shelfB', kind: 'shelf', x: 25, y: 3, w: 3, h: 1 },
         { id: 'lanternL', kind: 'lantern', x: 1, y: 5, w: 1, h: 2 },
         { id: 'lanternR', kind: 'lantern', x: 28, y: 5, w: 1, h: 2 },
+        /* 柜台动作仍是 shenbo（v0.17.0）：沈伯的**任务对话与开店都走这一条路** ——
+           有剧情先演剧情、没剧情才开店（见 town.js: shenBo 的兜底分支）。
+           拆成两个动作的话，主线对话会被柜台吞掉。 */
         { id: 'counter', kind: 'counter', x: 11, y: 6, w: 5, h: 1, act: 'shenbo', label: '柜台' },
         { id: 'jarA', kind: 'jar', x: 2, y: 7, w: 1, h: 1 },
         { id: 'jarB', kind: 'jar', x: 27, y: 7, w: 1, h: 1 },

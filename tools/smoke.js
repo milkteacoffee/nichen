@@ -3136,11 +3136,20 @@ step(function () {
 
   /* ④ 战斗：倒计时常量 + 扣时 + 绘制 + 按钮变体 */
   const bt = read('www/js/scenes/battle.js');
-  if (!/var CMD_TIMER\s*=\s*30\s*;/.test(bt)) errors.push('CMD_TIMER 不是 30');
+  /* v0.17.0：30s → **15s**（用户口径「时间缩短到 15 秒」） */
+  if (!/var CMD_TIMER\s*=\s*15\s*;/.test(bt)) errors.push('CMD_TIMER 不是 15');
   if (bt.indexOf('cmdTimer = Math.max(0, this.cmdTimer - dt)') < 0) {
     errors.push('update 未在 command 阶段扣思考倒计时');
   }
-  if (bt.indexOf("'思考 ' + t + 's'") < 0) errors.push('_drawTopBar 未绘制思考倒计时');
+  /* v0.17.0：倒计时改成**顶栏正中的纯数字**（无进度条）。
+     旧判据查 `'思考 Ns'` 字符串，改版后必然假红；
+     新判据查两件事：① 确实渲染了秒数；② **进度条已删除**。 */
+  if (bt.indexOf('Math.ceil(this.cmdTimer)') < 0) {
+    errors.push('_drawTopBar 未绘制思考倒计时');
+  }
+  if (/bw \* pct/.test(bt)) {
+    errors.push('倒计时进度条应已删除（v0.17.0：只留数字，进度条分散注意力）');
+  }
   if (bt.indexOf("variant: i === 0 ? 'gold'") < 0 || bt.indexOf("lb === '逃跑' ? 'danger' : 'battle'") < 0) {
     errors.push('指令按钮未切到 battle 变体');
   }
@@ -5311,6 +5320,208 @@ step(function () {
   });
   if (seen < 6) errors.push('源码闸：只扫到 ' + seen + ' 处灵气奖励（应 ≥6），正则可能过时了');
 }, 'zone.curve.source.contract');
+
+/* ---------- 药铺商店（v0.17.0）----------
+   用户口径：「药铺点击无法，药铺怎么没有购买界面」。
+   真因：药铺柜台只挂 `act:'shenbo'`（对话），全游戏只有刘记杂货一家商店。
+   修法：沈伯**无话可说**时改开店（`shenBo` 的兜底分支）——
+   而不是把柜台动作改成 `apothecary`（那会把 M0/M1 的主线对话整条吞掉）。
+   本契约钉三件事：
+     ① 无剧情时点柜台 → `overlay === 'apothecary'`（真的开了店）；
+     ② 店里有**可买的货**（按钮带「购买」）与**沈伯闲聊入口**（风味台词不丢）；
+     ③ 有剧情时点柜台 → **仍然演剧情**（不能被商店吞掉）—— 这条是防"改回去"的闸。 */
+step(function () {
+  const errors = [];
+  /* ① 无剧情（quest.step = 'free'）*/
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.stone = 500;
+  G.game.save = s;
+  G.game.changeScene('town_shop', { toSpawn: true });
+  pump(6, 'apoth.enter');
+  let sc = G.game.scene;
+  if (sc.mapId !== 'town_shop') bail('药铺契约：没能进入药铺室内');
+  if (!standBefore(sc, 'furn', 'shenbo', 'up')) bail('药铺契约：找不到柜台交互点');
+  sc._interact();
+  pump(4, 'apoth.open');
+  sc = G.game.scene;
+  if (sc.overlay !== 'apothecary') {
+    errors.push('药铺无剧情时点柜台应开商店（overlay=apothecary），实际 ' + sc.overlay);
+  } else {
+    const buy = sc.buttons.filter((b) => b.label === '购买');
+    if (buy.length < 5) errors.push('药铺的货太少（购买按钮 ' + buy.length + ' 个，应 ≥5）');
+    if (!sc.buttons.some((b) => b.label === '与沈伯闲聊')) {
+      errors.push('药铺面板缺「与沈伯闲聊」入口 —— 风味台词被吞了');
+    }
+    /* 钱不够时按钮要禁用（不能点了扣成负数） */
+    const poor = JSON.parse(JSON.stringify(s));
+    poor.stone = 0;
+    G.game.save = poor;
+    G.game.changeScene('town_shop', { toSpawn: true });
+    pump(6, 'apoth.poor');
+    sc = G.game.scene;
+    if (!standBefore(sc, 'furn', 'shenbo', 'up')) bail('药铺契约：找不到柜台交互点（穷档）');
+    sc._interact();
+    pump(4, 'apoth.poor.open');
+    sc = G.game.scene;
+    if (sc.overlay !== 'apothecary') errors.push('药铺（穷档）没开店');
+    else if (!sc.buttons.filter((b) => b.label === '购买').every((b) => b.disabled)) {
+      errors.push('灵石为 0 时药铺的「购买」按钮应全部禁用');
+    }
+  }
+
+  /* ② 有剧情时必须仍演剧情（这条是防"把柜台直接改成商店"的闸） */
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.quest = { step: 'm1-1', flags: {} };
+  s2.globalLevel = 30;
+  G.game.save = s2;
+  G.game.changeScene('town_shop', { toSpawn: true });
+  pump(6, 'apoth.story');
+  sc = G.game.scene;
+  if (!standBefore(sc, 'furn', 'shenbo', 'up')) bail('药铺契约：找不到柜台交互点（剧情档）');
+  sc._interact();
+  pump(4, 'apoth.story.open');
+  sc = G.game.scene;
+  if (sc.overlay === 'apothecary') {
+    errors.push('药铺有剧情时点柜台**不能**开店 —— 那会把主线对话吞掉');
+  }
+  if (s2.quest.step !== 'm1-2') {
+    errors.push('m1-1 与沈伯对话后任务应推进到 m1-2，实际 ' + s2.quest.step);
+  }
+
+  G.game.changeScene('title');
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('药铺契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 药铺：无剧情开店（可买 + 闲聊入口）/ 有剧情仍演剧情 / 没钱禁用');
+}, 'shop.apothecary.contract');
+pump(6, 'apoth.leave');
+
+/* ---------- 战斗表现改造（v0.17.0）----------
+   用户两条口径：
+     ①「思考时间不要进度条……倒计时放到中间，只要倒计时，缩短到 15 秒」；
+     ②「去掉战斗胜利的弹窗……弹出本次战斗获取的物品，特殊物品有特效，
+        不遮挡地图，3 秒左右，字体小一点，不要有框，纯文字」。
+   本契约钉：倒计时常量 / 进度条已删 / 浮层是**纯文字**（源码闸查 `_renderLoot` 里没有 `G.UI.panel`）
+   / 浮层存活约 3 秒 / 特殊物品带 `special` 标记 / 「战斗胜利」toast 已删。 */
+step(function () {
+  const errors = [];
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const bs = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+
+  /* ① 倒计时：15 秒 + 无进度条 */
+  if (!/var CMD_TIMER\s*=\s*15\s*;/.test(bs)) errors.push('CMD_TIMER 应为 15');
+  if (/\bbw \* pct\b/.test(bs)) errors.push('倒计时进度条应已删除（只留数字）');
+  if (bs.indexOf('Math.ceil(this.cmdTimer)') < 0) errors.push('_drawTopBar 未绘制倒计时数字');
+  if (bs.indexOf("toast('战斗胜利')") >= 0) {
+    errors.push('「战斗胜利」toast 应已删除（结算画面已明示胜负）');
+  }
+
+  /* ② 战利品浮层：**纯文字**（不画框）+ 约 3 秒 + 特殊物品标记 */
+  const gs = stripC(fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8'));
+  const i0 = gs.indexOf('_renderLoot: function');
+  const i1 = gs.indexOf('_renderToasts: function');
+  if (i0 < 0 || i1 < 0 || i1 < i0) bail('战斗表现契约：game.js 里找不到 _renderLoot');
+  const body = gs.slice(i0, i1);
+  if (body.indexOf('G.UI.panel') >= 0 || body.indexOf('G.UI.frame') >= 0) {
+    errors.push('战利品浮层不该画框（用户口径：不要有框，纯文字）');
+  }
+
+  const g = G.game;
+  if (!Array.isArray(g.lootFeed)) bail('战利品浮层未初始化（game.lootFeed）');
+  g.lootFeed.length = 0;
+  g.loot('测试：灵气 +100');
+  if (g.lootFeed.length !== 1) errors.push('game.loot() 没把条目压进浮层');
+  else {
+    if (g.lootFeed[0].t < 2.5 || g.lootFeed[0].t > 3.5) {
+      errors.push('战利品浮层存活时长应约 3 秒，实际 ' + g.lootFeed[0].t);
+    }
+    if (g.lootFeed[0].special) errors.push('普通战利品不该标 special');
+  }
+  g.loot('习得功法《测试》', true);
+  if (!(g.lootFeed[1] && g.lootFeed[1].special)) {
+    errors.push('特殊物品（功法/秘术/碎片）应标 special（金色 + 辉光）');
+  }
+  /* 条数上限：不能无限堆到屏幕上 */
+  for (let i = 0; i < 12; i++) g.loot('刷屏 ' + i);
+  if (g.lootFeed.length > 5) {
+    errors.push('战利品浮层应有条数上限（现 ' + g.lootFeed.length + ' 条，最多 5）');
+  }
+  g.lootFeed.length = 0;
+
+  /* ③ 真跑一帧：渲染路径不得抛（浮层是新增绘制分支） */
+  G.game.changeScene('battle', {
+    enemy: G.Data.makeEnemy('青纹蛇', 3, '青纹蛇'), mapId: 'field'
+  });
+  pump(6, 'hud.enter');
+  const b = G.game.scene;
+  if (!b || typeof b._loot !== 'function') bail('战斗场景缺 _loot（战利品没接浮层）');
+  b._loot('战利品测试：灵石 +1');
+  pump(4, 'hud.render');
+  if (!G.game.lootFeed.length) errors.push('战斗里 _loot 没有把条目送到全局浮层');
+  G.game.lootFeed.length = 0;
+  G.game.changeScene('title');
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('战斗表现契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 战斗表现：倒计时 15s 无进度条 / 战利品纯文字无框约 3s / 特殊物品带特效');
+}, 'battle.hud.contract');
+pump(6, 'hud.leave');
+
+/* ---------- 门口必有路（v0.17.0）----------
+   用户口径：「这个道路必须延伸到建筑的前面，必须是挨着靠近着建筑」。
+   判据：**每栋建筑的门口那一格必须是 `path`**（手写图与生成图都查）。
+   ⚠️ 判据必须是"门口**那一格**"，不能放宽成"门口附近有路" ——
+   地图上到处都有路，随便挑一格都能命中，那种写法恒真（G46 同族）。 */
+step(function () {
+  const errors = [];
+  const check = function (map, tag) {
+    const md = map && map.md;
+    if (!md || !md.structures || !md.structures.length) return 0;
+    let n = 0;
+    md.structures.forEach(function (s) {
+      const dx = s.x + Math.floor(s.w / 2), dy = s.y + s.h;
+      const g = map.ground[dy] && map.ground[dy][dx];
+      if (!g) { errors.push(tag + '：' + s.id + ' 的门口 (' + dx + ',' + dy + ') 越出地图'); return; }
+      if (g.t !== 'path') {
+        errors.push(tag + '：' + s.id + ' 的门口 (' + dx + ',' + dy + ') 不是路（实为 ' + g.t + '）');
+      }
+      n++;
+    });
+    return n;
+  };
+
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  /* ① 手写图（镇/山/洞） */
+  let total = 0;
+  ['town', 'field', 'cave'].forEach(function (m) {
+    G.game.changeScene(m, { toSpawn: true });
+    total += check(G.game.scene.map, m);
+  });
+  /* ② 生成型区域（区域层才是大多数地图 —— 只查手写图等于没查） */
+  const Rg = G.Data.regions;
+  ['fan4', 'ling2', 'xian2'].forEach(function (rid) {
+    if (!Rg.byId(rid)) return;
+    G.game.changeScene(rid, { toSpawn: true });
+    total += check(G.game.scene.map, rid);
+  });
+  if (total < 8) {
+    errors.push('门口补路契约只查到 ' + total + ' 栋建筑，样本太少（正则/取图可能过时）');
+  }
+  G.game.changeScene('title');
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('门口补路契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 门口必有路：' + total + ' 栋建筑的门口都是 path');
+}, 'door.path.contract');
+pump(6, 'door.path.leave');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

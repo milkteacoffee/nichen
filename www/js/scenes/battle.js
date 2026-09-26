@@ -36,7 +36,9 @@
   var MAX_FLEE = 3;
 
   /* 思考倒计时（v0.11.2）：玩家每个回合 30s 不点动作 → 自动「攻击」打前排。 */
-  var CMD_TIMER = 30;
+  /* 思考倒计时（v0.11.2 建；v0.17.0 由 30s 收到 15s —— 用户口径「缩短到 15 秒」）。
+     到点自动替玩家出手（攻击前排），见 _tickCmd。 */
+  var CMD_TIMER = 15;
 
   /* 战斗按钮变体：「墨玉」底色但**无投影 + 1px 细描边**，比 default 干净一半（线框感砍掉）。 */
   var BATTLE_BG = 'rgba(20,24,36,0.78)';
@@ -326,7 +328,7 @@
       this.fleeTries = 0;
       this.summonDone = false;
       this.enraged = false;
-      /* 思考倒计时（v0.11.2）：每回合玩家 30s 不点动作 → 自动选「攻击」打前排；
+      /* 思考倒计时（v0.17.0 起 15s）：每回合玩家不点动作 → 自动选「攻击」打前排；
          自动战斗中不计时（auto 自己跑）；非 command 阶段（已出手/等待）也暂停。 */
       this.cmdTimer = CMD_TIMER;
 
@@ -1350,6 +1352,17 @@
       if (this.logs.length > 40) this.logs.shift();
     },
 
+    /* 战利品：**同时**进战斗日志与全局战利品浮层（v0.17.0）。
+       用户口径：「去掉战斗胜利的弹窗……可以弹出本次战斗获取的物品，特殊物品有特效，
+       但是不能遮挡地图，可以弹出 3 秒左右，字体小一点点，不要有框，纯文字」。
+       战斗日志是"留在这一场里可回看"的，浮层是"跨场景可见的 3 秒提示"——
+       两者用途不同，所以都要写，不能只留一个。
+       `special`（功法 / 秘术 / 碎片 / 称号）走金色 + 呼吸辉光。 */
+    _loot: function (s, special) {
+      this._log(s);
+      G.game.loot(s, special);
+    },
+
     /* ===== 结算 ===== */
     _victory: function () {
       var save = G.game.save;
@@ -1372,7 +1385,7 @@
         G.Player.chronicle(save, 'vessel', '山神庙得' + (save.world.vessel || '逆命珠'));
         /* 天道注视 +10（v2.7） */
         if (G.TianDao) G.TianDao.notify('vessel');
-        this._log('灵石 +100　灵气 +1000');
+        this._loot('灵石 +100　灵气 +1000');
         this._log('杀手倒地。你握着那枚器物，只觉心口发烫。');
         /* 打斗就发生在庙里 → 打完了还站在庙里，而不是被丢回山道 */
         this._finish(true, 'field_temple');
@@ -1423,7 +1436,8 @@
         save.quest.flags.elderDead = true;
         G.Player.chronicle(save, 'bloodNight', '血夜，沈伯殁');
         if (G.TianDao) G.TianDao.notify('boss');
-        this._log('灵石 +400　灵气 +2000　妖丹 ×2　功法：' + G.Data.skills[drop2].n);
+        this._loot('灵石 +400　灵气 +2000　妖丹 ×2');
+        this._loot('习得功法《' + G.Data.skills[drop2].n + '》', true);
         this._log('血面跪倒，眼里的红光散了。');
         this._finish(true, 'bloodhall');
         return;
@@ -1441,7 +1455,8 @@
         G.Player.chronicle(save, 'wolfKing', '手刃赤炎狼王');
         /* 天道注视 +8（v2.7，统一走 notify；可能触发低语） */
         if (G.TianDao) G.TianDao.notify('boss');
-        this._log('灵石 +500　灵气 +3000　妖丹 ×3　功法：' + G.Data.skills[drop].n);
+        this._loot('灵石 +500　灵气 +3000　妖丹 ×3');
+        this._loot('习得功法《' + G.Data.skills[drop].n + '》', true);
         this._finish(true, 'cave');
         return;
       }
@@ -1473,7 +1488,7 @@
           });
           save.qi = (save.qi || 0) + dqi;
           save.po = (save.po || 0) + dpo; save.stone += dst;
-          this._log('战利：灵气 +' + dqi + '　灵力 +' + dpo + '　灵石 +' + dst
+          this._loot('战利：灵气 +' + dqi + '　灵力 +' + dpo + '　灵石 +' + dst
             + (dcut ? '（境界压制，收益减半）' : ''));
         }
         G.Storage.saveCurrent(save);
@@ -1517,13 +1532,13 @@
       if (aw === 'dao') {
         var dcr = G.Data.dungeons.daoCrystalDrop(G.Data.dungeons.diffOf(G.game.meta, 'dao'));
         save.daoCrystal = (save.daoCrystal || 0) + dcr;
-        this._log('战利：灵气 +' + qi + '　灵力 +' + po + '　道晶 +' + dcr);
+        this._loot('战利：灵气 +' + qi + '　灵力 +' + po + '　道晶 +' + dcr);
       } else {
         save.stone += st;
-        this._log('战利：灵气 +' + qi + '　灵力 +' + po + '　灵石 +' + st
+        this._loot('战利：灵气 +' + qi + '　灵力 +' + po + '　灵石 +' + st
           + (cut ? '（境界压制，收益减半）' : ''));
       }
-      if (shardGot > 0) this._log('拾得「' + shardItem + '」×' + shardGot);
+      if (shardGot > 0) this._loot('拾得「' + shardItem + '」×' + shardGot, true);
       G.Storage.saveCurrent(save);
       this._finish(true, this.mapId);
     },
@@ -1564,7 +1579,7 @@
       var save = G.game.save;
       save.hp = Math.max(1, this.p.hp);
       this._cut([[0.9, function () {
-        G.game.toast('战斗胜利');
+        /* 不再 toast「战斗胜利」—— 结算画面本身已经明示（用户口径） */
         G.game.changeScene('dungeon', { fromBattle: true });
       }]]);
     },
@@ -1583,7 +1598,6 @@
          c.t 变 undefined → 演出永不结束 → 死亡时卡死在结算画面。 */
       this._cut([[0.9, function () {
         if (win) {
-          G.game.toast('战斗胜利');
           G.game.changeScene(target || 'field', { returned: true });
         } else if (soft) {
           G.game.toast('心魔未破');
@@ -1918,24 +1932,22 @@
 
       G.UI.textOut(x, { x: 12, y: 6 }, '第 ' + this.round + ' 回合', 13, '#eae6da');
 
-      /* 思考倒计时（v0.11.2）：只在 command 阶段显示；auto / 已出手 / 结束时隐藏 */
-      if (this.phase === 'command' && !this.auto && !this.over) {
-        var t = Math.max(0, Math.ceil(this.cmdTimer));
-        var pct = Math.max(0, Math.min(1, this.cmdTimer / CMD_TIMER));
-        G.UI.textOut(x, { x: 110, y: 6 }, '思考 ' + t + 's', 11.5,
-          t <= 5 ? '#e0a080' : '#a8dcc4');
-        /* 细进度条（76×3，10px 起） */
-        var bx = 110, byy = 19, bw = 76, bh = 3;
-        x.fillStyle = 'rgba(255,255,255,0.08)';
-        x.fillRect(bx, byy, bw, bh);
-        x.fillStyle = t <= 5 ? '#e0a080' : '#a8dcc4';
-        x.fillRect(bx, byy, bw * pct, bh);
-      }
-
+      /* 思考倒计时（v0.17.0）：**只在顶栏正中留一个大号数字**，不要进度条。
+         用户口径：「不要进度条，容易分散玩家注意力，把倒计时放到中间，只要倒计时，
+         时间缩短到 15 秒，倒计时到了自动给玩家释放攻击」。
+         ⚠️ 进度条已删 —— 它每帧都在变，是画面里唯一"一直在动"的东西，
+         比数字本身更抢注意力；数字够用。
+         遭遇战标签让到左侧（原来占着正中）。 */
       var p = this.params;
       var label = p.script === 'heartDemon' ? '问心魔劫'
         : this.es[0].boss ? '首领战' : (p.script ? '剧情战' : '遭遇战');
-      G.UI.textOut(x, { x: 240, y: 6 }, label, 12, '#8f95a6', 'center');
+      G.UI.textOut(x, { x: 108, y: 7 }, label, 12, '#8f95a6');
+
+      if (this.phase === 'command' && !this.auto && !this.over) {
+        var t = Math.max(0, Math.ceil(this.cmdTimer));
+        G.UI.textOut(x, { x: 240, y: 2 }, String(t), 20,
+          t <= 5 ? '#e0a080' : '#eae6da', 'center', 'rgba(0,0,0,0.8)', 3.2);
+      }
 
       var alive = this._aliveEs();
       var sum = 0, fastest = 0;

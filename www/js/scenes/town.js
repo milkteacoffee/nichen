@@ -1,5 +1,21 @@
 /* 青溪镇：探索引擎包装，建筑门触发覆盖层 */
 (function () {
+  /* 药铺的丹货（v0.17.0）：用户口径「药铺点击无法、没有购买界面」——
+     原来药铺柜台只挂对话（`act:'shenbo'`），全游戏只有刘记杂货一家商店。
+     现在药铺有自己的丹货清单；**沈伯的对话入口保留在面板里**（M0/M1 任务线要靠它）。
+     两家的货**故意不重叠**：药铺卖丹、杂货卖符与功法 —— 玩家才会两边都跑。 */
+  var APOTHECARY_ITEMS = [
+    { id: '回春丹', n: '回春丹', price: 30, d: '回复 35% 气血' },
+    { id: '大还丹', n: '大还丹', price: 90, d: '回复 75% 气血' },
+    { id: '聚气散', n: '聚气散', price: 60, d: '灵气 +500' },
+    { id: '醒神散', n: '醒神散', price: 40, d: '解除异常状态' },
+    { id: '解毒丹', n: '解毒丹', price: 20, d: '解除中毒' },
+    { id: '甘霖丹', n: '甘霖丹', price: 20, d: '解除灼烧' },
+    { id: '舒筋丹', n: '舒筋丹', price: 20, d: '解除麻痹' },
+    { id: '解封符', n: '解封符', price: 25, d: '解除封印' },
+    { id: '淬体突破丹', n: '淬体突破丹', price: 200, d: '淬体九段破境所需' }
+  ];
+
   var SHOP_ITEMS = [
     { id: '回春丹', n: '回春丹', price: 30, d: '回复35%气血' },
     { id: '解毒丹', n: '解毒丹', price: 20, d: '解除中毒' },
@@ -478,11 +494,14 @@
       scene.clearOverlay();
       return;
     }
-    scene.setOverlay('shenboIdle', [
-      new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
-        variant: 'gold', label: '知道了',
-        onClick: function () { scene.clearOverlay(); } })
-    ]);
+    /* 没事可谈 → **开门做生意**（v0.17.0）。
+       原来这里弹 `shenboIdle`（一句风味台词），而药铺**全游戏没有购买界面**
+       —— 用户口径「药铺点击无法，药铺怎么没有购买界面」。
+       沈伯本来就是药铺掌柜，站到柜台前没剧情可演时自然就该是买丹界面。
+       ⚠️ 风味台词不丢：面板里留了「与沈伯闲聊」按钮。
+       ⚠️ 也**不能**把柜台动作直接改成 `apothecary` —— 那会把上面所有任务分支吞掉
+       （M0/M1 主线全靠沈伯这条线，吞了就直接卡死）。 */
+    openApothecary(scene);
   }
 
   /* 取得筑基丹 → m1-4 收口（设计 §4）。
@@ -597,6 +616,39 @@
     scene.setOverlay('market', btns);
   }
 
+  /* ===== 药铺（v0.17.0 新增）=====
+     与刘记杂货**共用同一套列表/行距/渲染**（`rowY` + `overlay === 'shop'` 分支），
+     只有货单不同 —— 两套各写一份的话，加一味药就要改四处（建造/渲染/行距/按钮）。 */
+  function openApothecary(scene) {
+    var save = G.game.save, btns = [];
+    APOTHECARY_ITEMS.forEach(function (it, i) {
+      btns.push(new G.UI.Btn({
+        x: SP.x + SP.w - 76, y: rowY(i), w: 60, h: 18,
+        small: true, label: '购买',
+        disabled: save.stone < it.price,
+        onClick: function () {
+          save.stone -= it.price;
+          save.items[it.id] = (save.items[it.id] || 0) + 1;
+          G.Storage.saveCurrent(save);
+          G.game.toast(it.n + ' ×1　灵石 −' + it.price);
+          openApothecary(scene);
+        }
+      }));
+    });
+    /* 沈伯的风味台词入口：原来它是"无话可说"时的兜底弹窗，
+       现在开店成了兜底，这句台词收进店里当一个按钮（内容一点没丢）。 */
+    btns.push(new G.UI.Btn({
+      x: SP.x + 18, y: rowY(APOTHECARY_ITEMS.length) + 4, w: 96, h: 20, small: true,
+      label: '与沈伯闲聊',
+      onClick: function () { scene.setOverlay('shenboIdle', [ack(scene)]); }
+    }));
+    btns.push(new G.UI.Btn({
+      x: 190, y: 232, w: 100, h: 20, small: true,
+      label: '离开', onClick: function () { scene.clearOverlay(); }
+    }));
+    scene.setOverlay('apothecary', btns);
+  }
+
   hooks.renderOverlay = function (x, scene) {
     var save = G.game.save;
     if (G.Overlays.route(x, scene)) return;
@@ -635,27 +687,39 @@
             G.Data.elem.color[sd.elem] || G.UI.C.textDim);
         }
       });
-    } else if (scene.overlay === 'market') {
+    } else if (scene.overlay === 'market' || scene.overlay === 'apothecary') {
+      /* 两家店**共用一套渲染**（只有标题与货单不同）—— 见 openApothecary 的注释。 */
+      var isApo = scene.overlay === 'apothecary';
       G.Overlays.dim(x);
       G.UI.panel(x, SP, '#141927');
       G.UI.text(x, { x: SP.x + 18, y: SP.y + 10 },
-        '刘记杂货', 16, G.UI.C.goldHi);
+        isApo ? '药铺 · 沈记' : '刘记杂货', 16, G.UI.C.goldHi);
       G.UI.text(x, { x: SP.x + SP.w - 18, y: SP.y + 12 },
         '灵石 ' + save.stone, 13, G.UI.C.text, 'right');
-      /* 列表与行距必须与 openMarket 读同一份（marketList / rowY），否则货名会串行 */
-      var list = marketList(save);
-      list.forEach(function (it, i) {
-        var y = rowY(i);
-        G.UI.text(x, { x: SP.x + 18, y: y }, it.n, 12,
-          it.m1 ? G.UI.C.goldHi : G.UI.C.text);
-        G.UI.text(x, { x: SP.x + 120, y: y }, it.d, 11, G.UI.C.textDim);
+      if (isApo) {
+        APOTHECARY_ITEMS.forEach(function (it, i) {
+          var ay = rowY(i);
+          G.UI.text(x, { x: SP.x + 18, y: ay }, it.n, 12, G.UI.C.text);
+          G.UI.text(x, { x: SP.x + 120, y: ay }, it.d, 11, G.UI.C.textDim);
+          G.UI.text(x, { x: SP.x + SP.w - 92, y: ay },
+            it.price + ' 灵石', 11, G.UI.C.gold, 'right');
+        });
+      } else {
+        /* 列表与行距必须与 openMarket 读同一份（marketList / rowY），否则货名会串行 */
+        var list = marketList(save);
+        list.forEach(function (it, i) {
+          var y = rowY(i);
+          G.UI.text(x, { x: SP.x + 18, y: y }, it.n, 12,
+            it.m1 ? G.UI.C.goldHi : G.UI.C.text);
+          G.UI.text(x, { x: SP.x + 120, y: y }, it.d, 11, G.UI.C.textDim);
+          G.UI.text(x, { x: SP.x + SP.w - 92, y: y },
+            it.price + ' 灵石', 11, G.UI.C.gold, 'right');
+        });
+        var y = rowY(list.length);
+        G.UI.text(x, { x: SP.x + 18, y: y }, '妖丹回收', 12, G.UI.C.text);
         G.UI.text(x, { x: SP.x + SP.w - 92, y: y },
-          it.price + ' 灵石', 11, G.UI.C.gold, 'right');
-      });
-      var y = rowY(list.length);
-      G.UI.text(x, { x: SP.x + 18, y: y }, '妖丹回收', 12, G.UI.C.text);
-      G.UI.text(x, { x: SP.x + SP.w - 92, y: y },
-        '15 灵石', 11, G.UI.C.gold, 'right');
+          '15 灵石', 11, G.UI.C.gold, 'right');
+      }
     }
   };
 
@@ -700,6 +764,9 @@
     cult: useVessel
   });
   G.scenes.town_shop = makeInterior('town_shop', {
+    /* 柜台一条路：有剧情先演剧情、没剧情才开店（见 shenBo 的兜底分支）。
+       ⚠️ 不要拆成"柜台=商店 / 沈伯=对话"两个动作 —— 沈伯站在柜台之后，
+       玩家够不到他本人，拆开就会把 M0/M1 的主线对话整条吞掉。 */
     shenbo: function (scene) { shenBo(scene); }
   });
   G.scenes.town_market = makeInterior('town_market', {

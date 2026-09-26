@@ -1,10 +1,18 @@
 /* 游戏主控：Canvas 适配、场景路由、主循环、Toast */
 (function () {
+  /* 战利品浮层的存活时长（秒）：用户口径「弹出 3 秒左右」 */
+  var LOOT_T = 3.0;
+
   var Game = {
     W: 480, H: 272,
     canvas: null, ctx: null,
     scene: null, sceneName: '',
     toasts: [],
+    lootFeed: [],
+    /* 全局秒表（战利品辉光之类的呼吸动画用）。
+       ⚠️ 不要用 `performance.now()` 之类的"墙上时间"：它会让呼吸相位不可复现，
+       截图与契约都没法钉（本轮初版直接写了 `this.time` 而它并不存在 → rgba 收到 NaN）。 */
+    time: 0,
     whisper: null,   // 天道低语（非阻断，顶部，自动淡去）
     meta: null, save: null,
     speedMul: 1,
@@ -168,6 +176,7 @@
         if (allBtns[bi].tick) allBtns[bi].tick(dt);
       }
 
+      this.time += dt;
       this._renderWhisper(x);
 
       /* Toast 覆盖层 */
@@ -176,6 +185,13 @@
         to.t -= dt;
         if (to.t <= 0) { this.toasts.splice(t, 1); continue; }
       }
+      /* 战利品浮层（v0.17.0）：与 toast 同一段更新，但**先于** toast 渲染 ——
+         toast 带框，万一同屏，框应该盖住裸文字而不是反过来。 */
+      for (var lf = this.lootFeed.length - 1; lf >= 0; lf--) {
+        this.lootFeed[lf].t -= dt;
+        if (this.lootFeed[lf].t <= 0) this.lootFeed.splice(lf, 1);
+      }
+      this._renderLoot(x);
       this._renderToasts(x);
 
       inp.endFrame();
@@ -201,6 +217,51 @@
         G.UI.text(x, { x: 240, y: y0 + 19 + i * 18 }, l, 12.5,
           G.UI.C.text, 'center');
       });
+      x.restore();
+    },
+
+    /* 战利品浮层（v0.17.0）：**纯文字、无框、小字、约 3 秒**（用户口径）。
+       为什么单开一条通道而不复用 toast：toast 是"一块带框的板"（`G.UI.panel`），
+       压在画面上很重；战利品是高频、低重要度的信息（每场战斗都有），
+       用板子读起来像弹窗 —— 用户明确要求"不要有框，纯文字"。
+       位置贴**左下沿**（让开底栏与左侧追踪栏），不遮地图中心。
+       特殊物品（功法/秘术/碎片/称号）走 `special`：金色 + 呼吸辉光。 */
+    loot: function (text, special) {
+      if (!text) return;
+      this.lootFeed.push({ text: text, t: LOOT_T, special: !!special });
+      if (this.lootFeed.length > 5) this.lootFeed.shift();
+    },
+
+    _renderLoot: function (x) {
+      if (!this.lootFeed.length) return;
+      /* 位置：**HUD 下方、靠右**。
+         试过左下沿 —— 战斗里那里正是指令按钮（攻击/防御），文字直接压在按钮上，
+         而用户口径明确要求"不能遮挡地图"（更别说遮挡按钮）。
+         右上角在战斗与探索两种场景里都是空的：战斗的顶栏数值只占 y<22、
+         敌人在 y≈150 以下；探索的 HUD 同样只占顶部 48px。 */
+      /* 起点 54 = HUD（48）之下 —— 探索场景里浮层画在场景之后，
+         起点压进 HUD 会把它盖住。战斗顶栏只有 30 高，54 也仍在单位之上。 */
+      var base = 54;
+      x.save();
+      for (var i = 0; i < this.lootFeed.length; i++) {
+        var it = this.lootFeed[i];
+        var a = Math.min(1, it.t / 0.45);            /* 最后 0.45s 淡出 */
+        var y = base + i * 15;
+        x.globalAlpha = a;
+        if (it.special) {
+          /* 特殊物品：金色 + 呼吸辉光（**不画框**，只用发光文字） */
+          var pulse = 0.55 + 0.45 * Math.sin(this.time * 6 + i);
+          x.shadowColor = 'rgba(255,214,120,' + (0.8 * pulse).toFixed(3) + ')';
+          x.shadowBlur = 9;
+          G.UI.textOut(x, { x: 468, y: y }, it.text, 11, '#ffe6a8', 'right',
+            'rgba(6,8,14,0.88)', 2.4);
+          x.shadowBlur = 0;
+        } else {
+          G.UI.textOut(x, { x: 468, y: y }, it.text, 11, 'rgba(228,234,246,0.96)',
+            'right', 'rgba(6,8,14,0.88)', 2.4);
+        }
+      }
+      x.globalAlpha = 1;
       x.restore();
     },
 

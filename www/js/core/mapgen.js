@@ -69,6 +69,18 @@
       }
     });
 
+    /* 门口补路（v0.17.0）——用户口径：「道路必须延伸到建筑的前面，必须是挨着靠近着建筑」。
+       ⚠️ 顺序必须在**铺路之后**：要读 `ground` 判断门口那格是不是已经是路。
+       为什么只补**门前那一格**、不硬接一条长引道：
+       长引道会横穿草地与树林，看起来像凭空画出来的一条线；
+       而玩家真正感知到的是"能顺着路走到门口" —— 门前有路就够了。 */
+    (md.structures || []).forEach(function (s) {
+      var dx = s.x + Math.floor(s.w / 2), dy = s.y + s.h;
+      if (ground[dy] && ground[dy][dx] && ground[dy][dx].t !== 'path') {
+        ground[dy][dx] = { t: 'path', v: rng.int(0, 5) };
+      }
+    });
+
     var interact = {};
     function setInteract(x, y, obj) { interact[x + ',' + y] = obj; }
 
