@@ -238,6 +238,37 @@
       } },
       { id: 'A9', n: '破狱者', d: '以地狱难度踏破任一界', xianli: 300, hit: function (s, m) {
         return !!(m && m.titles && m.titles.length);
+      } },
+      /* ===== v0.15.0 富化（用户口径："富化一下成就和称号"）=====
+         新增的这几项**全部可由 save/meta 现算**，不引入新的埋点 ——
+         埋点一多就会漏，而漏掉的成就是"永远拿不到且不报错"的静默缺陷。 */
+      { id: 'A10', n: '藏书五卷', d: '单世习得五本功法', xianli: 80, hit: function (s) {
+        return Object.keys(s.skills || {}).length >= 5;
+      } },
+      { id: 'A11', n: '秘术初得', d: '习得第一个签名秘术', xianli: 60, hit: function (s) {
+        return Object.keys(s.secrets || {}).length >= 1;
+      } },
+      { id: 'A12', n: '五术通玄', d: '习得五个签名秘术', xianli: 350, hit: function (s) {
+        return Object.keys(s.secrets || {}).length >= 5;
+      } },
+      { id: 'A13', n: '斩妖除魔', d: '累计斩杀十位首领', xianli: 250, hit: function (s) {
+        return (s.bossKills || 0) >= 10;
+      } },
+      { id: 'A14', n: '功参造化', d: '任一功法修至 L10', xianli: 180, hit: function (s) {
+        var sk = s.skills || {};
+        return Object.keys(sk).some(function (k) { return (sk[k].lv || 0) >= 10; });
+      } },
+      { id: 'A15', n: '富甲一方', d: '单世持有灵石满五千', xianli: 120, hit: function (s) {
+        return (s.stone || 0) >= 5000;
+      } },
+      { id: 'A16', n: '寿终正寝', d: '以寿终坐化结束一世', xianli: 90, hit: function (s) {
+        return s._cause === 'aged';
+      } },
+      { id: 'A17', n: '自了尘缘', d: '主动坐化，早入轮回', xianli: 40, hit: function (s) {
+        return s._cause === 'self';
+      } },
+      { id: 'A18', n: '大乘之境', d: '首次修至大乘', xianli: 900, hit: function (s) {
+        return (s.globalLevel || 1) >= 100;
       } }
     ],
 
@@ -301,6 +332,9 @@
     deathCause: function (save) {
       if (save._cause === 'aged') return { id: 'aged', n: '寿终坐化', mul: 1.1 };
       if (save._cause === 'event') return { id: 'event', n: '殒于变故', mul: 1.0 };
+      /* 主动轮回（v0.15.0）：玩家在洞府自行坐化。**不给加成也不打折** ——
+         它只是一种"早点重开"的手段，有加成就会变成刷分最优解。 */
+      if (save._cause === 'self') return { id: 'self', n: '自行坐化', mul: 1.0 };
       return { id: 'war', n: '战死', mul: 1.0 };
     },
 
@@ -383,6 +417,17 @@
        （《M1 剧情与内容设计 v1.0》§4 全篇这么写；§8 商店表里写的"炼气突破丹"是同一件东西，
        以本表为准）。别名按"当前境界名"查，所以只有 gl=18 那一次大突破会真的用上。 */
     BREAK_PILL_ALIAS: { '炼气': '筑基丹' },
+    /* 突破丹的获取途径（v0.15.0）：破境失败时**必须告诉玩家去哪拿**。
+       原来只报「需「淬体突破丹」」—— 玩家翻遍面板也不知道在哪买（截图反馈）。
+       ⚠️ 文案长度按**面板可用宽 334px / 9.5px 字**算：超过约 30 个全角字就会越界。
+       ⚠️ 未登记的丹名走通用兜底，**不留空** —— 留空等于把玩家卡死在原地。 */
+    PILL_HINT: {
+      '淬体突破丹': '青溪镇药铺 200 灵石，或主线「破境备丹」赠予',
+      '筑基丹': '刘记订购 1000 灵石，或用沈伯旧方（妖丹×3 + 600 灵石）'
+    },
+    pillHint: function (pill) {
+      return this.PILL_HINT[pill] || '尚未见售（待炼丹与宗门交易开放）';
+    },
     breakPill: function (gl) {
       var n = this.realmOf(gl || 1).n;
       return this.BREAK_PILL_ALIAS[n] || (n + '突破丹');
@@ -417,10 +462,11 @@
       };
       st.ready = !st.maxed && !st.worldcap && !daoLv
         && have >= need && (!big || owned > 0);
+      st.pillHint = this.pillHint(pill);
       st.reason = st.maxed ? '已至道祖圆满，无路可破'
         : st.worldcap ? '此界天道所限，飞升方可再进一步'
           : daoLv ? '道界无破境之说 —— 唯历「道则回廊」试炼可进'
-            : (big && !owned) ? '需「' + pill + '」'
+            : (big && !owned) ? '需「' + pill + '」：' + st.pillHint
               : (have < need) ? '灵气不足，还需 ' + st.lack
                 : '';
       return st;

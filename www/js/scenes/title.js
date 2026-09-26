@@ -2,7 +2,7 @@
 (function () {
   var title = {
     smooth: true,
-    bg: null, mist: [], petals: [], t: 0, about: false,
+    bg: null, mist: [], petals: [], t: 0, about: false, ach: false,
 
     enter: function () {
       this.about = false;
@@ -36,10 +36,13 @@
 
     _buildMenu: function () {
       var self = this;
+      /* 回到主菜单就收起成就页（`enter` 与「关闭」都走这里，一处收口） */
+      this.ach = false;
       this.buttons = [];
       var hasSave = G.Storage.hasCurrent(), hasMeta = G.Storage.hasMeta();
       /* 题牌列在**左侧**：右侧竖排标题 + 朱印要占掉 x≈350..470 一整条。 */
-      var x = 40, w = 158, h = 32, y = 96, gap = 10;
+      /* 步长 42 → 36：v0.15.0 菜单从 3 项加到 4 项，原步长下第 4 项会压到「关于」上 */
+      var x = 40, w = 158, h = 28, y = 88, gap = 8;
 
       function add(label, variant, fn) {
         self.buttons.push(new G.UI.Btn({
@@ -58,6 +61,10 @@
         G.game.changeScene(hasMeta ? 'reincarnation' : 'difficulty');
       });
       if (hasMeta) add('轮回殿', 'frost', function () { G.game.changeScene('hall'); });
+      /* 成就移出游戏内（v0.15.0，用户口径"放到游戏外面的新建游戏界面"）：
+         它与**设备绑定、跨世只发一次**，属于账号级信息，放在开局界面最合适。
+         无 meta 时也能进（看空列表 + 设备标识），不必先有存档。 */
+      add('成就 · 称号', 'frost', function () { self._openAch(); });
 
       this.buttons.push(new G.UI.Btn({
         x: 40, y: 236, w: 136, h: 22, small: true, variant: 'frost',
@@ -66,6 +73,18 @@
       }));
 
       if (!this.bg) this._buildBackground();
+    },
+
+    _openAch: function () {
+      var self = this;
+      this.ach = true;
+      this.about = false;
+      this.buttons = [
+        new G.UI.Btn({ x: 190, y: 240, w: 100, h: 22, small: true, variant: 'frostGold',
+          label: '关闭', onClick: function () {
+            self.ach = false; self._buildMenu();
+          } })
+      ];
     },
 
     _openAbout: function () {
@@ -309,8 +328,18 @@
       x.fillStyle = vg;
       x.fillRect(0, 0, 480, 272);
 
+      if (this.ach) this._renderAch(x);
       if (this.about) this._renderAbout(x);
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+    },
+
+    /* 成就页（v0.15.0）：**在游戏外**渲染（用户口径"放到游戏外面的新建游戏界面"）。
+       绘制实现留在 `panels.js`（`G.Overlays.drawAchieve`，单一实现），这里只负责
+       压暗 + 调用 —— 复制一份到 title.js 的话，两处的列宽/行距迟早分叉。
+       面板矩形用的是五面板的 FRAME（{12,26,456,212}），所以这一页与游戏内其它页同款。 */
+    _renderAch: function (x) {
+      if (!G.game.meta) G.game.meta = { achieve: {}, titles: [] };
+      G.Overlays.drawAchieve(x);
     },
 
     _renderAbout: function (x) {
@@ -321,7 +350,9 @@
       var lines = [
         '游戏：逆尘　　当前版本：' + G.VERSION,
         '类型：2D 回合制 · 万界轮回 Roguelite',
-        '引擎：HTML5 Canvas + Capacitor 6',
+        /* 主角身份（v0.15.0 定稿）：现代穿越者、无金手指、每世随机 ——
+           写进关于页是为了**把红线摆在明面上**：后续内容不得引入系统/戒指/器灵类金手指。 */
+        '主角：穿越者，无金手指，每世随机',
         '本版内容：四界二十八区 · 探图 · 回合制战斗 · 十五副本',
         '美术：程序化高保真画面，支持素材整包替换',
         '存档：本机本地保存，无云端、无内购'

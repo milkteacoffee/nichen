@@ -65,6 +65,15 @@
           save.pos = { x: this.map.md.spawn.x, y: this.map.md.spawn.y };
         }
         save.map = mapId; save.scene = mapId;
+        /* 到过记录（v0.15.0）：地图面板靠它区分"已至 / 未至"。
+           ⚠️ `save.visited` **早已存在**（v3 迁移建的），形状是**对象映射**不是数组 ——
+           直接当数组用会让老档 `.indexOf is not a function` 崩掉（本轮就是这么撞的）。
+           就地补字段、不写迁移。记的是**区域 id**（不是场景 id）：
+           凡界 F1–F3 复用 town/field/cave，按场景 id 记会把它们当三个不同区域。 */
+        save.visited = save.visited || {};
+        var rg = G.Data.regions;
+        var rid = (rg && rg.regionIdOf) ? rg.regionIdOf(mapId) : null;
+        if (rid) save.visited[rid] = 1;
         this._fixPos(save);
         this.moving = false; this.path = []; this.pendingAct = null; this.mark = null;
         this.hintT = 0;

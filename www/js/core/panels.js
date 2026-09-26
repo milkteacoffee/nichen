@@ -109,21 +109,30 @@
   /* ============================================================
      底栏
      ============================================================ */
+  /* 底栏五功能（v0.15.0 重构）：
+     · **功法 / 秘术并入角色面板的子页**（用户口径："把功法、秘术放到角色面板里面"）——
+       仍是独立的面板实现，只是不进底栏；
+     · **成就移到游戏外**（开局界面，与设备绑定、跨世只发一次）；
+     · 新增 **洞府**（炼丹 / 炼器 / 阵法 / 灵兽）与 **地图**（四界区域导航）。 */
   var PANELS = [
     { id: 'char', n: '角色' },
-    { id: 'skills', n: '功法' },
-    { id: 'secrets', n: '秘术' },
     { id: 'quest', n: '任务' },
     { id: 'bag', n: '储物' },
-    { id: 'achieve', n: '成就' }
+    { id: 'cave', n: '洞府' },
+    { id: 'map', n: '地图' }
   ];
 
   var IDS = {};
   PANELS.forEach(function (p) { IDS[p.id] = 1; });
+  /* 功法/秘术仍是**可路由**的面板（角色子页签要切过去），只是不进底栏 */
+  IDS.skills = 1; IDS.secrets = 1;
 
   /* 底栏按钮：六个等宽页签。active 传当前面板 id 时该项高亮。 */
   function barBtns(scene, active) {
-    var w = 75, gap = 3, x0 = (480 - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
+    /* 页签宽按数量现算：v0.15.0 从 6 项变 5 项，写死 75 会挤在中间一小撮 */
+    var gap = 3;
+    var w = Math.min(92, Math.floor((480 - 16 - (PANELS.length - 1) * gap) / PANELS.length));
+    var x0 = (480 - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
     return PANELS.map(function (p, i) {
       var on = (p.id === active);
       return new G.UI.Btn({
@@ -143,7 +152,10 @@
     x.fillRect(0, BAR_Y, 480, 272 - BAR_Y);
     x.fillStyle = 'rgba(216,183,104,0.20)';
     x.fillRect(0, BAR_Y, 480, 0.8);
-    var w = 75, gap = 3, x0 = (480 - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
+    /* 页签宽按数量现算：v0.15.0 从 6 项变 5 项，写死 75 会挤在中间一小撮 */
+    var gap = 3;
+    var w = Math.min(92, Math.floor((480 - 16 - (PANELS.length - 1) * gap) / PANELS.length));
+    var x0 = (480 - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
     PANELS.forEach(function (p, i) {
       if (p.id !== active) return;
       x.fillStyle = 'rgba(216,183,104,0.75)';
@@ -153,16 +165,21 @@
 
   /* 角色面板的子页签（总览 / 灵根 / 属性 / 境界）——排在标题带右侧，
      给右上角的关闭钮留出位置（几何来自 overlays.js，单一真相源）。 */
-  function buildCharTabs(btns, scene) {
-    var g = G.Overlays.CHAR_TAB_GEOM;
-    var cur = scene.charTab || 'overview';
+  function buildCharTabs(btns, scene, frame) {
+    /* 五面板外框要给左上角的状态文字留位；角色面板标题在左带里，不需要留 */
+    var g = G.Overlays.charTabGeom(frame || G.Overlays.CHAR_PANEL,
+      frame === FRAME ? G.Overlays.TAB_RESERVE : 0);
+    /* 当前子页：功法/秘术由 overlay 决定，其余看 scene.charTab */
+    var cur = (scene.overlay === 'skills' || scene.overlay === 'secrets')
+      ? scene.overlay : (scene.charTab || 'overview');
     G.Overlays.CHAR_TABS.forEach(function (t, i) {
       btns.push(new G.UI.Btn({
         x: g.x0 + i * (g.w + g.gap), y: g.y, w: g.w, h: g.h,
         small: true, variant: 'subtab', active: cur === t.id, label: t.n,
         onClick: function () {
           scene.charTab = t.id;
-          G.Overlays.openPanel(scene, 'char');
+          /* keepTab=true：组内切页，别让 openPanel 把刚设的页重置回总览 */
+          G.Overlays.openPanel(scene, t.panel || 'char', true);
         }
       }));
     });
@@ -183,22 +200,31 @@
     }
   }
 
-  function openPanel(scene, id) {
+  function openPanel(scene, id, keepTab) {
     if (!IDS[id]) return;
     var prev = scene.overlay;
     scene.overlay = id;
-    /* 角色面板有子页签：**从别处切进来**时回到「总览」，
-       面板内点页签（prev 已是 char）则保留当前子页 —— 否则每次点页签都跳回总览。 */
-    if (id === 'char' && prev !== 'char') scene.charTab = 'overview';
+    /* 角色组有子页签：**从别处切进来**时回到「总览」。
+       ⚠️ 判据是 `keepTab` 这个显式入参，不是"上一个 overlay 属不属角色组" ——
+       子页签点击会**先设 charTab 再调 openPanel**，用后者会把刚设好的页重置掉
+       （表现：点「属性」跳回「总览」）。调用方最清楚自己是不是在组内切页。 */
+    if (id === 'char' && !keepTab) scene.charTab = 'overview';
     /* 功法面板的下拉：从别处切进来时收起（选中的那本保留，换页签回来还是它） */
     if (id === 'skills' && prev !== 'skills') scene.skillOpen = false;
     var btns = [];
     if (id === 'skills') buildSkills(btns, scene);
     if (id === 'bag') buildBag(btns, scene);
-    if (id === 'char') buildCharTabs(btns, scene);
-    barBtns(scene, id).forEach(function (b) { btns.push(b); });
-    /* 关闭钮：六个面板统一加（含角色面板，它的面板矩形不同，故取各自的外框）。 */
-    btns.push(closeBtn(scene, id === 'char' ? G.Overlays.CHAR_PANEL : P));
+    if (id === 'cave') buildCave(btns, scene);
+    if (id === 'map') buildMap(btns, scene);
+    /* 角色组三个页共用同一条子页签条。外框按当前页取：
+       角色页用 CHAR_PANEL，功法/秘术页用五面板的 FRAME（它们的外框不同）。 */
+    if (G.Overlays.isCharGroup(id)) {
+      buildCharTabs(btns, scene, id === 'char' ? G.Overlays.CHAR_PANEL : FRAME);
+    }
+    /* 底栏高亮：功法/秘术属角色组，高亮落在「角色」上（否则进了这两页底栏一个都不亮） */
+    barBtns(scene, G.Overlays.isCharGroup(id) ? 'char' : id).forEach(function (b) { btns.push(b); });
+    /* 关闭钮：每个面板统一加（角色页的面板矩形不同，故取各自的外框）。 */
+    btns.push(closeBtn(scene, id === 'char' ? G.Overlays.CHAR_PANEL : FRAME));
     scene.buttons = btns;
   }
 
@@ -218,17 +244,22 @@
     });
   }
 
-  function shell(x, title, right) {
+  function shell(x, title, right, opts) {
+    opts = opts || {};
     G.Overlays.dim(x);
     G.UI.frame(x, FRAME, null, { tex: true });
     G.Overlays.titleBand(x, BAND, title);
-    /* 右上角数值**必须让开关闭钮**（钮占 FRAME.x+FRAME.w-28 .. -6）——
-       原先右端贴到内沿，正好压在钮上（panels.bounds.contract 会报"文字压在按钮上"）。 */
     if (right) {
-      G.UI.textOut(x, { x: FRAME.x + FRAME.w - 38, y: FRAME.y + 9 }, right, 11,
-        G.UI.C.textDim, 'right');
+      if (opts.left) {
+        /* 角色组的右上角被**子页签条**占了 → 状态文字改左对齐，让到页签左边。
+           （压上去会变成"文字压在按钮上"，panels.bounds.contract 直接报。） */
+        G.UI.textOut(x, { x: P.x + 14, y: FRAME.y + 9 }, right, 11, G.UI.C.textDim);
+      } else {
+        G.UI.textOut(x, { x: FRAME.x + FRAME.w - 38, y: FRAME.y + 9 }, right, 11,
+          G.UI.C.textDim, 'right');
+      }
     }
-    /* 顶条分隔线：标题已移到左缘竖带，这里只把"右上角数值"与正文分开 */
+    /* 顶条分隔线：标题已移到左缘竖带，这里只把顶条与正文分开 */
     G.UI.divider(x, P.x + P.w / 2, FRAME.y + 30, P.w - 42, 'rgba(216,183,104,0.18)');
   }
 
@@ -455,7 +486,7 @@
 
   function drawSkills(x, scene) {
     var save = G.game.save;
-    shell(x, '功　法', '灵力 ' + Math.floor(save.po));
+    shell(x, '功　法', '灵力 ' + Math.floor(save.po), { left: true });
     var ids = skillIdsSorted(save);
 
     if (!ids.length) {
@@ -558,7 +589,7 @@
     var all = Object.keys(Dg.SECRETS);
     var have = save.secrets || {};
     var owned = all.filter(function (id) { return have[id]; });
-    shell(x, '秘　术', '已习 ' + owned.length + ' / ' + all.length);
+    shell(x, '秘　术', '已习 ' + owned.length + ' / ' + all.length, { left: true });
 
     if (!owned.length) {
       empty(x, P.x + 14, P.y + 44, '尚未习得任何秘术。');
@@ -818,46 +849,171 @@
      单列 9 行 × 21px 会从 P.y+44 一路排到 238（= 面板底），
      既顶穿下沿、又正好压在底部「称号」行上（218）—— 两列 5 行 × 26px 收在 194 以内。
      每格两行：① 标记 + 名称 + 仙力（右对齐）；② 说明。 */
+  /* 成就页（v0.15.0 移到**游戏外**的开局界面；展示一并富化）。
+     口径（用户）：成就与**当前设备/用户 id 绑定**，跨世只发一次；
+     所以这页读的是 `meta.achieve`（跨世累积），不是当世 save。
+     ⚠️ 从「两列 × 5 行 = 10 格」扩到「三列 × 6 行 = 18 格」：
+     v0.15.0 把成就从 9 项加到 18 项，原来的 10 格装不下（多出来的只能写"另有 N 项"）。
+     三列宽度：内容宽 394，列宽 (394−16)/3 = 126 —— 够放「名称 + 仙力」一行与说明一行。 */
   function drawAchieve(x) {
     var m = G.game.meta || {};
     var got = m.achieve || {};
     var ALL = G.Player.ACHIEVE || [];
-    var A = ALL.slice(0, 10);                    /* 两列 × 5 行 = 10 格 */
     var n = ALL.filter(function (a) { return got[a.id]; }).length;
+    var dev = (G.Storage && G.Storage.deviceId) ? G.Storage.deviceId() : '';
     shell(x, '成　就', '已达成 ' + n + ' / ' + ALL.length);
+    /* 设备标识：成就是**跟设备走**的（用户口径），所以这页要把它标出来 ——
+       否则玩家换机后看到成就"还在"，会以为成就没跟着存档。 */
+    G.UI.text(x, { x: P.x + 14, y: P.y + 32 },
+      '本机标识 ' + (dev ? dev.slice(0, 12) : '未知') + '　·　成就与设备绑定，跨世只计一次',
+      9.5, G.UI.C.textDim);
 
-    var colW = Math.floor((P.w - 34) / 2);       /* 左右各留 14，中间 6 缝 */
-    var rowH = 26, y0 = P.y + 42;
-    A.forEach(function (a, i) {
-      var cx = P.x + 14 + (i % 2) * (colW + 6);
-      var cy = y0 + Math.floor(i / 2) * rowH;
+    var cols = 3, colW = Math.floor((P.w - 28 - (cols - 1) * 8) / cols);
+    /* 行距 24 → 22：6 行的末行说明（+12）会与底部称号区叠上（契约抓到过） */
+    var rowH = 22, y0 = P.y + 50;
+    ALL.slice(0, cols * 6).forEach(function (a, i) {
+      var cx = P.x + 14 + (i % cols) * (colW + 8);
+      var cy = y0 + Math.floor(i / cols) * rowH;
       var ok = !!got[a.id];
-      mark(x, cx + 4, cy + 6.5, ok ? 'done' : 'todo');
-      G.UI.text(x, { x: cx + 14, y: cy }, a.n, 11, ok ? G.UI.C.goldHi : G.UI.C.textDim);
+      mark(x, cx + 4, cy + 5.5, ok ? 'done' : 'todo');
+      G.UI.text(x, { x: cx + 14, y: cy }, a.n, 10.5, ok ? G.UI.C.goldHi : G.UI.C.textDim);
       G.UI.textOut(x, { x: cx + colW, y: cy + 1 },
-        (ok ? '已得 ' : '') + '+' + a.xianli + ' 仙力', 10,
-        ok ? G.UI.C.gold : G.UI.C.textDim, 'right');
-      G.UI.text(x, { x: cx + 14, y: cy + 13 }, a.d, 9.5,
+        (ok ? '' : '') + '+' + a.xianli, 9.5, ok ? G.UI.C.gold : G.UI.C.textDim, 'right');
+      G.UI.text(x, { x: cx + 14, y: cy + 12 }, a.d, 9,
         ok ? G.UI.C.text : G.UI.C.textDim);
     });
-    if (ALL.length > A.length) {
-      G.UI.text(x, { x: P.x + 14, y: y0 + 5 * rowH }, '……另有 ' + (ALL.length - A.length) + ' 项', 10,
-        G.UI.C.textDim);
-    }
 
-    var ty = P.y + P.h - 20;
-    /* 居中点必须跟着内容区走（内容区左移了 34）—— 写死 240 会偏心 */
+    /* 称号：分列展示（原来只挤在一行里，称号一多就截断成「破狱·凡尘·破狱…」） */
+    var ty = P.y + P.h - 26;
     G.UI.divider(x, P.x + P.w / 2, ty - 8, P.w - 28, 'rgba(216,183,104,0.18)');
-    var titles = (m.titles && m.titles.length) ? m.titles.join(' · ') : '无';
-    G.UI.text(x, { x: P.x + 14, y: ty }, '称号', 11, G.UI.C.textDim);
-    /* 右端让开右上角关闭钮（同 shell 的道理） */
-    G.UI.textOut(x, { x: P.x + P.w - 38, y: ty - 0.5 }, titles, 11,
-      m.titles && m.titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
+    var titles = (m.titles && m.titles.length) ? m.titles : [];
+    G.UI.text(x, { x: P.x + 14, y: ty }, '称 号', 11, G.UI.C.textDim);
+    G.UI.textOut(x, { x: P.x + P.w - 38, y: ty + 0.5 },
+      titles.length ? ('共 ' + titles.length + ' 枚') : '尚无', 10, G.UI.C.textDim, 'right');
+    G.UI.text(x, { x: P.x + 74, y: ty }, titles.length ? titles.join(' · ') : '无',
+      10.5, titles.length ? G.UI.C.goldHi : G.UI.C.textDim);
+    if (!titles.length) {
+      G.UI.text(x, { x: P.x + 14, y: ty + 14 },
+        '以地狱难度踏破任一界可得称号（全属性 +10%，跨世保留）。', 9.5, G.UI.C.textDim);
+    }
   }
 
   /* ============================================================
-     分发
+     洞府（v0.15.0 新增）：炼丹 / 炼器 / 阵法 / 灵兽 四大技艺的入口。
+     设计口径（用户）：常见材料在各地图采集、每日刷新；特殊材料刷怪掉落；
+     阵法只能从主城/宗门（分布在隐藏区域）交易；灵兽靠捕兽器在小世界捕捉或主线赠予。
+     ⚠️ 本版只落地"入口 + 规则说明 + 主动轮回"：四大技艺的**配方与产出**要等
+     玩法方向（半开放世界 vs 固定剧情）定稿后再做，避免先写一套再推翻。
      ============================================================ */
+  var CV = {
+    cardW: 191, cardH: 54, gapX: 12, gapY: 10,
+    x0: P.x + 14, y0: P.y + 40,
+    noteY: P.y + 164,
+    btn: { x: P.x + 14, y: P.y + 186, w: 176, h: 22 }
+  };
+  /* 四大技艺：id / 名 / 载体 / 一句话规则 */
+  var ARTS = [
+    { id: 'alchemy', n: '炼丹', by: '丹炉', d: '材料各地采集 · 每日刷新' },
+    { id: 'forge', n: '炼器', by: '锻台', d: '配方需先识得，方可炼制' },
+    { id: 'array', n: '阵法', by: '阵盘', d: '仅主城与宗门可交易' },
+    { id: 'beast', n: '灵兽', by: '兽栏', d: '捕兽器捕捉 · 或主线赠予' }
+  ];
+
+  function drawCave(x, scene) {
+    var save = G.game.save, meta = G.game.meta || {};
+    shell(x, '洞府', '第 ' + (save.life || 1) + ' 世');
+    G.UI.text(x, { x: P.x + 14, y: P.y + 34 },
+      '丹房 · 器坊 · 阵台 · 兽栏', 11, G.UI.C.textDim);
+    ARTS.forEach(function (a, i) {
+      var col = i % 2, row = Math.floor(i / 2);
+      var bx = CV.x0 + col * (CV.cardW + CV.gapX);
+      var by = CV.y0 + row * (CV.cardH + CV.gapY);
+      G.UI.panel(x, { x: bx, y: by, w: CV.cardW, h: CV.cardH },
+        G.UI.C.panelDark, G.UI.C.rule, 4, { tex: false, shadow: false });
+      G.UI.textOut(x, { x: bx + 10, y: by + 7 }, a.n, 13, G.UI.C.goldHi);
+      G.UI.text(x, { x: bx + 10 + 30, y: by + 10 }, a.by, 10, G.UI.C.textDim);
+      G.UI.text(x, { x: bx + 10, y: by + 26 }, a.d, 9.5, G.UI.C.textDim);
+      /* 状态一律"未启"，不画假的进度条 —— 有就有，没有就说没有 */
+      G.UI.textOut(x, { x: bx + CV.cardW - 10, y: by + 7 }, '未启', 10,
+        'rgba(200,160,110,0.85)', 'right');
+    });
+    G.UI.text(x, { x: P.x + 14, y: CV.noteY },
+      '材料采集与四大技艺的配方将在玩法方向定稿后开启。', 10, G.UI.C.textDim);
+    G.UI.text(x, { x: P.x + 14, y: CV.noteY + 14 },
+      '此世若已无望，可主动坐化，早入轮回。', 10, G.UI.C.textDim);
+  }
+
+  function buildCave(btns, scene) {
+    /* 主动轮回（v0.15.0）：**两步确认**（点一次进入待确认，再点一次才真的走）。
+       不弹独立对话框 —— 那要新开一条 overlay 管线，而"按钮自变文案"已经够表达意图，
+       且失败面为零（第二次点击就是确认，没有第三个状态）。
+       ⚠️ 触发方式与寿终一致：写 `_cause` 后切 death 场景，**复用同一套结算**
+       （仙力明细 / 走马灯 / 轮回档案），不另写一份 —— 两份结算必然漂。 */
+    var arm = !!scene.endArm;
+    btns.push(new G.UI.Btn({
+      x: CV.btn.x, y: CV.btn.y, w: CV.btn.w, h: CV.btn.h, small: true,
+      variant: 'danger',
+      label: arm ? '再点一次 · 确认坐化' : '坐化 · 主动轮回',
+      onClick: function () {
+        if (!scene.endArm) { scene.endArm = true; G.Overlays.openPanel(scene, 'cave'); return; }
+        var save = G.game.save;
+        save._cause = 'self';
+        G.Storage.saveCurrent(save);
+        G.game.changeScene('death');
+      }
+    }));
+    if (arm) {
+      btns.push(new G.UI.Btn({
+        x: CV.btn.x + CV.btn.w + 8, y: CV.btn.y, w: 88, h: CV.btn.h, small: true,
+        variant: 'battle', label: '再想想',
+        onClick: function () { scene.endArm = false; G.Overlays.openPanel(scene, 'cave'); }
+      }));
+    }
+  }
+
+  /* ============================================================
+     地图（v0.15.0 新增）：四界区域导航。
+     一屏列全 28 区（4 栏 × 最多 9 行）—— 比"翻页列表"更接近半开放世界的地图观感，
+     也不依赖素材。当前所在区域高亮；已到过的区域亮，未至的压暗。
+     ============================================================ */
+  var MP = {
+    /* ⚠️ 9 行 × 行距必须给底部提示留出 20px：行距 18 + 起点 58 时第 8 行会压上提示。 */
+    colW: 96, colGap: 3, headY: P.y + 38, rowY: P.y + 50, rowH: 15
+  };
+  var WORLD_ORDER = ['fan', 'ling', 'xian', 'dao'];
+
+  function drawMap(x, scene) {
+    var save = G.game.save, meta = G.game.meta || {};
+    var Rg = G.Data.regions;
+    var cur = Rg.regionIdOf ? Rg.regionIdOf(save.map) : null;
+    var visited = save.visited || {};
+    var unlocked = (meta.progress && meta.progress.worlds) || {};
+    shell(x, '地图', Rg.worldNames[Rg.worldNames ? G.Player.activeWorldId(meta) : 'fan'] || '');
+
+    WORLD_ORDER.forEach(function (w, ci) {
+      var cx0 = P.x + 14 + ci * (MP.colW + MP.colGap);
+      G.UI.text(x, { x: cx0, y: MP.headY }, Rg.worldNames[w] || w, 11.5,
+        unlocked[w] ? G.UI.C.goldHi : G.UI.C.textDim);
+      var list = Rg.of(w) || [];
+      list.forEach(function (r, ri) {
+        var ry = MP.rowY + ri * MP.rowH;
+        if (ry + 12 > P.y + P.h - 18) return;        /* 超出内容区（含底部提示带）就不画 */
+        var isCur = r.id === cur;
+        var seen = isCur || !!visited[r.id];
+        if (isCur) {
+          G.UI.panel(x, { x: cx0 - 3, y: ry - 1, w: MP.colW - 2, h: 15 },
+            'rgba(216,183,104,0.20)', G.UI.C.ruleHi, 3, { tex: false, shadow: false });
+        }
+        G.UI.text(x, { x: cx0, y: ry }, (r.gate ? '界 ' : '') + r.n, 10.5,
+          isCur ? G.UI.C.goldHi : (seen ? G.UI.C.text : 'rgba(120,132,152,0.75)'));
+      });
+    });
+    G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 },
+      '当前所在已高亮；「界」= 该界界门所在区。', 10, G.UI.C.textDim);
+  }
+
+  function buildMap(btns, scene) { /* 纯展示页，无可点元素（点击不改状态就不会有假按钮） */ }
+
   var DRAW = {
     /* 角色面板要读 scene.charTab（子页签），所以把 scene 透传下去 */
     char: function (x, scene) { G.Overlays.renderChar(x, scene); },
@@ -865,7 +1021,8 @@
     secrets: drawSecrets,
     quest: drawQuest,
     bag: drawBag,
-    achieve: drawAchieve
+    cave: drawCave,
+    map: drawMap
   };
 
   function renderPanel(x, scene) {
@@ -874,7 +1031,9 @@
     /* 六面板 = 云海玉牌（深青紫底 + 浅字）。**底栏不在作用域内** —— 它跟 HUD 一样是墨夜，
        两套材质靠这个作用域边界分开，所以 `renderBar` 必须留在外面。 */
     G.UI.mist(function () { fn(x, scene); });
-    renderBar(x, scene.overlay);
+    /* 底栏高亮：功法/秘术属于「角色」组，底栏高亮也要落在角色上 ——
+       否则进了功法页底栏一个都不亮，玩家不知道自己在哪。 */
+    renderBar(x, G.Overlays.isCharGroup(scene.overlay) ? 'char' : scene.overlay);
     return true;
   }
 
@@ -906,6 +1065,11 @@
   G.Overlays.BAR_Y = BAR_Y;
   G.Overlays.BAR_H = BAR_H;
   G.Overlays.isPanel = function (name) { return !!IDS[name]; };
+  /* 成就页移出游戏内（v0.15.0）：底栏不再有它，改由**开局界面**渲染。
+     绘制实现仍留在这里（单一实现），只是换个调用方 —— 不复制一份。 */
+  G.Overlays.drawAchieve = drawAchieve;
+  G.Overlays.CAVE_ARTS = ARTS;
+  G.Overlays.MAP_WORLDS = WORLD_ORDER;
   G.Overlays.barBtns = barBtns;
   G.Overlays.renderBar = renderBar;
   G.Overlays.openPanel = openPanel;

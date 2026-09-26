@@ -830,12 +830,20 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'quest'); }, 'panel.quest');
 shot('32_panel_quest', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
 shot('33_panel_bag', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'cave'); }, 'panel.cave');
+shot('35_panel_cave', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'map'); }, 'panel.map');
+shot('36_panel_map', 6);
 /* 储物格子的悬浮说明（鼠标落在第一个格子里：BG.x0=26, BG.y0=84, cell=46） */
 step(() => { G.Input.mouse = { x: 49, y: 107 }; }, 'bag.tip');
 shot('33b_bag_tip', 2);
 step(() => { G.Input.mouse = null; }, 'bag.tip.off');
-step(() => { G.Overlays.openPanel(G.game.scene, 'achieve'); }, 'panel.achieve');
-shot('34_panel_achieve', 6);
+/* 成就页 v0.15.0 移到**开局界面**（游戏外）；拍完回镇上继续拍面板 */
+/* ⚠️ 必须先 changeScene('title') —— 只调 _openAch 的话当前场景还是 town，
+   拍到的会是上一张面板（本轮就拍错过一次）。 */
+step(() => { G.game.changeScene('title'); G.scenes.title._openAch(); }, 'title.ach');
+shot('02b_title_ach', 8);
+step(() => { G.scenes.title._buildMenu(); G.game.changeScene('town', { toSpawn: true }); }, 'back.town');
 
 /* 角色面板四个子页（v0.11.0）：**每页都要肉眼过一遍** ——
    排版越界/叠字/压按钮全是静默的，只有截图能看出来。

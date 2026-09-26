@@ -91,6 +91,23 @@ function textSpyXY() {
   return c;
 }
 
+/* 框探针：记录这一帧所有 `G.UI.rr()` 的矩形（圆角矩形路径 = 一切"框"的公共入口：
+   属性卡、列表背板、按钮底、进度条…）。
+   为什么必须单独有它：越界契约原先只判**文字**，而"框跑出去、文字还在框里居中"是静默的 ——
+   v0.14.0 内容区收窄后「属性」页三张属性卡右沿 452 > 面板 436，文字断言全绿（G45 同族）。
+   用法：`const sp = boxSpy(); render(); sp.restore(); checkBoxes(id, R, sp.hits);` */
+function boxSpy() {
+  const hits = [];
+  const real = G.UI.rr;
+  G.UI.rr = function (x, s) {
+    if (s && typeof s.x === 'number' && typeof s.w === 'number') {
+      hits.push({ x: s.x, y: s.y, w: s.w, h: s.h });
+    }
+    return real.apply(this, arguments);
+  };
+  return { hits: hits, restore: function () { G.UI.rr = real; } };
+}
+
 function makeCanvas(w, h) {
   const c = {
     width: w || 300, height: h || 150,
@@ -1465,7 +1482,9 @@ step(function () {
   const d = G.Player.xianliOf(s, { achieve: { A1: 1, A5: 1 } });
   if (d.cause !== 'aged') errors.push('死因应为 aged，实为 ' + d.cause);
   if (d.mul !== 1.1) errors.push('寿终应 ×1.1，实为 ' + d.mul);
-  const base = d.realm + d.skill + d.kill + d.age;
+  /* base 必须含 d.achieve：v0.15.0 新增的「寿终正寝」在 _cause=aged 时必然命中，
+     只算四项会假红 —— 而那跟「善终修正」根本不是一回事。 */
+  const base = d.realm + d.skill + d.kill + d.age + d.achieve;
   if (d.total !== Math.round(base * 1.1)) {
     errors.push('善终修正未生效：' + d.total + ' 应 ' + Math.round(base * 1.1));
   }
@@ -3280,8 +3299,11 @@ step(function () {
     /* ⚠️ 必须切两次：openPanel 在 prev !== 'char' 时会把 charTab 归到 overview，
        所以"设 charTab 再开面板"这一种写法会被它覆盖掉（首版就踩了这个坑）。 */
     G.Overlays.openPanel(sc, 'char');
-    sc.charTab = 'realm';
-    G.Overlays.openPanel(sc, 'char');
+    /* ⚠️ v0.15.0：切子页要走**子页签按钮**（它带 keepTab）。
+       「设 charTab 再 openPanel」会被重置回总览 —— 那是有意的：
+       openPanel 的语义是「从别处进角色页」，就该落在总览。 */
+    const realmTab = sc.buttons.filter((b) => b.variant === 'subtab' && b.label === '境界')[0];
+    if (realmTab) realmTab.onClick(); else errors.push('角色面板缺「境界」子页签');
     if (sc.charTab !== 'realm') errors.push('角色面板没有 realm 子页');
     if (!sc.buttons.some((b) => /突破/.test(b.label || ''))) {
       errors.push('角色面板「境界」子页没有突破按钮');
@@ -4477,7 +4499,8 @@ step(function () {
   G.game.changeScene('town', { toSpawn: true });
   const sc = G.game.scene;
 
-  const NAMES = ['角色', '功法', '秘术', '任务', '储物', '成就'];
+  /* v0.15.0：功法/秘术并入角色面板的子页，成就移到游戏外 → 底栏五项 */
+  const NAMES = ['角色', '任务', '储物', '洞府', '地图'];
   NAMES.forEach(function (n) {
     if (!sc.buttons.some(function (b) { return b.label === n && b.variant === 'tab'; })) {
       errors.push('底栏缺少功能入口：' + n);
@@ -4489,7 +4512,7 @@ step(function () {
 
   const TITLE = {
     char: '角 色', skills: '功　法', secrets: '秘　术',
-    quest: '任　务', bag: '储　物', achieve: '成　就'
+    quest: '任　务', bag: '储　物', cave: '洞　府', map: '地　图'
   };
   /* 标题已改成**左缘竖排带**（一列一字，v0.14.0）→ 不再是一条完整文本 run。
      判据改成"标题的每个字都画在**该面板自己的竖带矩形内**"——
@@ -4509,7 +4532,7 @@ step(function () {
     G.Overlays.openPanel(sc, id);
     if (sc.overlay !== id) { errors.push('openPanel(' + id + ') 未设置 overlay'); return; }
     if (!sc.buttons.some(function (b) { return b.variant === 'tab' && b.active; })) {
-      errors.push('面板 ' + id + ' 里没有高亮当前页签');
+      errors.push('面板 ' + id + ' 里底栏没有高亮当前页签');
     }
     const band = bandOf(id);
     const cx = textSpyXY(); sc.render(cx);
@@ -4541,7 +4564,7 @@ step(function () {
      玩家在面板里找不到出口（截图反馈）。
      这里用 glyph 认（矢量叉），不用 label 认（关闭钮的 label 是空串）。
      三条断言：① 有且只有一个；② 落在面板矩形内；③ 点下去**真的**关掉面板。 */
-  const CLOSE_IDS = ['char', 'skills', 'secrets', 'quest', 'bag', 'achieve'];
+  const CLOSE_IDS = ['char', 'skills', 'secrets', 'quest', 'bag', 'cave', 'map'];
   CLOSE_IDS.forEach(function (id) {
     G.Overlays.openPanel(sc, id);
     if (sc.overlay !== id) { errors.push('openPanel(' + id + ') 失败'); return; }
@@ -4567,7 +4590,7 @@ step(function () {
      ③ 从别的面板切进来要回到「总览」（不能停在上一页）。 */
   {
     const tabs = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-    if (tabs.length !== 4) errors.push('角色面板应有 4 个子页签，实际 ' + tabs.length);
+    if (tabs.length !== 6) errors.push('角色面板应有 6 个子页签（总览/灵根/属性/境界/功法/秘术），实际 ' + tabs.length);
     G.Overlays.openPanel(sc, 'char');
     const subs = sc.buttons.filter(function (b) { return b.variant === 'subtab'; });
     if (subs.length !== tabs.length) {
@@ -4575,7 +4598,12 @@ step(function () {
     } else {
       subs.forEach(function (b, i) {
         b.onClick();
-        if (sc.overlay !== 'char') errors.push('点子页签不该关掉角色面板');
+        /* v0.15.0：子页签分两类 —— 前四个留在 char，功法/秘术切到各自 overlay。
+           判据从「必须还是 char」改成「必须落在该页所属的 overlay 上」。 */
+        const wantOv = (G.Overlays.CHAR_TABS[i].panel) || 'char';
+        if (sc.overlay !== wantOv) {
+          errors.push('点子页签「' + b.label + '」应切到 overlay=' + wantOv + '，实际 ' + sc.overlay);
+        }
         if (sc.charTab !== tabs[i]) {
           errors.push('点子页签「' + b.label + '」后 charTab 应为 ' + tabs[i]
             + '，实际 ' + sc.charTab);
@@ -4640,6 +4668,24 @@ step(function () {
   /* 共用断言：① 不越出面板矩形；② 不含缺字标记；③ 两行不叠字；④ 文字不压在按钮上。
      ④ 单列出来是因为**按钮是另一条绘制路径**（game.js 画底 + 自己画标签），
      文字探针看不到它 —— 设置页底部提示被「关闭」按钮压住就是这么漏出去的。 */
+  /* 框越界：与文字越界同源，判的是**框**（`G.UI.rr` 的矩形）。
+     ⚠️ 这条是补出来的：v0.14.0 内容区收窄 30px 后「属性」页三张属性卡右沿 452 > 面板 436，
+     而文字契约**全绿** —— 文字在卡里居中，卡跑出去了文字还在界内。
+     底栏（y ≥ BAR_Y）与面板外的东西不算，容差 0.5px 给浮点与描边留余量。 */
+  const checkBoxes = function (id, R, hits) {
+    hits.forEach(function (b) {
+      if (b.y >= BAR_Y) return;
+      const over = Math.max(
+        R.x - b.x, b.x + b.w - (R.x + R.w),
+        R.y - b.y, b.y + b.h - (R.y + R.h));
+      if (over > 0.5) {
+        errors.push('面板 ' + id + ' 框越界：矩形 x=' + b.x + ' y=' + b.y
+          + ' w=' + b.w + ' h=' + b.h + ' 超出面板 '
+          + R.x + ',' + R.y + ',' + R.w + ',' + R.h + '（越出 ' + over.toFixed(1) + 'px）');
+      }
+    });
+  };
+
   const checkTexts = function (id, R, body, btns) {
     if (!body.length) { errors.push('面板 ' + id + ' 一个字都没画'); return; }
     body.forEach(function (t) {
@@ -4704,15 +4750,16 @@ step(function () {
      ⚠️ 角色面板有四个子页签（v0.11.0），**每一页都要过同一套断言** ——
      只跑默认的「总览」会漏掉灵根/属性/境界三页的越界（越界是静默的）。 */
   const charTabIds = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-  if (charTabIds.length !== 4) {
-    errors.push('角色面板子页签应为 4 个（总览/灵根/属性/境界），实际 ' + charTabIds.length);
+  if (charTabIds.length !== 6) {
+    errors.push('角色面板子页签应为 6 个（总览/灵根/属性/境界/功法/秘术），实际 ' + charTabIds.length);
   }
   [
     { id: 'skills', R: G.Overlays.PANEL_RECT },
     { id: 'secrets', R: G.Overlays.PANEL_RECT },
     { id: 'quest', R: G.Overlays.PANEL_RECT },
     { id: 'bag', R: G.Overlays.PANEL_RECT },
-    { id: 'achieve', R: G.Overlays.PANEL_RECT }
+    { id: 'cave', R: G.Overlays.PANEL_RECT },
+    { id: 'map', R: G.Overlays.PANEL_RECT }
   ].concat(charTabIds.map(function (tid) {
     return { id: 'char', tab: tid, R: G.Overlays.CHAR_PANEL };
   })).forEach(function (item) {
@@ -4721,12 +4768,37 @@ step(function () {
     if (item.tab) sc.charTab = item.tab;
     if (sc.overlay !== item.id) { errors.push('openPanel(' + item.id + ') 失败'); return; }
     const cx = textSpyXY();
-    if (!G.Overlays.renderPanel(cx, sc)) { errors.push('renderPanel(' + item.id + ') 返回 false'); return; }
-    checkTexts(item.id + (item.tab ? '/' + item.tab : ''), item.R,
-      cx.__seenXY.filter(inBand), sc.buttons);
+    const sp = boxSpy();
+    let okRender = false;
+    try { okRender = G.Overlays.renderPanel(cx, sc); } finally { sp.restore(); }
+    if (!okRender) { errors.push('renderPanel(' + item.id + ') 返回 false'); return; }
+    const tag = item.id + (item.tab ? '/' + item.tab : '');
+    checkTexts(tag, item.R, cx.__seenXY.filter(inBand), sc.buttons);
+    checkBoxes(tag, item.R, sp.hits);
   });
 
-  /* ② 天道三页（设置 / 界域难度 / 关于）走同一套断言。 */
+  /* ② 成就页（v0.15.0 移到**开局界面**）——
+     ⚠️ 它已经不在底栏面板清单里，所以**必须单独补一段**，
+     否则这一页从此不受越界/叠字约束（覆盖缺口：本轮移动时差点就漏了）。 */
+  {
+    G.game.changeScene('title');
+    G.scenes.title._openAch();
+    if (!G.scenes.title.ach) errors.push('成就页未打开（title._openAch 失效）');
+    const cx = textSpyXY();
+    const sp = boxSpy();
+    /* ⚠️ 只渲染**被测的那一页**（`drawAchieve`），不要把整个标题场景喂进来 ——
+       场景自己的装饰文字（竖排「逆尘」、副题）会被算成"叠字/越界"，全是假红
+       （而且 `box()` 不认 `align:'center'`，居中文字按左对齐算，越界判据也不对）。 */
+    try { G.Overlays.drawAchieve(cx); } finally { sp.restore(); }
+    checkTexts('title/ach', G.Overlays.PANEL_RECT,
+      cx.__seenXY.filter(inBand), G.scenes.title.buttons);
+    checkBoxes('title/ach', G.Overlays.PANEL_RECT, sp.hits);
+    G.scenes.title._buildMenu();
+    G.game.changeScene('town', { toSpawn: true });
+    pump(2, 'ach.back');
+  }
+
+  /* ③ 天道三页（设置 / 界域难度 / 关于）走同一套断言。 */
   [
     { id: 'settings', R: G.TianDao.SET_P, open: function () { G.TianDao.openSettings(sc); } },
     { id: 'worlds', R: G.TianDao.WORLDS_P, open: function () { G.TianDao.openWorlds(sc); } },

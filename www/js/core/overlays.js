@@ -20,21 +20,36 @@
     w: CHAR_BAND_W - 12, h: CHAR_PANEL.h - 16
   };
 
-  /* 角色面板的四个子页签（v0.11.0）。
-     以前「角色」一页把立绘/境界/灵根/属性/功法/称号全挤在一起，密度高但**细看不了**：
-     灵根只显示一行"金·木·水"，看不出系数与相克；境界只显示当前一个，
-     看不出自己在「四界十九境」里的位置。现在拆成四页。
-     几何导出给契约用（写死在契约里就等于没钉住）。 */
+  /* 角色面板的子页签（v0.11.0 建四页；v0.15.0 扩到六页）。
+     v0.15.0：**功法 / 秘术并入角色面板**（用户口径："把功法、秘术放到角色面板里面"）——
+     它们仍是**独立的面板实现**（`drawSkills`/`drawSecrets` 的绘制与按钮逻辑一行没动），
+     只是从底栏移到了子页签：`panel` 字段说明"这一页切到哪个 overlay"。
+     好处是零重构风险：功法页的下拉、参悟、精进全部照旧。 */
   var CHAR_TABS = [
-    { id: 'overview', n: '总览' },
-    { id: 'linggen', n: '灵根' },
-    { id: 'attr', n: '属性' },
-    { id: 'realm', n: '境界' }
+    { id: 'overview', n: '总览', panel: 'char' },
+    { id: 'linggen', n: '灵根', panel: 'char' },
+    { id: 'attr', n: '属性', panel: 'char' },
+    { id: 'realm', n: '境界', panel: 'char' },
+    { id: 'skills', n: '功法', panel: 'skills' },
+    { id: 'secrets', n: '秘术', panel: 'secrets' }
   ];
-  var TAB_W = 58, TAB_GAP = 4, TAB_H = 20;
-  var TAB_Y = CHAR_PANEL.y + 5;
-  /* 右端让开右上角的关闭钮（宽 22 + 6 边距 + 8 缝） */
-  var TAB_X0 = CHAR_PANEL.x + CHAR_PANEL.w - 6 - 22 - 8 - (CHAR_TABS.length * TAB_W + (CHAR_TABS.length - 1) * TAB_GAP);
+  /* 子页签几何**按当前面板的外框算**：角色面板（`CHAR_PANEL`）与五面板（`FRAME`）外框不同，
+     而功法/秘术并进角色组之后仍用五面板的外框 —— 写死一份必然有一边错位。
+     ⚠️ 六个页签 + 关闭钮必须一起收进外框宽度（窄框要按比例缩页签宽）。 */
+  function charTabGeom(frame, reserveLeft) {
+    var gap = 4, h = 20;
+    var right = frame.x + frame.w - 6 - 22 - 8;      /* 让开右上角关闭钮（22 宽 + 6 边距 + 8 缝） */
+    /* 左端留出 `reserveLeft`：功法/秘术页的右上角还要放「灵力 30」这类状态文字，
+       页签条压上去会变成"文字压在按钮上"（panels.bounds.contract 直接报）。 */
+    var left = frame.x + (reserveLeft || 40);
+    var n = CHAR_TABS.length;
+    var w = Math.min(58, Math.floor((right - left - (n - 1) * gap) / n));
+    var total = n * w + (n - 1) * gap;
+    return { w: w, gap: gap, h: h, y: frame.y + 5, x0: right - total };
+  }
+  var TAB_GEOM = charTabGeom(CHAR_PANEL);
+  /* 功法/秘术页（五面板外框）要给左上角的状态文字留位 —— 130px 够放「已习 2 / 15」 */
+  var TAB_RESERVE = 130;
 
   /* 「境界」子页的突破按钮几何：**建钮（panels.buildCharTabs）与挂悬浮说明
      （overlays.charRealm）共用这一份**。两处各写一份必然漂 ——
@@ -50,8 +65,13 @@
     CHAR_BAND: CHAR_BAND,
     CHAR_TABS: CHAR_TABS,
     CHAR_BREAK: CHAR_BREAK,
-    /* 子页签几何：契约要用（写死在契约里等于没钉住） */
-    CHAR_TAB_GEOM: { w: TAB_W, gap: TAB_GAP, h: TAB_H, y: TAB_Y, x0: TAB_X0 },
+    /* 子页签几何：契约要用（写死在契约里等于没钉住）。
+       `CHAR_TAB_GEOM` 是角色面板那一份；`charTabGeom(frame)` 供其它外框（功法/秘术）取。 */
+    CHAR_TAB_GEOM: TAB_GEOM,
+    charTabGeom: charTabGeom,
+    TAB_RESERVE: TAB_RESERVE,
+    /* 角色组判定：这三个 overlay 都算「角色」页（底栏高亮 / 子页签条按它算） */
+    isCharGroup: function (o) { return o === 'char' || o === 'skills' || o === 'secrets'; },
 
     /* 左缘竖排标题带（v0.14.0，参考《烟雨江湖》的卷轴版式）：
        内嵌窄板 + 竖排大字（一列一字、整列纵向居中）。卷轴感来自
@@ -519,8 +539,12 @@
       G.UI.textOut(x, { x: P.x + P.w - 38, y: P.y + 39 },
         '第 ' + save.life + ' 世', 11, G.UI.C.textDim, 'right');
 
-      /* 三项主属性卡：从 52 加宽到 108 —— 满宽排开，不再挤成一条 */
-      var cw2 = 108, gp2 = 20;
+      /* 三项主属性卡。⚠️ v0.14.0 内容区左沿右移 30px 后这里**漏改了**：
+         3×108 + 2×20 = 364 > 可用宽 334 → 第三张卡右沿 452 顶出面板 436（截图里可见）。
+         ⚠️ 当时契约没抓到 —— 它只判**文字**，而文字在卡里居中、卡跑出去了文字还在界内。
+         现在 `panels.bounds.contract` 加了**框探针**（记录 `G.UI.rr` 的矩形），这类问题一次抓全。
+         算式：LX=88 到内容右沿 422，可用 334；取 3×100 + 2×16 = 332。**改卡数/卡宽前先算这条。** */
+      var cw2 = 100, gp2 = 16;
       [
         ['atk', '攻击', st.atk, '#e8b0a0'],
         ['hp', '气血', st.maxhp, '#e0a0a0'],
@@ -598,6 +622,14 @@
       G.UI.textOut(x, { x: P.x + P.w - 14, y: P.y + 80 },
         '寿元 ' + (save.age || 16) + ' / ' + G.Player.lifespanOf(gl), 10.5,
         G.UI.C.textDim, 'right');
+
+      /* 破境丹缺失 → **面板里常驻显示去哪拿**（v0.15.0）。
+         只弹一次 toast 是不够的：玩家关掉提示就再也看不到（截图反馈的原话是
+         "破境失败之后，没有说在哪里可以获取破境丹"）。 */
+      if (bs.big && !bs.pillOwned) {
+        G.UI.text(x, { x: LX, y: P.y + 94 },
+          '缺「' + bs.pill + '」　' + bs.pillHint, 9.5, 'rgba(226,170,120,0.95)');
+      }
 
       O.sec(x, LX, P.y + 104, '四界十九境');
       var REALMS = G.Player.REALMS || [], WORLDS = G.Player.WORLDS || [];
