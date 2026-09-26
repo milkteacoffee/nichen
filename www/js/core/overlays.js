@@ -54,8 +54,13 @@
   /* 「境界」子页的突破按钮几何：**建钮（panels.buildCharTabs）与挂悬浮说明
      （overlays.charRealm）共用这一份**。两处各写一份必然漂 ——
      漂了的表现是"悬浮说明浮在按钮旁边"而不是按钮上，且完全静默。 */
+  /* ⚠️ 几何要与「境界」页的文字**错开**：
+     · 右端收窄到 96 宽 —— 否则会压到「凡界　全境第 N 级」（那行到 x≈313）
+     · 下移到 y+56 —— 否则会压到「第 N 世」（那行在 y 45..56）
+     两处都是**静默重叠**：文字压在按钮上不报错，只有 `panels.bounds.contract` 抓得到。
+     （这条是 v0.25.0 修契约假阳性时**顺带暴露**出来的既有问题。） */
   var CHAR_BREAK = {
-    x: CHAR_PANEL.x + CHAR_PANEL.w - 130, y: CHAR_PANEL.y + 48, w: 116, h: 22
+    x: CHAR_PANEL.x + CHAR_PANEL.w - 110, y: CHAR_PANEL.y + 56, w: 96, h: 22
   };
 
   var O = {
@@ -376,7 +381,12 @@
       if (!ids.length) {
         G.UI.text(x, { x: RX, y: yy }, '尚无功法', 11.5, G.UI.C.textDim);
       }
-      ids.slice(0, 8).forEach(function (id) {
+      /* ⚠️ 行数上限**由法宝三槽的位置反推**，不能写死 8 ——
+         功法一多就会压到法宝区（`panels.bounds.contract` 判「文字叠字」：
+         实测"千斤坠 × 法宝"纵向重叠 9px）。 */
+      var eqTop = P.y + P.h - 92;
+      var maxRows = Math.max(2, Math.floor((eqTop - yy) / 19));
+      ids.slice(0, maxRows).forEach(function (id) {
         var sd = G.Data.skills[id];
         var lv = save.skills[id].lv;
         G.UI.textOut(x, { x: RX, y: yy }, sd ? sd.n : id, 12,
@@ -388,6 +398,34 @@
         G.UI.text(x, { x: RX + RW, y: yy + 1 }, 'Lv' + lv, 11, G.UI.C.textDim, 'right');
         yy += 19;
       });
+      if (ids.length > maxRows) {
+        G.UI.textOut(x, { x: RX + RW, y: yy - 2 }, '另有 ' + (ids.length - maxRows) + ' 门',
+          9.5, G.UI.C.textDim, 'right');
+      }
+
+      /* ===== 法宝三槽（v0.25.0）=====
+         用户口径：「这个人物少了三个法宝格子，武器、防具、饰品」。
+         ⚠️ 格子的**内容由按钮自己画**（label+sub），这里只画「法宝」二字 ——
+            面板自绘文字压到按钮上会被 `panels.bounds.contract` 判违规。 */
+      var EQD = G.Data.equips;
+      if (EQD) {
+        var EQY = P.y + P.h - 72;
+        G.UI.text(x, { x: RX, y: EQY - 14 }, '法宝', 11, G.UI.C.textDim);
+        if (save.equip && EQD.sum(save.equip).a + EQD.sum(save.equip).f > 0) {
+          /* 已穿法宝时给一句加成摘要，让"换装备有没有变强"看得见 */
+          var sfx = EQD.sum(save.equip);
+          var parts = [];
+          if (sfx.a) parts.push('攻+' + Math.round(sfx.a * 100) + '%');
+          if (sfx.f) parts.push('防+' + Math.round(sfx.f * 100) + '%');
+          if (sfx.h) parts.push('血+' + Math.round(sfx.h * 100) + '%');
+          if (sfx.s) parts.push('速+' + Math.round(sfx.s * 100) + '%');
+          if (sfx.c) parts.push('暴+' + Math.round(sfx.c * 100) + '%');
+          if (parts.length) {
+            G.UI.textOut(x, { x: RX + RW, y: EQY - 14 }, parts.join('　'), 9.5,
+              G.UI.C.jadeHi, 'right');
+          }
+        }
+      }
 
       /* 称号：地狱难度通关该界所得（破狱·凡尘 / 灵渊 / 仙穹），**跨世保留**。
          以前只有 meta.titles 记着、界面上没有任何展示位，玩家"拿了但看不见"（缺口 G15）。

@@ -196,13 +196,14 @@
       });
       if (zeroStone) stone = 0;
 
-      /* 功法：开局匹配技 + 铁布衫 + 吐纳术，均 1 级 */
-      var firstElem = this.linggen.elems[0];
+      /* ===== 功法：**入世不带任何功法**（v0.25.0）=====
+         用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，
+         不是每次都随机三个功法」。
+         所以这里给空表 —— 第一门功法由 **m0-1「拜入药铺」复命时沈伯传授**
+         （见 town.js 的 shenbo 分支），那就是"散修线的第一个任务奖励"。
+         ⚠️ 空表是**有意为之**，不是漏了：`skills.contract` 会断言入世为空。 */
       var skills = {};
-      [G.Data.startSkillByElem[firstElem], '铁布衫', '吐纳术'].forEach(function (id) {
-        skills[id] = { lv: 1 };
-      });
-      var equip = [G.Data.startSkillByElem[firstElem]];
+      var equip = [];
 
       /* 轮回殿灌注：把上一世积累的仙力兑现成开局资源。
          body 不在这里处理——它由 Player.computeStats 直接读 meta.perfusion.body。 */
@@ -254,6 +255,7 @@
         askedRealms: {},
         side: {},                                  /* 支线进度：{ <id>: 1进行/2可交/3完成 } */
         fly: false,                                /* 御剑飞行开关（金丹境起可用） */
+        equip: { weapon: null, armor: null, accessory: null },  /* 法宝三槽 */
         scene: 'town', map: 'town',
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,

@@ -856,6 +856,16 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'secrets'); }, 'panel.secrets');
 shot('31_panel_secrets', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'quest'); }, 'panel.quest');
 shot('32_panel_quest', 6);
+/* 法宝三槽（v0.25.0）：武器 / 防具 / 饰品 */
+step(() => {
+  const s = G.game.save;
+  s.items = s.items || {};
+  s.items['eq_qingfeng'] = 1; s.items['eq_bujia'] = 1;
+  s.equip = { weapon: 'eq_qingfeng', armor: 'eq_bujia', accessory: null };
+  s.charTab = 'overview'; s.equipPick = null;
+  G.Overlays.openPanel(G.game.scene, 'char', true);
+}, 'panel.char.equip');
+shot('29_panel_char_equip', 6);
 /* 支线页（内容型支线）：切到「支线」页签并选中第一条 */
 step(() => {
   const sc = G.game.scene;

@@ -160,6 +160,7 @@
           if (data.quest) data.quest.line = data.quest.line || 'free';
           data.askedRealms = data.askedRealms || {};   /* 问道：本世每个境问过一次 */
           data.side = data.side || {};                 /* 支线任务进度 */
+          data.equip = data.equip || { weapon: null, armor: null, accessory: null };
           Object.keys(data.skills || {}).forEach(function (k) {
             if (data.skills[k] && data.skills[k].voided == null) data.skills[k].voided = false;
           });

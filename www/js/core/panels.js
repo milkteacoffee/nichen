@@ -183,6 +183,77 @@
 
   /* 角色面板的子页签（总览 / 灵根 / 属性 / 境界）——排在标题带右侧，
      给右上角的关闭钮留出位置（几何来自 overlays.js，单一真相源）。 */
+  /* ===== 法宝三槽（v0.25.0）=====
+     点格子 → 列出该槽**已拥有**的法宝（`save.items[id] > 0`）→ 选一件穿上；也可卸下。
+     格子与候选都用**真按钮**（label+sub），面板只画标题 —— 见 overlays 的说明。 */
+  function buildEquipSlots(btns, scene) {
+    var EQ = G.Data.equips;
+    if (!EQ) return;
+    var save = G.game.save;
+    var P2 = G.Overlays.CHAR_BODY;
+    var RX2 = P2.x + 206;
+    var RW2 = P2.x + P2.w - 18 - RX2;
+    var EQY = P2.y + P2.h - 72;
+
+    if (scene.equipPick) {
+      /* 换装子视图：该槽可穿的（已拥有）+ 卸下 */
+      var slot = scene.equipPick;
+      var owned = EQ.ofSlot(slot).filter(function (e) {
+        return ((save.items || {})[e.id] || 0) > 0;
+      });
+      var cur = (save.equip || {})[slot];
+      owned.slice(0, 3).forEach(function (e, i) {
+        btns.push(new G.UI.Btn({
+          x: RX2, y: EQY - 4 + i * 22, w: RW2, h: 20, small: true, fs: 10, lalign: true,
+          variant: e.id === cur ? 'gold' : 'default',
+          label: e.n + '　' + e.d,
+          onClick: function () {
+            G.Player.setEquip(save, slot, e.id);
+            scene.equipPick = null;
+            G.game.toast('已佩' + e.n);
+            G.Overlays.openPanel(scene, 'char', true);
+          }
+        }));
+      });
+      if (!owned.length) {
+        G.UI.text(null, { x: 0, y: 0 }, '', 1, '#000');
+      }
+      btns.push(new G.UI.Btn({
+        x: RX2, y: EQY + 68, w: (RW2 - 6) / 2, h: 20, small: true, fs: 10,
+        variant: 'ghost', label: '卸　下',
+        onClick: function () {
+          G.Player.setEquip(save, slot, null);
+          scene.equipPick = null;
+          G.Overlays.openPanel(scene, 'char', true);
+        }
+      }));
+      btns.push(new G.UI.Btn({
+        x: RX2 + (RW2 - 6) / 2 + 6, y: EQY + 68, w: (RW2 - 6) / 2, h: 20,
+        small: true, fs: 10, variant: 'ghost', label: '返　回',
+        onClick: function () {
+          scene.equipPick = null;
+          G.Overlays.openPanel(scene, 'char', true);
+        }
+      }));
+      return;
+    }
+
+    var sw = Math.floor((RW2 - 12) / 3);
+    EQ.SLOTS.forEach(function (sl, i) {
+      var eid = (save.equip || {})[sl];
+      var e = eid ? EQ.byId(eid) : null;
+      btns.push(new G.UI.Btn({
+        x: RX2 + i * (sw + 6), y: EQY, w: sw, h: 38, small: true, fs: 10,
+        variant: e ? 'gold' : 'ghost',
+        label: e ? e.n : '未装备', sub: EQ.SLOT_N[sl],
+        onClick: function () {
+          scene.equipPick = sl;
+          G.Overlays.openPanel(scene, 'char', true);
+        }
+      }));
+    });
+  }
+
   function buildCharTabs(btns, scene, frame, reserve) {
     /* ⚠️ 六个子页签**必须用同一份几何**：原先按"是不是五面板外框"决定要不要留位，
        结果「境界」与「功法」两页的页签起点差 100px —— 玩家在组内切页时页签会跳
@@ -213,7 +284,9 @@
       btns.push(new G.UI.Btn({
         x: B.x, y: B.y, w: B.w, h: B.h, small: true,
         variant: bs.ready ? 'gold' : 'default',
-        label: bs.big ? '突破 · 问心魔劫' : '突破 · ' + (bs.next ? bs.next.n : '已至绝顶'),
+        /* 按钮文案只要「突破」两个字（用户口径）—— 目标境界已经在境界页写着，
+           重复一遍反而让按钮变长、和旁边元素挤。 */
+        label: '突破',
         disabled: !bs.ready,
         /* keepTab=true：突破完留在「境界」子页，别弹回总览 */
         onClick: function () { G.Overlays.doBreak(scene, 'char', true); }
@@ -243,6 +316,10 @@
        角色页用 CHAR_PANEL，功法/秘术页用五面板的 FRAME（它们的外框不同）。 */
     if (G.Overlays.isCharGroup(id)) {
       buildCharTabs(btns, scene, G.Overlays.CHAR_PANEL, G.Overlays.TAB_RESERVE);
+    }
+    /* 法宝三槽只在「总览」子页出现（其余子页没有它的位置） */
+    if (id === 'char' && (scene.charTab || 'overview') === 'overview') {
+      buildEquipSlots(btns, scene);
     }
     /* 底栏高亮：功法/秘术属角色组，高亮落在「角色」上（否则进了这两页底栏一个都不亮） */
     barBtns(scene, G.Overlays.isCharGroup(id) ? 'char' : id).forEach(function (b) { btns.push(b); });

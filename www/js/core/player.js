@@ -640,6 +640,33 @@
       return (sk.src === 'sect') ? '宗门功法，非本门弟子不可用' : '散修功法，宗门弟子不可用';
     },
 
+    /* ===== 法宝三槽（v0.25.0）=====
+       用户口径：「这个人物少了三个法宝格子，武器、防具、饰品」。
+       `save.equip = { weapon, armor, accessory }`；法宝本身存在 `save.items`（>0 即拥有）——
+       **不另立一套背包**，否则"储物页看不到法宝"必然出问题。 */
+    equipFx: function (save) {
+      if (!G.Data.equips) return { a: 0, f: 0, h: 0, s: 0, c: 0, cd: 0, vamp: 0 };
+      return G.Data.equips.sum(save && save.equip);
+    },
+    /* 穿上/脱下：穿上前校验"该槽 + 拥有"；脱下即置空。
+       返回 {ok, reason} —— 调用方只负责提示文案。 */
+    setEquip: function (save, slot, id) {
+      if (!G.Data.equips || G.Data.equips.SLOTS.indexOf(slot) < 0) {
+        return { ok: false, reason: '无此槽位' };
+      }
+      save.equip = save.equip || { weapon: null, armor: null, accessory: null };
+      if (!id) { save.equip[slot] = null; }
+      else {
+        var e = G.Data.equips.byId(id);
+        if (!e) return { ok: false, reason: '无此法宝' };
+        if (e.slot !== slot) return { ok: false, reason: '法宝与槽位不符' };
+        if (!((save.items || {})[id] > 0)) return { ok: false, reason: '尚未拥有' };
+        save.equip[slot] = id;
+      }
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true };
+    },
+
     /* ===== 副本内临时增益（每层三选一，v0.23.0）=====
        只读 `save.dungeonRun.buffs` —— 它**只在本场副本内存在**：
        进副本时新建、出副本/飞升时整个 run 被丢掉，所以不需要额外的清理逻辑。 */
@@ -853,6 +880,10 @@
       var dbfx = this.dungeonBuffFx(save);
       te.a += dbfx.a; te.f += dbfx.f; te.h += dbfx.h; te.s += dbfx.s;
       te.c += dbfx.c; te.cd += dbfx.cd;
+      /* 法宝三槽（v0.25.0）：同一条路并进 te —— 面板/HUD/战斗自动都认到 */
+      var eqfx = this.equipFx(save);
+      te.a += eqfx.a; te.f += eqfx.f; te.h += eqfx.h; te.s += eqfx.s;
+      te.c += eqfx.c; te.cd += eqfx.cd;
       atk *= 1 + te.a; def *= 1 + te.f;
       hp *= 1 + te.h; spd *= 1 + te.s;
       var crit = .05 + te.c;

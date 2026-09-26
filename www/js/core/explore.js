@@ -971,25 +971,30 @@
            只有 `tree` 是"软"的（rock/fence/well/wall 都是硬物，摇了就是穿帮）。
            ⚠️ **相位必须由格子坐标派生** —— 全场同步摆动比不动更假。
            幅度 1.2px：再大就会看到树根离地。 */
+        /* ===== 摇摆（v0.22.0，v0.25.0 改为**绕根部旋转**）=====
+           只有 `tree` 是"软"的（rock/fence/well/wall 都是硬物，摇了就是穿帮）。
+           ⚠️ **必须绕树根旋转，不能整体平移** —— 平移会把树根一起挪走，
+              观感是"树在飘/在滑"（截图反馈："这些树在动，看起来很怪"）。
+              枢轴取**树底中心**，角度 ±0.7°：树冠摆幅约 1.5px，树根不动。
+           ⚠️ 相位由格子坐标派生 —— 全场同步摆动比不动更假。 */
         var sway = 0;
         if (o.t === 'tree') {
           var ph = (o.x * 0.7 + o.y * 0.3) % 6.2832;
-          sway = Math.sin((G.game.time || 0) * 1.6 + ph) * 1.2;
+          sway = Math.sin((G.game.time || 0) * 1.6 + ph) * 0.012;
         }
+        var bx = px + art.ox, by = py + art.oy;
+        var pivX = bx + art.w / 2, pivY = by + art.h;
 
+        x.save();
+        if (sway) { x.translate(pivX, pivY); x.rotate(sway); x.translate(-pivX, -pivY); }
         if ((h1 >> 10) & 1) {
-          var dx = Math.round(px + art.ox + sway), dy = Math.round(py + art.oy);
-          x.save();
-          x.translate(dx + art.w, dy);
+          x.translate(bx + art.w, by);
           x.scale(-1, 1);
           x.drawImage(art.c, 0, 0, art.w, art.h);
-          x.restore();
         } else {
-          x.save();
-          x.translate(Math.round(sway), 0);
-          G.Art.blit(x, art, px, py);
-          x.restore();
+          x.drawImage(art.c, Math.round(bx), Math.round(by), art.w, art.h);
         }
+        x.restore();
       },
 
       /* ===== 环境粒子层（v0.22.0）=====
@@ -1181,7 +1186,11 @@
            ⚠️ 时间源一律用 `G.game.time`（**不是** `performance.now()`）——
               否则截图与契约都钉不住（本项目踩过这个坑）。
            ⚠️ 变换以**脚底**为锚点：绕中心转/缩放会让人物"飘起来"。 */
-        var step = this.moving ? this.mt : 0;
+        /* ⚠️ 相位用 **`_stepN + mt`**，不能用裸 `mt`：
+           `mt` 每走完一格就归零，相位会在格子边界**突然回跳** → 观感是"卡顿"
+           （截图反馈："主角的动画帧不连贯，导致看起来是卡顿的"）。
+           加上已走格数后相位跨格连续；停步时 mt=0 → 相位落在整数 → 浮动自然归零，不会跳。 */
+        var step = this.moving ? ((this._stepN || 0) + this.mt) : 0;
         var bob = 0, tilt = 0, sq = 1;
         if (this.moving) {
           bob = -Math.abs(Math.sin(step * Math.PI)) * 2.2;
@@ -1713,6 +1722,10 @@
         if (code === 'Escape' && hooks.menu) hooks.menu(this);
       }
     };
+    /* 把 hooks 挂到场景上（v0.25.0）：契约要能走"真实交互路径"
+       （例如"与沈伯对话 → 是否授予入门功法"），而不是直接调内部函数。
+       挂在场景对象上是最省事又不改行为的做法。 */
+    scene.hooks = hooks;
     return scene;
   }
 

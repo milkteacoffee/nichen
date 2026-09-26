@@ -374,6 +374,10 @@ step(() => {
   life1Stats.atk = st.atk; life1Stats.def = st.def;
   life1Stats.hp = st.maxhp; life1Stats.spd = st.spd;
   life1Stats.level = save1.globalLevel;
+  /* v0.25.0：入世**不带功法**（功法由任务授予），所以第 2 世此刻的 skills 是空表。
+     这条断言要的是"**同功法**下只比仙躯"，必须把第 1 世的功法一起记下来做对齐。 */
+  life1Stats.skills = JSON.parse(JSON.stringify(save1.skills || {}));
+  life1Stats.equip = JSON.parse(JSON.stringify(save1.equip || {}));
 }, 'life1.stats');
 
 /* ---- 赤牙洞：赤炎狼王（m0-5）→ 首领击杀计数 ---- */
@@ -529,6 +533,10 @@ step(() => {
   const s2 = G.game.save;
   const tmp = JSON.parse(JSON.stringify(s2));
   tmp.globalLevel = life1Stats.level;
+  /* ⚠️ **必须对齐功法与法宝**：v0.25.0 起第 2 世入世不带功法（功法由任务授予），
+     不对齐就变成"有功法 vs 没功法"的比较，差值会是负数（实测气血 -9）。 */
+  tmp.skills = JSON.parse(JSON.stringify(life1Stats.skills || {}));
+  tmp.equip = JSON.parse(JSON.stringify(life1Stats.equip || {}));
   const l2 = G.Player.computeStats(tmp);
   const diffs = [
     ['攻击', l2.atk - life1Stats.atk],

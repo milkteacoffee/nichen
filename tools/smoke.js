@@ -2619,6 +2619,89 @@ step(function () {
   if ((s4.dungeonRun.buffs || []).indexOf(pick) < 0) errors.push('选了增益却没写进 run.buffs');
 }, 'dungeon.buff.contract');
 
+/* ---------- 开局功法来源契约（v0.25.0） ----------
+   用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，
+   不是每次都随机三个功法」。
+   ① 入世**不带功法**（`reincarnation.js` 的 skills 是空表）
+   ② m0-1 复命（打赢首战回药铺）时由沈伯**授予**入门功法，并自动装上一门
+   走真实路径：`town.onNpc(scene, 沈伯)` —— 不直接调内部函数，
+   这样"入口通不通"也一起测了。 */
+step(function () {
+  const rc = fs.readFileSync(path.join(WWW, 'js/scenes/reincarnation.js'), 'utf8');
+  /* 源码闸：入世必须给空表（写成"给三门"会静默回到旧行为） */
+  if (!/var skills = \{\};\s*\n\s*var equip = \[\];/.test(rc)) {
+    errors.push('入世应当**不带功法**（reincarnation.js 的 skills/equip 应为空）');
+  }
+
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.skills = {}; s2.skillEquip = [];
+  s2.linggen = { elems: ['木'] };
+  s2.quest = { step: 'm0-1', flags: { won1: true }, line: 'free' };
+  s2.pos = null;
+  G.game.save = s2;
+  /* 沈伯在**药铺**（town_shop），不在镇上 */
+  G.game.changeScene('town_shop', { toSpawn: true });
+  const sc = G.game.scene;
+  const npc = (sc.map.npcs || []).filter(function (n) { return n.act === 'shenbo'; })[0];
+  if (!npc) { errors.push('青溪镇找不到沈伯（act=shenbo）'); return; }
+  /* ⚠️ 参数顺序是 (npc, scene)，不是 (scene, npc) —— 见 explore.js 的调用点 */
+  if (!sc.hooks || !sc.hooks.onNpc) { errors.push('场景未暴露 hooks.onNpc'); return; }
+  sc.hooks.onNpc(npc, sc);
+  const n = Object.keys(s2.skills || {}).length;
+  if (n < 3) errors.push('m0-1 复命后应授予入门功法（实得 ' + n + ' 门）');
+  if (!(s2.skillEquip || []).length) errors.push('授予功法后应自动装上一门');
+  if (s2.quest.step !== 'm0-2') errors.push('m0-1 复命后任务应推进到 m0-2');
+}, 'skills.origin.contract');
+
+/* ---------- 法宝三槽契约（v0.25.0） ----------
+   用户口径：「这个人物少了三个法宝格子，武器、防具、饰品」。
+   ① 表合法：id 唯一、slot 在三槽内、**效果字段落在 te 的已知集合里**（写错会静默不生效）
+   ② setEquip：槽位不符 / 未拥有 都要拒
+   ③ 穿上**真的进 computeStats**；脱下**回落**
+   ④ 法宝**存在 save.items 里**（"储物页看得到"，不另立一套背包） */
+step(function () {
+  const EQ = G.Data.equips;
+  if (!EQ) { errors.push('G.Data.equips 缺失'); return; }
+  const KNOWN = { a: 1, f: 1, h: 1, s: 1, c: 1, cd: 1, vamp: 1 };
+  const seen = {};
+  EQ.list.forEach(function (e) {
+    if (seen[e.id]) errors.push('法宝 id 重复：' + e.id);
+    seen[e.id] = 1;
+    if (EQ.SLOTS.indexOf(e.slot) < 0) errors.push(`法宝 ${e.id} 的槽位非法：${e.slot}`);
+    if (!e.n || !e.d) errors.push('法宝缺名称或说明：' + e.id);
+    Object.keys(e.fx || {}).forEach(function (k) {
+      if (!KNOWN[k]) errors.push(`法宝 ${e.id} 的效果字段 ${k} 不在 te 的已知集合里（会静默不生效）`);
+    });
+  });
+  EQ.SLOTS.forEach(function (sl) {
+    if (!EQ.ofSlot(sl).length) errors.push('槽位 ' + sl + ' 一件法宝都没有');
+  });
+
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.equip = { weapon: null, armor: null, accessory: null };
+  s2.items = {};
+  const base = G.Player.computeStats(s2);
+  /* 未拥有 → 拒 */
+  if (G.Player.setEquip(s2, 'weapon', 'eq_qingfeng').ok) errors.push('未拥有的法宝不该能穿');
+  s2.items['eq_qingfeng'] = 1;
+  if (G.Player.setEquip(s2, 'weapon', 'eq_qingfeng').ok !== true) errors.push('拥有后应能穿');
+  if (s2.equip.weapon !== 'eq_qingfeng') errors.push('穿上后 equip 未写入');
+  /* 槽位不符 → 拒 */
+  if (G.Player.setEquip(s2, 'armor', 'eq_qingfeng').ok) errors.push('武器不该能穿到防具槽');
+  const eq1 = G.Player.computeStats(s2);
+  if (!(eq1.atk > base.atk)) errors.push('青锋剑没进 computeStats（攻击没涨）');
+  /* 多槽叠加 */
+  s2.items['eq_bujia'] = 1;
+  G.Player.setEquip(s2, 'armor', 'eq_bujia');
+  const eq2 = G.Player.computeStats(s2);
+  if (!(eq2.def > eq1.def)) errors.push('粗布甲没进 computeStats（防御没涨）');
+  /* 脱下 → 回落 */
+  G.Player.setEquip(s2, 'weapon', null);
+  G.Player.setEquip(s2, 'armor', null);
+  const eq3 = G.Player.computeStats(s2);
+  if (eq3.atk !== base.atk || eq3.def !== base.def) errors.push('脱下法宝后加成应回落');
+}, 'equip.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。
@@ -5523,8 +5606,11 @@ step(function () {
     return { id: 'char', tab: tid, R: G.Overlays.CHAR_PANEL };
   })).forEach(function (item) {
     G.Overlays.openPanel(sc, item.id);
-    /* openPanel 从别处切进来时会重置为「总览」，所以要在它**之后**指定子页 */
-    if (item.tab) sc.charTab = item.tab;
+    /* openPanel 从别处切进来时会重置为「总览」，所以要在它**之后**指定子页。
+       ⚠️ 指定完还要**再 openPanel 一次**（keepTab=true）——按钮是按当时的 charTab 建的，
+          只改 charTab 不重建，就会出现"灵根页上浮着总览页的按钮"这种**假阳性**
+          （实测：法宝三槽的按钮跑到灵根页上，契约报"文字压在按钮上"）。 */
+    if (item.tab) { sc.charTab = item.tab; G.Overlays.openPanel(sc, item.id, true); }
     if (sc.overlay !== item.id) { errors.push('openPanel(' + item.id + ') 失败'); return; }
     const cx = textSpyXY();
     const sp = boxSpy();

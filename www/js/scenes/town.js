@@ -573,7 +573,19 @@
     }
     if (q.step === 'm0-1' && q.flags.won1) {
       save.stone += 50; q.step = 'm0-2';
-      G.game.toast('灵石 +50；雪夜可去山神庙');
+      /* ===== 入门功法由**任务授予**（v0.25.0）=====
+         用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得」。
+         入世时 `skills = {}`，第一门功法在**拜入药铺复命**这一刻由沈伯传授 ——
+         这就是散修路线的第一个任务奖励（顺带给玩家一个"任务 → 变强"的因果认知）。
+         ⚠️ 用 `if (!save.skills[id])` 兜底：旧档若已有这几门，不覆盖其等级。 */
+      var firstElem = (save.linggen && save.linggen.elems && save.linggen.elems[0]) || '金';
+      var given = [G.Data.startSkillByElem[firstElem], '铁布衫', '吐纳术'];
+      save.skills = save.skills || {};
+      given.forEach(function (id) {
+        if (id && !save.skills[id]) save.skills[id] = { lv: 1 };
+      });
+      if (!save.skillEquip || !save.skillEquip.length) save.skillEquip = [given[0]];
+      G.game.toast('灵石 +50；沈伯传你三门入门功法');
       scene.clearOverlay();
       return;
     }
