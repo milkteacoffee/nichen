@@ -9,6 +9,12 @@
   /* 左侧任务追踪栏（v0.11.4）。起点在场景铭牌之下（铭牌 y = HUD_H+5、高 19）。 */
   var TR_X = 6, TR_Y = 78, TR_W = 118, TR_TOG_H = 16;
 
+  /* 血夜红雾时长（秒，M1 §6.3）。红雾是"入夜"压暗演出，淡完即切图。
+     ⚠️ 引用它的地方在 _drawBloodVeil 里 —— 这个常量**曾经漏定义**，
+     而 night 默认 0、冒烟从不触发演出，于是它是一颗哑弹（真进剧情才 ReferenceError）。
+     凡"只在剧情里跑"的分支，必须有契约显式驱动一次（见 bloodnight.contract）。 */
+  var NIGHT_T = 1.2;
+
   /* 跨图寻路与地图名的缓存。图与出口在存档生命周期内不变，
      但追踪栏是**每帧**画的 —— 不缓存的话每帧都要跑一次 BFS 与全表扫描。
      enter() 里清一次（换存档 / 首次进生成型区域后要重建）。 */
@@ -62,6 +68,10 @@
            再回 A 图时 flash/flashDir/_pending 原封不动地留着，
            进门第一帧闪白补满、当场莫名其妙进战斗。 */
         this.flash = 0; this.flashDir = 0; this._pending = null;
+        /* 血夜红雾（M1 §6.3）：剩余秒数 + 淡出后的去处（{to, spawn}）。
+           由 town.js 在"入夜"时置位，本场景负责计时与切图 ——
+           这样"镇景压暗 0.5s 再进据点"不需要在 town 侧塞定时器。 */
+        this.night = 0; this._nightGo = null;
         if (params.returned) { this.flash = 1; this.flashDir = -1; this.prot = 3; this.steps = 0; }
         /* 追踪栏的寻路/取名缓存跟着存档走：换世、首次进生成型区域后图会变。
            `trackOpen` 是**玩家偏好**，不在这里重置（否则每次换图都弹回来）。 */
@@ -136,6 +146,17 @@
         if (this.flashDir === -1) {
           this.flash -= dt * 3;
           if (this.flash <= 0) { this.flash = 0; this.flashDir = 0; }
+        }
+        /* 血夜红雾（M1 §6.3）：红雾淡完就切图。期间冻结操作 ——
+           否则玩家能在"入夜"演出的半秒里继续走动，甚至点开面板。 */
+        if (this.night > 0) {
+          this.night -= dt;
+          if (this.night <= 0) {
+            this.night = 0;
+            var go = this._nightGo; this._nightGo = null;
+            if (go) { this._transition(go); return; }
+          }
+          return;
         }
         if (this.mark) { this.mark.t -= dt; if (this.mark.t <= 0) this.mark = null; }
         if (this.hintT < 20) this.hintT += dt;
@@ -231,12 +252,26 @@
 
       _transition: function (e) {
         var save = G.game.save;
+        /* spawn 缺省兜底：`enter` 对 save.pos === null 会退回地图默认出生点。
+           没有这行时，任何"只给 to 不给 spawn"的调用都会在 e.spawn.x 上抛异常 ——
+           而它多半发生在 update 的帧回调里（血夜红雾淡完那一刻），
+           真机上就是**未捕获异常把渲染循环整个打断**，玩家直接卡死。
+           宁可落回默认出生点，也不要让一次切图把游戏打死。 */
+        var spawn = e.spawn || (G.Data.maps[e.to] && G.Data.maps[e.to].spawn) || null;
         save.map = e.to; save.scene = e.to;
-        save.pos = { x: e.spawn.x, y: e.spawn.y };
+        save.pos = spawn ? { x: spawn.x, y: spawn.y } : null;
         G.Storage.saveCurrent(save);
         /* 不要传 toSpawn：那会把出口指定的落点覆盖成地图默认出生点，
            门里门外就会差一格（旧版 town→field→town 就偏了一格）。 */
         G.game.changeScene(e.to);
+      },
+
+      /* 入夜压暗演出（M1 §6.3）：红雾淡完**自动**切到 go 指定的图。
+         给剧情用的公开入口 —— NIGHT_T 保持模块私有，调用方不需要知道时长。
+         期间 update 会整帧 return（冻结操作），否则玩家能在演出的半秒里继续走动。 */
+      startNight: function (go, dur) {
+        this.night = dur || NIGHT_T;
+        this._nightGo = go || null;
       },
 
       /* ===== 遭遇（分区权重见灵根切片 v0.3 §11） =====
@@ -589,6 +624,23 @@
           x.fillRect(0, 0, 480, 272);
         }
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+        /* 血夜红雾画在最上层：它要盖住 HUD 与底栏，读作"整屏被夜色吞掉" */
+        if (this.night > 0) this._drawBloodVeil(x);
+      },
+
+      /* 血夜红雾（M1 §6.3 入据点前的压暗演出）。
+         全矢量 + 时间驱动：红色暗角随时间加深，切图前一刻最浓。
+         刻意不做成"镇景调色板换成夜晚" —— 那要动 _pal() 与三级缓存，
+         而这段演出只活 1.2 秒，用一层叠加就够，且不可能污染别的图。 */
+      _drawBloodVeil: function (x) {
+        var k = 1 - Math.max(0, Math.min(1, this.night / NIGHT_T));   /* 0 → 1 */
+        var a = 0.25 + 0.55 * k;
+        var g = x.createRadialGradient(240, 150, 40, 240, 150, 300);
+        g.addColorStop(0, 'rgba(74,6,12,' + (a * 0.74).toFixed(3) + ')');
+        g.addColorStop(0.6, 'rgba(54,4,9,' + (a * 0.94).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(24,2,5,' + Math.min(1, a * 1.35).toFixed(3) + ')');
+        x.fillStyle = g;
+        x.fillRect(0, 0, 480, 272);
       },
 
       /* ===== 出口传送阵（v0.11.4）=====

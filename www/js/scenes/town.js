@@ -107,6 +107,25 @@
         '“我连夜给你开一炉。”'
       ]
     },
+    m1_5: {
+      title: '青溪镇 · 夜', name: '沈伯', portrait: 'shenbo',
+      lines: [
+        '夜半，镇外火把次第亮起，梆子敲得又急又乱。',
+        '“他们来了 —— 外堂执事，筑基修为。”',
+        '“镇民被围在镇口。他们逼的，是我。”',
+        '“走。去镇外据点，别让火烧进镇里。”'
+      ]
+    },
+    m1_7: {
+      title: '刘记杂货', name: '刘掌柜', portrait: 'keeper',
+      lines: [
+        '“血煞教不会只来一个执事。”',
+        '“你留在青溪镇，只会给镇子招祸。”',
+        '“沿官道往西北八百里，是云州城 ——”',
+        '“坊市、宗门收徒，都在那儿。”'
+      ],
+      reward: '灵石 +200　回城符 ×3'
+    },
     probe1: {
       title: '青溪镇 · 刘记门前', name: '行脚商', portrait: 'cultist',
       lines: [
@@ -165,6 +184,8 @@
 
   /* m1-4 门槛（设计 §4）：炼气六段 = gl 15 */
   var M1_4_GATE = 15;
+  /* m1-5 门槛（设计 §4）：炼气九段圆满 = gl 18 */
+  var M1_5_GATE = 18;
 
   /* 抉择 1：三个选项各自记因果，然后统一推进到 m1-3。
      因果写在 save.karma（本世内有效）与 chronicle（跨世走马灯）。 */
@@ -252,6 +273,8 @@
       /* m1-4：刘掌柜手上有筑基丹的货源（到门槛才挂，免得低境界时给空头指引） */
       if (step === 'm1-4' && !q.flags.foundPill
         && (save.globalLevel || 1) >= M1_4_GATE) return '?';
+      /* m1-7：离乡 —— 与刘掌柜道别（M1 收束） */
+      if (step === 'm1-7') return '!';
       return null;
     }
     if (npc.act !== 'shenbo') return null;
@@ -262,6 +285,7 @@
     if (step === 'm1-3') return '?';                       /* 旧账 */
     if (step === 'm1-4' && !q.flags.foundPill
       && (save.globalLevel || 1) >= M1_4_GATE) return '?';  /* 旧方开炉 */
+    if (step === 'm1-5' && (save.globalLevel || 1) >= M1_5_GATE) return '!';  /* 血夜 */
     return null;
   }
 
@@ -409,6 +433,28 @@
       scene.setOverlay('m1_4', btns);
       return;
     }
+    /* —— m1-5 血夜：入夜演出 → 血煞外堂据点 —— */
+    if (step === 'm1-5') {
+      if ((save.globalLevel || 1) < M1_5_GATE) {
+        G.game.toast('沈伯：血煞教的人快到了 —— 你得先修到炼气九段圆满');
+        return;
+      }
+      /* 演出链：对话 → 点「入夜」→ 镇景压暗（explore.startNight）→ 自动进 bloodhall。
+         红雾的计时与切图由 explore 负责，这里只递一个 {to, spawn}。 */
+      scene.setOverlay('m1_5', [new G.UI.Btn({
+        x: 170, y: 214, w: 140, h: 24, small: true, variant: 'danger', label: '入夜 · 赴据点',
+        onClick: function () {
+          G.Player.chronicle(save, 'bloodNightGo', '血夜，你走向镇外据点');
+          G.Storage.saveCurrent(save);
+          scene.clearOverlay();
+          scene.startNight({
+            to: 'bloodhall',
+            spawn: { x: G.Data.maps.bloodhall.spawn.x, y: G.Data.maps.bloodhall.spawn.y }
+          });
+        }
+      })]);
+      return;
+    }
 
     if (q.step === 'm0-1' && !q.flags.won1) {
       scene.setOverlay('shenbo1', [
@@ -440,12 +486,12 @@
   }
 
   /* 取得筑基丹 → m1-4 收口（设计 §4）。
-     ⚠️ m1-5（血夜）尚未落地，所以这里**不动 q.step**，只用 flag 收口：
-     写 q.step = 'm1-5' 会让 QUEST['m1-5'] 落空，任务面板直接退回"逍遥世间"。
-     m1-5 落地时把 q.flags.foundPill = true 那行后面补上 q.step = 'm1-5'。 */
+     拿到丹就转 m1-5（血夜）：m1-5 的门槛是"炼气九段圆满 + 持筑基丹"，
+     丹是硬前置，所以这里推步不会把玩家卡在一个做不到的目标上。 */
   function finishPill(scene, save, q, line) {
     save.items['筑基丹'] = (save.items['筑基丹'] || 0) + 1;
     q.flags.foundPill = true;
+    q.step = 'm1-5';
     G.Player.chronicle(save, 'foundPill', '得筑基丹');
     G.Storage.saveCurrent(save);
     G.game.toast('得「筑基丹」' + (line ? '　' + line : ''));
@@ -489,6 +535,30 @@
         new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
           label: '看看货', onClick: function () { openMarket(scene); } })
       ]);
+      return;
+    }
+
+    /* m1-7 离乡（M1 收束）：与刘掌柜道别 → 赠盘缠与回城符 → m1done。
+       道别之后**不再开店**：这一趟是告别，不是购物。 */
+    if (step === 'm1-7') {
+      scene.setOverlay('m1_7', [new G.UI.Btn({
+        x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '收下',
+        onClick: function () {
+          save.stone += 200;
+          save.items['回城符'] = (save.items['回城符'] || 0) + 3;
+          q.flags.leaveTown = true;
+          q.step = 'm1done';
+          /* M2 解锁：写进 meta.story（跨世保留），M1 只落一个"已解锁"的戳。 */
+          var meta = G.game.meta || (G.game.meta = {});
+          meta.story = meta.story || {};
+          meta.story.unlocked = meta.story.unlocked || [];
+          if (meta.story.unlocked.indexOf('M2') < 0) meta.story.unlocked.push('M2');
+          G.Player.chronicle(save, 'leaveTown', '辞青溪镇，往云州城去');
+          G.Storage.saveCurrent(save);
+          G.game.toast('灵石 +200　回城符 ×3　M2 · 云州城 已解锁');
+          scene.clearOverlay();
+        }
+      })]);
       return;
     }
 

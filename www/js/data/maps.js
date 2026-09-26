@@ -102,6 +102,32 @@
       exits: [ { x0: 14, x1: 17, y: 25, to: 'field', spawn: { x: 24, y: 4 }, label: '翠微山' } ]
     },
 
+    /* 血煞外堂据点（M1 §5.1）：一次性剧情图。
+       ground = bloodcave（cave 的暗红换色变体，art.js 已接）；safe → 无暗雷；
+       连战节点是 scriptBattle（走到即开战，不占格、不登记交互、但会 mark 防散布压格）；
+       血面在堂中，走"站旁边按交互"的老约定（boss 物件）。
+       抉择 1 = spare 时首战免打（阿七开门）；= kill 时追加一战（血煞教报复加码）。
+       打完由 town 侧按 q.flags.bloodNight 拒绝再进（入口 toast「据点已塌」）。 */
+    bloodhall: {
+      id: 'bloodhall', w: 30, h: 24, ground: 'bloodcave', safe: true,
+      label: '血煞外堂据点',
+      spawn: { x: 14, y: 21 },
+      structures: [], paths: [], fences: [],
+      scatter: { rocks: 14 },
+      special: [
+        { kind: 'scriptBattle', id: 'hallGate', x: 14, y: 18,
+          enemies: [ { sp: '血煞教徒', lv: 17 } ],
+          skipFlag: { key: 'probe', val: 'spare' } },
+        { kind: 'scriptBattle', id: 'hallHall', x: 14, y: 12,
+          enemies: [ { sp: '血煞教徒', lv: 16 }, { sp: '血蝠', lv: 17 } ] },
+        { kind: 'scriptBattle', id: 'hallRevenge', x: 21, y: 9,
+          enemies: [ { sp: '血煞教徒', lv: 17 }, { sp: '血煞教徒', lv: 17 } ],
+          onlyFlag: { key: 'probe', val: 'kill' } },
+        { kind: 'boss', id: 'xuemian', x: 15, y: 5 }
+      ],
+      exits: [ { x0: 13, x1: 16, y: 23, to: 'town', spawn: { x: 15, y: 10 }, label: '青溪镇' } ]
+    },
+
     /* ============================================================
        室内：全部按 30×17 格（正好一屏 480×272），门开在下边墙正中。
        spawn 是进门后的落脚点（门内侧一格），exits 走回门外那一格。

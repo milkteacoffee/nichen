@@ -113,32 +113,56 @@
       }
     });
 
-    /* 特殊物件 */
+    /* 特殊物件。scriptBattle 支持两个**字符串条件**（刻意不用函数：契约才能
+       "把存档拨到那一步再建一次图"验占位，和 npc 的 condStep 同一套思路）：
+         onlyFlag: {key,val} —— 只在 q.flags[key] === val 时出现（抉择 1 = kill 才追加的报复战）
+         skipFlag: {key,val} —— q.flags[key] === val 时跳过（抉择 1 = spare → 阿七开门，首战免打） */
     var chests = {}, boss = null, scriptBattles = {};
-    (md.special || []).forEach(function (sp) {
+    function flagIs(sp, f) {
+      var fl = (save.quest && save.quest.flags) || {};
+      return fl[f.key] === f.val;
+    }
+    /* "站旁边按交互"的物件（宝箱/Boss/入口/界门）都把交互点登记在**正下方一格**，
+       玩家走到那一格的相邻格、面向它按交互（explore: _walkToInteract + _interact）。
+       所以两格都得留出来：
+         · (x, y+1) = 交互句柄本身 —— 它被石头占了，可达性检查会直接判"走不到"；
+         · (x, y+2) = 最自然的站位（正下方），被占了玩家得绕到侧面才能交互。
+       散布是随机的 → 漏掉这里就是**偶发**失败（曾表现为"dao1 界门走不到"）。 */
+    function markApproach(sp) { mark(sp.x, sp.y + 1); mark(sp.x, sp.y + 2); }
+    (md.special || []).filter(function (sp) {
+      if (sp.onlyFlag && !flagIs(sp, sp.onlyFlag)) return false;
+      if (sp.skipFlag && flagIs(sp, sp.skipFlag)) return false;
+      return true;
+    }).forEach(function (sp) {
       if (sp.kind === 'well') { addDecor('well', sp.x, sp.y, true); }
       else if (sp.kind === 'chest') {
-        solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
+        solid[sp.y][sp.x] = true; mark(sp.x, sp.y); markApproach(sp);
         chests[sp.id] = sp;
         setInteract(sp.x, sp.y + 1, { type: 'chest', id: sp.id });
       } else if (sp.kind === 'boss') {
-        solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
+        solid[sp.y][sp.x] = true; mark(sp.x, sp.y); markApproach(sp);
         boss = sp;
-        setInteract(sp.x, sp.y + 1, { type: 'boss' });
+        /* id 必须带上：一张图可能有多个 boss 物件（或场景要按 id 分派不同剧情），
+           不带 id 时场景只能"看到有个 boss"、分不出是谁。 */
+        setInteract(sp.x, sp.y + 1, { type: 'boss', id: sp.id });
       } else if (sp.kind === 'scriptBattle') {
         /* 剧情战斗触发格（M1 §5.1 血煞据点）：与 chest/boss 的"站旁边按交互"不同，
            这里是**走到格子上即开战**（暗关，无暗雷、无宝箱）。
            所以**不设实心、不登记 interact** —— 它必须是一格能走上去的地面。
+           但**必须 mark**：mark 只登记"这格被占了"、不影响可通行，而 scatter 正是
+           靠它避开随机散布 —— 不 mark 的话石头会压在触发格上把它变实心，
+           触发点**静默失效**（玩家走到那格前面就被挡住，永远不会开战）。
            触发在 explore.js: _onEnterTile（和出入口同一处裁决点）。 */
+        mark(sp.x, sp.y);
         scriptBattles[sp.x + ',' + sp.y] = sp;
       } else if (sp.kind === 'entrance') {
         /* 副本入口（秘境裂隙）：占格实心，交互点登记在正下方一格，
            与 chest/boss 同一套"站到旁边才能触发"的走位约定。 */
-        solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
+        solid[sp.y][sp.x] = true; mark(sp.x, sp.y); markApproach(sp);
         setInteract(sp.x, sp.y + 1, { type: 'entrance', id: sp.id, slot: sp.slot, arch: sp.arch });
       } else if (sp.kind === 'worldgate') {
         /* 界门：往返已解锁的界（设计 v1.1 §2.3）。同样占格实心、交互点在正下方一格。 */
-        solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
+        solid[sp.y][sp.x] = true; mark(sp.x, sp.y); markApproach(sp);
         setInteract(sp.x, sp.y + 1, { type: 'worldgate', id: sp.id });
       }
     });

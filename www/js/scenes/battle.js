@@ -137,14 +137,37 @@
       else if (p.script === 'wolfKing') {
         list = [G.Data.makeWolfKing(save.world && save.world.names ? save.world.names.beastKing : null)];
       } else if (p.script === 'heartDemon') {
-        list = [G.Data.makeHeartDemon({
-          level: save.globalLevel, maxhp: st.maxhp,
-          atk: st.atk, def: st.def, spd: st.spd
-        })];
+        /* 问心魔劫按**任务步**分派（M0 的炼气破境 / M1 的筑基破境共用同一条 script）：
+           · 默认 = M0 心魔（makeHeartDemon）
+           · m1-6 = 筑基心魔劫，**强化版** makeHeartDemon2（开局召心魔残影，设计 §5.3）
+           不分派的话，M1 玩家筑基时会被拖回 M0 的心魔面板（弱一档），
+           而且胜利分支里那句硬编码的 step='m0-5' 会把整条 M1 主线打回去。 */
+        var hdQ = save.quest;
+        if (hdQ && hdQ.step === 'm1-6') {
+          list = [G.Data.makeHeartDemon2({
+            level: save.globalLevel, maxhp: st.maxhp,
+            atk: st.atk, def: st.def, spd: st.spd
+          })];
+        } else {
+          list = [G.Data.makeHeartDemon({
+            level: save.globalLevel, maxhp: st.maxhp,
+            atk: st.atk, def: st.def, spd: st.spd
+          })];
+        }
       } else if (p.script === 'probe') {
         /* M1 §4 m1-2：外堂探子撕下伪装。L = 本世 gl+1，上限 17
            （设计明写"上限 17" —— 别让高境界玩家把这场的等级抬到荒谬）。 */
         list = [G.Data.makeEnemy('血煞教徒', Math.min(17, (save.globalLevel || 1) + 1), '血煞教探子')];
+      } else if (p.script === 'xuemian') {
+        /* M1 §4 m1-5：执事「血面」。面板**固定 L19**（设计 §5.3），不随主角成长 ——
+           这是剧情战，靠沈伯燃命 + 主角补刀收场，不是数值对拼。
+           抉择 2 = 护沈伯先走时沈伯已缠斗过一阵 → 血面带伤开局（bossHpPct）。 */
+        var xm = G.Data.makeXuemian();
+        if (p.bossHpPct) {
+          xm.maxhp = Math.max(1, Math.round(xm.maxhp * p.bossHpPct));
+          xm.hp = xm.maxhp;
+        }
+        list = [xm];
       } else if (p.enemies && p.enemies.length) list = p.enemies.slice();
       else list = [p.enemy || G.Data.makeEnemy('青纹蛇', 3, '青纹蛇')];
 
@@ -287,8 +310,11 @@
       }
     },
 
-    /* Boss / 剧情战 / 心魔战禁用逃跑（v0.2 §10） */
+    /* Boss / 剧情战 / 心魔战禁用逃跑（v0.2 §10）。
+       显式 noFlee 优先：M1 据点的连战节点是**普通敌群**（没有 script、也没有 boss 标记），
+       但同样是"剧情战不可逃"—— 靠 script 兜底的话这里会漏。 */
     _noFlee: function () {
+      if (this.params.noFlee) return true;
       if (this.params.script) return true;
       for (var i = 0; i < this.es.length; i++) if (this.es[i].boss) return true;
       return false;
@@ -613,6 +639,17 @@
         var amt = Math.round(boss.maxhp * (ph.pct || .2));
         this._heal(boss.key, amt);
         this._log(boss.name + ' 运转玄功，回复 ' + amt + ' 气血！');
+      } else if (ph.kind === 'ally') {
+        /* 同伴牺牲（M1 §4 m1-5 沈伯燃命）：**不新增战斗单位** —— 沈伯不是可操作单位，
+           他只是"一次重创 + 两句话"。做成 Boss 的阶段（血量过线触发一次），
+           与 summon/enrage/heal 同一套引擎，不引入新的战斗框架。
+           ⚠️ 伤害**必须留 1 血**：设计写的是"重创血面后由主角补刀"，
+           这里若把血面打死，_victory 的结算就绕过了（战斗会卡在没有敌人的状态）。 */
+        var dm = Math.round(boss.maxhp * (ph.pct || .35));
+        this._hurt(boss.key, dm, 1);
+        this.shake = Math.max(this.shake, 1);
+        this._log('“' + (ph.line || '这一把老骨头，总算还有用。') + '”');
+        this._log((ph.name || '同伴') + '引燃残存道基 —— ' + boss.name + ' 被重创！');
       }
     },
 
@@ -998,6 +1035,15 @@
       this._float(key, '+' + amt, '#8fe0a0');
     },
 
+    /* 无来源伤害（剧情演出用，例：沈伯燃命重创血面）。
+       min 是**保命下限** —— 演出不该替玩家补刀，见 _runPhase 的 ally 分支。 */
+    _hurt: function (key, amt, min) {
+      var u = this._unit(key);
+      if (!u) return;
+      u.hp = Math.max(min == null ? 0 : min, u.hp - amt);
+      this._float(key, '-' + amt, '#ff9a7a', true);
+    },
+
     _float: function (key, txt, col, big) {
       var pos = this._pos(key);
       this.floaters.push({
@@ -1045,11 +1091,19 @@
       if (p.script === 'heartDemon') {
         var info = G.Player.winBigBreak(save);
         save.qi += 300;                       /* 突破成功即奖励（经济表 §4 心魔行） */
-        save.quest.step = 'm0-5';
         this.keepHp = true;                   /* 突破已回满气血，勿被战斗残血覆盖 */
         G.Player.chronicle(save, 'heartDemon', '问心破魔，入' + info.n);
-        this._log('心魔溃散！丹田一震，气机贯通——' + info.n + '。');
-        this._log('灵气 +300　下一步：修至炼气三段，再探赤牙洞。');
+        /* 任务步按破境来源分派：M1 筑基 → m1-7 离乡；M0 炼气 → m0-5 赤牙洞。 */
+        if (save.quest.step === 'm1-6') {
+          save.quest.flags.based = true;
+          save.quest.step = 'm1-7';
+          this._log('心魔溃散！道基初成——' + info.n + '。');
+          this._log('灵气 +300　下一步：去刘记与掌柜道别。');
+        } else {
+          save.quest.step = 'm0-5';
+          this._log('心魔溃散！丹田一震，气机贯通——' + info.n + '。');
+          this._log('灵气 +300　下一步：修至炼气三段，再探赤牙洞。');
+        }
         this._finish(true, 'town');
         return;
       }
@@ -1061,6 +1115,26 @@
         save.quest.flags.probeWin = true;
         this._log('探子跌坐在地，指缝间渗出血来。');
         this._finish(true, 'town');
+        return;
+      }
+
+      if (p.script === 'xuemian') {
+        /* M1 §4 m1-5：血夜落幕。沈伯已燃命重创血面（阶段 ally 干的），
+           这里只做"补刀 + 结算"。任务步**不在这里推** —— 遗言演出与转 m1-6
+           交给 bloodhall 场景的 enter（场景单例，用 flag 交接）。 */
+        save.stone += 400; save.qi += 2000;
+        save.items['妖丹'] = (save.items['妖丹'] || 0) + 2;
+        save.bossKilled2 = true;
+        save.bossKills = (save.bossKills || 0) + 1;   /* 仙力结算按次计（v0.4 §4） */
+        var drop2 = G.rng.pick(G.Data.skillDropPoolLing || G.Data.skillDropPool);
+        if (!save.skills[drop2]) save.skills[drop2] = { lv: 1 };
+        save.quest.flags.bloodNight = true;
+        save.quest.flags.elderDead = true;
+        G.Player.chronicle(save, 'bloodNight', '血夜，沈伯殁');
+        if (G.TianDao) G.TianDao.notify('boss');
+        this._log('灵石 +400　灵气 +2000　妖丹 ×2　功法：' + G.Data.skills[drop2].n);
+        this._log('血面跪倒，眼里的红光散了。');
+        this._finish(true, 'bloodhall');
         return;
       }
 

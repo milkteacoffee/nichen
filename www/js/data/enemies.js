@@ -152,7 +152,14 @@
         })),
         Object.assign({ cdLeft: 0 }, sp('血煞封脉', 1.0, { cd: 3, status: { t: '封', chance: .30 } }))
       ],
-      phases: [{ trig: .40, kind: 'enrage', atk: .25, cdCut: [{ match: '血河', cd: 2 }] }],
+      /* 阶段顺序 = 叙事顺序：先沈伯燃命重创（血面跌破 55%），再它凶性大发（跌破 40%）。
+         同一次攻击若把血面从 >55% 直接打到 <40%，两条会在同一 tick 依次触发，
+         顺序仍由数组决定。 */
+      phases: [
+        { trig: .55, kind: 'ally', pct: .35, name: '沈伯',
+          line: '别哭……药还在炉上……好好活。' },
+        { trig: .40, kind: 'enrage', atk: .25, cdCut: [{ match: '血河', cd: 2 }] }
+      ],
       statuses: {}, buffs: {}, side: 'right'
     };
   }

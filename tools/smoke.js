@@ -2356,8 +2356,16 @@ step(function () {
     if (xm[p[0]] !== p[1]) errors.push('血面 ' + p[0] + ' 应为 ' + p[1] + '，实际 ' + xm[p[0]]);
   });
   if (!xm.phases || !xm.phases.length) errors.push('血面 缺 phases（通用阶段引擎读它）');
-  else if (xm.phases[0].kind !== 'enrage' || xm.phases[0].trig !== 0.40) {
-    errors.push('血面 狂暴阶段应为 enrage@0.40，实际 ' + xm.phases[0].kind + '@' + xm.phases[0].trig);
+  else {
+    /* v0.11.5 起两条阶段，且**顺序即叙事顺序**：沈伯燃命（ally@.55）在前、
+       狂暴（enrage@.40）在后。契约按位置钉 —— 顺序被调换要能报出来。 */
+    if (xm.phases[0].kind !== 'ally' || xm.phases[0].trig !== 0.55) {
+      errors.push('血面 阶段①应为 ally@0.55（沈伯燃命），实际 '
+        + xm.phases[0].kind + '@' + xm.phases[0].trig);
+    }
+    if (!xm.phases.some(function (p) { return p.kind === 'enrage' && p.trig === 0.40; })) {
+      errors.push('血面 缺狂暴阶段 enrage@0.40');
+    }
   }
   if (!xm.skills.some(function (s) { return /血河/.test(s.n); })) {
     errors.push('血面 缺「血河咒」（狂暴阶段要压它的 CD）');
@@ -2661,6 +2669,361 @@ step(function () {
   }
   console.log('  ✓ M1 任务链：m1-1 辨丹 → m1-2 探子战+抉择1 → m1-3 赠功法 → m1-4 两途径取丹');
 }, 'm1.quest.contract');
+
+/* ---------- M1 血夜契约（v0.11.5）----------
+   把 m1-5 → m1-7 真走一遍。这条链的难点全在**跨场景交接**：
+   镇（入夜演出）→ 据点（连战/抉择 2/Boss）→ 回据点（遗言）→ 小院（筑基）→ 刘记（离乡），
+   每一步都是"前一个场景写 flag、后一个场景读 flag"，断在哪一环都不报错、只是卡住。
+   所以这里逐环节断言 flag、场景名与产出物，并**显式驱动一次只在剧情里跑的分支**
+   （红雾演出与沈伯燃命阶段在常规冒烟里永远不会被触发 —— 这正是哑弹的温床）。 */
+step(function () {
+  const errors = [];
+  const BAIL = { bail: true };
+  const bail = (msg) => { errors.push(msg); throw BAIL; };
+  const R = () => G.game.save.quest;
+  const sbTown = (G.Data.maps.town_shop.npcs || []).filter((n) => n.act === 'shenbo')[0];
+  const faceAndInteract = (sc, npc) => {
+    const s = G.game.save;
+    let placed = false;
+    [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']].forEach((d) => {
+      if (placed) return;
+      const px = npc.x + d[0], py = npc.y + d[1];
+      if (px < 0 || py < 0 || px >= sc.map.w || py >= sc.map.h) return;
+      if (sc.map.solid[py][px]) return;
+      s.pos = { x: px, y: py }; sc.dir = d[2]; placed = true;
+    });
+    if (!placed) bail('NPC ' + npc.id + ' 四周没有可站位');
+    sc._interact();
+  };
+  const btnByLabel = (sc, re) => sc.buttons.filter((b) => re.test(b.label || ''))[0];
+
+  try {
+
+  /* ========== ① 据点地图形状 ========== */
+  const md = G.Data.maps.bloodhall;
+  if (!md) bail('maps.js 里没有 bloodhall（血煞外堂据点）');
+  if (md.ground !== 'bloodcave') errors.push('bloodhall 地面应为 bloodcave，实为 ' + md.ground);
+  if (md.safe !== true) errors.push('bloodhall 应 safe（设计：无暗雷）');
+  const nodes = (md.special || []).filter((sp) => sp.kind === 'scriptBattle');
+  if (nodes.length < 3) errors.push('bloodhall 的 scriptBattle 节点应 ≥3，实为 ' + nodes.length);
+  const bossSp = (md.special || []).filter((sp) => sp.kind === 'boss')[0];
+  if (!bossSp) bail('bloodhall 没有 boss 物件（血面）');
+  if (bossSp.id !== 'xuemian') errors.push('bloodhall 的 boss 物件 id 应为 xuemian，实为 ' + bossSp.id);
+
+  /* 交互格必须 mark（否则随机散布的石头会压上去 → 物件静默不可交互） */
+  {
+    const s0 = JSON.parse(JSON.stringify(save));
+    s0.quest = { step: 'm1-5', flags: {} };
+    s0.pos = null;
+    G.game.save = s0;
+    G.game.changeScene('bloodhall', { toSpawn: true });
+    const mp = G.game.scene.map;
+    const near = (n) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(
+      (d) => !mp.solid[n.y + d[1]] || !mp.solid[n.y + d[1]][n.x + d[0]]
+        ? !mp.solid[n.y + d[1]] && !!mp.ground[n.y + d[1]]
+        : false);
+    /* boss 的正下方一格必须是可走的交互格，且登记了 boss */
+    if (mp.solid[bossSp.y + 1][bossSp.x]) {
+      errors.push('bloodhall：血面的交互格 (15,' + (bossSp.y + 1) + ') 是实心的 —— 玩家够不到');
+    }
+    const io = mp.interact[bossSp.x + ',' + (bossSp.y + 1)];
+    if (!io || io.type !== 'boss') errors.push('bloodhall：血面下方没登记 boss 交互点');
+    else if (io.id !== 'xuemian') errors.push('bloodhall：boss 交互点没带 id（场景分不出是谁）');
+    /* 每个 scriptBattle 触发格必须是可走的（不设实心），且已登记。
+       ⚠️ 带 onlyFlag 的节点在当前存档下**本来就该缺席** —— 断言要跳过它，
+       否则这条契约会把"条件节点工作正常"误报成"未登记"。 */
+    nodes.forEach((n) => {
+      if (n.onlyFlag || n.skipFlag) return;
+      if (mp.solid[n.y][n.x]) errors.push('bloodhall：触发格 ' + n.id + ' 是实心的 —— 走不上去就永不触发');
+      if (!mp.scriptBattles[n.x + ',' + n.y]) errors.push('bloodhall：触发格 ' + n.id + ' 未登记 scriptBattles');
+    });
+  }
+
+  /* ========== ② m1-5 门槛与入夜演出 ========== */
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'm1-5', flags: { foundPill: true } };
+  s.globalLevel = 17; s.maxGlobalLevel = 17; s.items = { 筑基丹: 1 };
+  s.pos = null;
+  G.game.save = s;
+  G.game.changeScene('town_shop', { toSpawn: true });
+  let sc = G.game.scene;
+  /* 17 级（炼气八段）不够门槛 → 不该开出面板 */
+  faceAndInteract(sc, sbTown);
+  if (sc.overlay) { errors.push('m1-5 门槛失效：17 级就开出了入夜面板'); sc.clearOverlay(); }
+  if (sc.npcMarkOf(sbTown) !== null) errors.push('m1-5：未到门槛时沈伯不该挂 ！');
+
+  /* 18 级（炼气九段圆满）→ 挂 ！并开出面板 */
+  s.globalLevel = 18; s.maxGlobalLevel = 18;
+  G.game.changeScene('town_shop', { toSpawn: true });
+  sc = G.game.scene;
+  if (sc.npcMarkOf(sbTown) !== '!') errors.push('m1-5：到门槛后沈伯应挂 ！，实为 ' + sc.npcMarkOf(sbTown));
+  faceAndInteract(sc, sbTown);
+  if (sc.overlay !== 'm1_5') bail('m1-5：与沈伯对话应开 m1_5，实为 ' + sc.overlay);
+  const goBtn = btnByLabel(sc, /入夜/);
+  if (!goBtn) bail('m1-5：没有「入夜」按钮');
+  goBtn.onClick();
+  if (!(sc.night > 0)) errors.push('m1-5：入夜未置位红雾计时（startNight 没生效）');
+  if (!sc._nightGo || sc._nightGo.to !== 'bloodhall') {
+    errors.push('m1-5：入夜的去向不是 bloodhall，实为 ' + (sc._nightGo && sc._nightGo.to));
+  }
+  /* 红雾期间必须冻结操作（否则玩家能在演出的半秒里继续走动） */
+  {
+    const posBefore = JSON.stringify(s.pos);
+    sc._onEnterTile(sc.map.md.spawn.x, sc.map.md.spawn.y);
+    if (JSON.stringify(s.pos) !== posBefore && s.map !== 'town_shop') {
+      /* 允许 _onEnterTile 内部改 pos（出入口会改），但**不该切图** */
+    }
+    if (G.game.sceneName !== 'town_shop') errors.push('m1-5：红雾期间不该切图');
+  }
+  pump(140, 'm1-5.night');
+  if (G.game.sceneName !== 'bloodhall') {
+    errors.push('m1-5：红雾淡完应自动切到 bloodhall，实为 ' + G.game.sceneName);
+  }
+
+  /* ========== ③ 连战节点：走到即开战 + 打完不重开 ========== */
+  sc = G.game.scene;
+  if (sc.mapId !== 'bloodhall') bail('m1-5：没进到据点场景');
+  const nHall = nodes.filter((n) => n.id === 'hallHall')[0];
+  if (!nHall) bail('bloodhall：没有 hallHall 节点');
+  sc._onEnterTile(nHall.x, nHall.y);
+  if (G.game.sceneName !== 'battle') bail('bloodhall：走到连战节点应开战，实为 ' + G.game.sceneName);
+  const b1 = G.game.scene;
+  if (!b1.params.noFlee) errors.push('bloodhall：连战节点未传 noFlee');
+  if (!b1._noFlee()) errors.push('bloodhall：连战节点的 _noFlee() 应为真（普通敌群没有 boss 标记）');
+  if (b1.es.length !== 2) errors.push('hallHall 应 2 敌（血蝠+教徒），实为 ' + b1.es.length);
+  if ((s.scriptBattlesDone || []).indexOf('bloodhall:hallHall') < 0) {
+    errors.push('bloodhall：节点未登记 scriptBattlesDone（回图会重打）');
+  }
+  /* 回图后再踩同一格：不该重开 */
+  G.game.changeScene('bloodhall', { toSpawn: true });
+  sc = G.game.scene;
+  sc._onEnterTile(nHall.x, nHall.y);
+  if (G.game.sceneName !== 'bloodhall') errors.push('bloodhall：打过的节点不该重开，实为 ' + G.game.sceneName);
+
+  /* ========== ④ 条件节点（抉择 1 的分支） ========== */
+  {
+    const sSpare = JSON.parse(JSON.stringify(s));
+    sSpare.quest = { step: 'm1-5', flags: { probe: 'spare' } };
+    sSpare.pos = null;
+    G.game.save = sSpare;
+    G.game.changeScene('bloodhall', { toSpawn: true });
+    if (G.game.scene.map.scriptBattles['14,18']) {
+      errors.push('bloodhall：probe=spare 时入口战应跳过（阿七开门），实际还在');
+    }
+    const sKill = JSON.parse(JSON.stringify(s));
+    sKill.quest = { step: 'm1-5', flags: { probe: 'kill' } };
+    sKill.pos = null;
+    G.game.save = sKill;
+    G.game.changeScene('bloodhall', { toSpawn: true });
+    if (!G.game.scene.map.scriptBattles['21,9']) {
+      errors.push('bloodhall：probe=kill 时应有报复战（onlyFlag 失效）');
+    }
+    G.game.save = s;
+  }
+
+  /* ========== ⑤ 血面：抉择 2 ========== */
+  const sB = JSON.parse(JSON.stringify(s));
+  sB.quest = { step: 'm1-5', flags: {} };
+  sB.pos = null;
+  G.game.save = sB;
+  G.game.changeScene('bloodhall', { toSpawn: true });
+  sc = G.game.scene;
+  /* 血面：交互句柄在 (x, y+1)，玩家站在它的**相邻格**、面向它按交互
+     （explore: _walkToInteract 走位 + _interact 读 _front）。所以站位是 (x, y+2)。 */
+  sB.pos = { x: bossSp.x, y: bossSp.y + 2 }; sc.dir = 'up';
+  sc._interact();
+  if (sc.overlay !== 'choice2') bail('血面交互应弹抉择 2，实为 ' + sc.overlay);
+  const c2 = sc.buttons.filter((x) => x.label && /死战|先走/.test(x.label));
+  if (c2.length !== 2) bail('抉择 2 应有 2 个选项，实为 ' + c2.length);
+  if (new Set(c2.map((x) => x.y)).size !== 2) errors.push('抉择 2 的两个选项 y 重叠了');
+
+  /* 护沈伯先走：血面带伤开局 + 镇子被焚 */
+  const leave = c2.filter((x) => /先走/.test(x.label))[0];
+  leave.onClick();
+  if (G.game.sceneName !== 'battle') bail('抉择 2 选完应进战斗，实为 ' + G.game.sceneName);
+  const bx = G.game.scene;
+  if (bx.params.script !== 'xuemian') errors.push('血面战 script 应为 xuemian，实为 ' + bx.params.script);
+  if (bx.es[0].name !== '血面') errors.push('血面战敌人应为血面，实为 ' + bx.es[0].name);
+  if (bx.es[0].level !== 19) errors.push('血面应固定 L19，实为 ' + bx.es[0].level);
+  if (!bx.es[0].boss) errors.push('血面应带 boss 标记');
+  if (!(bx.es[0].maxhp < 480)) {
+    errors.push('护沈伯先走时血面应带伤开局（maxhp < 480），实为 ' + bx.es[0].maxhp);
+  }
+  if (!sB.burned) errors.push('护沈伯先走应置 save.burned（镇子被焚）');
+  if (!bx._noFlee()) errors.push('血面战必须禁逃');
+  if (R().flags.choice2 !== 'leave') errors.push('抉择 2 未写 flags.choice2');
+
+  /* ========== ⑥ 沈伯燃命（ally 阶段）：真驱动一次 ========== */
+  {
+    const boss = bx.es[0];
+    /* 压到刚好过 55% 线 → 触发 ally 阶段。
+       ⚠️ `hpBefore` 必须在**压低之后**取 —— 取在压低之前，它就等于满血，
+       "没掉血"（hp 仍 = 0.54·maxhp）也满足 `hp < 满血` → 断言恒真、抓不到 ally 空转。 */
+    boss.hp = Math.round(boss.maxhp * 0.54);
+    const hpBefore = boss.hp;
+    bx._bossPhase(boss);
+    if (!boss._phDone[0]) errors.push('血面的 ally 阶段（沈伯燃命）没被触发');
+    if (!(boss.hp < hpBefore)) errors.push('沈伯燃命应重创血面，血量没降');
+    if (boss.hp <= 0) errors.push('沈伯燃命**不能打死血面**（设计：由主角补刀）');
+  }
+
+  /* ========== ⑦ 血面胜利结算 ========== */
+  {
+    const st0 = sB.stone, qi0 = sB.qi;
+    const beforeSkills = Object.keys(sB.skills).length;
+    bx.p.hp = bx.p.maxhp; bx.es[0].hp = 0;
+    bx._victory();
+    if (!R().flags.bloodNight) errors.push('血面胜利未写 flags.bloodNight');
+    if (!R().flags.elderDead) errors.push('血面胜利未写 flags.elderDead');
+    if (!sB.bossKilled2) errors.push('血面胜利未写 save.bossKilled2');
+    if (sB.stone - st0 !== 400) errors.push('血面掉落灵石应为 400，实为 ' + (sB.stone - st0));
+    if (sB.qi - qi0 !== 2000) errors.push('血面掉落灵气应为 2000，实为 ' + (sB.qi - qi0));
+    if ((sB.items['妖丹'] || 0) !== 2) errors.push('血面应掉妖丹 ×2，实为 ' + (sB.items['妖丹'] || 0));
+    if (Object.keys(sB.skills).length <= beforeSkills) errors.push('血面应掉 1 本灵阶功法');
+    if (!(sB.chronicle || []).some((c) => c.id === 'bloodNight')) errors.push('未记因果「血夜」');
+    /* 胜利**不在这里推任务步**（留给 bloodhall 的 enter） */
+    if (R().step !== 'm1-5') errors.push('血面胜利后任务步不该变，实为 ' + R().step);
+    if (bx.resultTarget !== 'bloodhall') errors.push('血面战应回 bloodhall，实为 ' + bx.resultTarget);
+    pump(80, 'm1-5.afterboss');
+  }
+
+  /* ========== ⑧ 回据点：沈伯遗言 → m1-6 ========== */
+  if (G.game.sceneName !== 'bloodhall') bail('血面战后应回到 bloodhall，实为 ' + G.game.sceneName);
+  sc = G.game.scene;
+  if (sc.overlay !== 'farewell') errors.push('血夜后进据点应摆出沈伯遗言，实为 ' + sc.overlay);
+  if (R().step !== 'm1-6') errors.push('遗言应把任务推到 m1-6，实为 ' + R().step);
+  const eyeBtn = btnByLabel(sc, /合上/);
+  if (!eyeBtn) bail('遗言没有「合上他的眼」按钮');
+  eyeBtn.onClick();
+  if (sc.overlay) errors.push('遗言收尾后应收起覆盖层');
+
+  /* 遗言演出的渲染路径必须不抛（走一遍 render） */
+  step(() => { G.game.changeScene('bloodhall', { toSpawn: true }); }, 'm1-5.render');
+  pump(4, 'm1-5.render');
+
+  /* 血夜已了：血面物件仍在图上（地图不删物件），但**不能再打一次**（会重复发奖）。
+     这条守卫原先没有断点 —— 直接站到血面前按交互，必须不开抉择 2、只给一句提示。 */
+  {
+    const scR = G.game.scene;
+    sB.pos = { x: bossSp.x, y: bossSp.y + 2 }; scR.dir = 'up';
+    G.game.toasts.length = 0;
+    scR._interact();
+    if (scR.overlay) {
+      errors.push('血夜后不该再弹抉择 2（可重复刷血面 → 重复发奖）');
+      scR.clearOverlay();
+    }
+    if (!G.game.toasts.length) errors.push('血夜后点血面应给一句提示（据点已塌）');
+  }
+
+  /* ========== ⑨ m1-6 筑基心魔劫：分派 heartDemon2 + 转 m1-7 ========== */
+  {
+    const s6 = JSON.parse(JSON.stringify(sB));
+    s6.quest = { step: 'm1-6', flags: { bloodNight: true, elderDead: true } };
+    s6.globalLevel = 18; s6.maxGlobalLevel = 18;
+    s6.qi = 999999; s6.items = { 筑基丹: 1 };
+    s6.pos = null;
+    G.game.save = s6;
+    G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town_home' });
+    const b6 = G.game.scene;
+    /* 强化版：开局召心魔残影（phases[0].kind === 'summon'），M0 心魔没有这条 */
+    if (!b6.es[0].phases || b6.es[0].phases[0].kind !== 'summon') {
+      errors.push('m1-6 应走强化版心魔（开局召唤），实际 phases[0]='
+        + (b6.es[0].phases && b6.es[0].phases[0] && b6.es[0].phases[0].kind));
+    }
+    b6.p.hp = b6.p.maxhp; b6.es[0].hp = 0;
+    b6._victory();
+    if (R().step !== 'm1-7') errors.push('m1-6 胜利应转 m1-7，实为 ' + R().step);
+    if (!R().flags.based) errors.push('m1-6 胜利未写 flags.based');
+    if (s6.globalLevel !== 19) errors.push('筑基后境界应为 gl19，实为 ' + s6.globalLevel);
+    pump(80, 'm1-6.after');
+  }
+
+  /* M0 的炼气破境仍必须回到 m0-5（分派不能把老路径带坏） */
+  {
+    const s5 = JSON.parse(JSON.stringify(save));
+    s5.quest = { step: 'm0-4', flags: {} };
+    s5.globalLevel = 9; s5.maxGlobalLevel = 9;
+    s5.qi = 999999; s5.items = { 淬体突破丹: 1 };
+    s5.pos = null;
+    G.game.save = s5;
+    G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town_home' });
+    const b5 = G.game.scene;
+    if (b5.es[0].phases && b5.es[0].phases.length) {
+      errors.push('M0 心魔不该带 phases（那是筑基强化版的东西）');
+    }
+    b5.p.hp = b5.p.maxhp; b5.es[0].hp = 0;
+    b5._victory();
+    if (R().step !== 'm0-5') errors.push('M0 炼气破境后应转 m0-5，实为 ' + R().step);
+    pump(80, 'm0.heart');
+  }
+
+  /* ========== ⑩ m1-7 离乡：刘掌柜道别 → m1done ========== */
+  {
+    const s7 = JSON.parse(JSON.stringify(save));
+    s7.quest = { step: 'm1-7', flags: {} };
+    s7.pos = null;
+    s7.stone = 100; s7.items = {};
+    G.game.save = s7;
+    const mk = (G.Data.maps.town_market.npcs || []).filter((n) => n.act === 'market')[0];
+    G.game.changeScene('town_market', { toSpawn: true });
+    sc = G.game.scene;
+    if (sc.npcMarkOf(mk) !== '!') errors.push('m1-7：刘掌柜应挂 ！，实为 ' + sc.npcMarkOf(mk));
+    faceAndInteract(sc, mk);
+    if (sc.overlay !== 'm1_7') bail('m1-7：与刘掌柜对话应开 m1_7，实为 ' + sc.overlay);
+    const take = btnByLabel(sc, /收下/);
+    if (!take) bail('m1-7：没有「收下」按钮');
+    take.onClick();
+    if (s7.stone !== 300) errors.push('m1-7 应赠灵石 200，实为 +' + (s7.stone - 100));
+    if ((s7.items['回城符'] || 0) !== 3) errors.push('m1-7 应赠回城符 ×3，实为 ' + (s7.items['回城符'] || 0));
+    if (R().step !== 'm1done') errors.push('m1-7 收尾应转 m1done，实为 ' + R().step);
+    if (!R().flags.leaveTown) errors.push('m1-7 未写 flags.leaveTown');
+    const unlocked = ((G.game.meta || {}).story || {}).unlocked || [];
+    if (unlocked.indexOf('M2') < 0) errors.push('m1-7 未解锁 M2（meta.story.unlocked）');
+  }
+
+  /* ========== ⑪ _transition 的 spawn 兜底 ==========
+     血夜红雾的切图是 `_transition({to, spawn})`；只要有人只给 `to`，
+     `e.spawn.x` 就会抛 —— 而它在 update 的帧回调里，真机上是**未捕获异常打断渲染循环**。
+     这里断言"缺 spawn 也不抛、且落回地图默认出生点"。 */
+  {
+    const sT = JSON.parse(JSON.stringify(save));
+    sT.pos = null;
+    G.game.save = sT;
+    G.game.changeScene('town', { toSpawn: true });
+    let threw = null;
+    try { G.game.scene._transition({ to: 'field' }); } catch (e) { threw = e; }
+    if (threw) errors.push('_transition 缺 spawn 时抛异常（真机会打断渲染循环）：' + threw.message);
+    else if (G.game.sceneName !== 'field') {
+      errors.push('_transition 缺 spawn 时应落到 field，实为 ' + G.game.sceneName);
+    } else {
+      const mdF = G.Data.maps.field;
+      if (!sT.pos || sT.pos.x !== mdF.spawn.x || sT.pos.y !== mdF.spawn.y) {
+        errors.push('_transition 缺 spawn 时应落回地图默认出生点，实为 ' + JSON.stringify(sT.pos));
+      }
+    }
+  }
+
+  /* ========== ⑫ 任务面板：14 步链条必须仍整条落在面板内 ========== */
+  {
+    const s3 = JSON.parse(JSON.stringify(save));
+    s3.quest = { step: 'm1-5', flags: {} };
+    s3.pos = null;
+    G.game.save = s3;
+    G.game.changeScene('town', { toSpawn: true });
+    G.Overlays.openPanel(G.game.scene, 'quest');
+    pump(2, 'bloodnight.quest');
+    G.game.scene.clearOverlay();
+  }
+
+  } catch (e) { if (e !== BAIL) throw e; }
+
+  G.game.save = save;
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('M1 血夜契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ M1 血夜：入夜演出 → 据点连战 → 抉择 2 → 沈伯燃命/遗言 → 筑基 → 离乡');
+}, 'm1.bloodnight.contract');
 
 /* ---------- UI 修复契约（v0.11.2）----------
    四项玩家截图反馈：① HUD/底栏不再整段吞掉点地（贴边的副本入口点得到）；

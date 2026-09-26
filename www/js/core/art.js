@@ -2188,6 +2188,12 @@
        只用压暗红的袍子 + 一点血色眼 —— 玩家该觉得"这人不对劲"，但不该一眼看穿。 */
     cultist: { hair: '#231d24', skin: '#d8ac86', robe: '#7a343d', robe2: '#3d171c',
       collar: '#c9a2a6', eye: '#b8483a', brow: '#231d24' },
+    /* 执事·血面（M1 §5.3）：外堂执事，戴半张血面具。
+       与 cultist 同一族但**更重**：袍色更深、面具比兜帽更"露骨"（露半张脸），
+       glow 打开 —— 一眼能看出他是"上面来的人"。 */
+    xuemian: { hair: '#1a1418', skin: '#cfa98a', robe: '#5e2028', robe2: '#2a0d12',
+      collar: '#8e2f38', eye: '#ff4a3a', brow: '#1a1418',
+      hood: '#33141a', mask: '#8e1f28', glow: true },
     aran: { hair: '#2f2a34', skin: '#f2c9a4', robe: '#b06a72', robe2: '#8d4f58',
       collar: '#f0e6d4', eye: '#2b2530', brow: '#2f2a34' },
     villager: { hair: '#3a3440', skin: '#e6b98e', robe: '#8a8a92', robe2: '#66666e',

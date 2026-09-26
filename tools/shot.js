@@ -323,6 +323,62 @@ shot('05g_market_m1', 8);
 /* 上面几帧把 G.game.save 换成了克隆 → 后面所有帧都要回到基准存档 */
 step(() => { G.game.save = save; }, 'm1.restore');
 
+/* 4d) M1 血夜（v0.11.5）：入夜 → 据点 → 抉择 2 → 血面 → 遗言。
+   同样走真实交互路径；血面那帧直接以 script:'xuemian' 起战斗（等同抉择 2 的 onClick 效果）。 */
+step(() => {
+  const s = m1Save('m1-5', { foundPill: true }, (o) => {
+    o.globalLevel = 18; o.maxGlobalLevel = 18; o.items = { 筑基丹: 1 };
+  });
+  G.game.changeScene('town_shop', { toSpawn: true });
+  faceNpc(G.game.scene, (G.Data.maps.town_shop.npcs || []).filter((n) => n.act === 'shenbo')[0], s);
+}, 'm1.night');
+shot('05h_town_night', 8);
+
+/* 血夜红雾（压暗演出，1.2s 后自动切图）。泵 62 帧 ≈ 1.04s → night≈0.16、k≈0.87，
+   即**接近最浓的一刻**（再往后就切图了）。这是只在剧情里出现的渲染路径
+   （常规帧永远不触发），必须实拍一张，否则"哑弹"没人发现。 */
+step(() => {
+  m1Save('m1-5', { foundPill: true });
+  G.game.changeScene('town', { toSpawn: true });
+  G.game.scene.startNight({
+    to: 'bloodhall',
+    spawn: { x: G.Data.maps.bloodhall.spawn.x, y: G.Data.maps.bloodhall.spawn.y }
+  });
+}, 'm1.veil');
+shot('05h2_town_veil', 62);
+
+step(() => {
+  m1Save('m1-5', { foundPill: true }, (o) => {
+    o.globalLevel = 18; o.maxGlobalLevel = 18; o.items = { 筑基丹: 1 };
+  });
+  G.game.changeScene('bloodhall', { toSpawn: true });
+}, 'm1.bloodhall');
+shot('05i_bloodhall', 20);
+
+step(() => {
+  const s = m1Save('m1-5', {});
+  const sc = G.game.scene;
+  const bsp = (G.Data.maps.bloodhall.special || []).filter((sp) => sp.kind === 'boss')[0];
+  s.pos = { x: bsp.x, y: bsp.y + 2 }; sc.dir = 'up';
+  sc._interact();
+}, 'm1.choice2');
+shot('05j_choice2', 8);
+
+step(() => {
+  m1Save('m1-5', {});
+  G.game.changeScene('battle', { script: 'xuemian', mapId: 'bloodhall', after: 'bloodhall' });
+}, 'm1.xuemian');
+shot('05k_xuemian', 30);
+
+step(() => {
+  m1Save('m1-6', { bloodNight: true, elderDead: true }, (o) => { o.globalLevel = 18; });
+  G.game.changeScene('bloodhall', { toSpawn: true });
+}, 'm1.farewell');
+shot('05l_farewell', 8);
+
+/* 上面几帧又把 G.game.save 换成了克隆 → 后面所有帧都要回到基准存档 */
+step(() => { G.game.save = save; }, 'm1.restore2');
+
 /* 5) 战斗：普通遭遇（含功法 / 道具 / 防御 面板） */
 step(() => {
   save.pos = null;

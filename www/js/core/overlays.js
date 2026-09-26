@@ -129,18 +129,28 @@
         x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.45)'; x.stroke();
         G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
       }
-      var ly = box.y + (opt.name ? 25 : 0);
+      /* 台词先全部折行、**再按剩余高度反推行距**。
+         抉择卡的按钮由调用方建（首条落在 y=P.y+150），台词区实际只到那儿为止；
+         台词一多折两行就会压到按钮上（按钮是实心色块，压上去直接读不出字）。
+         所以这里不写死行距：先算行数，再让行距（必要时连字号）缩到装得下为止。 */
+      var fs = 12.5;
+      var rows = [];
       (opt.lines || []).forEach(function (l) {
-        G.UI.wrap(x, l, 12.5, tw).forEach(function (row) {
-          G.UI.text(x, { x: tx, y: ly }, row, 12.5, G.UI.C.text);
-          ly += 20;
-        });
-        ly += 3;
+        G.UI.wrap(x, l, fs, tw).forEach(function (row) { rows.push(row); });
       });
-      /* note 挂在台词之后，但要**让位给底部的选项按钮**（按钮区从 P.y+150 起，
-         3 条竖排 × 24）。台词多折一行时 note 自动上移，不会压到按钮上。 */
+      var btnTop = opt.btnTop || (P.y + 146);
+      var ly = box.y + (opt.name ? 25 : 0);
+      var avail = btnTop - ly - 3;
+      if (rows.length * 20 > avail) fs = 11.5;
+      var lead = Math.min(20, Math.floor(avail / Math.max(1, rows.length)));
+      if (lead < 13) lead = 13;                   /* 下限：再挤就不成行了 */
+      rows.forEach(function (row) {
+        G.UI.text(x, { x: tx, y: ly }, row, fs, G.UI.C.text);
+        ly += lead;
+      });
+      /* note 挂在台词之后，同样让位给底部按钮 */
       if (opt.note) {
-        var ny = Math.min(ly + 6, P.y + 138);
+        var ny = Math.min(ly + 5, btnTop - 14);
         G.UI.text(x, { x: P.x + 14, y: ny }, opt.note, 10.5, G.UI.C.textDim);
       }
       return P;
