@@ -208,6 +208,16 @@ SIZES = {
     #   建筑尺寸从 3×5 到 6×5 都有，拉伸会让门窗比例各不相同。
     #   ⚠️ 建筑名字一律**矢量叠加**（explore.js: _drawPlaque），**不要烘进图里**：
     #      生图里的中文必然是乱码，而且同一张图要复用到不同建筑。
+    # 建筑（v0.33.0 重出：**斜俯视 2.5D** —— 看得见屋顶 + 正面墙 + 门窗 + 基座）。
+    #   取图键 `struct.<bk>`（bk = 建筑类型：house/shop/apothecary/smithy/alchemy/inn/
+    #   temple/hall/tower/gate），没写 bk 才退回 `struct.<kind>`。
+    #   ⚠️ 建筑匾额**一律矢量叠加**（explore.js: _drawPlaque），绝不烘进素材图。
+    'struct.smithy': (256, 192),
+    'struct.alchemy': (256, 192),
+    'struct.inn': (256, 192),
+    'struct.temple': (256, 192),
+    'struct.hall': (256, 192),
+    'struct.tower': (256, 192),
     'struct.house': (256, 192),
     'struct.apothecary': (256, 192),
     'struct.shop': (256, 192),
