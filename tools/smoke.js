@@ -1335,8 +1335,18 @@ step(() => {
   s.globalLevel = 9; s.qi = 3240; s.items = { 淬体突破丹: 1 };
   s.quest = { step: 'm0-4', flags: {} };
   G.game.save = s;
-  const bb = G.Player.startBigBreak(s);
-  if (!bb.ok) { errors.push('心魔战前置失败：' + bb.reason); return; }
+  /* ⚠️ 破境是**概率事件**（(基础+道基+丹) 封顶 95%）→ 单次 5% 失败会让这条契约**偶发假红**，
+     而整条 smoke 会被拖成"三次里挂两次"（实测）。
+     这里**重试**：失败会扣丹并累计 `breakFails`（道基），所以每次重试前补一颗丹。
+     重试 6 次全败的残余概率 ≈ 0.05^6 ≈ 1.6e-8，可以忽略。
+     ⚠️ 不要用"把成功率改成 100%"来规避 —— 那会把这条契约真正要测的**概率分支**测没了。 */
+  let bb = null;
+  for (let i = 0; i < 6; i++) {
+    s.items['淬体突破丹'] = 1;
+    bb = G.Player.startBigBreak(s);
+    if (bb.ok) break;
+  }
+  if (!bb.ok) { errors.push('心魔战前置失败（重试 6 次仍失败）：' + bb.reason); return; }
   G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town' });
 }, 'battle.heartDemon');
 pump(10, 'battle.heartDemon');
@@ -2668,6 +2678,34 @@ step(function () {
   dd.buttons[0].onClick();
   if (dd.view !== 'brief') errors.push('事件选完后应回到 brief（继续前行）');
 }, 'dungeon.event.contract');
+
+/* ---------- 精英词缀契约（v0.36.0，对标《暗黑破坏神》） ----------
+   ① 每个词缀：有 id / 名称 / 说明，且**至少有一项数值修正**、倍率都为正
+   ② 应用后：**名字必须带前缀**（这是玩家唯一的识别线索）、词缀记在敌人身上、数值真的变了
+   ③ 气血不会被算成非正数 */
+step(function () {
+  const D = G.Data.dungeons;
+  if (!D.AFFIX || !D.AFFIX.length) { errors.push('精英词缀表为空'); return; }
+  D.AFFIX.forEach(function (a) {
+    if (!a.id || !a.n || !a.d) errors.push('词缀 ' + a.id + ' 缺名称/说明');
+    const keys = ['atk', 'def', 'spd', 'hp'].filter(function (k) { return a[k]; });
+    if (!keys.length) errors.push('词缀 ' + a.id + ' 没有任何数值修正');
+    keys.forEach(function (k) {
+      if (!(a[k] > 0)) errors.push('词缀 ' + a.id + ' 的 ' + k + ' 倍率非法：' + a[k]);
+    });
+  });
+  const e = G.Data.makeEnemy('赤炎狼', 10, '测试狼');
+  const before = { atk: e.atk, def: e.def, spd: e.spd, maxhp: e.maxhp };
+  D.applyAffix(e, D.AFFIX[0]);
+  if (e.name.indexOf(D.AFFIX[0].n) !== 0) {
+    errors.push('词缀没有拼进敌人名字（玩家读不出这是词缀怪）');
+  }
+  if (e.affix !== D.AFFIX[0].id) errors.push('词缀没有记在敌人身上');
+  if (!['atk', 'def', 'spd', 'maxhp'].some(function (k) { return e[k] !== before[k]; })) {
+    errors.push('词缀没有改变任何数值');
+  }
+  if (!(e.hp > 0 && e.maxhp > 0)) errors.push('词缀把气血算成了非正数');
+}, 'dungeon.affix.contract');
 
 /* ---------- 开局功法来源契约（v0.25.0） ----------
    用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，

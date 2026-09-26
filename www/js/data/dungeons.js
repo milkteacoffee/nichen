@@ -381,11 +381,39 @@
     };
   }
 
-  /* 杂兵单位 */
+  /* ===== 精英词缀（v0.36.0，设计稿 §5.2，对标《暗黑破坏神》）=====
+     杂兵 **15%** 概率带一个词缀 —— **同一只怪因此有了不同打法**：
+     狂暴要速杀、铁壁要破防、迅捷要先手控、凶戾要拉锯。
+     ⚠️ **只改数值、不引入新的战斗机制**：词缀如果带状态/技能，就得同时改
+        battle 的结算与 UI 提示，收益不抵风险。
+     ⚠️ 名字前缀是**玩家唯一的识别线索**，必须显式拼上 ——
+        否则玩家只会觉得"这怪怎么这么硬"，读不出是词缀。 */
+  var AFFIX = [
+    { id: 'fero', n: '狂暴的', d: '攻 +35% / 防 -15%', atk: 1.35, def: 0.85 },
+    { id: 'wall', n: '铁壁的', d: '防 +60% / 速 -15%', def: 1.60, spd: 0.85 },
+    { id: 'swift', n: '迅捷的', d: '速 +40% / 血 -10%', spd: 1.40, hp: 0.90 },
+    { id: 'fierce', n: '凶戾的', d: '攻 +20% / 血 +25%', atk: 1.20, hp: 1.25 }
+  ];
+  function applyAffix(e, a) {
+    if (!a) return e;
+    e.affix = a.id;
+    e.name = a.n + e.name;
+    if (a.atk) e.atk = Math.max(1, Math.round(e.atk * a.atk));
+    if (a.def) e.def = Math.max(0, Math.round(e.def * a.def));
+    if (a.spd) e.spd = Math.max(1, Math.round(e.spd * a.spd));
+    if (a.hp) { e.maxhp = Math.max(1, Math.round(e.maxhp * a.hp)); e.hp = e.maxhp; }
+    return e;
+  }
+
+  /* 杂兵单位（15% 概率带词缀） */
   function makeTrash(arch, gl, nameSuffix) {
     var bases = TRASH[arch.id] || ['杀手'];
     var base = rngPick(bases);
-    return G.Data.makeEnemy(base, gl, nameSuffix || base);
+    var e = G.Data.makeEnemy(base, gl, nameSuffix || base);
+    if (Math.random() < 0.15) {
+      applyAffix(e, AFFIX[Math.floor(Math.random() * AFFIX.length)]);
+    }
+    return e;
   }
 
   /* 召唤物（Boss 阶段 summon） */
@@ -758,6 +786,8 @@
     makeBoss: makeBoss,
     makeSummon: makeSummon,
     makeStage: makeStage,
+    AFFIX: AFFIX,
+    applyAffix: applyAffix,
     stageType: stageType,
     rollSet: rollSet,
     secretById: secretById,
