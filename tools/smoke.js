@@ -2751,6 +2751,72 @@ step(function () {
   if (s3.stone !== 0) errors.push('首次结算发了灵石');
 }, 'sect.stipend.contract');
 
+/* ---------- 自创宗门 + 散修盟悬赏契约（v0.39.0，S5） ----------
+   ① 开宗三条件缺一不可（境界 / 灵石 / 声望）；**已飞升灵界可豁免境界**
+   ② 开宗：扣灵石 / `sectId='own'` / 写 `meta.mySect`（跨世）/ **不占用转阵营机会**
+   ③ 收徒：每人 +2% 且**真的进 computeStats**；有上限
+   ④ 悬赏：宗门弟子不能接 / 刚接单剩余=需求数（**按增量判定**，不是绝对计数）/ 没打够不给领 */
+step(function () {
+  const P = G.Player;
+  const mk = function (o) {
+    const s = JSON.parse(JSON.stringify(save));
+    s.skills = { '缠藤指': { lv: 1 } };
+    s.globalLevel = 1; s.stone = 0; s.sectRep = 0;
+    s.sectId = null; s.cult = 'free'; s.bounty = null; s.wildKills = 0;
+    s.ownSect = null;
+    Object.keys(o || {}).forEach(function (k) { s[k] = o[k]; });
+    return s;
+  };
+  const meta0 = { progress: { worlds: {} } };
+  if (P.canFoundSect(mk({}), meta0).ok) errors.push('条件全不满足时不该能开宗');
+  if (P.canFoundSect(mk({ globalLevel: 54, stone: 50000, sectRep: 0 }), meta0).ok) {
+    errors.push('声望不足时不该能开宗');
+  }
+  if (!P.canFoundSect(mk({ globalLevel: 54, stone: 50000, sectRep: 300 }), meta0).ok) {
+    errors.push('三条件满足时应能开宗');
+  }
+  if (!P.canFoundSect(mk({ stone: 50000, sectRep: 300 }),
+    { progress: { worlds: { ling: true } } }).ok) {
+    errors.push('已飞升灵界时应可豁免境界门槛');
+  }
+
+  const s2 = mk({ globalLevel: 54, stone: 50000, sectRep: 300 });
+  const meta2 = { progress: { worlds: {} } };
+  G.game.save = s2;
+  const r = P.foundSect(s2, meta2, '青云宗', '缠藤指');
+  if (!r.ok) errors.push('开宗失败：' + r.reason);
+  if (s2.sectId !== 'own') errors.push('开宗后 sectId 应为 own');
+  if (s2.stone !== 0) errors.push('开宗应扣 50000 灵石');
+  if (s2.cultSwitchUsed) errors.push('开宗**不该**占用"每世一次"的转阵营机会');
+  if (!meta2.mySect || meta2.mySect.name !== '青云宗') {
+    errors.push('开宗应写 meta.mySect（跨世保留）');
+  }
+
+  s2.stone = 200000;
+  const base = P.computeStats(s2);
+  P.recruitDisciple(s2);
+  const after = P.computeStats(s2);
+  if (!(after.atk > base.atk)) errors.push('弟子没有进 computeStats');
+  for (let i = 0; i < 10; i++) P.recruitDisciple(s2);
+  if (s2.ownSect.disciples > P.DISCIPLE_MAX) errors.push('弟子数超过了上限');
+
+  const s3 = mk({ cult: 'sect', sectId: 'qxj' });
+  if (P.acceptBounty(s3, 0).ok) errors.push('宗门弟子不该能接散修盟悬赏');
+  const s4 = mk({ cult: 'free', wildKills: 100 });
+  if (!P.acceptBounty(s4, 0).ok) errors.push('散修应能接悬赏');
+  if (P.bountyLeft(s4) !== P.BOUNTY[0].need) {
+    errors.push('刚接单时剩余数应等于需求数（否则老档一接单就完成）');
+  }
+  if (P.claimBounty(s4).ok) errors.push('没打够不该能领赏');
+  s4.wildKills += P.BOUNTY[0].need;
+  if (P.bountyLeft(s4) !== 0) errors.push('打够后剩余应为 0');
+  const before2 = s4.stone;
+  const cr = P.claimBounty(s4);
+  if (!cr.ok) errors.push('打够后应能领赏：' + cr.reason);
+  if (s4.stone !== before2 + P.BOUNTY[0].stone) errors.push('领赏灵石数额不对');
+  if (s4.bounty) errors.push('领赏后应清空在身悬赏');
+}, 'sect.found.contract');
+
 /* ---------- 开局功法来源契约（v0.25.0） ----------
    用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，
    不是每次都随机三个功法」。

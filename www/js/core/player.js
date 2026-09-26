@@ -769,6 +769,113 @@
         .concat(got.length ? ['　' + got.join('　')] : []);
     },
 
+    /* ===== 自创宗门（S5，《宗门与散修体系设计 v1.0》§5）=====
+       三条件：境界 ≥ 化神圆满（gl 54）**或**已飞升灵界 / 灵石 ≥ 50000 / 声望 ≥ 300。
+       · 写 `meta.mySect`（**跨世保留**）—— 下一世可"继承本门"免创建费。
+       · 创建后 `cult='sect'`、`sectId='own'`，**不占用**那"每世一次"的转阵营机会
+         （自创是独立事件，与"改换门庭"不是一回事）。
+       · 镇派功法从**自己已习得**的功法里选 —— 把散修功法收编为镇派，
+         这是唯一"跨道"的口子，且要付出创建成本。 */
+    FOUND: { gl: 54, stone: 50000, rep: 300 },
+    canFoundSect: function (save, meta) {
+      if (!save) return { ok: false, reason: '无存档' };
+      if (save.sectId === 'own') return { ok: false, reason: '你已自创宗门' };
+      var have = Object.keys(save.skills || {}).filter(function (id) {
+        return !(save.skills[id] && save.skills[id].voided);
+      });
+      if (!have.length) return { ok: false, reason: '尚无可用功法，无以立派' };
+      var gl = save.globalLevel || 1;
+      var ascended = !!(meta && meta.progress && meta.progress.worlds
+        && meta.progress.worlds.ling);
+      if (gl < this.FOUND.gl && !ascended) {
+        return { ok: false, reason: '境界不足（需化神圆满或已飞升灵界）' };
+      }
+      if ((save.stone || 0) < this.FOUND.stone) {
+        return { ok: false, reason: '灵石不足（需 ' + this.FOUND.stone + '）' };
+      }
+      if ((save.sectRep || 0) < this.FOUND.rep) {
+        return { ok: false, reason: '声望不足（需 ' + this.FOUND.rep + '）' };
+      }
+      return { ok: true, skills: have };
+    },
+    foundSect: function (save, meta, name, skillId) {
+      var chk = this.canFoundSect(save, meta);
+      if (!chk.ok) return chk;
+      if (!skillId || chk.skills.indexOf(skillId) < 0) {
+        return { ok: false, reason: '镇派功法须是你已习得的功法' };
+      }
+      save.stone -= this.FOUND.stone;
+      save.cult = 'sect';
+      save.sectId = 'own';
+      save.ownSect = { name: name || '无名宗', skill: skillId, disciples: 0 };
+      meta.mySect = { name: save.ownSect.name, skill: skillId };
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      if (G.Storage && G.Storage.saveMeta) G.Storage.saveMeta(meta);
+      return { ok: true, name: save.ownSect.name };
+    },
+    /* 收徒（S5）：花灵石招一名弟子，每人 **+2% 全属性**（上限 5 人）。
+       ⚠️ 加成并进 `te`（与法宝/副本增益同一条路）—— 一处生效，面板与战斗都认。 */
+    DISCIPLE_MAX: 5,
+    DISCIPLE_COST: 8000,
+    DISCIPLE_BONUS: 0.02,
+    recruitDisciple: function (save) {
+      if (!save || save.sectId !== 'own' || !save.ownSect) {
+        return { ok: false, reason: '只有自创宗门才可收徒' };
+      }
+      var n = save.ownSect.disciples || 0;
+      if (n >= this.DISCIPLE_MAX) return { ok: false, reason: '弟子已满（' + this.DISCIPLE_MAX + ' 人）' };
+      if ((save.stone || 0) < this.DISCIPLE_COST) {
+        return { ok: false, reason: '灵石不足（需 ' + this.DISCIPLE_COST + '）' };
+      }
+      save.stone -= this.DISCIPLE_COST;
+      save.ownSect.disciples = n + 1;
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true, n: save.ownSect.disciples };
+    },
+    ownSectFx: function (save) {
+      var n = (save && save.ownSect && save.ownSect.disciples) || 0;
+      var v = n * this.DISCIPLE_BONUS;
+      return { a: v, f: v, h: v, s: 0, c: 0, cd: 0, vamp: 0 };
+    },
+
+    /* ===== 散修盟悬赏（S4 的另一半）=====
+       散修侧原先只有"买与刷"，没有任何"接活换钱"的路径（设计稿 §4.2）。
+       悬赏：接一件 → 在野外斩妖 N 只 → 回来领灵石。
+       ⚠️ 用 `wildKills` 的**增量**判定（接单时记基线），不是绝对计数 ——
+          否则老档一接单就直接完成。 */
+    BOUNTY: [
+      { id: 'b1', n: '清剿山兽', need: 8, stone: 400 },
+      { id: 'b2', n: '猎杀凶兽', need: 16, stone: 900 },
+      { id: 'b3', n: '血战群妖', need: 28, stone: 1800 }
+    ],
+    acceptBounty: function (save, idx) {
+      if (!save || save.cult === 'sect') return { ok: false, reason: '宗门弟子不接散修盟的活' };
+      var b = this.BOUNTY[idx];
+      if (!b) return { ok: false, reason: '无此悬赏' };
+      if (save.bounty) return { ok: false, reason: '手上还有一件悬赏未了' };
+      save.bounty = { id: b.id, need: b.need, stone: b.stone, base: save.wildKills || 0 };
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true, b: b };
+    },
+    bountyLeft: function (save) {
+      var b = save && save.bounty;
+      if (!b) return 0;
+      return Math.max(0, b.need - ((save.wildKills || 0) - b.base));
+    },
+    claimBounty: function (save) {
+      var b = save && save.bounty;
+      if (!b) return { ok: false, reason: '没有在身的悬赏' };
+      if (this.bountyLeft(save) > 0) {
+        return { ok: false, reason: '还差 ' + this.bountyLeft(save) + ' 只' };
+      }
+      save.stone = (save.stone || 0) + b.stone;
+      save.sectRep = (save.sectRep || 0) + 30;   /* 散修声望（同一字段） */
+      var got = b.stone;
+      save.bounty = null;
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true, stone: got };
+    },
+
     /* ===== 门派商店（S3，对标《烟雨江湖》）=====
        用**贡献**换丹药/符箓/材料 —— 宗门弟子除了功法还有稳定补给，
        这是"宗门 vs 散修"资源差的落点（散修只能靠买与刷）。
@@ -926,6 +1033,9 @@
       var eqfx = this.equipFx(save);
       te.a += eqfx.a; te.f += eqfx.f; te.h += eqfx.h; te.s += eqfx.s;
       te.c += eqfx.c; te.cd += eqfx.cd;
+      /* 自创宗门的弟子加成（S5）：同一条路并进 te */
+      var osfx = this.ownSectFx(save);
+      te.a += osfx.a; te.f += osfx.f; te.h += osfx.h;
       atk *= 1 + te.a; def *= 1 + te.f;
       hp *= 1 + te.h; spd *= 1 + te.s;
       var crit = .05 + te.c;
