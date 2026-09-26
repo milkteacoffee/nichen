@@ -13,7 +13,11 @@
       endpoint: 'http://localhost:11434/v1',
       model: 'qwen2.5:7b-instruct-q4_K_M',
       apiKey: '',
-      temp: 0.8
+      temp: 0.8,
+      /* 单次请求超时（ms）。真机实测云端中转站首字延迟 4s~60s+ 波动很大，
+         30s 会把本来能答的请求误判成超时。老存档由 _fill 自动补这个键。
+         慢站玩家可以自己调大（改存档 meta.tiandao.timeout），目前不开 UI 入口。 */
+      timeout: 45000
     };
   }
   var PROTO_LABEL = { openai: 'OpenAI', claude: 'Claude', response: '原生' };
@@ -58,6 +62,8 @@
     },
     PROTO_LABEL: PROTO_LABEL,
     PROTO_HINT: PROTO_HINT,
+    /* 默认配置暴露出来：测试要断言"老存档能被补全"，将来加「恢复默认」按钮也用得上。 */
+    defaults: defaults,
 
     /* ============ 感应阶段 ============ */
     STAGES: [
@@ -128,10 +134,22 @@
        三种协议的差别只在"打哪个路径 / 怎么带鉴权 / 请求体长什么样 / 从哪取文本"，
        其余（超时、重试、兜底、过滤）完全共用。 */
 
-    /* 端点拼接：用户既可能填 `https://host/v1`，也可能直接填完整路径，
-       两种都要能用 —— 已经带了这个后缀就不再重复拼。 */
+    /* 端点拼接：用户既可能填 `https://host/v1`，也可能**直接粘控制台给的完整 URL**
+       （很多中转站/控制台给的就是 `.../v1/chat/completions`）。两种都要能用。
+       ⚠️ 光判"已带后缀就不重复拼"不够 —— 真机实测踩到：填完整路径 `…/v1/chat/completions`
+       之后把协议切成 Claude，会拼成 `…/v1/chat/completions/messages`（必现 404）。
+       所以先把末尾**任意一个**已知协议后缀剥掉，再拼目标路径。 */
+    PROTO_SUFFIX: ['/chat/completions', '/messages', '/responses'],
     joinUrl: function (base, path) {
       base = String(base || '').replace(/\/+$/, '');
+      var KN = this.PROTO_SUFFIX;
+      for (var i = 0; i < KN.length; i++) {
+        var k = KN[i];
+        if (base.length > k.length && base.slice(-k.length) === k) {
+          base = base.slice(0, -k.length).replace(/\/+$/, '');
+          break;
+        }
+      }
       if (base.slice(-path.length) === path) return base;
       return base + path;
     },
@@ -231,12 +249,16 @@
       var sys = this.systemPrompt(packet), usr = this.userPrompt(trigger, extra);
       var lastErr = '';
       var attempts = 0;
+      /* 超时：真机实测云端中转站的**首字延迟波动很大**（同一模型 3.8s / 5.0s / 6.5s / 8.5s，
+         也见过 60s+ 不返回）。原先写死 30s 太紧 —— 本来能答的请求会被判"请求超时"、
+         白白退到预置谶语。45s 兼顾"慢站能答"与"玩家不用干等太久"。 */
+      var TIMEOUT = cfg.timeout || 45000;
       function attempt(temp) {
         attempts++;
         cfg.temp = temp;
         var req = self.buildRequest(cfg, sys, usr);
         var ctrl = new AbortController();
-        var timer = setTimeout(function () { ctrl.abort(); }, 30000);
+        var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT);
         fetch(req.url, {
           method: 'POST', headers: req.headers,
           body: JSON.stringify(req.body), signal: ctrl.signal
@@ -253,8 +275,11 @@
           cb(null, line, { ms: Date.now() - t0, src: 'model' });
         }).catch(function (e) {
           clearTimeout(timer);
-          if (!lastErr && e && e.name === 'AbortError') lastErr = '请求超时';
-          if (attempts < 2) { attempt(0.3); return; }
+          var to = !!(e && e.name === 'AbortError');
+          if (!lastErr && to) lastErr = '请求超时';
+          /* 超时**不重试**：站慢的时候重试只会把玩家的等待翻倍，直接兜底更友好；
+             重试只留给 HTTP 错误 / 内容不合规这类"再试一次大概率不同"的失败。 */
+          if (attempts < 2 && !to) { attempt(0.3); return; }
           cb(null, self.fallback(trigger, extra),
             { ms: Date.now() - t0, src: 'template', err: lastErr });
         });

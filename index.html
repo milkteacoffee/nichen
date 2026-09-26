@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>逆尘</title>
+<!--
+  为什么有这么一个"多余"的文件：
+
+  GitHub Pages 有两种部署方式，本仓库目前是**分支部署**（Source = Deploy from a branch，
+  分支 main、目录 /），它把**整个仓库根目录**当站点根 —— 而游戏本体在 www/ 子目录里，
+  于是 https://<user>.github.io/nichen/ 会 404，得手点 www/ 才进得去。
+
+  这个文件就是补那一下跳转，让根路径直接能用。
+  它**不会**进 Actions 部署的产物（那边只上传 www/），所以：
+    · 分支部署模式 → 根路径读到这个跳转页 → 跳到 www/      ✅
+    · Actions 模式  → 根路径直接就是 www/index.html 本体     ✅（本文件不参与）
+  两种模式互不冲突，不用因为换了模式而删它。
+
+  想换成 Actions 模式（路径更干净、且部署前会卡一道冒烟测试）：
+  Settings → Pages → Build and deployment → Source 改成「GitHub Actions」。
+  工作流已经写好在 .github/workflows/pages.yml，改完即生效，这个文件留着也无害。
+-->
+<meta http-equiv="refresh" content="0; url=www/">
+<script>location.replace('www/');</script>
+<style>
+  html,body{margin:0;height:100%;background:#12141f;color:#d8cdb4;
+    font:14px/1.8 "LXGW WenKai","KaiTi","Microsoft YaHei",serif;
+    display:flex;align-items:center;justify-content:center}
+  a{color:#e8c96a}
+</style>
+</head>
+<body>
+<div>正在进入《逆尘》…… 若未自动跳转，请点 <a href="www/">这里</a>。</div>
+</body>
+</html>

@@ -2418,6 +2418,40 @@ step(function () {
   r = TD.buildRequest(mk('openai', 'http://localhost:11434/v1', ''), 'S', 'U');
   if (r.headers['Authorization']) errors.push('密钥留空时不该带 Authorization（本地 Ollama 不需要）');
 
+  /* 真机实测踩到的必现 bug：很多中转站/控制台给的 baseurl 就是**完整路径**
+     （如 https://deepkey.top/v1/chat/completions）。此时若把协议切成 Claude，
+     旧实现会拼成 `…/v1/chat/completions/messages` → 404。
+     正确行为：先剥掉末尾任意已知协议后缀，再拼目标路径。 */
+  const FULLP = 'https://relay.example/v1/chat/completions';
+  const CASES2 = [
+    ['claude', 'https://relay.example/v1/messages'],
+    ['response', 'https://relay.example/v1/responses'],
+    ['openai', FULLP]
+  ];
+  CASES2.forEach(function (c) {
+    const u = TD.buildRequest(mk(c[0], FULLP, 'k'), 'S', 'U').url;
+    if (u !== c[1]) {
+      errors.push('填完整路径后切协议，端点拼错：' + c[0] + ' → ' + u + '（应为 ' + c[1] + '）');
+    }
+    if (u.indexOf('/chat/completions/') >= 0) {
+      errors.push('端点出现了叠加路径（/chat/completions/…）：' + u);
+    }
+  });
+  /* 基址形态也要照旧可用；末尾多余斜杠要吃掉 */
+  if (TD.joinUrl('https://relay.example/v1/', '/responses') !== 'https://relay.example/v1/responses') {
+    errors.push('joinUrl 未吃掉末尾斜杠');
+  }
+
+  /* 超时可配：默认 45s（真机实测中转站首字延迟 4s~60s+ 波动，30s 太紧）；
+     老存档缺这个键要由 _fill 自动补齐，不能是 undefined。 */
+  if (!(TD.defaults().timeout >= 30000)) errors.push('defaults() 缺少合理的 timeout');
+  {
+    const legacy = { mode: 'remote', protocol: 'claude', endpoint: 'https://x/v1', model: 'm' };
+    G.TianDao._fill(legacy);
+    if (typeof legacy.timeout !== 'number') errors.push('老存档 cfg 未补 timeout');
+    if (legacy.protocol !== 'claude') errors.push('_fill 不该覆盖用户已选的协议');
+  }
+
   /* —— 三种响应体取文本 —— */
   const t1 = TD.extractText({ choices: [{ message: { content: 'A' } }] }, 'openai');
   const t2 = TD.extractText({ content: [{ type: 'text', text: 'B' }] }, 'claude');
