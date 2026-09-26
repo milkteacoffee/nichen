@@ -106,6 +106,24 @@
       _padButtons: function () {
         var self = this;
         this.buttons = [];
+        /* 御剑开关（v0.22.0）：**解锁后才出现** —— 低境界玩家不该看到"用不了的按钮"。
+           按钮文案本身兼作状态提示（御剑 / 御剑·飞）。 */
+        var save0 = G.game.save;
+        if (save0 && G.Player.canFly && G.Player.canFly(save0)) {
+          var flyOn = !!save0.fly;
+          this.buttons.push(new G.UI.Btn({
+            x: 346, y: 5, w: 60, h: 20, small: true,
+            variant: flyOn ? 'gold' : 'ghost',
+            label: flyOn ? '御剑·飞' : '御剑',
+            onClick: function () {
+              var sv = G.game.save;
+              sv.fly = !sv.fly;
+              G.Storage.saveCurrent(sv);
+              G.game.toast(sv.fly ? '御剑而行 —— 移速提升，不再遇袭' : '收剑落地');
+              self._padButtons();
+            }
+          }));
+        }
         if (hooks.menu) {
           this.buttons.push(new G.UI.Btn({
             x: 412, y: 5, w: 60, h: 20, small: true, variant: 'ghost', label: '设置',
@@ -184,11 +202,15 @@
         var d = this._heldDir(inp);
 
         if (this.moving) {
-          this.mt += dt / MOVE_T;
+          /* 御剑：移速 ×1/0.55 ≈ 1.8 倍（"飞"的第二个线索） */
+          var mtBase = this._flying() ? MOVE_T * G.Player.FLY_MOVE_COEF : MOVE_T;
+          this.mt += dt / mtBase;
           this.walkT += dt;
           this.frame = 1 + Math.floor(this.walkT / .18) % 2;
           if (this.mt >= 1) {
             this.moving = false;
+            /* 步数：走完一格 +1 —— 走路动效的"左右倾摆"按它换向 */
+            this._stepN = (this._stepN || 0) + 1;
             save.pos = { x: this.to.x, y: this.to.y };
             this._onEnterTile(this.to.x, this.to.y);
           }
@@ -209,8 +231,7 @@
             return;
           }
           /* 边界必须夹：_front 不夹，站在最下一行再往下读 solid[h] 会直接炸 */
-          if (next && next.x >= 0 && next.y >= 0 && next.x < this.map.w && next.y < this.map.h
-              && !this.map.solid[next.y][next.x]) {
+          if (next && !this._blocked(next.x, next.y)) {
             this.moving = true; this.from = save.pos; this.to = next; this.mt = 0;
           }
           this.frame = 0;
@@ -253,6 +274,8 @@
           }
         }
         if (this.map.md.safe) return;
+        /* 御剑飞行时**不触发暗雷** —— 这是"飞"最直观的收益 */
+        if (this._flying()) return;
         this.steps += 1;
         if (this.prot > 0) { this.prot -= 1; return; }
         var zone = this._zone(y);
@@ -630,6 +653,10 @@
         /* 室内：暖色环境光 + 暗角，做出"封闭空间"的收束感 */
         if (this.map.md.indoor) this._drawIndoor(x);
 
+        /* 环境粒子（v0.22.0）：**放在暗幕/室内光之后** ——
+           洞窟里的火星、阴气要在暗幕之上才有"发光"感，放下面会被一起压暗。 */
+        this._drawParticles(x);
+
         this._drawHUD(x);
         this._drawTracker(x);
         this._drawInteractHint(x, camX, camY);
@@ -925,16 +952,72 @@
            预烘好的整数尺寸，否则每帧一次滤波缩放既费帧又糊画面。 */
         var art = G.Art.decorScaled(o.t, this._pal(), v, h1 % 3);
         if (!art) return;
+
+        /* ===== 摇摆（v0.22.0）=====
+           只有 `tree` 是"软"的（rock/fence/well/wall 都是硬物，摇了就是穿帮）。
+           ⚠️ **相位必须由格子坐标派生** —— 全场同步摆动比不动更假。
+           幅度 1.2px：再大就会看到树根离地。 */
+        var sway = 0;
+        if (o.t === 'tree') {
+          var ph = (o.x * 0.7 + o.y * 0.3) % 6.2832;
+          sway = Math.sin((G.game.time || 0) * 1.6 + ph) * 1.2;
+        }
+
         if ((h1 >> 10) & 1) {
-          var dx = Math.round(px + art.ox), dy = Math.round(py + art.oy);
+          var dx = Math.round(px + art.ox + sway), dy = Math.round(py + art.oy);
           x.save();
           x.translate(dx + art.w, dy);
           x.scale(-1, 1);
           x.drawImage(art.c, 0, 0, art.w, art.h);
           x.restore();
         } else {
+          x.save();
+          x.translate(Math.round(sway), 0);
           G.Art.blit(x, art, px, py);
+          x.restore();
         }
+      },
+
+      /* ===== 环境粒子层（v0.22.0）=====
+         用户口径："现在的游戏质感没有动画，还是很像 PPT"。
+         根因是**场景里 90% 的像素在两次刷新之间完全一样** → 感知上就是静止。
+         粒子是**最便宜的一层"永远在动"**：22 个 2px 点，按区域主题换配色。
+         ⚠️ 初位置由 mapId 派生（确定性，同一张图每次都一样）；
+            位置随 `G.game.time` 演进 —— 截图能钉住，且不每帧重算随机。 */
+      _ensureParticles: function () {
+        var kind = this._baseType ? this._baseType() : 'grass';
+        var tex = (this.map && this.map.md && this.map.md.tex) || kind;
+        var key = this.mapId + '|' + tex + '|' + kind;
+        if (this._ptKey === key) return;
+        this._ptKey = key;
+        var col = G.Art.particleColor ? G.Art.particleColor(tex, kind) : null;
+        this._ptCol = col;
+        if (!col) { this._pt = []; return; }
+        var rnd = G.Art.rnd(this.mapId.length * 7919 + this.mapId.charCodeAt(0) * 131);
+        this._pt = [];
+        for (var i = 0; i < 26; i++) {
+          this._pt.push({
+            x: rnd() * 480, y: rnd() * 272,
+            vx: 6 + rnd() * 14, vy: 9 + rnd() * 16,
+            s: 2 + Math.floor(rnd() * 2), ph: rnd() * 6.2832
+          });
+        }
+      },
+      _drawParticles: function (x) {
+        this._ensureParticles();
+        if (!this._pt || !this._pt.length) return;
+        var t = G.game.time || 0;
+        x.save();
+        x.fillStyle = this._ptCol;
+        for (var i = 0; i < this._pt.length; i++) {
+          var p = this._pt[i];
+          var px = (p.x + t * p.vx + Math.sin(t * 1.1 + p.ph) * 9) % 480;
+          var py = (p.y + t * p.vy) % 272;
+          if (px < 0) px += 480;
+          x.globalAlpha = 0.45 + 0.45 * Math.abs(Math.sin(t * 0.9 + p.ph));
+          x.fillRect(px | 0, py | 0, p.s, p.s);
+        }
+        x.restore();
       },
 
       _drawChest: function (x, sp, camX, camY) {
@@ -1035,19 +1118,112 @@
           0, 0, 480, 272);
       },
 
+      /* ===== 御剑飞行（v0.22.0）=====
+         金丹境起可御剑。三条效果叠起来才是"飞"：
+           ① **离地**：角色抬高 6px + 影子变小变淡（2D 俯视里唯一有效的高度线索）
+           ② **速度**：移速 ×1/0.55 ≈ 1.8 倍
+           ③ **通行**：可越过树/石/围栏/水井（低矮物），仍挡边界·建筑·墙·家具
+         另有收益：**飞行时不触发暗雷**。
+         ⚠️ 室内一律禁飞（空间小，飞起来会穿家具）。 */
+      _flying: function () {
+        if (!this.map || !this.map.md || this.map.md.indoor) return false;
+        var save = G.game.save;
+        return !!(save && save.fly && G.Player.canFly && G.Player.canFly(save));
+      },
+      /* 可越过的低矮物：只有这几类。`wall`/`wallrock` 是墙，绝不可越 */
+      _ensureFlyGrid: function () {
+        if (this._flyKey === this.mapId) return;
+        this._flyKey = this.mapId;
+        var w = this.map.w, h = this.map.h, g = [];
+        for (var y = 0; y < h; y++) { g[y] = []; for (var x = 0; x < w; x++) g[y][x] = false; }
+        var SOFT = { tree: 1, rock: 1, fence: 1, well: 1 };
+        (this.map.decor || []).forEach(function (d) {
+          if (SOFT[d.t] && d.x >= 0 && d.y >= 0 && d.x < w && d.y < h) g[d.y][d.x] = true;
+        });
+        this._flyOver = g;
+      },
+      /* 通行判定**唯一入口**：走路与飞行都走它，别在别处再写 `map.solid[...]` */
+      _blocked: function (x, y) {
+        if (x < 0 || y < 0 || x >= this.map.w || y >= this.map.h) return true;
+        if (!this.map.solid[y][x]) return false;
+        if (!this._flying()) return true;
+        this._ensureFlyGrid();
+        return !this._flyOver[y][x];
+      },
+
       _drawPlayer: function (x, camX, camY) {
         var pp = this._px();
         var px = pp.x - camX, py = pp.y - camY;
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
-        /* 落地投影：跟着角色尺寸走，否则大角色会"浮"在影子上 */
+
+        /* ===== 程序化行走 / 待机动效（v0.22.0）=====
+           **为什么这么做**：行走图的三帧 `.0/.1/.2` 登记的是**同一张图**，
+           所以"走路"过去只有 1px 上抬 —— 观感就是**滑行**（用户口径："像 PPT"）。
+           这里用**叠加变换**补出步伐感，**零出图**：
+             · 浮动：一步一起一落（`|sin(π·步内进度)|`）
+             · 倾摆：左右交替 ±2°（按步数奇偶换向 —— 同向摆会像抽搐，不是走路）
+             · 挤压：y 缩放 ±3%（落地压扁、抬脚拉长）
+             · 待机：极缓慢呼吸（周期 ≈4.8s），幅度远小于走路
+           ⚠️ 时间源一律用 `G.game.time`（**不是** `performance.now()`）——
+              否则截图与契约都钉不住（本项目踩过这个坑）。
+           ⚠️ 变换以**脚底**为锚点：绕中心转/缩放会让人物"飘起来"。 */
+        var step = this.moving ? this.mt : 0;
+        var bob = 0, tilt = 0, sq = 1;
+        if (this.moving) {
+          bob = -Math.abs(Math.sin(step * Math.PI)) * 2.2;
+          tilt = Math.sin(step * Math.PI) * (((this._stepN || 0) % 2) ? 0.035 : -0.035);
+          sq = 1 + Math.sin(step * Math.PI * 2) * 0.03;
+        } else {
+          bob = -Math.sin((G.game.time || 0) * 1.3) * 0.6;
+        }
+
+        /* 落地投影：跟着角色尺寸走，否则大角色会"浮"在影子上。
+           走路时影子**随浮动反向缩放/变淡**（人抬高 → 影子变小）——
+           这是 2D 俯视里最有效的"离地"线索（御剑飞行也复用它）。 */
+        /* ===== 御剑飞行（v0.22.0）：抬高 + 剑光 + 影子缩小 =====
+           2D 俯视没法真的表现高度，能用的只有三条线索，全用上：
+             · 抬高 6px   · 影子变小变淡   · 脚下一道剑光（程序化，零出图） */
+        var flying = this._flying();
+        if (flying) bob -= 6;
+
+        var shk = (1 + bob / 8) * (flying ? 0.72 : 1);
         x.save();
-        x.fillStyle = 'rgba(0,0,0,0.30)';
+        x.globalAlpha = Math.max(0.06, (0.30 + bob / 40) * (flying ? 0.7 : 1));
+        x.fillStyle = '#000';
         x.beginPath();
-        x.ellipse(px, py - 1, HW * 0.33, HW * 0.13, 0, 0, 6.2832);
+        x.ellipse(px, py - 1, HW * 0.33 * shk, HW * 0.13 * shk, 0, 0, 6.2832);
         x.fill();
         x.restore();
+
+        if (flying) {
+          /* 剑光：斜置的青白光刃 + 外发光，画在脚下、角色之前 */
+          x.save();
+          x.translate(px, py + 1);
+          x.rotate(-0.42);
+          x.globalAlpha = 0.30; x.fillStyle = 'rgba(120,190,255,0.9)';
+          x.fillRect(-22, -3.5, 44, 7);
+          x.globalAlpha = 0.85; x.fillStyle = 'rgba(196,232,255,0.95)';
+          x.fillRect(-15, -1, 30, 2);
+          x.restore();
+          /* 移动时的上冲气流（两条短线，随步内进度伸缩） */
+          if (this.moving) {
+            var puff = 1 - Math.abs(Math.sin(step * Math.PI));
+            x.save();
+            x.globalAlpha = 0.25 + 0.25 * puff;
+            x.fillStyle = 'rgba(180,220,255,0.8)';
+            x.fillRect(px - 9, py + 4, 3, 6 + 4 * puff);
+            x.fillRect(px + 6, py + 4, 3, 6 + 4 * puff);
+            x.restore();
+          }
+        }
+
         var spr = G.Sprites.heroFrames()[this.dir][this.frame];
-        x.drawImage(spr, Math.round(px - HW / 2), Math.round(py + 3 - HH), HW, HH);
+        x.save();
+        x.translate(px, py + 3);
+        x.rotate(tilt);
+        x.scale(1 / sq, sq);
+        x.drawImage(spr, Math.round(-HW / 2), Math.round(-HH + bob), HW, HH);
+        x.restore();
       },
 
       /* 站桩 NPC：落地投影 + 待机**不抖**（v0.11.2 改）。

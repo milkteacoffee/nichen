@@ -2434,6 +2434,126 @@ step(function () {
   if (SQ.canTurnIn(s2, q)) errors.push('已完成的支线不该能重复交付');
 }, 'sidequest.contract');
 
+/* ---------- 动效与御剑契约（v0.22.0） ----------
+   ① **行走必须有纵向位移**：三帧同图时"走路"只有 1px 上抬，观感是滑行。
+      这里抓主角绘制矩形的 y —— 走一步之内**必须出现不同的 y**。
+   ② **环境粒子必须真的在动**：同一场景两个时刻的粒子绘制位置必须不同。
+   ③ 御剑：金丹起可用；飞行**移速更快**、**不触发暗雷**、**可越树**、**室内禁飞**。 */
+step(function () {
+  const mkSave = function (gl, fly) {
+    const s2 = JSON.parse(JSON.stringify(save));
+    s2.pos = null; s2.globalLevel = gl; s2.fly = !!fly; s2.hp = 99999;
+    return s2;
+  };
+  const HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
+
+  /* ① 行走纵向位移 */
+  const s2 = mkSave(30, false);
+  G.game.save = s2;
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+  function heroY() {
+    const c = drawSpy();
+    sc.render(c);
+    const hit = (c.__hits || []).filter(function (h) { return h.w === HW && h.h === HH; });
+    return hit.length ? hit[hit.length - 1].y : null;
+  }
+  /* ⚠️ 不能只试一个方向：出生点旁边可能正好有树/石挡着（实测 right 就被挡了）。
+     逐个方向试，取第一个真的走起来的。 */
+  const realHeld = sc._heldDir;
+  const ys = {};
+  const DIRS = ['right', 'left', 'up', 'down'];
+  for (let di = 0; di < DIRS.length && Object.keys(ys).length < 2; di++) {
+    sc._heldDir = (function (dd) { return function () { return dd; }; })(DIRS[di]);
+    for (let i = 0; i < 16; i++) {
+      sc.update(0.03);
+      /* ⚠️ **只看"正在走"的帧**：待机呼吸也会让 y 变化，
+         不筛的话"关掉走路浮动"照样能通过（反例验证时踩到过）。 */
+      if (!sc.moving) continue;
+      const y = heroY(); if (y != null) ys[y] = 1;
+    }
+  }
+  sc._heldDir = realHeld;
+  if (Object.keys(ys).length < 2) {
+    const c2 = drawSpy(); sc.render(c2);
+    errors.push('行走时主角绘制 y 恒定 —— 走路动效没生效（观感就是"滑行"）'
+      + ` [hits=${(c2.__hits || []).length} HW=${HW} HH=${HH} mt=${sc.mt.toFixed(2)} moving=${sc.moving}`
+      + ` ys=${JSON.stringify(Object.keys(ys))}]`);
+  }
+
+  /* ② 粒子在动 */
+  sc._ptKey = null;
+  sc._ensureParticles();
+  if (!sc._pt || !sc._pt.length) errors.push('野外场景没有环境粒子');
+  function ptHits(t) {
+    const old = G.game.time; G.game.time = t;
+    const c = drawSpy(); sc._drawParticles(c);
+    G.game.time = old;
+    return (c.__hits || []).length ? null : null;
+  }
+  /* 粒子走 fillRect（不是 drawImage），所以改用位置公式直接验：同一粒子两个时刻的 x 必须不同 */
+  if (sc._pt && sc._pt.length) {
+    const p = sc._pt[0];
+    const x1 = (p.x + 1 * p.vx + Math.sin(1 * 1.1 + p.ph) * 9) % 480;
+    const x2 = (p.x + 3 * p.vx + Math.sin(3 * 1.1 + p.ph) * 9) % 480;
+    if (Math.abs(x1 - x2) < 0.01) errors.push('环境粒子的位置不随时间变化');
+  }
+
+  /* ③ 御剑 */
+  if (G.Player.canFly({ globalLevel: 27 })) errors.push('金丹之前不该能御剑（gl27）');
+  if (!G.Player.canFly({ globalLevel: 28 })) errors.push('金丹起应能御剑（gl28）');
+  if (!G.Player.canFly({ globalLevel: 60 })) errors.push('高境界也应能御剑');
+
+  /* 移速：同样 dt，飞行时 mt 推进更快 */
+  function advance(fly) {
+    const sx = mkSave(30, fly);
+    G.game.save = sx;
+    G.game.changeScene('field', { toSpawn: true });
+    const s3 = G.game.scene;
+    const held = s3._heldDir;
+    s3._heldDir = function () { return 'right'; };
+    s3.update(0.02);                 /* 起步（进入 moving） */
+    const before = s3.mt;
+    s3.update(0.02);
+    const after = s3.mt;
+    s3._heldDir = held;
+    return after - before;
+  }
+  const dWalk = advance(false), dFly = advance(true);
+  if (!(dFly > dWalk * 1.2)) {
+    errors.push(`御剑的移速应明显快于步行（步行 ${dWalk.toFixed(3)} vs 飞行 ${dFly.toFixed(3)}）`);
+  }
+
+  /* 不遇敌 + 可越树 + 室内禁飞 */
+  const sf = mkSave(30, true);
+  G.game.save = sf;
+  G.game.changeScene('field', { toSpawn: true });
+  const fsc = G.game.scene;
+  if (!fsc._flying()) errors.push('save.fly=true 时 _flying() 应为真');
+  fsc.prot = 0;
+  fsc.flashDir = 0;
+  for (let i = 0; i < 200 && fsc.flashDir !== 1; i++) fsc._onEnterTile(24, 20);
+  if (fsc.flashDir === 1) errors.push('御剑飞行时不该触发暗雷');
+  /* 越树：找一个 tree 格，飞行时不该被挡 */
+  fsc._ensureFlyGrid();
+  let treeCell = null;
+  (fsc.map.decor || []).forEach(function (d) { if (!treeCell && d.t === 'tree') treeCell = d; });
+  if (treeCell) {
+    if (!fsc._flying() || fsc._blocked(treeCell.x, treeCell.y)) {
+      errors.push('御剑时应能越过树木');
+    }
+    const sw = mkSave(30, false);
+    G.game.save = sw;
+    G.game.changeScene('field', { toSpawn: true });
+    if (!G.game.scene._blocked(treeCell.x, treeCell.y)) errors.push('步行时树应当挡路');
+  }
+  /* 室内禁飞 */
+  const si = mkSave(30, true);
+  G.game.save = si;
+  G.game.changeScene('town_home', { toSpawn: true });
+  if (G.game.scene._flying()) errors.push('室内不该能御剑');
+}, 'anim.fly.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。

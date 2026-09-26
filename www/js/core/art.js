@@ -921,6 +921,30 @@
 
   /* 取地面大纹理（逻辑 GTS×GTS，内部 K 倍超采样） */
   var GTS_MARK = [];
+  /* 区域粒子配色（v0.22.0）：按**区域主题**决定场景里飘什么。
+     默认按地面类型给；下面这张表是"主题特别鲜明"的区域的覆盖。
+     粒子本身由 explore.js 画（一层永远在动的 2px 点）—— 这是最便宜的"去 PPT 感"。 */
+  A.PARTICLE_BY_KIND = {
+    grass: 'rgba(206,220,168,0.55)',    /* 草屑 / 落叶 */
+    town: 'rgba(226,214,186,0.45)',     /* 浮尘 */
+    cave: 'rgba(190,196,208,0.40)',     /* 尘埃 */
+    bloodcave: 'rgba(190,90,80,0.45)',  /* 血雾 */
+    floor: null                          /* 室内不撒（空间小，会显得脏） */
+  };
+  A.PARTICLE_BY_REGION = {
+    fan9: 'rgba(255,150,60,0.75)',      /* 火云谷：火星 */
+    fan7: 'rgba(170,180,200,0.40)',     /* 乱葬岗：阴气 */
+    ling1: 'rgba(150,200,230,0.55)',    /* 雷泽：雨丝 */
+    xian7: 'rgba(226,240,255,0.80)',    /* 广寒宫：雪 */
+    xian4: 'rgba(180,190,255,0.70)',    /* 星河渡：星屑 */
+    dao3: 'rgba(240,214,140,0.65)',     /* 功德海：金砂 */
+    dao4: 'rgba(150,110,200,0.55)'      /* 混沌渊：道纹光点 */
+  };
+  A.particleColor = function (texKey, kind) {
+    if (texKey && A.PARTICLE_BY_REGION[texKey]) return A.PARTICLE_BY_REGION[texKey];
+    return A.PARTICLE_BY_KIND[kind] || null;
+  };
+
   A.groundTex = function (kind, pal, texKey) {
     /* 取图优先序：**区域专属底图 → 地面类型通用底图 → 程序化**。
        `texKey` 是区域 id（regiongen 写在 `md.tex`）——

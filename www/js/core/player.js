@@ -640,6 +640,25 @@
       return (sk.src === 'sect') ? '宗门功法，非本门弟子不可用' : '散修功法，宗门弟子不可用';
     },
 
+    /* ===== 御剑飞行（v0.22.0）=====
+       金丹境起可御剑（《境界体系 v3.2》的 19 境里第 4 境）。
+       ⚠️ 门槛**从 REALMS 表现算**，不写死 gl 数字 —— 境界表一调，
+          门槛自动跟着走；写死就会在境界调整后静默失准。 */
+    flyRealmName: '金丹',
+    canFly: function (save) {
+      if (!save) return false;
+      var r = this.realmOf(save.globalLevel || 1);
+      /* 按境界序号比较：>= 金丹 的境都算 */
+      var idx = -1, need = -1;
+      for (var i = 0; i < REALMS.length; i++) {
+        if (REALMS[i].n === this.flyRealmName) need = i;
+        if (REALMS[i].n === r.n) idx = i;
+      }
+      return need >= 0 && idx >= need;
+    },
+    /* 飞行时的移速倍率（越小越快） */
+    FLY_MOVE_COEF: 0.55,
+
     /* ===== 宗门：转阵营与贡献（《宗门与散修体系设计 v1.0》S2）=====
        放在 Player 而不是 panels.js —— **战斗也要能调**（入门试炼在 battle 里结算），
        放面板里会让 battle 反向依赖 UI。 */

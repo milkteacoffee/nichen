@@ -3,4 +3,4 @@ window.G = window.G || {};
 /* 游戏内版本号（标题「关于」与关于页显示）。
    ⚠️ **必须与 HANDOVER.md 头部「代码版本」一致** —— 它从 v0.0.2 起就没再同步过，
    一直显示成初始占位（v0.12.0 才发现）。由 smoke 的 `version.contract` 钉住。 */
-G.VERSION = 'v0.21.0';
+G.VERSION = 'v0.22.0';

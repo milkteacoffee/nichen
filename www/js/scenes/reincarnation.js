@@ -253,6 +253,7 @@
         cult: 'free', sectId: null, sectRep: 0, sectRank: 'outer', cultSwitchUsed: false,
         askedRealms: {},
         side: {},                                  /* 支线进度：{ <id>: 1进行/2可交/3完成 } */
+        fly: false,                                /* 御剑飞行开关（金丹境起可用） */
         scene: 'town', map: 'town',
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,
