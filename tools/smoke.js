@@ -2554,6 +2554,71 @@ step(function () {
   if (G.game.scene._flying()) errors.push('室内不该能御剑');
 }, 'anim.fly.contract');
 
+/* ---------- 副本每层三选一契约（v0.23.0） ----------
+   ① 增益表：id 唯一、有名称与说明、**效果字段必须落在 te 的已知集合里**
+      （写错字段名会静默不生效 —— 面板涨了、战斗没涨这类问题最难查）
+   ② roll(3) 不重复
+   ③ 增益**真的进了 computeStats**（四维逐个验，不是只看"表里有没有"）
+   ④ **离开副本即失效**（run 被丢掉 → 面板回落）
+   ⑤ 三选一视图能开、恰 3 个候选、选完写进 run.buffs */
+step(function () {
+  const DB = G.Data.dungeonBuffs;
+  if (!DB) { errors.push('G.Data.dungeonBuffs 缺失'); return; }
+  const KNOWN = { a: 1, f: 1, h: 1, s: 1, c: 1, cd: 1, vamp: 1 };
+  const seen = {};
+  DB.list.forEach(function (b) {
+    if (seen[b.id]) errors.push('副本增益 id 重复：' + b.id);
+    seen[b.id] = 1;
+    if (!b.n || !b.d) errors.push('副本增益缺名称或说明：' + b.id);
+    Object.keys(b.fx || {}).forEach(function (k) {
+      if (!KNOWN[k]) {
+        errors.push(`副本增益 ${b.id} 的效果字段 ${k} 不在 te 的已知集合里（会静默不生效）`);
+      }
+    });
+  });
+  for (let i = 0; i < 30; i++) {
+    const r = DB.roll(3);
+    if (r.length !== 3) errors.push('roll(3) 应返回 3 条');
+    if (new Set(r.map(function (x) { return x.id; })).size !== 3) {
+      errors.push('roll(3) 出现了重复候选');
+    }
+  }
+
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.dungeonRun = { archId: 'B1', stage: 2, buffs: [] };
+  const base = G.Player.computeStats(s2);
+  s2.dungeonRun.buffs = ['atk', 'hp', 'def', 'spd'];
+  const buffed = G.Player.computeStats(s2);
+  if (!(buffed.atk > base.atk)) errors.push('「锐意」没进 computeStats（攻击没涨）');
+  if (!(buffed.maxhp > base.maxhp)) errors.push('「厚土」没进 computeStats（气血没涨）');
+  if (!(buffed.def > base.def)) errors.push('「铁骨」没进 computeStats（防御没涨）');
+  if (!(buffed.spd > base.spd)) errors.push('「疾风」没进 computeStats（速度没涨）');
+
+  const s3 = JSON.parse(JSON.stringify(s2));
+  s3.dungeonRun = null;
+  const after = G.Player.computeStats(s3);
+  if (after.atk !== base.atk) errors.push('离开副本后临时增益应失效（攻击没回落）');
+
+  /* ⑤ 视图与选择 */
+  const s4 = JSON.parse(JSON.stringify(save));
+  /* ⚠️ `dungeonSet` 必须一起给：`dungeon.enter()` 在它为空时会**把 dungeonRun 清成 null**
+     （"旧档/未初始化"的兜底），只设 dungeonRun 会被当场抹掉。 */
+  s4.dungeonSet = ['B1', 'S1', 'S2', 'B2', 'S3'];
+  s4.dungeonSlot = 0;
+  s4.dungeonRun = { archId: 'B1', stage: 3, buffs: [], midBeaten: false, bigBeaten: false };
+  G.game.save = s4;
+  G.game.changeScene('dungeon');
+  const d = G.game.scene;
+  d._offerBuffs(['测试结算']);
+  if (d.view !== 'buff') errors.push('_offerBuffs 未切到 buff 视图');
+  if (!d.buttons || d.buttons.length !== 3) {
+    errors.push('三选一应有 3 个候选按钮，实际 ' + (d.buttons ? d.buttons.length : 0));
+  }
+  const pick = d.buffPick[0].id;
+  d._takeBuff(pick);
+  if ((s4.dungeonRun.buffs || []).indexOf(pick) < 0) errors.push('选了增益却没写进 run.buffs');
+}, 'dungeon.buff.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。

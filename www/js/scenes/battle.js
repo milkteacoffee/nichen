@@ -1188,6 +1188,10 @@
 
         /* 吸血：技能自带 vamp + 玩家「血海神术」全局吸血，按实际气血伤害回复 */
         var vampRate = (skill.vamp || 0) + (aKey === 'P' ? (atk._secretVamp || 0) : 0);
+        /* 副本内临时增益「噬血」（每层三选一）：主角专属 */
+        if (aKey === 'P' && G.Player.dungeonBuffFx) {
+          vampRate += G.Player.dungeonBuffFx(G.game.save).vamp || 0;
+        }
         if (vampRate > 0 && totalHp > 0) {
           var vh = Math.round(totalHp * vampRate);
           if (vh > 0) { self._heal(aKey, vh); self._log(atk.name + ' 汲取气血，回复 ' + vh + '。'); }

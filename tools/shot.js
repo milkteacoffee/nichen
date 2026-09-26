@@ -782,6 +782,19 @@ step(() => {
   });
 }, 'dungeon.entrance');
 shot('27_dungeon_entrance', 6);
+/* 每层三选一（v0.23.0）：Roguelite 的构筑环节 —— 通关一层后从 3 个临时增益里选 1 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  s.worldSeed = 20260926;
+  s.dungeonSet = G.Data.dungeons.rollSet('shot:buff');
+  s.dungeonSlot = 1;
+  s.dungeonRun = { archId: s.dungeonSet[1], stage: 3, buffs: ['atk', 'crit'],
+    midBeaten: false, bigBeaten: false };
+  G.game.changeScene('dungeon');
+  G.scenes.dungeon._offerBuffs(['第 2 关 · 杂兵已清，前路可进']);
+}, 'dungeon.buff');
+shot('28_dungeon_buff', 6);
 
 step(() => {
   G.game.changeScene('hall');

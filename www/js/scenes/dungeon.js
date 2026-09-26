@@ -421,14 +421,67 @@
         var slot = this._slotIndex(run.archId);
         var ascendTo = this._planAscend(slot, run, arch);
         this._pending = { complete: true, slot: slot, ascendTo: ascendTo };
-      } else {
-        run.stage += 1;
-        this._pending = null;
+        this.briefLines = lines;
+        G.Storage.saveCurrent(save);
+        this._buildBriefButtons('通关结算');
+        return;
       }
 
-      this.briefLines = lines;
+      run.stage += 1;
+      this._pending = null;
       G.Storage.saveCurrent(save);
-      this._buildBriefButtons(isFinal ? '通关结算' : '继续前行');
+      /* **每层三选一**（v0.23.0）：结算文案先落进 briefLines，
+         三选一选完再进下一层 —— 让"结算 → 构筑 → 前行"成为固定节奏。 */
+      this._offerBuffs(lines);
+    },
+
+    /* ===== 每层三选一（v0.23.0）=====
+       对标《暖雪》：通关一层 → 从 3 个**临时增益**里选 1 → 进下一层。
+       这是 Roguelite 与线性 RPG 的分水岭：把"打怪升级"变成"构筑"。
+       ⚠️ 增益只写进 `run.buffs`（**只在本场副本内有效**）：
+          进副本时 run 新建、出副本/飞升时 run 被丢掉 —— 不需要额外清理。 */
+    _offerBuffs: function (lines) {
+      var save = G.game.save, run = save.dungeonRun;
+      run.buffs = run.buffs || [];
+      this.view = 'buff';
+      this.buffLines = lines || [];
+      this.buffPick = G.Data.dungeonBuffs.roll(3);
+      var self = this;
+      this.buttons = [];
+      this.buffPick.forEach(function (b, i) {
+        self.buttons.push(new G.UI.Btn({
+          x: 90, y: 118 + i * 44, w: 300, h: 36, small: true,
+          variant: i === 0 ? 'gold' : 'default',
+          label: b.n + '　' + b.d,
+          onClick: function () { self._takeBuff(b.id); }
+        }));
+      });
+      G.Storage.saveCurrent(save);
+    },
+    _takeBuff: function (id) {
+      var save = G.game.save, run = save.dungeonRun;
+      run.buffs = run.buffs || [];
+      run.buffs.push(id);
+      G.Storage.saveCurrent(save);
+      var b = G.Data.dungeonBuffs.byId(id);
+      G.game.toast('得「' + (b ? b.n : id) + '」　本场副本有效');
+      this._enterStage();
+    },
+    _renderBuff: function (x) {
+      var run = G.game.save.dungeonRun || {};
+      G.UI.textOut(x, { x: 240, y: 18 }, '择 一 而 行', 18,
+        '#f0e2b0', 'center', 'rgba(6,8,14,0.7)', 3);
+      G.UI.text(x, { x: 240, y: 44 }, '第 ' + (run.stage || 1) + ' 关前 · 择一加持（本场副本有效）',
+        10.5, '#8f95a6', 'center');
+      var ln = this.buffLines || [];
+      ln.slice(0, 3).forEach(function (t, i) {
+        G.UI.text(x, { x: 240, y: 66 + i * 14 }, t, 10, '#9aa3b6', 'center');
+      });
+      /* 已有增益：让玩家看得到"构筑"在长 */
+      var ids = run.buffs || [];
+      G.UI.text(x, { x: 240, y: 262 },
+        ids.length ? ('已得：' + G.Data.dungeonBuffs.label(ids)) : '尚无增益',
+        9.5, '#6f7788', 'center');
     },
 
     _typeName: function (t) {
@@ -671,6 +724,7 @@
       if (this.view === 'hub') this._renderHub(x);
       else if (this.view === 'daohub') this._renderDaoHub(x);
       else if (this.view === 'entrance') this._renderEntrance(x);
+      else if (this.view === 'buff') this._renderBuff(x);
       else this._renderBrief(x);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);

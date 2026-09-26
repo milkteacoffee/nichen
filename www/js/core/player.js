@@ -640,6 +640,17 @@
       return (sk.src === 'sect') ? '宗门功法，非本门弟子不可用' : '散修功法，宗门弟子不可用';
     },
 
+    /* ===== 副本内临时增益（每层三选一，v0.23.0）=====
+       只读 `save.dungeonRun.buffs` —— 它**只在本场副本内存在**：
+       进副本时新建、出副本/飞升时整个 run 被丢掉，所以不需要额外的清理逻辑。 */
+    dungeonBuffFx: function (save) {
+      var run = save && save.dungeonRun;
+      if (!run || !run.buffs || !run.buffs.length || !G.Data.dungeonBuffs) {
+        return { a: 0, f: 0, h: 0, s: 0, c: 0, cd: 0, vamp: 0 };
+      }
+      return G.Data.dungeonBuffs.sum(run.buffs);
+    },
+
     /* ===== 御剑飞行（v0.22.0）=====
        金丹境起可御剑（《境界体系 v3.2》的 19 境里第 4 境）。
        ⚠️ 门槛**从 REALMS 表现算**，不写死 gl 数字 —— 境界表一调，
@@ -803,6 +814,12 @@
 
       /* 天赋百分比 */
       var te = this.talentEffects(save);
+      /* 副本内临时增益（每层三选一）：**并进 te** —— 一处生效，
+         面板 / HUD / 战斗三处自动都认到。另起一套应用点必然有一处漏
+         （表现是"面板涨了、战斗没涨"，且完全静默）。 */
+      var dbfx = this.dungeonBuffFx(save);
+      te.a += dbfx.a; te.f += dbfx.f; te.h += dbfx.h; te.s += dbfx.s;
+      te.c += dbfx.c; te.cd += dbfx.cd;
       atk *= 1 + te.a; def *= 1 + te.f;
       hp *= 1 + te.h; spd *= 1 + te.s;
       var crit = .05 + te.c;

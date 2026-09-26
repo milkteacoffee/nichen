@@ -179,6 +179,11 @@ function clearDungeon(slot) {
     if (G.game.sceneName === 'dungeon') {
       const sc = G.game.scene;
       if (sc.view === 'brief') { step(() => sc._continue(), 'continue'); pump(8); continue; }
+      /* 每层三选一（v0.23.0）：非终层通关后会先出这个视图。
+         测试必须跟着新流程走 —— 不处理的话循环直接 break，整条链路假死。 */
+      if (sc.view === 'buff') {
+        step(() => sc._takeBuff(sc.buffPick[0].id), 'buff'); pump(8); continue;
+      }
       if (sc.view === 'hub') break;
     }
     break;
