@@ -1,17 +1,13 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-09-26 · 代码版本 **v0.8.0（底栏六功能 + 天道多协议 + 轮回档案）** · 前一里程碑 v0.7.0 commit `07a9c88`
-> 本次增量（详见 §8）：
-> ①**底栏六功能 + 删「菜单」**：角色/功法/秘术/任务/储物/成就从「菜单」二级页拆到**常驻底栏**
->   （新文件 `core/panels.js`），一键直达；「菜单」这一页**整体删除**，顶栏右上角只剩「设置」；
-> ②**天道支持云端多协议**：OpenAI / Claude / 原生 Response 三选一，端点/模型/密钥可配
->   （密钥为密码态输入、界面只回显头尾，只写本机存档）；
-> ③**每一世经历可回溯 + 设备标识**：死亡结算记录来源设备，轮回殿新增「前世经历」视图
->   （倒序分页 / 走马灯 / 非本机记录标红）；
-> ④**主角正面立绘**：新增 `portrait.luchen`（正面全身）+ `avatar.luchen`（正面胸像），
->   角色面板与 HUD 圆头像不再是侧脸背影；
-> ⑤**削减线框感**：面板三层描边收成一层、标题云纹菱形删除、按钮全部去角饰。
-> `www/js` 13.5k → **14.3k 行**，`tools/` 5.6k → **5.8k 行**（新增 4 条契约）。
+> 最后更新：2026-09-26 · 代码版本 **v0.8.1（GitHub Pages 上线 + 天道三协议真机实测）** · 前一里程碑 v0.8.0 commit `dcc52de`
+> 本次增量（详见 §8 顶部）：
+> ①**上线 GitHub Pages**：https://milkteacoffee.github.io/nichen/ —— Actions 部署，
+>   **部署前跑冒烟测试，不过就不发**；
+> ②**天道三协议真机实测：全部打通**（新增常驻工具 `tools/api-probe.js`）；
+>   实测暴露并修掉两个真问题 —— `joinUrl` 会拼出叠加路径（必现 404）、超时 30s 太紧（改 45s）；
+> ③`browser-probe.js` 支持 `PROBE_URL` 探**线上构建**（线上实测：素材 389ms ready / 页面错误：无）。
+> v0.8.0 的完整增量（底栏六功能 / 天道多协议 / 轮回档案 / 正面立绘 / 削减线框感）见 §8 下方小节。
 > **设计基线：GDD v3.3（2026-09-25，全案文档版本统一）** —— 全部文档清单、状态与权威顺序见
 > `doc/《逆尘》设计文档总索引与版本基线 v3.2.md`（文件名保留 v3.2，内容已 v3.3）；单份文档不再单独代表“最新”。
 > 用途：换电脑继续开发时的**唯一入口**。仓库里其它文档的分工见 §2.3。
@@ -28,6 +24,7 @@
 | 代码风格 | ES5 风（`var` + `function`），全局命名空间 `G` |
 | 逻辑分辨率 | **480 × 272**，内部超采样倍率 `S ∈ [3,4]` 按窗口自适应 |
 | 打包 | Capacitor（`capacitor.config.json` 已配好，**但 `android/` 还没 init**） |
+| **线上试玩** | **https://milkteacoffee.github.io/nichen/** （GitHub Pages，Actions 部署，部署前会卡一道冒烟测试；见 §1.5） |
 | 代码量 | `www/js` ≈ 14.3k 行；`tools/` ≈ 5.8k 行（无头测试与审查工具） |
 | 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识**（圣术面板% / 神术战斗被动 / 仙术每场一次主动，数值随品阶），**道界内容（道则回廊三试炼）未开工** |
 | 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** 全过；smoke 共 **14 条契约**（本轮新增 `panels` / `panels.bounds` / `tiandao.protocol` / `device` 四条，均已做反例验证）；浏览器实测难度页/秘境枢纽/战斗/秘术面板通过 |
@@ -100,6 +97,27 @@ node tools/rebirth.js     && echo "③ 轮回 OK"
 三条都过、且**数字与 §3.2 的基线一致**，说明环境完全正常。
 不一致但没报错，先看是不是 Node/Pillow 版本差异（概率低），再 diff 数值。
 
+### 1.5 线上部署（GitHub Pages）
+
+**试玩地址：https://milkteacoffee.github.io/nichen/**
+
+- 部署单元是 **`www/`**，由 `.github/workflows/pages.yml` 用 GitHub Actions 发。
+  push 到 `main` 即自动部署（也可在 Actions 页手动 `workflow_dispatch`）。
+- **部署前会跑一遍 `node tools/smoke.js`，不过就不发** —— 坏代码进不了线上。
+- Pages 的 Source 必须设为 **「GitHub Actions」**（Settings → Pages → Build and deployment）。
+  若哪天被改回「Deploy from a branch」，整仓库根目录会变成站点根，游戏就在 `/www/` 子路径下，
+  根路径靠仓库根的 `index.html` 跳转页兜住（那个文件不参与 Actions 产物，两种模式都能用）。
+- ⚠️ **本文件（`HANDOVER.md`）、`doc/`、`tools/` 都在公开仓库里**。
+  往仓库里写任何东西前先想一遍：**这段内容可以公开吗**？密钥一律走环境变量，绝不入库。
+
+**上线后想确认"部署出去的那份到底能不能跑"**（桩环境测不出素材路径，只认真浏览器）：
+
+```bash
+PROBE_URL=https://milkteacoffee.github.io/nichen/ node tools/browser-probe.js town
+```
+
+它会报「素材层 ready 耗时 / manifest 键数 / 素材命中 / 页面错误」，并落一张真实渲染截图。
+
 ---
 
 ## 2. 目录与文件地图
@@ -109,6 +127,9 @@ nichen/
 ├── HANDOVER.md              ← 你正在看的这份
 ├── package.json             Capacitor 依赖 + serve/cap/apk 三个脚本
 ├── capacitor.config.json    appId com.nichen.game，webDir=www，横屏
+├── index.html               ★ 只为 GitHub Pages「分支部署」模式兜底的跳转页（见 §1.5）
+├── .nojekyll                别让 Jekyll 吃掉下划线开头的文件
+├── .github/workflows/       pages.yml —— Pages 部署（含冒烟卡口）
 ├── www/                     ★ 全部游戏代码（部署单元就是这一整个目录）
 │   ├── index.html           脚本加载顺序表（见 §4.1，动它要同步改测试）
 │   ├── css/style.css        画布居中 + 等比缩放
@@ -185,13 +206,14 @@ nichen/
 
 | 工具 | 行数 | 用途 |
 |---|---|---|
-| `smoke.js` | 2174 | **冒烟测试**：加载全部脚本、走遍所有场景、几十组契约断言（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / **`region.visual.contract` 裂隙与界门真的画出来（差分绘制探针）** / **`dungeon.entrance.contract` 裂隙→入口面板+序列一致** / **`ascend.hall.contract` 飞升台** / **`achieve.contract` 飞升·道界·地狱成就**）。改任何东西后第一件事 |
+| `smoke.js` | 2502 | **冒烟测试**：加载全部脚本、走遍所有场景、**14 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识**）。改任何东西后第一件事 |
 | `playthrough.js` | 392 | **M0 通关模拟**：新档 → m0-1..m0-5 → 赤炎狼王，打印每步数值 |
-| `rebirth.js` | 562 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强" |
-| `dungeon-run.js` | ~240 | **副本全流程无头测试**：凡界5本→飞升灵界→灵界5本→飞升仙界（结构断言 + 真实开局逐关胜） |
-| `secret-test.js` | ~230 | **秘术效果测试**：品阶/圣术面板/神术被动/仙术主动施放断言 |
-| `browser-probe.js` | 677 | **真实浏览器探针**（CDP 驱动本机 Chrome/Edge），唯一能验证素材是否生效的工具 |
-| `shot.js` | 555 | 46 个场景导出 PNG（`@napi-rs/canvas` 真实光栅化；新增区域裂隙 / 界门 / 副本入口面板 / 飞升台 4 帧） |
+| `rebirth.js` | 575 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强" |
+| `dungeon-run.js` | 242 | **副本全流程无头测试**：凡界5本→飞升灵界→灵界5本→飞升仙界（结构断言 + 真实开局逐关胜） |
+| `secret-test.js` | 221 | **秘术效果测试**：品阶/圣术面板/神术被动/仙术主动施放断言 |
+| `browser-probe.js` | 679 | **真实浏览器探针**（CDP 驱动本机 Chrome/Edge），唯一能验证素材是否生效的工具。`PROBE_URL` 可指向**线上构建** |
+| `api-probe.js` | ~150 | **天道三协议真机探测**：用游戏自己的 `buildRequest`/`extractText` 打真实端点（`NICHEN_TEST_KEY` / `NICHEN_TEST_ENDPOINT` / `NICHEN_TEST_MODEL`）。契约只钉形状，端到端只认它 |
+| `shot.js` | 633 | 54 个场景导出 PNG（`@napi-rs/canvas` 真实光栅化） |
 | `zoom.js` | 182 | 单场景局部放大审查（看精灵清晰度） |
 | `portrait-sheet.js` | 126 | 立绘总览 + ASCII 缩略图（图片直读会间歇失败，文本化更可靠） |
 | `sprite-sheet.js` | 105 | 战斗立绘高倍导出 |
@@ -209,9 +231,9 @@ nichen/
 export NODE_PATH=./node_modules      # 只对 node 工具需要
 
 # —— 每次改完代码 ——
-node tools/smoke.js                       # 必须过
+node tools/smoke.js                       # 必须过（含 14 条契约）
 node tools/shot.js 04_hud                 # 只落这一张（其它帧照常推进）
-node tools/shot.js                        # 全部 46 张
+node tools/shot.js                        # 全部 54 张
 node tools/playthrough.js                 # 数值回归
 node tools/rebirth.js                     # 轮回回归
 node tools/bench-frame.js                 # 帧耗回归
@@ -221,6 +243,11 @@ python -m http.server 8173 --directory www &     # 必须常驻！
 node tools/browser-probe.js town                 # 场景见下
 # 场景：town | field | cave | town_home | town_shop | town_market |
 #       field_temple | battle | charpanel | perf | ablate | ground
+# 想探**线上构建**（GitHub Pages）：加 PROBE_URL
+PROBE_URL=https://milkteacoffee.github.io/nichen/ node tools/browser-probe.js town
+
+# —— 天道模型接入（要真实密钥，只从环境变量读，绝不入库）——
+NICHEN_TEST_KEY=sk-xxx NICHEN_TEST_ENDPOINT=https://host/v1 node tools/api-probe.js
 
 # —— 素材 ——
 python tools/assets-build.py --check      # 校验 manifest 与文件是否对得上
@@ -478,7 +505,7 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 | **道界内容（道则回廊三试炼）** | **未开工**（缺口 U4）：`dungeon.js` 对 `dao` 只显示“尚未开放”，`SLOT_GL` 无 `dao`；飞升台里道界行也标「未开放」、不可选为入世主界 |
 | 区域美术换皮（U7） | 28 区共用同一套程序化外观（主题地面/建筑外观未分化） |
 | 野怪收益曲线验算（U5） | 各区 `zones` 已按 gl 分段，但未做过“某区刷 N 场能否支撑到下一段破境”的数值验算 |
-| **天道模型接入的真机实测** | **未做**：三协议（OpenAI/Claude/原生 Response）的请求形状已由 `tiandao.protocol.contract` 钉死，但**没打过真实云端端点**；`browser-probe` 跑不到网络。换机/上线前建议各协议各问一次卦 |
+| **天道模型接入的真机实测** | **✅ 已做**（2026-09-26）：三协议（OpenAI / Claude / 原生 Response）在真实中转站上**全部打通**，见 §8「v0.8.1」。日常复测跑 `tools/api-probe.js` |
 | `android/` | Capacitor **未 init**，`npm run cap:sync` / `apk:debug` 现在会失败 |
 | M1 内容 | 未开工 |
 | 御兽 / 炼丹炼器 | 有规格（`doc/` v0.2），未实现 |
@@ -557,6 +584,48 @@ node_modules/
 ---
 
 ## 8. 最近一次改了什么
+
+### v0.8.1：GitHub Pages 上线 + 天道三协议真机实测（2026-09-26）
+
+**① 上线 GitHub Pages**
+- 试玩地址：**https://milkteacoffee.github.io/nichen/**（`www/` 为部署单元）。
+- `.github/workflows/pages.yml`：Actions 部署，`configure-pages` 带 `enablement: true` 自动开通；
+  **部署前跑 `node tools/smoke.js`，不过就不发**。
+- 仓库根的 `index.html` 是给「分支部署」模式兜底的跳转页；Actions 模式下它不在产物里，两种模式都不冲突。
+- ⚠️ 踩过的坑：工作流文件**误用了 C 风格块注释**（`/* */` 不是合法 YAML），
+  现象是 Actions 里一条 failure 但 **`total_count = 0`（连 job 都没起来）**。
+  YAML 注释一律用井号。
+- ⚠️ 仓库是 **public**：`HANDOVER.md` / `doc/` / `tools/` 全在公开仓库里。**密钥绝不入库**。
+
+**② 天道三协议真机实测（结论：全部打通）**
+
+用真实中转站（OpenAI 兼容 + 同时实现了 Anthropic `/messages` 与原生 `/responses`）跑了一遍：
+
+| 协议 | 端点 | 结果 |
+|---|---|---|
+| `openai` | `/chat/completions` | ✅ 200 · 4.8s · 取到真实中文谶语 |
+| `claude` | `/messages` | ✅ 200 · 8.1s · 取到真实中文谶语 |
+| `response` | `/responses` | ✅ 200 · 10.2s · 取到真实中文谶语 |
+
+- 新增常驻工具 **`tools/api-probe.js`**：跑的是**游戏自己的** `buildRequest` / `extractText`，
+  所以测的就是线上那条代码路径；密钥只从 `NICHEN_TEST_KEY` 环境变量读，输出自动脱敏。
+- **实测暴露两个真问题，都已修**：
+  - **`joinUrl` 会拼出叠加路径**（必现）：很多中转站控制台给的 baseurl 就是**完整路径**
+    （如 `…/v1/chat/completions`）。原实现只判"末尾已是目标后缀就不重复拼"，
+    于是把协议切成 Claude 会得到 `…/v1/chat/completions/messages` → 404。
+    修法：先剥掉末尾**任意一个**已知协议后缀（`PROTO_SUFFIX`）再拼。
+  - **超时 30s 太紧**：实测同一模型首字延迟 3.8s / 5.0s / 6.5s / 8.5s，**也见过 60s+ 不返回**。
+    30s 会把本来能答的请求误判成"请求超时"、白白退到预置谶语。改为 **45s**（`cfg.timeout` 可调），
+    并且**超时不重试**（站慢时重试只会把等待翻倍，直接兜底更友好）。
+- 契约补强：`tiandao.protocol.contract` 新增「填完整路径后切协议」三条断言 + `_fill` 补 `timeout`；
+  反例验证（把 `joinUrl` 回退成原实现）**抓到 4 条报错**。
+
+**③ `browser-probe.js` 支持探线上构建**
+- 新增 `PROBE_URL` 环境变量：`PROBE_URL=https://milkteacoffee.github.io/nichen/ node tools/browser-probe.js town`
+- 线上实测结果：素材层 ready **389ms** · manifest **55 键** · `portrait.luchen` 生效 ·
+  S=3/K=3 一致 · 主角精灵 84×126 正确 · **页面错误：无**。
+
+---
 
 ### v0.8.0：底栏六功能 + 天道多协议 + 轮回档案 + 削减线框感（2026-09-26）
 

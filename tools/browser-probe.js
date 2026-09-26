@@ -20,7 +20,10 @@ const OUT = process.argv[3] ? path.resolve(process.argv[3]) : path.join(__dirnam
    测性能务必两种都跑，S=4 时画布与地面层都要大 78%，是真正的 worst case。 */
 const WIN = process.env.WIN || '1280,720';
 const PORT = 9333;
-const URL = 'http://127.0.0.1:8173/index.html';
+/* 默认探本机常驻服务；`PROBE_URL` 可指向**线上构建**（GitHub Pages 等）——
+   换机/上线后想确认"部署出去的那份到底能不能跑"，就用它：
+     PROBE_URL=https://<user>.github.io/nichen/ node tools/browser-probe.js town */
+const URL = process.env.PROBE_URL || 'http://127.0.0.1:8173/index.html';
 
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
