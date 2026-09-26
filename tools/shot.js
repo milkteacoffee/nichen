@@ -121,9 +121,15 @@ let n = 0;
    带参数时只落盘名字里含该片段的截图 —— 但**所有帧照常推进**：
    后面的截图依赖前面的场景状态，跳过 pump 会让状态对不上、拍到错的画面。 */
 const ONLY = (HAS_DIR ? ARGS.slice(1) : ARGS).filter((a) => !a.startsWith('-'));
-function shot(name, frames) {
+/* draw 是可选的后置钩子：在 pump 之后、落盘之前直接往画布上补画东西。
+   用在"场景本身画不出"的对照图（例：四向精灵并排 + 头线参考线）。 */
+function shot(name, frames, draw) {
   pump(frames || 6);
   if (ONLY.length && !ONLY.some((p) => name.indexOf(p) >= 0)) return;
+  if (draw) {
+    try { draw(G.game.ctx, G.game); }
+    catch (e) { errors.push('[' + name + '.draw] ' + e.message); }
+  }
   log('  … ' + name);
   const file = path.join(OUT, name + '.png');
   fs.writeFileSync(file, gameCanvas.toBuffer('image/png'));
@@ -219,6 +225,95 @@ step(() => { save.hp = 200; }, 'hud.restore');
   }, 'walk:' + m[1]);
   shot(m[0] + '_walk', 10);
 });
+
+/* 4b) 四向精灵对照（v0.11.2 修「侧身比前后高一头」）：
+   场景里四向不会同框，所以直接铺一张对照图 —— 四向 × 三帧并排，画头线与脚底线。
+   以后改 sprite 素材/裁切算法，肉眼扫一眼这张就知道有没有再错位。 */
+shot('05c_hero_dirs', 4, (x) => {
+  x.imageSmoothingEnabled = true;
+  if ('imageSmoothingQuality' in x) x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#161b26'; x.fillRect(0, 0, 480, 272);
+  const HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
+  const dirs = ['down', 'left', 'right', 'up'];
+  const cellW = 480 / dirs.length, baseY = 206;
+  /* 参考线：头线（青）与脚底线（琥珀）——四向都该压在线上 */
+  const line = (yy, c) => {
+    x.strokeStyle = c; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(0, yy + 0.5); x.lineTo(480, yy + 0.5); x.stroke();
+  };
+  line(baseY - HH + 11.5, 'rgba(96,214,182,0.75)');   /* 头线：HEAD 源像素 → dest 11.5 */
+  line(baseY - 0.5, 'rgba(226,178,86,0.75)');          /* 脚底线 */
+  dirs.forEach((d, di) => {
+    const cx = cellW * di + cellW / 2;
+    [0, 1, 2].forEach((st) => {
+      const spr = G.Art.heroSprite(d, st, G.Sprites.HERO_PAL);
+      x.drawImage(spr, Math.round(cx - HW * 1.5 - 1 + st * (HW + 1)),
+        Math.round(baseY - HH), HW, HH);
+    });
+    G.UI.textOut(x, { x: cx, y: 240 }, d, 12, '#c9d2e6', 'center');
+  });
+});
+
+/* 4c) M1 主线（v0.11.3）：探子登场 / 沈伯辨丹 / 抉择卡 / 刘记货架。
+   每帧都用**克隆存档**并走真实交互路径（不是直接把 overlay 字符串塞进去）——
+   塞字符串只能证明渲染器画得出，证明不了"这条线真的接上了"。 */
+function m1Save(quest, flags, mutate) {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: quest, flags: flags || {} };
+  s.pos = null;
+  if (mutate) mutate(s);
+  G.game.save = s;
+  /* 每帧前清掉残留 toast：toast 落在 y≈201..230，正好压住对话框/抉择卡底部的按钮。
+     上一帧的提示留到这一帧，拍出来的就是"按钮被盖住"的假象。
+     （真机上这条重叠确实存在，见闭环报告 G32；截图不该再叠一层干扰。） */
+  G.game.toasts.length = 0;
+  return s;
+}
+/* 走到某个 NPC 面前按交互（与 smoke 的 npc.contract 同一套走位约定） */
+function faceNpc(sc, npc, s) {
+  [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']].some((d) => {
+    const px = npc.x + d[0], py = npc.y + d[1];
+    if (px < 0 || py < 0 || px >= sc.map.w || py >= sc.map.h) return false;
+    if (sc.map.solid[py][px]) return false;
+    s.pos = { x: px, y: py }; sc.dir = d[2]; return true;
+  });
+  sc._interact();
+}
+
+step(() => {
+  const s = m1Save('m1-2', {}, (o) => { o.globalLevel = 14; });
+  G.game.changeScene('town');
+  s.pos = { x: 25, y: 16 };            /* 站在探子（25,15）正下方 */
+  G.scenes.town._fixPos(s);
+}, 'm1.probe');
+shot('05d_town_probe', 20);
+
+step(() => {
+  const s = m1Save('m1-1', {}, (o) => { o.bossKilled = true; o.globalLevel = 14; });
+  G.game.changeScene('town_shop', { toSpawn: true });
+  const sc = G.game.scene;
+  faceNpc(sc, (G.Data.maps.town_shop.npcs || []).filter((n) => n.act === 'shenbo')[0], s);
+}, 'm1.1.dialog');
+shot('05e_m1_dialog', 8);
+
+step(() => {
+  m1Save('m1-2', { probeWin: true });
+  /* 回镇时 hooks.enter 会自动把抉择卡摆上来 —— 这正是要验的那一步 */
+  G.game.changeScene('town', { toSpawn: true });
+}, 'm1.choice');
+shot('05f_choice1', 8);
+
+step(() => {
+  const s = m1Save('m1-4', {}, (o) => {
+    o.globalLevel = 15; o.stone = 3000; o.items = { 妖丹: 3, 回春丹: 2 };
+  });
+  G.game.changeScene('town_market', { toSpawn: true });
+  faceNpc(G.game.scene, (G.Data.maps.town_market.npcs || []).filter((n) => n.act === 'market')[0], s);
+}, 'm1.market');
+shot('05g_market_m1', 8);
+
+/* 上面几帧把 G.game.save 换成了克隆 → 后面所有帧都要回到基准存档 */
+step(() => { G.game.save = save; }, 'm1.restore');
 
 /* 5) 战斗：普通遭遇（含功法 / 道具 / 防御 面板） */
 step(() => {

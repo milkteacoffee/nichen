@@ -85,6 +85,9 @@ SIZES = {
     'char.npc.elder': (168, 252),
     'char.npc.keeper': (168, 252),
     'char.npc.villager': (168, 252),
+    #   cultist = 血煞教探子（M1 §4 m1-2，化名"行脚商"）—— ⏳ 待出图，
+    #   先在这里预登记逻辑名，否则图放进去会被静默忽略（缺键 → 退回程序化兜底）
+    'char.npc.cultist': (168, 252),
     # 对话立绘（逻辑框 74×74，见 art.js PORTRAIT_LW/LH）
     #   74×4 倍超采样 = 296 是"不被放大"的下限，这里给到 512 留足余量、避免 K=4 时发虚
     'portrait.shenbo': (512, 512),
@@ -94,6 +97,8 @@ SIZES = {
     'portrait.killer': (512, 512),
     'portrait.demon': (512, 512),
     'portrait.aran': (512, 512),
+    #   cultist = 血煞教探子（M1 §4）—— ⏳ 待出图，同上先预登记逻辑名
+    'portrait.cultist': (512, 512),
     # 主角陆尘：**正面**全身立绘（角色面板用）。
     #   原来角色面板取 battle.hero（战斗侧身站姿），玩家看到的是"侧脸背影"。
     'portrait.luchen': (512, 512),

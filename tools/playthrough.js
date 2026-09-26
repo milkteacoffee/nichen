@@ -374,7 +374,9 @@ step(function () {
   b._victory();
 }, 'm0-5.kill');
 pump(40);
-if (save.quest.step !== 'free') errors.push('狼王战后未进入自由游玩（当前 ' + save.quest.step + '）');
+/* M0 收束后主线不再停在 'free'：M1 起斩狼王直接接「m1-1 归镇辨丹」。
+   'free' 只剩"旧存档 / 无处可去"的兜底态，不再是 M0 的正常出口。 */
+if (save.quest.step !== 'm1-1') errors.push('狼王战后未进入 M1 主线（当前 ' + save.quest.step + '）');
 if (!save.bossKilled) errors.push('狼王击杀标记未写入');
 if (!save.items['妖丹']) errors.push('狼王未掉落妖丹');
 note('⑬ 击杀狼王 · M0 通关');

@@ -153,6 +153,11 @@ const srcs = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => 
 if (!srcs.length) { console.error('未在 index.html 中找到脚本'); process.exit(1); }
 
 const errors = [];
+/* 非致命提示（"这条有意如此"）。与 errors 分开：errors 一非空就退出码 1，
+   notes 只打印 —— 用来记"待办但已知"，免得把 TODO 混进红色报错里，看久了就没人看报错了。 */
+const notes = [];
+/* 有意走程序化兜底的素材键（详见 npc.portrait.assets 契约里的注释） */
+const PROC_FALLBACK_OK = new Set(['char.npc.cultist', 'portrait.cultist']);
 for (const rel of srcs) {
   const p = path.join(WWW, rel);
   if (!fs.existsSync(p)) { errors.push(`缺失脚本：${rel}`); continue; }
@@ -351,6 +356,12 @@ step(function () {
   kinds.forEach((k) => want.push('char.npc.' + k));
   ports.forEach((k) => want.push('portrait.' + k));
   want.forEach((key) => {
+    /* 有意走程序化兜底的键（新角色先接线、美术后补）。列在这里 = 明说"这是待办，不是漏了"。
+       ⚠️ 出图之后必须从这张表里删掉 —— 留着会让"图丢了"变成静默通过。 */
+    if (PROC_FALLBACK_OK.has(key)) {
+      notes.push(`${key} 走程序化兜底（美术待补，逻辑名已在 assets-build.py 预登记）`);
+      return;
+    }
     const rel = mf[key];
     if (!rel) { errors.push(`manifest 未登记角色形象：${key}（会静默退回程序化兜底）`); return; }
     const p = path.join(WWW, rel);
@@ -464,64 +475,80 @@ step(function () {
     const md = G.Data.maps[m];
     const npcs = md.npcs || [];
     if (!npcs.length) { errors.push(`${m}: 没有配置站桩 NPC`); return; }
-    const mp = G.MapGen.buildMap(save, m);
 
-    /* 从出生点 BFS 求可达集（不走实心格） */
-    const seen = {};
-    const q = [[md.spawn.x, md.spawn.y]];
-    seen[md.spawn.x + ',' + md.spawn.y] = true;
-    while (q.length) {
-      const c = q.shift();
-      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
-        const nx = c[0] + d[0], ny = c[1] + d[1];
-        if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
-        const k = nx + ',' + ny;
-        if (seen[k] || mp.solid[ny][nx]) return;
-        seen[k] = true; q.push([nx, ny]);
-      });
-    }
-
+    /* 条件 NPC（condStep）在默认存档下**根本不在图上** ——
+       直接拿基础存档建图，"占格实心 / 登记交互点 / 不站路上 / 可达"这几条会全部落空，
+       看着过了其实是没测。所以按 condStep 分组，**每组用自己的存档各建一次图**。 */
+    const groups = {};
     npcs.forEach(function (n) {
-      if (!n.act) errors.push(`${m}: NPC ${n.id} 没有 act`);
-      if (!n.name) errors.push(`${m}: NPC ${n.id} 没有名字`);
-      if (!mp.solid[n.y][n.x]) {
-        errors.push(`${m}: NPC ${n.id} 的格子 (${n.x},${n.y}) 不是实心 —— 玩家会从他身上走过去`);
-      }
-      const o = mp.interact[n.x + ',' + n.y];
-      if (!o || o.type !== 'npc') errors.push(`${m}: NPC ${n.id} 的格子没有登记 npc 交互点`);
-      else if (!o.npc || o.npc.id !== n.id) errors.push(`${m}: NPC ${n.id} 的交互点挂错了对象`);
-      if (mp.ground[n.y][n.x].t === 'path') {
-        errors.push(`${m}: NPC ${n.id} 站在路上 (${n.x},${n.y}) —— 单宽道路会被堵死`);
-      }
-      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(function (d) {
-        return !!seen[(n.x + d[0]) + ',' + (n.y + d[1])];
-      });
-      if (!near) errors.push(`${m}: NPC ${n.id} 从出生点走不到 —— 玩家永远说不上话`);
+      const k = n.condStep || '';
+      (groups[k] = groups[k] || []).push(n);
     });
 
-    /* 交互必须真的开出对话（quest 取 free，避开"领赏后不留面板"的分支） */
-    const s2 = JSON.parse(JSON.stringify(save));
-    s2.quest = { step: 'free', flags: {} };
-    s2.pos = null;
-    G.game.save = s2;
-    G.game.changeScene(m, { toSpawn: true });
-    npcs.forEach(function (n) {
-      const sc = G.game.scene;
-      sc.overlay = null;
-      let placed = false;
-      [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']].forEach(function (d) {
-        if (placed) return;
-        const px = n.x + d[0], py = n.y + d[1];
-        if (px < 0 || py < 0 || px >= sc.map.w || py >= sc.map.h) return;
-        if (sc.map.solid[py][px]) return;
-        s2.pos = { x: px, y: py }; sc.dir = d[2]; placed = true;
+    Object.keys(groups).forEach(function (k) {
+      const s = JSON.parse(JSON.stringify(save));
+      /* 无条件组取 'free'：避开"领赏后不留面板"的分支，让每个 NPC 都能开出对话 */
+      s.quest = { step: k || 'free', flags: {} };
+      const mp = G.MapGen.buildMap(s, m);
+      const list = groups[k];
+
+      /* 从出生点 BFS 求可达集（不走实心格） */
+      const seen = {};
+      const q = [[md.spawn.x, md.spawn.y]];
+      seen[md.spawn.x + ',' + md.spawn.y] = true;
+      while (q.length) {
+        const c = q.shift();
+        [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+          const nx = c[0] + d[0], ny = c[1] + d[1];
+          if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
+          const kk = nx + ',' + ny;
+          if (seen[kk] || mp.solid[ny][nx]) return;
+          seen[kk] = true; q.push([nx, ny]);
+        });
+      }
+
+      list.forEach(function (n) {
+        const tag = k ? `${m}[${k}]` : m;
+        if (!n.act) errors.push(`${tag}: NPC ${n.id} 没有 act`);
+        if (!n.name) errors.push(`${tag}: NPC ${n.id} 没有名字`);
+        if (!mp.solid[n.y][n.x]) {
+          errors.push(`${tag}: NPC ${n.id} 的格子 (${n.x},${n.y}) 不是实心 —— 玩家会从他身上走过去`);
+        }
+        const o = mp.interact[n.x + ',' + n.y];
+        if (!o || o.type !== 'npc') errors.push(`${tag}: NPC ${n.id} 的格子没有登记 npc 交互点`);
+        else if (!o.npc || o.npc.id !== n.id) errors.push(`${tag}: NPC ${n.id} 的交互点挂错了对象`);
+        if (mp.ground[n.y][n.x].t === 'path') {
+          errors.push(`${tag}: NPC ${n.id} 站在路上 (${n.x},${n.y}) —— 单宽道路会被堵死`);
+        }
+        const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(function (d) {
+          return !!seen[(n.x + d[0]) + ',' + (n.y + d[1])];
+        });
+        if (!near) errors.push(`${tag}: NPC ${n.id} 从出生点走不到 —— 玩家永远说不上话`);
       });
-      if (!placed) { errors.push(`${m}: NPC ${n.id} 四周没有可站位`); return; }
-      sc._interact();
-      if (!sc.overlay) errors.push(`${m}: 与 NPC ${n.id} 对话没有开出覆盖层`);
-      sc.clearOverlay();
+
+      /* 交互必须真的开出覆盖层 */
+      s.pos = null;
+      G.game.save = s;
+      G.game.changeScene(m, { toSpawn: true });
+      list.forEach(function (n) {
+        const sc = G.game.scene;
+        sc.overlay = null;
+        let placed = false;
+        [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']].forEach(function (d) {
+          if (placed) return;
+          const px = n.x + d[0], py = n.y + d[1];
+          if (px < 0 || py < 0 || px >= sc.map.w || py >= sc.map.h) return;
+          if (sc.map.solid[py][px]) return;
+          s.pos = { x: px, y: py }; sc.dir = d[2]; placed = true;
+        });
+        if (!placed) { errors.push(`${m}: NPC ${n.id} 四周没有可站位`); return; }
+        sc._interact();
+        if (!sc.overlay) errors.push(`${m}: 与 NPC ${n.id} 对话没有开出覆盖层`);
+        sc.clearOverlay();
+      });
     });
   });
+  G.game.save = save;
 }, 'npc.contract');
 
 /* 3a-3) 头顶任务标记（探图 v0.2 §NPC：！可接 / ？可交 / 无任务不挂） */
@@ -550,10 +577,46 @@ step(function () {
   want({ step: 'free', flags: {} }, 9, null, '自由游玩期');
   want({ step: 'm0-5', flags: {} }, 12, null, 'm0-5 已出镇');
 
-  /* 非任务 NPC（村民 / 刘掌柜）任何时候都不挂标记 */
+  /* 村民任何时候都不挂标记 */
+  const washer = (G.Data.maps.town.npcs || [])[0];
+  if (washer && G.scenes.town.npcMarkOf(washer) !== null) {
+    errors.push('任务标记错：村民不应挂标记');
+  }
+  /* 刘掌柜：M0 全程不挂；M1-4 且到了门槛才挂 ？（他手上有筑基丹的货源） */
   const keeper = (G.Data.maps.town_market.npcs || [])[0];
-  if (keeper && G.scenes.town_market.npcMarkOf(keeper) !== null) {
-    errors.push('任务标记错：刘掌柜不应挂标记');
+  const mk = G.scenes.town_market;
+  s.quest = { step: 'm0-5', flags: {} };
+  if (keeper && mk.npcMarkOf(keeper) !== null) errors.push('任务标记错：M0 期间刘掌柜不应挂标记');
+  s.quest = { step: 'm1-4', flags: {} }; s.globalLevel = 14;
+  if (keeper && mk.npcMarkOf(keeper) !== null) errors.push('任务标记错：m1-4 未到门槛时刘掌柜不应挂标记');
+  s.quest = { step: 'm1-4', flags: {} }; s.globalLevel = 15;
+  if (keeper && mk.npcMarkOf(keeper) !== '?') errors.push('任务标记错：m1-4 到门槛时刘掌柜应挂 ？');
+  s.quest = { step: 'm1-4', flags: { foundPill: true } }; s.globalLevel = 15;
+  if (keeper && mk.npcMarkOf(keeper) !== null) errors.push('任务标记错：已得丹后刘掌柜不应再挂标记');
+
+  /* M1 各步的标记（沈伯 / 探子）—— 与任务链契约里的运行时断言互为冗余：
+     这里只查"标记函数"，那边查"整条链真的走通"，两边都过才算数。 */
+  s.globalLevel = 15;
+  const probeN = (G.Data.maps.town.npcs || []).filter((n) => n.act === 'probe')[0];
+  const tm = G.scenes.town;
+  const wantShen = (quest, mark, label) => {
+    s.quest = quest;
+    const got = G.scenes.town_shop.npcMarkOf(sb);
+    if (got !== mark) errors.push(`M1 沈伯标记错（${label}）：应为 ${mark}，实为 ${got}`);
+  };
+  wantShen({ step: 'm1-1', flags: {} }, '!', 'm1-1 待辨丹');
+  wantShen({ step: 'm1-2', flags: {} }, null, 'm1-2 该找探子');
+  wantShen({ step: 'm1-3', flags: {} }, '?', 'm1-3 待听旧账');
+  wantShen({ step: 'm1-4', flags: {} }, '?', 'm1-4 待备丹');
+  wantShen({ step: 'm1-4', flags: { foundPill: true } }, null, 'm1-4 已得丹');
+  s.globalLevel = 14;
+  wantShen({ step: 'm1-4', flags: {} }, null, 'm1-4 未到门槛');
+  s.globalLevel = 15;
+  if (probeN) {
+    s.quest = { step: 'm1-2', flags: {} };
+    if (tm.npcMarkOf(probeN) !== '!') errors.push('M1 探子标记错：m1-2 应挂 ！');
+    s.quest = { step: 'm1-3', flags: {} };
+    if (tm.npcMarkOf(probeN) !== null) errors.push('M1 探子标记错：m1-3 后不应再挂标记');
   }
 }, 'npc.mark');
 
@@ -2338,6 +2401,404 @@ step(function () {
   console.log('  ✓ M1 数据层：5 本灵阶功法 + 2 个新掉落池 + 4 个新敌人 + 3 张程序化立绘');
 }, 'm1.data.contract');
 
+/* ---------- M1 任务链契约（v0.11.3）----------
+   真把 m1-1 → m1-4 走一遍：每步都从"能开出的那条路"进去（面对 NPC 按交互 / 点按钮），
+   断言任务步、flag、产出物与**因果记录**都落到位。
+   为什么不逐条查源码：这条链的价值全在"接得上"，
+   源码里每句都在、串起来却断链，是这类任务系统最典型的失败。 */
+step(function () {
+  const errors = [];
+  /* ⚠️ 本契约里**禁止裸 `return`** —— 末尾那句 `throw` 才是把本地 errors
+     交给 step() 的唯一出口，提前 return 会让错误被就地丢掉、契约静默变绿。
+     （反例验证时真踩到过：把 m1-1 的推进删掉，契约一声不吭地"通过"了。）
+     要中途放弃就用 bail()：它记下错误再抛哨兵，由下面的 catch 收住。 */
+  const BAIL = { bail: true };
+  const bail = (msg) => { errors.push(msg); throw BAIL; };
+  const R = () => G.game.save.quest;
+
+  /* 站在某个 NPC 面前按交互（四向找一格可站的） */
+  const faceAndInteract = (sc, npc) => {
+    const s = G.game.save;
+    let placed = false;
+    [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']].forEach((d) => {
+      if (placed) return;
+      const px = npc.x + d[0], py = npc.y + d[1];
+      if (px < 0 || py < 0 || px >= sc.map.w || py >= sc.map.h) return;
+      if (sc.map.solid[py][px]) return;
+      s.pos = { x: px, y: py }; sc.dir = d[2]; placed = true;
+    });
+    if (!placed) bail('NPC ' + npc.id + ' 四周没有可站位');
+    sc._interact();
+    return true;
+  };
+  const npcOf = (mapId, act) =>
+    (G.Data.maps[mapId].npcs || []).filter((n) => n.act === act)[0];
+  const btnByLabel = (sc, re) => sc.buttons.filter((b) => re.test(b.label || ''))[0];
+
+  try {
+
+  /* 起点：斩狼王之后、回到镇上。gl 15（m1-4 门槛）、灵石与妖丹备足。 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'm1-1', flags: {} };
+  s.bossKilled = true;
+  s.globalLevel = 15; s.maxGlobalLevel = 15;
+  s.stone = 3000; s.items = { 妖丹: 5, 回春丹: 2 };
+  s.skills = {};                    /* 清空，好验"沈伯赠了一本灵阶功法" */
+  /* 灵根设成火：沈伯池里只有「赤焰心法」是火 —— 匹配集非空，才能验"匹配优先" */
+  s.linggen = { elems: ['火'], coef: { 火: 1.2 }, kind: '单灵根', stoneBonus: 0 };
+  s.karma = {};
+  s.pos = null;
+  G.game.save = s;
+  G.game.changeScene('town', { toSpawn: true });
+
+  /* —— m1-1 归镇辨丹 —— */
+  const sbTown = npcOf('town_shop', 'shenbo');
+  G.game.changeScene('town_shop', { toSpawn: true });
+  let sc = G.game.scene;
+  if (sc.npcMarkOf(sbTown) !== '!') errors.push('m1-1：沈伯应挂 ！，实为 ' + sc.npcMarkOf(sbTown));
+  faceAndInteract(sc, sbTown);
+  if (R().step !== 'm1-2') errors.push('m1-1 辨丹后应转 m1-2，实为 ' + R().step);
+  if (!R().flags.bloodDan) errors.push('m1-1 未写 flags.bloodDan');
+  if (!(s.chronicle || []).some((c) => c.id === 'bloodDan')) errors.push('m1-1 未记因果（bloodDan）');
+  sc.clearOverlay();
+
+  /* —— m1-2 探子：NPC 随任务步出现/消失 —— */
+  const probe = npcOf('town', 'probe');
+  if (!probe) bail('town 里没有配置探子 NPC');
+  G.game.changeScene('town', { toSpawn: true });
+  sc = G.game.scene;
+  const onMap = (sc2) => (sc2.map.npcs || []).some((n) => n.id === 'probe');
+  if (!onMap(sc)) errors.push('m1-2：探子应出现在镇上');
+  if (sc.map.solid[probe.y][probe.x] !== true) errors.push('m1-2：探子格子不实心');
+  if (sc.npcMarkOf(probe) !== '!') errors.push('m1-2：探子应挂 ！');
+
+  faceAndInteract(sc, probe);
+  if (sc.overlay !== 'probe1') errors.push('m1-2：与探子对话应开 probe1，实为 ' + sc.overlay);
+  const poke = btnByLabel(sc, /点破/);
+  if (!poke) bail('m1-2：探子对话里没有「点破他」');
+  poke.onClick();
+  const b = G.game.scene;
+  if (G.game.sceneName !== 'battle') errors.push('m1-2：点破后应进战斗，实为 ' + G.game.sceneName);
+  if (b.params.script !== 'probe') errors.push('m1-2：战斗 script 应为 probe');
+  if (!b.es || !b.es.length || b.es[0].species !== '血煞教徒') {
+    errors.push('m1-2：探子战敌人应为血煞教徒，实为 ' + (b.es[0] && b.es[0].species));
+  }
+  /* 等级 = 本世 gl+1、上限 17（设计 §4 明写） */
+  if (b.es[0].level !== Math.min(17, s.globalLevel + 1)) {
+    errors.push('m1-2：探子战等级应为 min(17, gl+1)=' + Math.min(17, s.globalLevel + 1)
+      + '，实为 ' + b.es[0].level);
+  }
+  if (!b._noFlee()) errors.push('m1-2：剧情战必须禁逃（_noFlee() 为假）');
+
+  /* 打完了：直接走 _victory 的探子分支，验"只交接 flag、不在这里推任务步" */
+  b.p.hp = b.p.maxhp; b.es[0].hp = 0;
+  b._victory();
+  if (!R().flags.probeWin) errors.push('m1-2：胜利未写 flags.probeWin');
+  if (R().step !== 'm1-2') errors.push('m1-2：胜利后任务步不该变（抉择还没选），实为 ' + R().step);
+
+  /* 等级上限：主测试存档 gl=15 → min(17,16)=16，**验不出封顶**。
+     另开一场 gl=20 的逼出上限分支（设计 §4 明写"上限 17"）。
+     放在 _victory 之后：battle 是单例，再 enter 一次会把上面那场覆盖掉。 */
+  {
+    const sCap = JSON.parse(JSON.stringify(s));
+    sCap.globalLevel = 20;
+    G.game.save = sCap;
+    G.game.changeScene('battle', { script: 'probe', mapId: 'town' });
+    if (G.game.scene.es[0].level !== 17) {
+      errors.push('m1-2：探子战等级未封顶 17，实为 ' + G.game.scene.es[0].level);
+    }
+    G.game.save = s;
+  }
+
+  /* —— 抉择 1：回镇自动摆卡 —— */
+  s.pos = null;
+  G.game.changeScene('town', { toSpawn: true });
+  sc = G.game.scene;
+  if (sc.overlay !== 'choice1') bail('抉择 1 未在回镇时摆出，实为 ' + sc.overlay);
+  const opts = sc.buttons.filter((x) => x.label && /杀了他|放他走|交给沈伯/.test(x.label));
+  if (opts.length !== 3) bail('抉择 1 应有 3 个选项，实为 ' + opts.length);
+  /* 三个选项必须**各占一行**：全建在同一个 y 会完全重叠，点哪条都是最后一条 */
+  const ys = opts.map((o) => o.y);
+  if (new Set(ys).size !== 3) errors.push('抉择 1 的三个选项 y 重叠了：' + ys.join(','));
+
+  const spare = opts.filter((o) => /放他走/.test(o.label))[0];
+  spare.onClick();
+  if (R().flags.probe !== 'spare') errors.push('抉择 1：flags.probe 应为 spare，实为 ' + R().flags.probe);
+  if (!s.karma.cultistSpare) errors.push('抉择 1：未写 karma.cultistSpare');
+  if (R().step !== 'm1-3') errors.push('抉择 1 后应转 m1-3，实为 ' + R().step);
+  if (sc.overlay) errors.push('抉择 1 选完应收起覆盖层');
+  if (onMap(sc)) errors.push('m1-3：探子应已离镇');
+
+  /* —— m1-3 沈伯旧账：赠一本灵阶功法，灵根匹配优先 —— */
+  G.game.changeScene('town_shop', { toSpawn: true });
+  sc = G.game.scene;
+  if (sc.npcMarkOf(sbTown) !== '?') errors.push('m1-3：沈伯应挂 ？，实为 ' + sc.npcMarkOf(sbTown));
+  faceAndInteract(sc, sbTown);
+  if (R().step !== 'm1-4') errors.push('m1-3 后应转 m1-4，实为 ' + R().step);
+  if (!R().flags.oldDebt) errors.push('m1-3 未写 flags.oldDebt');
+  const got = R().flags.oldDebtSkill;
+  const pool = G.Data.shenBoPool || [];
+  if (pool.indexOf(got) < 0) errors.push('m1-3 赠的功法不在沈伯池里：' + got);
+  if (!s.skills[got]) errors.push('m1-3 赠的功法没进 save.skills：' + got);
+
+  /* 「灵根匹配优先」是**概率规则**：直接跑一次会偶发假绿（正好随机到匹配的那本），
+     反例验证时真踩到过。这里把 pick 换成"永远取第一个"：
+     正确实现喂进来的是**已过滤的匹配数组**，取第一个仍是匹配的；
+     一旦丢掉过滤，取到的就是池首那本不匹配的 —— 必报。 */
+  const elems0 = (s.linggen && s.linggen.elems) || [];
+  const matched0 = pool.filter((id) => G.Data.skills[id] && elems0.indexOf(G.Data.skills[id].elem) >= 0);
+  if (!matched0.length) {
+    errors.push('测试存档的灵根 ' + elems0.join('/') + ' 与沈伯池全不匹配，这条断言失去意义');
+  } else {
+    const s4 = JSON.parse(JSON.stringify(s));
+    s4.quest = { step: 'm1-3', flags: {} };
+    s4.skills = {};
+    G.game.save = s4;
+    const realPick = G.rng.pick;
+    G.rng.pick = (arr) => arr[0];
+    try {
+      G.game.changeScene('town_shop', { toSpawn: true });
+      faceAndInteract(G.game.scene, sbTown);
+    } finally { G.rng.pick = realPick; }
+    const got2 = s4.quest.flags.oldDebtSkill;
+    if (matched0.indexOf(got2) < 0) {
+      errors.push('m1-3 未优先给灵根匹配的功法（灵根 ' + elems0.join('/') + '，给了 ' + got2 + '）');
+    }
+    G.game.save = s;
+  }
+  G.game.changeScene('town_shop', { toSpawn: true });
+  sc = G.game.scene;
+  sc.clearOverlay();
+
+  /* —— m1-4 门槛：不到炼气六段不接活 —— */
+  G.game.changeScene('town_shop', { toSpawn: true });
+  sc = G.game.scene;
+  s.globalLevel = 14;
+  const before = JSON.stringify(s.items);
+  faceAndInteract(sc, sbTown);
+  if (JSON.stringify(s.items) !== before) errors.push('m1-4 门槛失效：14 级就能拿到丹');
+  if (sc.overlay) { errors.push('m1-4 门槛不足时不该开面板'); sc.clearOverlay(); }
+
+  /* —— m1-4 沈伯旧方：妖丹×3 + 灵石 600 —— */
+  s.globalLevel = 15;
+  G.game.changeScene('town_shop', { toSpawn: true });
+  sc = G.game.scene;
+  faceAndInteract(sc, sbTown);
+  const brew = btnByLabel(sc, /开炉/);
+  if (!brew) bail('m1-4：沈伯没给出「开炉」选项');
+  if (brew.disabled) errors.push('m1-4：备齐妖丹×3 + 600 灵石时「开炉」不该禁用');
+  const st0 = s.stone, dan0 = s.items['妖丹'];
+  brew.onClick();
+  if ((s.items['筑基丹'] || 0) !== 1) errors.push('m1-4：沈伯旧方没给到筑基丹');
+  if (s.stone !== st0 - 600) errors.push('m1-4：沈伯旧方扣灵石应为 600，实扣 ' + (st0 - s.stone));
+  if (s.items['妖丹'] !== dan0 - 3) errors.push('m1-4：沈伯旧方应扣妖丹×3');
+  if (!R().flags.foundPill) errors.push('m1-4：未写 flags.foundPill');
+
+  /* —— m1-4 刘记途径：灵石 1000（第 2 世 1200）—— */
+  const s2 = JSON.parse(JSON.stringify(s));
+  s2.quest = { step: 'm1-4', flags: {} };
+  s2.stone = 3000; s2.items = { 妖丹: 0 };
+  s2.globalLevel = 15;
+  G.game.save = s2;
+  G.game.meta = Object.assign({}, G.game.meta, { life: 1 });
+  G.game.changeScene('town_market', { toSpawn: true });
+  sc = G.game.scene;
+  const mkNpc = npcOf('town_market', 'market');
+  if (sc.npcMarkOf(mkNpc) !== '?') errors.push('m1-4：刘掌柜应挂 ？，实为 ' + sc.npcMarkOf(mkNpc));
+  faceAndInteract(sc, mkNpc);
+  const order = btnByLabel(sc, /订购/);
+  if (!order) bail('m1-4：刘记没有「订购」按钮');
+  if (order.disabled) errors.push('m1-4：3000 灵石时「订购」不该禁用');
+  order.onClick();
+  if ((s2.items['筑基丹'] || 0) !== 1) errors.push('m1-4：刘记订购没给到筑基丹');
+  if (s2.stone !== 2000) errors.push('m1-4：刘记订购应扣 1000，实扣 ' + (3000 - s2.stone));
+  /* 第 2 世涨价 */
+  s2.quest = { step: 'm1-4', flags: {} };
+  s2.items = {}; s2.stone = 3000;
+  G.game.meta = Object.assign({}, G.game.meta, { life: 2 });
+  G.game.changeScene('town_market', { toSpawn: true });
+  sc = G.game.scene;
+  faceAndInteract(sc, npcOf('town_market', 'market'));
+  const order2 = btnByLabel(sc, /订购/);
+  if (!order2) errors.push('m1-4：第 2 世刘记没有「订购」按钮');
+  else {
+    order2.onClick();
+    if (s2.stone !== 1800) errors.push('m1-4：第 2 世订购应扣 1200，实扣 ' + (3000 - s2.stone));
+  }
+  G.game.meta = Object.assign({}, G.game.meta, { life: 1 });
+
+  /* —— 丹名口径：炼气九段圆满要的是「筑基丹」—— */
+  if (G.Player.breakPill(18) !== '筑基丹') {
+    errors.push('炼气九段突破丹名应为「筑基丹」，实为 ' + G.Player.breakPill(18));
+  }
+  if (G.Player.breakPill(9) !== '淬体突破丹') errors.push('淬体九段丹名被改坏了');
+  if (G.Player.breakPill(27) !== '筑基突破丹') errors.push('筑基九段丹名被改坏了');
+  const bs = (function () {
+    const t = JSON.parse(JSON.stringify(s));
+    t.globalLevel = 18; t.qi = 999999; t.items = {};
+    return G.Player.breakState(t);
+  })();
+  if (bs.pill !== '筑基丹') errors.push('breakState 在炼气圆满时应点名筑基丹');
+  if (bs.ready) errors.push('没有筑基丹时不该 ready');
+  if (bs.reason.indexOf('筑基丹') < 0) errors.push('缺丹时的提示没点名筑基丹：' + bs.reason);
+
+  /* —— 任务面板：链条变长后必须仍然整条落在面板内（窗口滑动）—— */
+  const s3 = JSON.parse(JSON.stringify(save));
+  s3.quest = { step: 'm1-2', flags: {} };
+  s3.pos = null;
+  G.game.save = s3;
+  G.game.changeScene('town', { toSpawn: true });
+  G.Overlays.openPanel(G.game.scene, 'quest');
+  pump(2, 'quest.m1');
+  G.game.scene.clearOverlay();
+
+  } catch (e) { if (e !== BAIL) throw e; }   /* 只收 bail 哨兵，真异常照旧往上抛 */
+
+  G.game.save = save;
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('M1 任务链契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ M1 任务链：m1-1 辨丹 → m1-2 探子战+抉择1 → m1-3 赠功法 → m1-4 两途径取丹');
+}, 'm1.quest.contract');
+
+/* ---------- UI 修复契约（v0.11.2）----------
+   四项玩家截图反馈：① HUD/底栏不再整段吞掉点地（贴边的副本入口点得到）；
+   ② 站桩 NPC 不再上下抖；③ 主角四向素材按「头线」对齐（侧面不再比正面高一截）；
+   ④ 战斗：30s 思考倒计时 + 指令按钮去线框 + 功法/道具改上浮下拉。
+   前三项与 ④ 的按钮变体走**源码闸**（正则扫关键表达式，计数/存在性断言，防正则腐烂）。 */
+step(function () {
+  const errors = [];
+  const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+
+  /* ① 点地：onTap 不得再用 HUD_H / BOT_H 整段挡 */
+  const ex = read('www/js/core/explore.js');
+  const tapAt = ex.indexOf('onTap: function');
+  const tapBlock = ex.slice(tapAt, tapAt + 1400);
+  if (/p\.y\s*<\s*HUD_H/.test(tapBlock)) errors.push('explore.onTap 仍在用 HUD_H 整段挡点地');
+  if (/p\.y\s*>=\s*272\s*-\s*BOT_H/.test(tapBlock)) errors.push('explore.onTap 仍在用 BOT_H 整段挡点地');
+  if (!/p\.y\s*<\s*4\s*\)/.test(tapBlock)) errors.push('explore.onTap 缺 4px 边缘死区');
+
+  /* ② 站桩 NPC 不抖：_drawNpc 里不得再出现 bob / 0.8 幅度的 sin 浮动 */
+  const npcAt = ex.indexOf('_drawNpc: function');
+  const npcBlock = ex.slice(npcAt, npcAt + 1100);
+  if (/\bbob\b/.test(npcBlock)) errors.push('_drawNpc 仍在做上下浮动（bob）');
+
+  /* ③ 四向头线对齐 */
+  const sp = read('www/js/core/sprites.js');
+  if (sp.indexOf('_ensureHeroHeadTop') < 0) errors.push('sprites.js 缺 _ensureHeroHeadTop（四向头线对齐）');
+  const heroAt = sp.indexOf('function heroSprite');
+  const heroFn = sp.slice(heroAt, sp.indexOf('function makeHero'));
+  /* ⚠️ 三条都要查：只查 drawImage 形式的话，把 `_ensureHeroHeadTop()` 调用删掉照样能过
+     （反例验证时真踩到过这个漏洞）——必须断言**头线函数在 heroSprite 里被调用**。 */
+  if (heroFn.indexOf('_ensureHeroHeadTop()') < 0) {
+    errors.push('heroSprite 未调用 _ensureHeroHeadTop()（头线没生效）');
+  }
+  if (!/var top = _heroContentTop\(im\)/.test(heroFn)) {
+    errors.push('heroSprite 未读取素材 content_top');
+  }
+  if (!/drawImage\(im,\s*0,\s*top,/.test(heroFn)) {
+    errors.push('heroSprite 未用 9-arg drawImage 做头线裁剪对齐');
+  }
+
+  /* ④ 战斗：倒计时常量 + 扣时 + 绘制 + 按钮变体 */
+  const bt = read('www/js/scenes/battle.js');
+  if (!/var CMD_TIMER\s*=\s*30\s*;/.test(bt)) errors.push('CMD_TIMER 不是 30');
+  if (bt.indexOf('cmdTimer = Math.max(0, this.cmdTimer - dt)') < 0) {
+    errors.push('update 未在 command 阶段扣思考倒计时');
+  }
+  if (bt.indexOf("'思考 ' + t + 's'") < 0) errors.push('_drawTopBar 未绘制思考倒计时');
+  if (bt.indexOf("variant: i === 0 ? 'gold'") < 0 || bt.indexOf("lb === '逃跑' ? 'danger' : 'battle'") < 0) {
+    errors.push('指令按钮未切到 battle 变体');
+  }
+  const ui = read('www/js/core/ui.js');
+  if (ui.indexOf("variant === 'battle'") < 0) errors.push("ui.js 缺 'battle' 按钮变体");
+
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('UI 修复契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ UI 修复（源码闸）：点地不被 HUD 吞 / NPC 不抖 / 四向头线对齐 / 倒计时 + battle 变体');
+}, 'ui.fix.contract');
+
+/* ---------- UI 修复契约 · 运行时（v0.11.2）----------
+   真驱动战斗：初始倒计时 = 30；点「功法」→ buttons[0] 是**主动技**（不是「攻击」）；
+   「关闭」能回 command；点「道具」列出背包消耗品；倒计时归零会**自动出手**。 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 10; s.hp = 9999; s.po = 999;
+  s.skills = { 缠藤指: { lv: 2 } };
+  s.items = { 回春丹: 2 };
+  G.game.save = s;
+  G.game.changeScene('battle', {
+    enemy: G.Data.makeEnemy('青纹蛇', 4, '甲蛇'), mapId: 'field'
+  });
+}, 'ui.fix.enter');
+pump(10, 'ui.fix.enter');
+step(function () {
+  const errors = [];
+  const b = G.game.scene;
+  /* 进场后已经跑过几帧，倒计时在往下走 —— 断言"在 (0, 30] 区间且确实在递减" */
+  if (!(b.cmdTimer > 0 && b.cmdTimer <= 30)) errors.push('初始思考倒计时应在 (0,30]，实为 ' + b.cmdTimer);
+
+  /* 指令按钮变体：防御/道具走 battle，攻击走 gold，逃跑走 danger */
+  const byKey = (k) => b.buttons.filter((x) => x._key === k)[0];
+  if (byKey('防御') && byKey('防御').variant !== 'battle') {
+    errors.push('「防御」应为 battle 变体，实为 ' + byKey('防御').variant);
+  }
+  if (byKey('攻击') && byKey('攻击').variant !== 'gold') errors.push('「攻击」应仍为 gold 变体');
+
+  /* 功法下拉：buttons[0] 必须是主动技 */
+  b._cmd('功法');
+  if (b.phase !== 'skill') errors.push('点功法应进入 skill 相位，实为 ' + b.phase);
+  if (!b.buttons[0] || b.buttons[0]._key === '攻击') {
+    errors.push('功法下拉后 buttons[0] 仍是「攻击」—— 下拉没排在数组前面');
+  }
+  if (!b.buttons.some((x) => /缠藤指/.test(x.label || ''))) {
+    errors.push('功法下拉未列出已装配的「缠藤指」');
+  }
+  const closeS = b.buttons.filter((x) => x.label === '关闭')[0];
+  if (!closeS) errors.push('功法下拉缺「关闭」按钮');
+  else {
+    closeS.onClick();
+    if (b.phase !== 'command') errors.push('关闭功法下拉后未回到 command，实为 ' + b.phase);
+    if (!b.buttons.some((x) => x._key === '功法')) errors.push('关闭后「功法」指令按钮没回来');
+  }
+
+  /* 道具下拉 */
+  b._cmd('道具');
+  if (b.phase !== 'item') errors.push('点道具应进入 item 相位，实为 ' + b.phase);
+  if (!b.buttons.some((x) => /回春丹/.test(x.label || ''))) errors.push('道具下拉未列出「回春丹」');
+  /* ⚠️ 连点「功法→道具」不得把两个下拉叠起来（截图真踩到过：两个关闭按钮、两组列表同时在场）。
+     下拉必须从 _cmdBtns 基准重建，所以此刻「关闭」只应有 1 个。 */
+  const closes = b.buttons.filter((x) => x.label === '关闭');
+  if (closes.length !== 1) errors.push('道具下拉应只有 1 个「关闭」，实为 ' + closes.length + ' 个（下拉叠加了）');
+  if (b.buttons.some((x) => /缠藤指/.test(x.label || ''))) {
+    errors.push('打开道具下拉后，功法下拉的条目应已消失（下拉叠加）');
+  }
+  const closeI = closes[0];
+  if (closeI) closeI.onClick();
+
+  /* 倒计时归零 → 自动出手（phase 必须离开 command） */
+  if (b.phase !== 'command') { errors.push('道具关闭后未回到 command'); }
+  b.cmdTimer = 0.01;
+  b.update(0.05);
+  if (b.phase === 'command') errors.push('思考超时后应自动出手，仍停在 command');
+  if (b.buttons.length) errors.push('出手后指令按钮应被清空，实为 ' + b.buttons.length + ' 个');
+
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('UI 运行时契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ UI 运行时：倒计时 30s + 超时自动出手 + 功法/道具上浮下拉 + battle 变体');
+}, 'ui.fix.runtime.contract');
+pump(300, 'ui.fix.settle');
+/* 收尾：本条契约把场景留在了 battle，而后面 `dungeon.entrance.contract` 会断言
+   `G.game.sceneName !== 'battle'`（用来证明"点封印中的秘境不会进战斗"）——
+   不把场景切走会让那条断言**假红**。 */
+step(() => { G.game.changeScene('title'); }, 'ui.fix.leave');
+pump(6, 'ui.fix.leave');
+
 /* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------
    裂隙点了必须开**那一处**秘境的面板（此前一律跳通用枢纽）；
    并且裂隙的槽位副本要与秘境枢纽的序列**逐槽一致** ——
@@ -3337,6 +3798,10 @@ step(function () {
 }, 'zone.curve.source.contract');
 
 /* ---------- 报告 ---------- */
+if (notes.length) {
+  console.log('\n—— 已知待办 (' + notes.length + ') ——');
+  notes.forEach((n) => console.log(' · ' + n));
+}
 if (errors.length) {
   console.log('\n=== 冒烟测试发现问题 (' + errors.length + ') ===');
   errors.forEach((e) => console.log(' - ' + e));

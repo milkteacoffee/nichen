@@ -35,6 +35,14 @@
   /* 逃跑：每场最多尝试次数（战斗规格 v0.2 §10） */
   var MAX_FLEE = 3;
 
+  /* 思考倒计时（v0.11.2）：玩家每个回合 30s 不点动作 → 自动「攻击」打前排。 */
+  var CMD_TIMER = 30;
+
+  /* 战斗按钮变体：「墨玉」底色但**无投影 + 1px 细描边**，比 default 干净一半（线框感砍掉）。 */
+  var BATTLE_BG = 'rgba(20,24,36,0.78)';
+  var BATTLE_LINE = 'rgba(168,180,210,0.32)';
+  var BATTLE_LINE_HI = 'rgba(216,183,104,0.55)';
+
   /* 消耗品（丹药治疗 = 目标最大 HP × 百分比） */
   var CONSUM = {
     '回春丹': { heal: 0.40, d: '回复四成气血' },
@@ -70,6 +78,9 @@
       this.fleeTries = 0;
       this.summonDone = false;
       this.enraged = false;
+      /* 思考倒计时（v0.11.2）：每回合玩家 30s 不点动作 → 自动选「攻击」打前排；
+         自动战斗中不计时（auto 自己跑）；非 command 阶段（已出手/等待）也暂停。 */
+      this.cmdTimer = CMD_TIMER;
 
       this._initUnits();
       if (this.params.script === 'heartDemon') {
@@ -130,6 +141,10 @@
           level: save.globalLevel, maxhp: st.maxhp,
           atk: st.atk, def: st.def, spd: st.spd
         })];
+      } else if (p.script === 'probe') {
+        /* M1 §4 m1-2：外堂探子撕下伪装。L = 本世 gl+1，上限 17
+           （设计明写"上限 17" —— 别让高境界玩家把这场的等级抬到荒谬）。 */
+        list = [G.Data.makeEnemy('血煞教徒', Math.min(17, (save.globalLevel || 1) + 1), '血煞教探子')];
       } else if (p.enemies && p.enemies.length) list = p.enemies.slice();
       else list = [p.enemy || G.Data.makeEnemy('青纹蛇', 3, '青纹蛇')];
 
@@ -244,7 +259,7 @@
         var b = new G.UI.Btn({
           x: 14 + col * 152, y: 208 + row * 32, w: 142, h: 28,
           small: true,
-          variant: i === 0 ? 'gold' : (lb === '逃跑' ? 'danger' : 'default'),
+          variant: i === 0 ? 'gold' : (lb === '逃跑' ? 'danger' : 'battle'),
           label: lb,
           onClick: function () { self._cmd(lb, this); }
         });
@@ -252,6 +267,11 @@
         btns.push(b);
       });
       this.buttons = btns;
+      /* 基准指令按钮留一份（v0.11.2）：功法/道具下拉要从**这一份**重建，
+         不能拿 this.buttons 过滤 —— 否则「功法 → 道具」连点会把两个下拉叠在一起。 */
+      this._cmdBtns = btns.slice();
+      this._dropRect = null;
+      this.cmdTimer = CMD_TIMER;  /* 进入 command 阶段重置（v0.11.2） */
       this._syncCmdState();
     },
 
@@ -314,9 +334,6 @@
 
     _openSkill: function () {
       var self = this;
-      var btns = [];
-
-      /* 装配功法 + 仙术主动秘术，合并为最多 8 项（4 行 × 2 列） */
       var entries = [];
       this.p.skills.slice(0, 4).forEach(function (sk) {
         entries.push({ kind: 'skill', sk: sk });
@@ -326,15 +343,21 @@
         var ef = Dg.secretEffectById(id);
         if (ef && ef.cat === '仙') entries.push({ kind: 'secret', id: id, ef: ef });
       });
-      entries = entries.slice(0, 8);
+      /* 下拉上限 5 条（v0.11.2 改：原 8 条改成上浮下拉，再多就顶到顶栏） */
+      entries = entries.slice(0, 5);
 
+      /* 下拉挂的位置 = 功法按钮正上方（功法按钮已被替换为「关闭」） */
+      var x0 = 14 + 1 * 152, y0 = 208 - entries.length * 22 - 2, w = 142;
+
+      var dropdown = [];
       entries.forEach(function (en, i) {
-        var x = 22 + (i % 2) * 218, y = 58 + Math.floor(i / 2) * 26;
+        var y = y0 + i * 22;
         if (en.kind === 'skill') {
           var sk = en.sk, ready = sk.cdLeft <= 0;
           var ec = sk.elem && sk.elem !== '无' ? '　' + sk.elem : '';
-          btns.push(new G.UI.Btn({
-            x: x, y: y, w: 206, h: 24, small: true, disabled: !ready,
+          dropdown.push(new G.UI.Btn({
+            x: x0, y: y, w: w, h: 20, small: true, disabled: !ready,
+            variant: 'battle',
             label: sk.n + ec + (sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）'
               : (sk.cd > 0 ? '（CD ' + sk.cd + '）' : '')),
             onClick: function () {
@@ -344,20 +367,26 @@
           }));
         } else {
           var used = self.p._secretUsed[en.id];
-          btns.push(new G.UI.Btn({
-            x: x, y: y, w: 206, h: 24, small: true, disabled: !!used,
+          dropdown.push(new G.UI.Btn({
+            x: x0, y: y, w: w, h: 20, small: true, disabled: !!used,
             variant: 'gold',
             label: Dg.SECRETS[en.id] + (used ? '（已用）' : '　秘术'),
             onClick: function () { self._castSecret(en.id); }
           }));
         }
       });
-
-      btns.push(new G.UI.Btn({
-        x: 190, y: 164, w: 100, h: 22, small: true, variant: 'ghost', label: '返回',
+      /* 关闭按钮占原 功法 按钮位置（点击回到 command 阶段） */
+      dropdown.push(new G.UI.Btn({
+        x: x0, y: 208, w: w, h: 28, small: true, variant: 'battle', label: '关闭',
         onClick: function () { self.phase = 'command'; self._buildCommand(); }
       }));
-      this.buttons = btns;
+      /* 下拉排在数组前面（hit-test 优先：buttons[0] 是第一条主动技），
+         后跟其余指令按钮。视觉无冲突：下拉 y 96..186 vs 指令 y 208..268。
+         基准取 `_cmdBtns`（不是 this.buttons）—— 连点「功法→道具」不会叠两个下拉。 */
+      var rest = (this._cmdBtns || this.buttons).filter(function (b) { return b._key !== '功法'; });
+      this.buttons = dropdown.concat(rest);
+      /* 下拉背板矩形（渲染时铺一层不透明底，否则日志文字会透出来） */
+      this._dropRect = { x: x0 - 3, y: y0 - 3, w: w + 6, h: 236 - (y0 - 3) };
       this.phase = 'skill';
     },
 
@@ -397,22 +426,26 @@
       var save = G.game.save;
       var names = Object.keys(save.items || {}).filter(function (k) {
         return CONSUM[k] && save.items[k] > 0;
-      }).slice(0, 6);
-      var btns = [];
-      if (!names.length) this._log('囊中并无可用之物。');
+      }).slice(0, 5);
+      if (!names.length) { this._log('囊中并无可用之物。'); return; }
+
+      /* 下拉挂在 道具 按钮正上方（道具按钮已被替换为「关闭」），与功法下拉同一形态（v0.11.2） */
+      var x0 = 14 + 2 * 152, y0 = 208 - names.length * 22 - 2, w = 142;
+      var dropdown = [];
       names.forEach(function (nm, i) {
-        btns.push(new G.UI.Btn({
-          x: 22 + (i % 2) * 218, y: 58 + Math.floor(i / 2) * 26, w: 206, h: 24,
-          small: true, variant: 'default',
+        dropdown.push(new G.UI.Btn({
+          x: x0, y: y0 + i * 22, w: w, h: 20, small: true, variant: 'battle',
           label: nm + ' ×' + save.items[nm],
           onClick: function () { self._useItem(nm); }
         }));
       });
-      btns.push(new G.UI.Btn({
-        x: 190, y: 164, w: 100, h: 22, small: true, variant: 'ghost', label: '返回',
+      dropdown.push(new G.UI.Btn({
+        x: x0, y: 208, w: w, h: 28, small: true, variant: 'battle', label: '关闭',
         onClick: function () { self.phase = 'command'; self._buildCommand(); }
       }));
-      this.buttons = btns;
+      var rest = (this._cmdBtns || this.buttons).filter(function (b) { return b._key !== '道具'; });
+      this.buttons = dropdown.concat(rest);
+      this._dropRect = { x: x0 - 3, y: y0 - 3, w: w + 6, h: 236 - (y0 - 3) };
       this.phase = 'item';
     },
 
@@ -489,6 +522,7 @@
       var self = this;
       this.phase = 'exec';
       this.buttons = [];
+      this._dropRect = null;
 
       var actors = [{ key: 'P', u: this.p }];
       this.es.forEach(function (e, i) {
@@ -896,6 +930,7 @@
       }
       this.pSkill = null;
       this.round += 1;
+      this.cmdTimer = CMD_TIMER;  /* 新回合重置思考倒计时（v0.11.2） */
       this._log('—— 第 ' + this.round + ' 回合 ——');
       this.phase = 'command';
       this._buildCommand();
@@ -1019,12 +1054,23 @@
         return;
       }
 
+      if (p.script === 'probe') {
+        /* M1 §4 m1-2：只记"打赢了"，**不在这里推进任务步** ——
+           抉择 1（杀/放/交）要回镇才弹，任务转 m1-3 由那一步完成。
+           场景是单例、battle 又马上切回 town，所以用 flag 交接而不是场景状态。 */
+        save.quest.flags.probeWin = true;
+        this._log('探子跌坐在地，指缝间渗出血来。');
+        this._finish(true, 'town');
+        return;
+      }
+
       if (p.script === 'wolfKing') {
         save.stone += 500; save.qi += 3000;
         save.items['妖丹'] = (save.items['妖丹'] || 0) + 3;
         save.bossKilled = true;
         save.bossKills = (save.bossKills || 0) + 1;   /* 仙力结算按次计（v0.4 §4） */
-        save.quest.step = 'free';
+        /* M1 起主线不再终结于 'free'：斩狼王 → m1-1 归镇辨丹（《M1 设计 v1.0》§3） */
+        save.quest.step = 'm1-1';
         var drop = G.rng.pick(G.Data.skillDropPool);
         if (!save.skills[drop]) save.skills[drop] = { lv: 1 };
         G.Player.chronicle(save, 'wolfKing', '手刃赤炎狼王');
@@ -1197,6 +1243,19 @@
         if (f.t > 1.05) this.floaters.splice(i, 1);
       }
 
+      /* 思考倒计时（v0.11.2）：仅在 command 阶段、未开自动、未结束 时计 */
+      if (!this.over && !this.auto && this.phase === 'command') {
+        this.cmdTimer = Math.max(0, this.cmdTimer - dt);
+        if (this.cmdTimer <= 0) {
+          /* 超时自动选「攻击」打前排（同 _autoTargetKey 思路） */
+          var k = self._autoTargetKey();
+          if (k) {
+            self._log('（思考超时，自动出手）');
+            self._playerAction(null, k);
+          }
+        }
+      }
+
       /* 演出队列 */
       if (this.cue.length) {
         var c = this.cue[0];
@@ -1232,20 +1291,24 @@
       this._drawFloaters(x);
       this._drawLog(x);
 
-      /* 功法/物品/选目标浮层必须画在日志面板之后：
-         日志面板占 172..204，浮层底部的"返回"按钮正好落在这一段，
-         先画浮层会被日志盖住，按钮直接点不到也看不见。 */
-      if (this.phase === 'skill' || this.phase === 'item' || this.phase === 'target') {
+      /* 选择目标（target）仍是全屏面板；功法/物品现在是按钮上方的下拉框，不需要全屏暗罩。 */
+      if (this.phase === 'target') {
         x.fillStyle = 'rgba(4,6,12,0.52)';
         x.fillRect(0, 0, 480, 272);
-        var title = this.phase === 'skill' ? '功法' : (this.phase === 'item' ? '物品' : '选择目标');
+        var title = '选择目标';
         G.UI.frame(x, { x: 12, y: 34, w: 456, h: 176 }, title, { paper: true });
-        var hint = this.phase === 'target' ? '选择攻击对象（前排更近、后排更远）'
-          : this.phase === 'skill'
-            ? (this.p.statuses['封'] ? '封印中：本回合无法施展功法'
-              : '消耗灵力施展，冷却完毕方可再用')
-            : '选中即消耗一份，本回合交由敌方行动';
+        var hint = '选择攻击对象（前排更近、后排更远）';
         G.UI.text(x, { x: 240, y: 196 }, hint, 10.5, G.UI.C.textDim, 'center');
+      }
+      /* 功法/道具下拉的背板：铺一层不透明底，否则底下的战斗日志文字会透出来（截图里很花） */
+      if ((this.phase === 'skill' || this.phase === 'item') && this._dropRect) {
+        var dr = this._dropRect;
+        x.fillStyle = 'rgba(10,13,22,0.94)';
+        G.UI.rr(x, dr, 4);
+        x.fill();
+        x.strokeStyle = 'rgba(216,183,104,0.28)';
+        x.lineWidth = 0.9;
+        x.stroke();
       }
 
       if (this.phase === 'result') {
@@ -1451,12 +1514,27 @@
     },
 
     _drawTopBar: function (x) {
-      var g = x.createLinearGradient(0, 0, 0, 26);
+      var g = x.createLinearGradient(0, 0, 0, 30);
       g.addColorStop(0, 'rgba(6,8,14,0.86)');
       g.addColorStop(1, 'rgba(6,8,14,0)');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 26);
+      x.fillStyle = g; x.fillRect(0, 0, 480, 30);
 
       G.UI.textOut(x, { x: 12, y: 6 }, '第 ' + this.round + ' 回合', 13, '#eae6da');
+
+      /* 思考倒计时（v0.11.2）：只在 command 阶段显示；auto / 已出手 / 结束时隐藏 */
+      if (this.phase === 'command' && !this.auto && !this.over) {
+        var t = Math.max(0, Math.ceil(this.cmdTimer));
+        var pct = Math.max(0, Math.min(1, this.cmdTimer / CMD_TIMER));
+        G.UI.textOut(x, { x: 110, y: 6 }, '思考 ' + t + 's', 11.5,
+          t <= 5 ? '#e0a080' : '#a8dcc4');
+        /* 细进度条（76×3，10px 起） */
+        var bx = 110, byy = 19, bw = 76, bh = 3;
+        x.fillStyle = 'rgba(255,255,255,0.08)';
+        x.fillRect(bx, byy, bw, bh);
+        x.fillStyle = t <= 5 ? '#e0a080' : '#a8dcc4';
+        x.fillRect(bx, byy, bw * pct, bh);
+      }
+
       var p = this.params;
       var label = p.script === 'heartDemon' ? '问心魔劫'
         : this.es[0].boss ? '首领战' : (p.script ? '剧情战' : '遭遇战');

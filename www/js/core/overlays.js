@@ -93,6 +93,51 @@
       return P;
     },
 
+    /* 抉择卡：M1 §4 起剧情要"选一个，并且记下来"（抉择 1 杀/放/交、抉择 2 护镇/护人）。
+       opt = { title, name, portrait, lines:[], note }
+       版式与 dialog 同源（立绘 + 名牌 + 折行台词），差别只有：
+       ① 底部预留 3 条竖排选项按钮的位置（按钮由调用方建，这里只画框与文案）；
+       ② 多一行 note 用来写"这个选择会被记住"之类的提示。
+       为什么不让调用方自己拼：抉择卡以后还会加（m1-5），拼一次就会走样一次。 */
+    choice: function (x, opt) {
+      opt = opt || {};
+      var P = this.PANEL;
+      this.dim(x);
+      G.UI.frame(x, P, opt.title, { paper: true });
+
+      var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
+      G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4,
+        { paper: false, shadow: false });
+      var art = G.Art.portrait(opt.portrait || 'villager');
+      if (art) x.drawImage(art.c, box.x, box.y, art.w, art.h);
+
+      var tx = box.x + box.w + 14;
+      var tw = P.x + P.w - 18 - tx;
+      if (opt.name) {
+        x.font = G.UI.F(13);
+        var nw = x.measureText(opt.name).width + 20;
+        G.UI.rr(x, { x: tx, y: box.y - 3, w: nw, h: 19 }, 4);
+        x.fillStyle = 'rgba(216,183,104,0.16)'; x.fill();
+        x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.45)'; x.stroke();
+        G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
+      }
+      var ly = box.y + (opt.name ? 25 : 0);
+      (opt.lines || []).forEach(function (l) {
+        G.UI.wrap(x, l, 12.5, tw).forEach(function (row) {
+          G.UI.text(x, { x: tx, y: ly }, row, 12.5, G.UI.C.text);
+          ly += 20;
+        });
+        ly += 3;
+      });
+      /* note 挂在台词之后，但要**让位给底部的选项按钮**（按钮区从 P.y+150 起，
+         3 条竖排 × 24）。台词多折一行时 note 自动上移，不会压到按钮上。 */
+      if (opt.note) {
+        var ny = Math.min(ly + 6, P.y + 138);
+        G.UI.text(x, { x: P.x + 14, y: ny }, opt.note, 10.5, G.UI.C.textDim);
+      }
+      return P;
+    },
+
     closeBtn: function (scene, y) {
       return new G.UI.Btn({
         x: 190, y: y == null ? 218 : y, w: 100, h: 24, small: true, variant: 'ghost',

@@ -574,15 +574,17 @@
       x.translate(pad, pad);
       var s = { x: 0, y: 0, w: w, h: h };
 
-      /* 落影 */
-      x.save();
-      x.shadowColor = 'rgba(0,0,0,0.45)';
-      x.shadowBlur = 3;
-      x.shadowOffsetY = 1.6;
-      rr(x, s, r);
-      x.fillStyle = 'rgba(8,10,16,0.9)';
-      x.fill();
-      x.restore();
+      /* 落影（default 变体保留；battle/ghost/tab/subtab 不想要投影，画面会变铁丝网） */
+      if (variant !== 'battle' && variant !== 'ghost' && variant !== 'tab' && variant !== 'subtab') {
+        x.save();
+        x.shadowColor = 'rgba(0,0,0,0.45)';
+        x.shadowBlur = 3;
+        x.shadowOffsetY = 1.6;
+        rr(x, s, r);
+        x.fillStyle = 'rgba(8,10,16,0.9)';
+        x.fill();
+        x.restore();
+      }
 
       if (variant === 'gold') {
         var g = x.createLinearGradient(0, 0, 0, h);
@@ -646,6 +648,27 @@
           x.fillRect(3, 1.6, w - 6, 1.1);
         }
 
+      } else if (variant === 'battle') {
+        /* 战斗指令按钮（v0.11.2）：墨玉底 + **无投影** + 0.9px 细描边 + 顶部细高光。
+           default 变体的阴影 blur=3 + 1px 描边 + 顶部 1.1px 高光叠在一起 → 整屏按钮看着像一张铁丝网，
+           砍掉投影、收细描边，整体"线框感"立刻降一半。颜色由调用方用 `color` 字段注入（默认中性）。 */
+        rr(x, s, r);
+        var bg = x.createLinearGradient(0, 0, 0, h);
+        if (pressed) {
+          bg.addColorStop(0, 'rgba(20,26,42,0.96)');
+          bg.addColorStop(1, 'rgba(14,18,30,0.96)');
+        } else {
+          bg.addColorStop(0, 'rgba(28,36,56,0.82)');
+          bg.addColorStop(1, 'rgba(18,24,38,0.82)');
+        }
+        x.fillStyle = bg; x.fill();
+        rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
+        x.strokeStyle = pressed ? 'rgba(168,180,210,0.55)' : 'rgba(168,180,210,0.32)';
+        x.lineWidth = 0.9; x.stroke();
+        if (!pressed) {
+          x.fillStyle = 'rgba(255,255,255,0.08)';
+          x.fillRect(3, 1.4, w - 6, 0.9);
+        }
       } else {  /* default：墨玉 */
         var g2 = x.createLinearGradient(0, 0, 0, h);
         if (pressed) {

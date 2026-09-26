@@ -69,8 +69,140 @@
     chatWoodman: {
       title: '青溪镇 · 院外', name: '老樵夫', portrait: 'villager',
       lines: ['“柴砍得再多，也砍不过命。”', '“破庙那头的风，夜里听着不像风。”']
+    },
+
+    /* ===== M1 主线（《M1 剧情与内容设计 v1.0》§4）=====
+       排版约束：dialog 的台词列从 y≈81 起、每行 20，底部按钮在 214。
+       所以**每段台词最多 5 个折行**（81 + 5×20 + 4×3 ≈ 193 < 214）。
+       写长了会压到按钮上，而且这是静默的 —— 加台词前先数行。 */
+    m1_1: {
+      title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
+      lines: [
+        '沈伯接过妖丹，只看一眼，脸色骤变。',
+        '“这丹里有血引——狼王是他们放养的东西。”',
+        '“你杀了它，血煞教迟早循来。”',
+        '“镇上多了个生面孔，去摸摸他的底。”'
+      ]
+    },
+    /* 赠的那本功法是随机的 → 文案要现算。技能 id 存在 q.flags.oldDebtSkill 上，
+       不放场景属性：场景是单例，靠它传值一旦漏清就是"上辈子的功法名"。 */
+    m1_3: function (save) {
+      var d = {
+        title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
+        lines: [
+          '沈伯沉默良久。',
+          '“我年轻时是越国散修，筑基那夜遭人暗算，毁了道基。”',
+          '“外堂执事至少筑基修为——你若不筑基，全镇都得死。”'
+        ]
+      };
+      var sk = save.quest && save.quest.flags && save.quest.flags.oldDebtSkill;
+      if (sk && G.Data.skills[sk]) d.reward = '习得《' + G.Data.skills[sk].n + '》';
+      return d;
+    },
+    m1_4: {
+      title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
+      lines: [
+        '“筑基丹郡城才有货，刘掌柜能替你调。”',
+        '“若嫌贵，凑齐妖丹三枚、灵石六百，”',
+        '“我连夜给你开一炉。”'
+      ]
+    },
+    probe1: {
+      title: '青溪镇 · 刘记门前', name: '行脚商', portrait: 'cultist',
+      lines: [
+        '“客官好面相，一看便是修道之人。”',
+        '你盯着他的手：虎口厚茧，是常年握刀的手。',
+        '“血煞教的人，不该来青溪镇。”'
+      ]
+    },
+    marketHint: {
+      title: '刘记杂货 · 刘掌柜', name: '刘掌柜', portrait: 'keeper',
+      lines: ['“这些天镇上来了生面孔，”', '“出手阔绰得反常。”']
+    },
+    /* 抉择 1 的情境文案（选项按钮由 openChoice1 建） */
+    choice1: {
+      title: '抉择 · 血煞教探子', name: '血煞教探子', portrait: 'cultist',
+      lines: [
+        '探子跌坐在地，捂着胸口看你。',
+        '“杀了我，外堂只会派更多人来。”',
+        '“放我走，我欠你一条命。”'
+      ],
+      note: '此选择记入因果，影响血夜之战。'
     }
   };
+
+  /* ============================================================
+     M1 主线工具
+     ============================================================ */
+
+  /* 旧存档兼容：M1 之前斩狼王把 step 写成 'free'（= 主线已了），
+     M1 起改成 'm1-1'。这里就地归一化一次，后面的判定只认 m1-1。
+     幂等、无副作用 —— 每次进镇跑一遍没有代价。 */
+  function normStep(save) {
+    var q = save.quest;
+    if (q && q.step === 'free' && save.bossKilled) q.step = 'm1-1';
+    return q ? q.step : 'free';
+  }
+
+  /* m1-3 赠功法：从沈伯旧藏池里挑一本灵阶功法。
+     优先给**与主角灵根同属性**的（设计 §4 m1-3），同属性有多本就随机；
+     一本都没匹配上就全池随机。已习得的排除在外，除非池子已被学空。 */
+  function grantLingSkill(save) {
+    var pool = (G.Data.shenBoPool || []).slice();
+    var own = save.skills || {};
+    var fresh = pool.filter(function (id) { return !own[id]; });
+    if (!fresh.length) fresh = pool;
+    var elems = (save.linggen && save.linggen.elems) || [];
+    var matched = fresh.filter(function (id) {
+      var sd = G.Data.skills[id];
+      return sd && elems.indexOf(sd.elem) >= 0;
+    });
+    var pick = G.rng.pick(matched.length ? matched : fresh);
+    if (!pick) return null;
+    if (!own[pick]) save.skills[pick] = { lv: 1 };
+    return pick;
+  }
+
+  /* m1-4 门槛（设计 §4）：炼气六段 = gl 15 */
+  var M1_4_GATE = 15;
+
+  /* 抉择 1：三个选项各自记因果，然后统一推进到 m1-3。
+     因果写在 save.karma（本世内有效）与 chronicle（跨世走马灯）。 */
+  function openChoice1(scene) {
+    var save = G.game.save, q = save.quest;
+    var P = G.Overlays.PANEL;
+    /* 三条按钮必须**各自错开 y**：全建在同一个 y 会完全重叠，
+       点哪一条都是最后建的那条（命中测试按数组顺序，第一个矩形就吃掉了）。 */
+    var OPTS = [
+      { kind: 'kill', karma: 'cultistKill', v: 'danger',
+        label: '杀了他 · 永绝后患', line: '探子死于镇外，血煞教外堂震怒' },
+      { kind: 'spare', karma: 'cultistSpare', v: 'ghost',
+        label: '放他走 · 别再踏上青溪镇', line: '你放走了血煞教探子「阿七」' },
+      { kind: 'hand', karma: 'cultistHand', v: 'default',
+        label: '交给沈伯处置', line: '探子被囚于沈家柴房' }
+    ];
+    var btns = OPTS.map(function (o, i) {
+      return new G.UI.Btn({
+        x: P.x + 14, y: 176 + i * 24, w: P.w - 28, h: 20, small: true,
+        variant: o.v, label: o.label,
+        onClick: function () {
+          q.flags.probe = o.kind;
+          q.step = 'm1-3';
+          save.karma = save.karma || {};
+          save.karma[o.karma] = true;
+          G.Player.chronicle(save, 'probe:' + o.kind, o.line);
+          G.Storage.saveCurrent(save);
+          G.game.toast(o.line);
+          scene.clearOverlay();
+          /* 任务转 m1-3 后探子就不该还在镇上了 ——
+             但地图只在 enter() 时构建，覆盖层一收不会重建，他会**继续站在那里**，
+             直到玩家出镇再回来。这里就地重铺一次地图。 */
+          if (scene.map) scene.map = G.MapGen.buildMap(save, 'town');
+        }
+      });
+    });
+    scene.setOverlay('choice1', btns);
+  }
 
   function openChat(scene, key) {
     scene.setOverlay(key, [
@@ -79,9 +211,28 @@
     ]);
   }
 
+  /* ===== 外堂探子（m1-2）=====
+     两句试探 → 点破 → 撕破脸开打。打完由 battle 写 flags.probeWin，
+     回镇时 hooks.enter 弹抉择 1（所以这里只负责把玩家送进战斗）。 */
+  function talkProbe(scene) {
+    var save = G.game.save, q = save.quest;
+    if (q.step !== 'm1-2') { G.game.toast('“客官，看看山货？”'); return; }
+    scene.setOverlay('probe1', [
+      new G.UI.Btn({
+        x: 190, y: 214, w: 100, h: 24, small: true, variant: 'danger',
+        label: '点破他',
+        onClick: function () {
+          scene.clearOverlay();
+          G.game.changeScene('battle', { script: 'probe', mapId: 'town' });
+        }
+      })
+    ]);
+  }
+
   var NPC_ACTS = {
     shenbo: function (scene) { shenBo(scene); },
     market: function (scene) { openMarket(scene); },
+    probe: function (scene) { talkProbe(scene); },
     'chat.washer': function (scene) { openChat(scene, 'chatWasher'); },
     'chat.woodman': function (scene) { openChat(scene, 'chatWoodman'); }
   };
@@ -94,15 +245,38 @@
 
   /* 头顶任务标记：！有话可接 / ？可交付，无任务不挂 */
   function npcMark(npc) {
-    if (npc.act !== 'shenbo') return null;
     var save = G.game.save, q = save.quest;
+    var step = normStep(save);
+    if (npc.act === 'probe') return step === 'm1-2' ? '!' : null;
+    if (npc.act === 'market') {
+      /* m1-4：刘掌柜手上有筑基丹的货源（到门槛才挂，免得低境界时给空头指引） */
+      if (step === 'm1-4' && !q.flags.foundPill
+        && (save.globalLevel || 1) >= M1_4_GATE) return '?';
+      return null;
+    }
+    if (npc.act !== 'shenbo') return null;
     if (q.step === 'm0-1') return q.flags.won1 ? '?' : '!';
     if (q.step === 'm0-4' && save.globalLevel >= 9 && !q.flags.gotBreakPill) return '?';
+    /* —— M1 —— */
+    if (step === 'm1-1') return '!';                       /* 辨丹 */
+    if (step === 'm1-3') return '?';                       /* 旧账 */
+    if (step === 'm1-4' && !q.flags.foundPill
+      && (save.globalLevel || 1) >= M1_4_GATE) return '?';  /* 旧方开炉 */
     return null;
   }
 
   hooks.onNpc = onNpc;
   hooks.npcMark = npcMark;
+
+  /* 回镇收口：探子战打赢了就把抉择 1 摆上来。
+     为什么放这里而不是战斗里 —— 战斗只负责"打完了"，抉择卡的版式、按钮、
+     因果写入全属于镇子这一侧；塞进 battle 等于把两套 UI 体系缝在一起。 */
+  hooks.enter = function (scene) {
+    var save = G.game.save;
+    if (!save || !save.quest) return;
+    var q = save.quest;
+    if (q.step === 'm1-2' && q.flags.probeWin && !q.flags.probe) openChoice1(scene);
+  };
 
   /* ===== 沈家小院 ===== */
   /* 打坐（蒲团）：灵气 + 年龄推进（轮回 v0.4 §3.2） */
@@ -171,8 +345,71 @@
   }
 
   /* ===== 沈伯 ===== */
+  /* 沈伯这条线的对话按钮都长一个样（「知道了」），抽出来省得抄错坐标 */
+  function ack(scene, label, variant) {
+    return new G.UI.Btn({
+      x: 190, y: 214, w: 100, h: 24, small: true,
+      variant: variant || 'gold', label: label || '知道了',
+      onClick: function () { scene.clearOverlay(); }
+    });
+  }
+
   function shenBo(scene) {
     var save = G.game.save, q = save.quest;
+    var step = normStep(save);
+
+    /* —— m1-1 归镇辨丹 —— */
+    if (step === 'm1-1') {
+      q.flags.bloodDan = true;
+      q.step = 'm1-2';
+      G.Player.chronicle(save, 'bloodDan', '狼王妖丹内藏血引，血煞教放养');
+      G.Storage.saveCurrent(save);
+      /* 这里**不要**再 toast —— toast 落在 y≈226，正好压住对话框底部的「知道了」，
+         而台词最后一句说的就是同一件事（"镇上多了个生面孔，去摸摸他的底"）。 */
+      scene.setOverlay('m1_1', [ack(scene)]);
+      return;
+    }
+    /* —— m1-3 沈伯旧账：赠一本灵阶功法 —— */
+    if (step === 'm1-3') {
+      q.flags.oldDebt = true;
+      q.step = 'm1-4';
+      var got = grantLingSkill(save);
+      if (got) q.flags.oldDebtSkill = got;
+      G.Player.chronicle(save, 'oldDebt', '沈伯自述来历，赠旧藏功法'
+        + (got ? '《' + G.Data.skills[got].n + '》' : ''));
+      G.Storage.saveCurrent(save);
+      scene.setOverlay('m1_3', [ack(scene)]);
+      return;
+    }
+    /* —— m1-4 筑基筹备：沈伯旧方（妖丹×3 + 灵石 600）—— */
+    if (step === 'm1-4') {
+      if (q.flags.foundPill) {
+        scene.setOverlay('shenboIdle', [ack(scene)]);
+        return;
+      }
+      if ((save.globalLevel || 1) < M1_4_GATE) {
+        G.game.toast('沈伯：火候未到，先修到炼气六段再说');
+        return;
+      }
+      var hasDan = (save.items['妖丹'] || 0) >= 3 && (save.stone || 0) >= 600;
+      var btns = [
+        new G.UI.Btn({
+          x: 150, y: 214, w: 180, h: 24, small: true,
+          variant: hasDan ? 'gold' : 'default', disabled: !hasDan,
+          label: hasDan ? '沈伯开炉 · 妖丹×3 + 灵石 600'
+            : '需 妖丹×3 + 灵石 600',
+          onClick: function () {
+            save.items['妖丹'] -= 3;
+            if (!save.items['妖丹']) delete save.items['妖丹'];
+            save.stone -= 600;
+            finishPill(scene, save, q, '沈伯连夜开炉。三十年没动过丹炉了。');
+          }
+        })
+      ];
+      scene.setOverlay('m1_4', btns);
+      return;
+    }
+
     if (q.step === 'm0-1' && !q.flags.won1) {
       scene.setOverlay('shenbo1', [
         new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
@@ -202,18 +439,71 @@
     ]);
   }
 
-  /* ===== 刘记杂货 ===== */
+  /* 取得筑基丹 → m1-4 收口（设计 §4）。
+     ⚠️ m1-5（血夜）尚未落地，所以这里**不动 q.step**，只用 flag 收口：
+     写 q.step = 'm1-5' 会让 QUEST['m1-5'] 落空，任务面板直接退回"逍遥世间"。
+     m1-5 落地时把 q.flags.foundPill = true 那行后面补上 q.step = 'm1-5'。 */
+  function finishPill(scene, save, q, line) {
+    save.items['筑基丹'] = (save.items['筑基丹'] || 0) + 1;
+    q.flags.foundPill = true;
+    G.Player.chronicle(save, 'foundPill', '得筑基丹');
+    G.Storage.saveCurrent(save);
+    G.game.toast('得「筑基丹」' + (line ? '　' + line : ''));
+    scene.clearOverlay();
+  }
+
+  /* ===== 刘记杂货 =====
+     列表与行距**只有一份**（marketList / rowY），建造与渲染都读它 ——
+     以前建造写 `50 + i*21`、渲染写 `SP.y+34+i*21`，两处各写一遍，
+     加一行货就必然对不齐（而且是对不齐在静默里）。
+
+     行距 21 → 20 是为了 m1-4 那一行「筑基丹订购」腾位置：
+     8 行货 + 妖丹回收 = 9 行，按 21 排会顶到「离开」按钮上（实测重叠 4px）。
+     按 20 排：末行 210、底边 228，离开挪到 232 才收得下。 */
+  var ROW_H = 20, ROW_Y0 = 50;
+  function rowY(i) { return ROW_Y0 + i * ROW_H; }
+
+  /* 本趟进店该摆哪些货。m1-4 且未得丹、且到门槛 → 多一行筑基丹。 */
+  function marketList(save) {
+    var q = save.quest, step = normStep(save);
+    var list = SHOP_ITEMS.slice();
+    if (step === 'm1-4' && !q.flags.foundPill && (save.globalLevel || 1) >= M1_4_GATE) {
+      /* 第 2 世起涨价（设计 §4）：轮回让开局宽裕，价格跟着走 */
+      var life = (G.game.meta && G.game.meta.life) || save.life || 1;
+      list.push({ id: '筑基丹', n: '筑基丹', price: life >= 2 ? 1200 : 1000,
+        d: '破境筑基所需', m1: true });
+    }
+    return list;
+  }
+
   function openMarket(scene) {
-    var save = G.game.save, btns = [];
-    SHOP_ITEMS.forEach(function (it, i) {
+    var save = G.game.save, q = save.quest, btns = [];
+    var step = normStep(save);
+
+    /* m1-2 起刘记多一句闲谈（设计 §4 m1-1）：只在第一次开口时演，之后直接开店 ——
+       每次进店都弹一遍对话框会把买东西变成两下点击，纯粹是折腾。 */
+    if (step === 'm1-2' && !q.flags.marketHint) {
+      q.flags.marketHint = true;
+      G.Storage.saveCurrent(save);
+      scene.setOverlay('marketHint', [
+        new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
+          label: '看看货', onClick: function () { openMarket(scene); } })
+      ]);
+      return;
+    }
+
+    var list = marketList(save);
+    list.forEach(function (it, i) {
       var owned = it.skill && save.skills[it.id];
       btns.push(new G.UI.Btn({
-        x: SP.x + SP.w - 76, y: 50 + i * 21, w: 60, h: 18,
-        small: true, label: owned ? '已习得' : '购买',
+        x: SP.x + SP.w - 76, y: rowY(i), w: 60, h: 18,
+        small: true, variant: it.m1 ? 'gold' : 'default',
+        label: owned ? '已习得' : (it.m1 ? '订购' : '购买'),
         disabled: save.stone < it.price || owned,
         onClick: function () {
           save.stone -= it.price;
           if (it.skill) save.skills[it.id] = { lv: 1 };
+          else if (it.m1) { finishPill(scene, save, q, '刘掌柜：郡城调来的货，不赚你钱。'); return; }
           else save.items[it.id] = (save.items[it.id] || 0) + 1;
           openMarket(scene);
         }
@@ -221,7 +511,7 @@
     });
     /* 卖妖丹 */
     btns.push(new G.UI.Btn({
-      x: SP.x + SP.w - 76, y: 50 + SHOP_ITEMS.length * 21, w: 60, h: 18,
+      x: SP.x + SP.w - 76, y: rowY(list.length), w: 60, h: 18,
       small: true, label: '卖妖丹', disabled: !save.items['妖丹'],
       onClick: function () {
         save.items['妖丹'] -= 1;
@@ -231,7 +521,7 @@
       }
     }));
     btns.push(new G.UI.Btn({
-      x: 190, y: 221, w: 100, h: 20, small: true,
+      x: 190, y: 232, w: 100, h: 20, small: true,
       label: '离开', onClick: function () { scene.clearOverlay(); }
     }));
     scene.setOverlay('market', btns);
@@ -240,6 +530,11 @@
   hooks.renderOverlay = function (x, scene) {
     var save = G.game.save;
     if (G.Overlays.route(x, scene)) return;
+    /* 抉择卡：版式与 dialog 同源，只是底部留给竖排选项按钮（选项由 openChoice1 建） */
+    if (scene.overlay === 'choice1') {
+      G.Overlays.choice(x, DIALOGS.choice1);
+      return;
+    }
     /* 对话类覆盖层统一走 dialog（立绘 + 名牌 + 折行台词） */
     var d = DIALOGS[scene.overlay];
     if (d) {
@@ -277,14 +572,17 @@
         '刘记杂货', 16, G.UI.C.goldHi);
       G.UI.text(x, { x: SP.x + SP.w - 18, y: SP.y + 12 },
         '灵石 ' + save.stone, 13, G.UI.C.text, 'right');
-      SHOP_ITEMS.forEach(function (it, i) {
-        var y = SP.y + 34 + i * 21;
-        G.UI.text(x, { x: SP.x + 18, y: y }, it.n, 12, G.UI.C.text);
+      /* 列表与行距必须与 openMarket 读同一份（marketList / rowY），否则货名会串行 */
+      var list = marketList(save);
+      list.forEach(function (it, i) {
+        var y = rowY(i);
+        G.UI.text(x, { x: SP.x + 18, y: y }, it.n, 12,
+          it.m1 ? G.UI.C.goldHi : G.UI.C.text);
         G.UI.text(x, { x: SP.x + 120, y: y }, it.d, 11, G.UI.C.textDim);
         G.UI.text(x, { x: SP.x + SP.w - 92, y: y },
           it.price + ' 灵石', 11, G.UI.C.gold, 'right');
       });
-      var y = SP.y + 34 + SHOP_ITEMS.length * 21;
+      var y = rowY(list.length);
       G.UI.text(x, { x: SP.x + 18, y: y }, '妖丹回收', 12, G.UI.C.text);
       G.UI.text(x, { x: SP.x + SP.w - 92, y: y },
         '15 灵石', 11, G.UI.C.gold, 'right');

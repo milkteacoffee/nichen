@@ -153,7 +153,12 @@
     /* 站桩 NPC：占格设实心（不可穿过），并在**自己这一格**登记交互点 ——
        这样"面对他"和"直接点他"两条路都能走位到相邻格再开口说话。
        必须在随机散布之前处理：否则树/石可能正好落在他脚下，把人埋了。 */
-    var npcs = md.npcs || [];
+    /* condStep 不匹配时该 NPC 这一趟不出现（例：外堂探子只在 m1-2 期间站在镇上）。
+       buildMap 每次 enter 都重建，所以任务一推进，下一次进图就生效，不需要额外的增删逻辑。
+       过滤必须**在散布之前**：否则不出现的 NPC 也会占格、把树挡在他本该站的位置。 */
+    var npcs = (md.npcs || []).filter(function (n) {
+      return !n.condStep || (save.quest && save.quest.step === n.condStep);
+    });
     npcs.forEach(function (n) {
       solid[n.y][n.x] = true; mark(n.x, n.y);
       setInteract(n.x, n.y, { type: 'npc', npc: n, id: n.id, act: n.act });

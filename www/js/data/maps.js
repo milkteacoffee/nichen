@@ -39,7 +39,13 @@
         { id: 'washer', kind: 'villager', name: '浣衣妇', portrait: 'villager',
           x: 22, y: 18, act: 'chat.washer' },
         { id: 'woodman', kind: 'villager', name: '老樵夫', portrait: 'villager',
-          x: 7, y: 13, act: 'chat.woodman' }
+          x: 7, y: 13, act: 'chat.woodman' },
+        /* 外堂探子（M1 §4 m1-1 起）：化名"行脚商"，站在刘记杂货附近。
+           condStep = 只在主线走到这一步时才出现，由 mapgen 在每次进图时求值。
+           用**字符串**而不是函数：契约测试要能"把存档拨到那一步再建一次图"来验占位，
+           函数式条件没法从外部驱动，等于这条 NPC 的占格检查永远测不到。 */
+        { id: 'probe', kind: 'cultist', name: '行脚商', portrait: 'cultist',
+          x: 25, y: 15, act: 'probe', condStep: 'm1-2' }
       ],
       exits: [ { x0: 17, x1: 19, y: 23, to: 'field', spawn: { x: 24, y: 37 }, label: '翠微山' } ]
     },

@@ -30,6 +30,7 @@
     '舒筋丹': '解除麻痹',
     '解封符': '解除封印',
     '淬体突破丹': '大境界突破所需',
+    '筑基丹': '炼气圆满破境筑基所需',
     '妖丹': '杂货铺回收，15 灵石 / 枚'
   };
   /* 可在面板里直接使用的道具（战斗外的即时收益） */
@@ -45,9 +46,15 @@
     'm0-3': { t: '珠内点化', d: '入逆命珠内空间打坐，消化机缘', f: 'dream', fd: '已受点化' },
     'm0-4': { t: '破境备丹', d: '修至淬体九段，回镇向沈伯取淬体突破丹', f: 'gotBreakPill', fd: '已得丹' },
     'm0-5': { t: '赤牙洞 · 狼王', d: '修至炼气三重，入赤牙洞斩赤炎狼王', f: null, fd: '' },
-    'free': { t: '逍遥世间', d: '主线已了，可四处历练、刷秘境、寻界门飞升', f: null, fd: '' }
+    'free': { t: '逍遥世间', d: '狼王已诛，可四处历练、刷秘境、寻界门飞升', f: null, fd: '' },
+    /* —— M1 主线（《M1 剧情与内容设计 v1.0》§3/§4）—— */
+    'm1-1': { t: '归镇辨丹', d: '把狼王妖丹交给沈伯过目', f: 'bloodDan', fd: '已辨丹' },
+    'm1-2': { t: '外堂探子', d: '镇上来了生面孔，去摸摸他的底', f: 'probe', fd: '已处置' },
+    'm1-3': { t: '沈伯旧账', d: '回药铺，听沈伯讲他的来历', f: 'oldDebt', fd: '已闻旧事' },
+    'm1-4': { t: '筑基筹备', d: '修至炼气九段圆满，并取得筑基丹', f: 'foundPill', fd: '已得丹' }
   };
-  var QUEST_ORDER = ['m0-1', 'm0-2', 'm0-3', 'm0-4', 'm0-5', 'free'];
+  var QUEST_ORDER = ['m0-1', 'm0-2', 'm0-3', 'm0-4', 'm0-5', 'free',
+    'm1-1', 'm1-2', 'm1-3', 'm1-4'];
 
   /* ============================================================
      底栏
@@ -356,18 +363,38 @@
       G.UI.text(x, { x: P.x + 14, y: P.y + 80 + i * 18 }, l, 11.5, G.UI.C.text);
     });
 
-    /* 链条：**6 步（含 free）必须整条落在面板内**。
-       起点由上面目标文案的**实际折行数**推出来（写死会让加一句话就顶穿面板下沿），
+    /* 链条：起点由上面目标文案的**实际折行数**推出来（写死会让加一句话就顶穿面板下沿），
        行距 15 → 末行底 ≈ 236，面板底 238，刚好收住。
-       注：面板底 = P.y + P.h = 238，链条最多 6 行；改长 QUEST_ORDER 会越界，
-       由 smoke 的 panels.bounds.contract 兜住（越界是静默的，不会报错）。 */
+       注：面板底 = P.y + P.h = 238，**窗口最多 6 行**。
+       M1 起主线有 10+ 步，整条铺不下 → 改成**以当前步为中心的滑动窗口**：
+       窗口恒 6 行，越界的部分用上下省略号提示，链再长也不会顶穿面板
+       （越界是静默的，不会报错，所以这里必须自己保证行数上界）。 */
     var sy = P.y + 80 + dl.length * 18 + 10;
     var ry = sy + 16;
+    /* 窗口行数由**剩余可用高度**反推，不写死 6：目标文案多折一行，窗口就自动少一行。
+       （写死过 6，加一句长目标就顶穿面板下沿 —— 排版问题是静默的，不报错。） */
+    var CAP = Math.max(3, Math.min(6, Math.floor((P.y + P.h - 10 - ry) / 15)));
+    var win0 = Math.max(0, Math.min(idx - Math.floor(CAP / 2), QUEST_ORDER.length - CAP));
+    if (QUEST_ORDER.length <= CAP) win0 = 0;
+    var win = QUEST_ORDER.slice(win0, win0 + CAP);
     sec(x, P.x + 14, sy, '主线进程');
-    QUEST_ORDER.forEach(function (id, i) {
+    /* 右上角标"第 n / N 步"：窗口滚动后光看标题会不知道整条有多长 */
+    G.UI.textOut(x, { x: P.x + 168, y: sy }, '第 ' + (idx + 1) + ' / ' + QUEST_ORDER.length + ' 步',
+      9.5, G.UI.C.textDim, 'right');
+    /* 上下截断提示：用矢量三角，不依赖字体（缺字会渲染成豆腐块且换机不一致） */
+    var chev = function (cx, cy, up) {
+      x.save(); x.fillStyle = 'rgba(150,158,180,0.75)';
+      x.beginPath();
+      if (up) { x.moveTo(cx - 3.4, cy + 1.8); x.lineTo(cx + 3.4, cy + 1.8); x.lineTo(cx, cy - 2.0); }
+      else { x.moveTo(cx - 3.4, cy - 1.8); x.lineTo(cx + 3.4, cy - 1.8); x.lineTo(cx, cy + 2.0); }
+      x.closePath(); x.fill(); x.restore();
+    };
+    if (win0 > 0) chev(P.x + 150, ry - 7, true);
+    win.forEach(function (id, i) {
+      var gi = win0 + i;
       var s = QUEST[id];
       var y = ry + i * 15;
-      var state = i < idx ? 'done' : (i === idx ? 'now' : 'todo');
+      var state = gi < idx ? 'done' : (gi === idx ? 'now' : 'todo');
       mark(x, P.x + 18, y + 5.5, state);
       var col = state === 'done' ? G.UI.C.jadeHi
         : (state === 'now' ? G.UI.C.goldHi : G.UI.C.textDim);
@@ -375,6 +402,7 @@
       var flag = s.f && q.flags && q.flags[s.f];
       if (flag && s.fd) G.UI.text(x, { x: P.x + 150, y: y }, s.fd, 10, G.UI.C.jadeHi);
     });
+    if (win0 + CAP < QUEST_ORDER.length) chev(P.x + 150, ry + CAP * 15 - 3.5, false);
 
     G.UI.text(x, { x: P.x + 260, y: ry }, '提示', 11, G.UI.C.gold);
     G.UI.text(x, { x: P.x + 260, y: ry + 18 }, '点地面行走，点人与门交互。', 10, G.UI.C.textDim);

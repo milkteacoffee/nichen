@@ -3,8 +3,8 @@
 (function () {
   var MOVE_T = 0.18;
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
-  var HUD_H = 48;                         /* 顶栏高度：这一段不响应点地 */
-  var BOT_H = 28;                         /* 底栏高度：这一段不响应点地（功能栏） */
+  var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
+  var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
 
   /* 资源数值压缩：超过一万用「万」。
      资源格只有 62px 宽，五行灵石中后期是五位数，不压缩就会顶到图标上。 */
@@ -349,8 +349,11 @@
           return;
         }
         if (this.flashDir === 1) return;
-        if (p.y < HUD_H) return;                    /* 顶栏不响应，避免误触 HUD */
-        if (p.y >= 272 - BOT_H) return;             /* 底栏同理：那是功能栏，不是地面 */
+        /* 不再硬挡 HUD/底栏整段：按钮优先派发（game.js）已经处理 HUD/底栏上的真实交互。
+           这里保留 4px 边缘死区防止系统手势误触，但玩家点得到贴着 HUD 的入口与物件。
+           （v0.11.2 修：之前 HUD_H=48 / BOT_H=28 整段挡掉，会让贴边的副本入口点不到。） */
+        if (p.y < 4) return;
+        if (p.y >= 272 - 4) return;
         var tx = Math.floor(this._camX() / 16 + p.x / 16);
         var ty = Math.floor(this._camY() / 16 + p.y / 16);
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
@@ -798,13 +801,15 @@
         x.drawImage(spr, Math.round(px - HW / 2), Math.round(py + 3 - HH), HW, HH);
       },
 
-      /* 站桩 NPC：落地投影 + 待机浮动（相位按坐标错开，一排人不会同频点头）。
-         头顶挂任务标记（探图 v0.2 §NPC：可接 ！/ 可交 ？；无任务不显示）。 */
+      /* 站桩 NPC：落地投影 + 待机**不抖**（v0.11.2 改）。
+         旧版 ±0.8 逻辑像素（≈ 3 实际像素 @ K=4）肉眼可见"上下点头"，
+         玩家反馈"村民动得很奇怪，静止的没事"。
+         站桩不需要呼吸感；动画留给走路的 1 帧上抬（heroSprite 那 1 像素就够）。
+         头顶任务标记保持浮动，那是 UI 层而非人物本身。 */
       _drawNpc: function (x, n, camX, camY) {
         var px = n.x * 16 - camX + 8, py = n.y * 16 - camY + 12;
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
-        var bob = Math.sin(performance.now() / 620 + n.x * 1.7 + n.y * 2.3) * 0.8;
-        var top = py + 3 - HH + bob;
+        var top = py + 3 - HH;
         x.save();
         x.fillStyle = 'rgba(0,0,0,0.28)';
         x.beginPath();
@@ -885,9 +890,8 @@
          四条硬约束，改之前先读：
          ① 数值一律排在条的**右侧**，绝不压在条上 —— 压在条上时数字和条的高光
             叠在一起，亮色地面背景直接糊成一片（旧版 155/155 就是这个问题）；
-         ② 顶栏高度必须等于 HUD_H：onTap 靠它挡掉误触，画得比 HUD_H 高就会出现
-            "点在 HUD 上人却动了"；
-         ③ 资源三格与菜单各占一块固定宽度，数值再长（五位数）也不会互相压字；
+         ② 顶栏视觉高度必须等于 HUD_H：让 HUD 视觉与内容一致。
+         ③ 资源三格与菜单各占一块固定宽度，数值再长（五位数）也不会互相压字;
          ④ 头像走 G.UI.avatar，内部已经把立绘按头部裁好，这里只给圆心与半径。 */
       _drawHUD: function (x) {
         var save = G.game.save;

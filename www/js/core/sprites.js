@@ -177,6 +177,47 @@
   var MAP_SCALE = 1.75;
   var HERO_LW = 16 * MAP_SCALE;      /* 28 */
   var HERO_LH = 24 * MAP_SCALE;      /* 42 */
+  var HERO_SRC_H = 252;              /* 地图角色素材规格（tools/assets-build.py: SIZES 写死 168×252） */
+
+  /* ====== 四向对齐（v0.11.2）======
+     AI 出的左右侧身素材头顶起得更高（hair flying up），均匀缩到 28×42 后，
+     侧身图角色比前后图角色高出 5 逻辑像素（实测 content_top：down/up=69、left/right=40；
+     缩放后 head 落点 down 11.5 vs left 6.67，feet 都落 40.33）。
+     把所有方向的素材**头部顶端**统一钉到 dest y=11.5（用 9-arg drawImage + crop + 非均匀缩放）：
+     - head 对齐，前后左右看上去一样高
+     - feet 同时落到画布底边（dest y=42）
+     - 副作用：每个方向会被非均匀纵缩 5–10%，可接受（视觉高度一致优先于原始比例） */
+  function _heroContentTop(im) {
+    if (!im) return -1;
+    try {
+      if (typeof document === 'undefined') return -1;
+      var iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+      var t = document.createElement('canvas');
+      t.width = iw; t.height = ih;
+      var tx = t.getContext('2d');
+      tx.drawImage(im, 0, 0);
+      var d = tx.getImageData(0, 0, iw, ih).data;
+      for (var y = 0; y < ih; y++) {
+        for (var x = 0; x < iw; x++) {
+          if (d[(y * iw + x) * 4 + 3] > 8) return y;
+        }
+      }
+    } catch (e) { return -1; }
+    return -1;
+  }
+  /* 全局头线：取所有有素材的方向里 content_top 最大的那个作为基线（最稳的视觉锚）。 */
+  var _heroHeadTop = -1;
+  function _ensureHeroHeadTop() {
+    if (_heroHeadTop >= 0) return;
+    var max = -1;
+    ['down', 'up', 'left', 'right'].forEach(function (d) {
+      var im = G.Assets && G.Assets.img ? G.Assets.img('char.hero.' + d + '.0') : null;
+      var t = _heroContentTop(im);
+      if (t > max) max = t;
+    });
+    /* 至少有一个方向的素材能识别；否则保持 -1，调用方会走 fallback（旧行为） */
+    _heroHeadTop = max;
+  }
 
   var heroCache = {};
   function heroSprite(dir, step, pal) {
@@ -190,9 +231,22 @@
       var o = A.cv(HERO_LW, HERO_LH);
       o.x.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
-      /* 一张静图也要有走路动感：第 1 帧整体上抬 1 逻辑像素（三帧登记的是同一张图，
-         所以这 1 像素的起伏就是全部的动画）。裁切留了 4% 留白，抬起来不会削到头发。 */
-      o.x.drawImage(im, 0, step === 1 ? -1 : 0, HERO_LW, HERO_LH);
+      var stepY = step === 1 ? -1 : 0;
+      _ensureHeroHeadTop();
+      var top = _heroContentTop(im);
+      var ih = im.naturalHeight || im.height;
+      if (top >= 0 && _heroHeadTop >= 0 && top <= ih - 1) {
+        /* 把 content_top 钉到 _heroHeadTop 对应的 dest y，feet 钉到 HERO_LH。
+           9-arg drawImage：crop src 顶 top px 丢掉，把剩余塞进 dest 矩形。 */
+        var headDst = _heroHeadTop * HERO_LH / HERO_SRC_H;
+        var dstH = HERO_LH - headDst;
+        var srcH = ih - top;
+        o.x.drawImage(im, 0, top, im.naturalWidth || im.width, srcH,
+                       0, headDst + stepY, HERO_LW, dstH);
+      } else {
+        /* Fallback：无法识别内容盒（无 DOM 或素材未就绪），沿用旧均匀缩放 */
+        o.x.drawImage(im, 0, stepY, HERO_LW, HERO_LH);
+      }
       c = o.c;
     } else {
       c = bake(heroParts(dir, step, pal), 16, 24, null, { scale: MAP_SCALE });
@@ -267,12 +321,17 @@
   var npcCache = {};
   function npcSprite(kind) {
     if (npcCache[kind]) return npcCache[kind];
+    /* cultist = 血煞教探子（M1 §4）。他化名"行脚商"，但袍色压暗红 ——
+       玩家得认得出"这人不对劲"，否则 m1-2 的目标是隐形的。 */
+    var cult = kind === 'cultist';
     var pal = {
-      hair: kind === 'elder' ? '#cfccc0' : '#2b2833',
+      hair: kind === 'elder' ? '#cfccc0' : (cult ? '#231d24' : '#2b2833'),
       skin: '#e8b890',
-      robe: kind === 'elder' ? '#6b7a68' : kind === 'keeper' ? '#7a6a52' : '#8a8a92',
-      robeDark: kind === 'elder' ? '#4c5949' : kind === 'keeper' ? '#5a4d3a' : '#66666e',
-      collar: '#e6ddc2', belt: '#5a4632', shoe: '#2c2a30'
+      /* 主色与暗部**必须拉开明度**：只差一点点的话，程序化立绘会糊成一块红方块
+         （第一版 6d3038 / 4a1f27 就是这样，远看像邮筒）。 */
+      robe: kind === 'elder' ? '#6b7a68' : kind === 'keeper' ? '#7a6a52' : (cult ? '#7a343d' : '#8a8a92'),
+      robeDark: kind === 'elder' ? '#4c5949' : kind === 'keeper' ? '#5a4d3a' : (cult ? '#3d171c' : '#66666e'),
+      collar: cult ? '#c9a2a6' : '#e6ddc2', belt: '#5a4632', shoe: '#2c2a30'
     };
     /* 素材层优先：登记 char.npc.<kind> 就整张替换 */
     var im = G.Assets && G.Assets.img ? G.Assets.img('char.npc.' + kind) : null;

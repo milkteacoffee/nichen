@@ -2169,6 +2169,10 @@
     demon: { hair: '#171520', skin: '#8e8798', robe: '#241a2e', robe2: '#170f20',
       collar: '#4a2a52', eye: '#ff7a4a', brow: '#171520',
       hood: '#1b1424', glow: true },
+    /* 血煞教探子（M1 §4）：化名"行脚商"，所以**不给兜帽**（那等于直接贴标签），
+       只用压暗红的袍子 + 一点血色眼 —— 玩家该觉得"这人不对劲"，但不该一眼看穿。 */
+    cultist: { hair: '#231d24', skin: '#d8ac86', robe: '#7a343d', robe2: '#3d171c',
+      collar: '#c9a2a6', eye: '#b8483a', brow: '#231d24' },
     aran: { hair: '#2f2a34', skin: '#f2c9a4', robe: '#b06a72', robe2: '#8d4f58',
       collar: '#f0e6d4', eye: '#2b2530', brow: '#2f2a34' },
     villager: { hair: '#3a3440', skin: '#e6b98e', robe: '#8a8a92', robe2: '#66666e',
