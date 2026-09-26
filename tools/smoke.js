@@ -3036,6 +3036,54 @@ step(function () {
   });
 }, 'region.link.contract');
 
+/* ---------- 主线分叉契约（v0.38.0，《宗门与散修体系设计 v1.0》§6） ----------
+   ① `m1done` 之后按 `save.cult` 进对应线（散修 → f1-1 / 宗门 → s1-1）
+   ② 条件**不满足时不推进**（不能白送）
+   ③ 条件满足时推进到下一步
+   ④ **一次满足多步要一次推完**（`while` 而不是 `if`）—— 否则主线会卡在半路
+   ⑤ 两条线各自能走到终点（fdone / sdone） */
+step(function () {
+  const O = G.Overlays;
+  if (!O.tickQuest) { errors.push('G.Overlays.tickQuest 缺失'); return; }
+  const mk = function (cult) {
+    const s2 = JSON.parse(JSON.stringify(save));
+    s2.quest = { step: 'm1done', flags: {} };
+    s2.cult = cult; s2.sectId = cult === 'sect' ? 'qxj' : null;
+    s2.wildKills = 0; s2.sectRep = 0; s2.skills = {};
+    s2.dungeonSlot = 0; s2.dungeonFarm = 0;
+    G.game.save = s2;
+    O.tickQuest(s2);
+    return s2;
+  };
+  const f = mk('free');
+  if (f.quest.step !== 'f1-1') errors.push('散修应进 f1-1，实际 ' + f.quest.step);
+  const sc = mk('sect');
+  if (sc.quest.step !== 's1-1') errors.push('宗门应进 s1-1，实际 ' + sc.quest.step);
+
+  const f2 = mk('free');
+  if (f2.quest.step !== 'f1-1') errors.push('条件未满足时不该推进');
+  f2.wildKills = 20;
+  O.tickQuest(f2);
+  if (f2.quest.step !== 'f1-2') errors.push('斩妖 20 后应推进到 f1-2，实际 ' + f2.quest.step);
+
+  const f3 = mk('free');
+  f3.wildKills = 20; f3.dungeonSlot = 1;
+  f3.skills = { a: 1, b: 1, c: 1, d: 1, e: 1 }; f3.sectRep = 120;
+  O.tickQuest(f3);
+  if (f3.quest.step !== 'fdone') {
+    errors.push('一次满足全部条件应推到 fdone，实际 ' + f3.quest.step + '（while 写成了 if？）');
+  }
+
+  const s3 = mk('sect');
+  s3.sectRep = 600;
+  s3.skills = { '青溪剑诀': { lv: 1 } };
+  O.tickQuest(s3);
+  if (s3.quest.step !== 'sdone') errors.push('宗门线应推到 sdone，实际 ' + s3.quest.step);
+  /* 起点不该被"已入宗门"瞬间满足（这是踩过的坑） */
+  const s4 = mk('sect');
+  if (s4.quest.step !== 's1-1') errors.push('宗门线起点应为 s1-1，实际 ' + s4.quest.step);
+}, 'quest.branch.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。

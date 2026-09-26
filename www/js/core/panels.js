@@ -118,10 +118,84 @@
       g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（洞府）' } },
     'm1-7': { t: '离乡', d: '与刘掌柜道别，往云州城去', f: 'leaveTown', fd: '已辞乡',
       g: { map: 'town_market', x: 8, y: 5, who: '刘掌柜（刘记杂货）' } },
-    'm1done': { t: '云州在望', d: 'M1 已了，可继续历练、刷秘境、寻界门飞升', f: null, fd: '', g: null }
+    'm1done': { t: '云州在望', d: 'M1 已了，可继续历练、刷秘境、寻界门飞升', f: null, fd: '', g: null },
+
+    /* ===== 主线分叉（v0.38.0，《宗门与散修体系设计 v1.0》§6）=====
+       M1 之后按 `save.quest.line` 走两条线之一 —— 用户多轮提到"主线本身未动"，
+       这里把设计稿里写好的分叉真正落地。
+       ⚠️ 每步的判据必须是**可测量的状态**（击杀数 / 副本进度 / 贡献 / 功法数）——
+          "去跟某人说话"这类无法自动判定的条件会让主线卡死且没有出口。 */
+    /* —— 散修线：云游 / 机缘 / 独行 —— */
+    'f1-1': { t: '云游四方', d: '在野外斩妖二十只，攒下行走江湖的底气', f: null, fd: '',
+      g: { map: 'field', x: 24, y: 20, who: '翠微山 · 任意野地' } },
+    'f1-2': { t: '偶得残卷', d: '入一处秘境，取回散落其中的功法残卷', f: null, fd: '',
+      g: { map: 'town', x: 18, y: 14, who: '底栏「角色」→ 秘境' } },
+    'f1-3': { t: '博采众长', d: '散修无师，唯有多学几门功法傍身（习得五门）', f: null, fd: '', g: null },
+    'f1-4': { t: '散修之名', d: '声望积到一百二十，散修盟才认你这号人', f: null, fd: '', g: null },
+    'fdone': { t: '独行天下', d: '散修一线已了 —— 江湖再无靠山，也无拘束', f: null, fd: '', g: null },
+    /* —— 宗门线：拜师 / 差遣 / 传功 / 晋升 —— */
+    's1-1': { t: '门中立足', d: '入了一门墙，先为宗门做几件事（贡献三十）', f: null, fd: '',
+      g: { map: 'town', x: 18, y: 14, who: '底栏「宗门」· 副本通关得贡献' } },
+    's1-2': { t: '传功授业', d: '以贡献兑换本门功法，才算真正入门', f: null, fd: '',
+      g: { map: 'town', x: 18, y: 14, who: '底栏「宗门」→ 兑换' } },
+    's1-3': { t: '内门晋升', d: '贡献满二百，可列内门', f: null, fd: '', g: null },
+    's1-4': { t: '真传之资', d: '贡献满六百，宗门才认你是真传', f: null, fd: '', g: null },
+    'sdone': { t: '门墙之内', d: '宗门一线已了 —— 有靠山，也有门规', f: null, fd: '', g: null }
   };
   var QUEST_ORDER = ['m0-1', 'm0-2', 'm0-3', 'm0-4', 'm0-5', 'free',
     'm1-1', 'm1-2', 'm1-3', 'm1-4', 'm1-5', 'm1-6', 'm1-7', 'm1done'];
+
+  /* 分叉两条线各自的顺序（主线走完 m1done 之后二选一） */
+  var ORDER_FREE = ['f1-1', 'f1-2', 'f1-3', 'f1-4', 'fdone'];
+  var ORDER_SECT = ['s1-1', 's1-2', 's1-3', 's1-4', 'sdone'];
+  /* 当前该用哪条顺序 —— **唯一口径**（追踪栏与任务面板都读它，不各判一次） */
+  function questOrderOf(save) {
+    var step = (save && save.quest && save.quest.step) || 'm0-1';
+    if (step.indexOf('f1-') === 0 || step === 'fdone') return ORDER_FREE;
+    if (step.indexOf('s1-') === 0 || step === 'sdone') return ORDER_SECT;
+    return QUEST_ORDER;
+  }
+
+  /* 分叉每步的**可测量判据** */
+  var BRANCH_AT = {
+    'f1-1': function (s) { return (s.wildKills || 0) >= 20; },
+    'f1-2': function (s) { return (s.dungeonSlot || 0) > 0 || (s.dungeonFarm || 0) > 0; },
+    'f1-3': function (s) { return Object.keys(s.skills || {}).length >= 5; },
+    'f1-4': function (s) { return (s.sectRep || 0) >= 120; },
+    /* ⚠️ 起点判据**不能是"已入宗门"** —— 玩家走到分叉时本来就是宗门弟子，
+       那样 s1-1 会被瞬间满足、第一步永远看不到（实测："宗门应进 s1-1，实际 s1-2"）。
+       改成"为宗门做过事（贡献三十）"，这才是一个真的还没完成的状态。 */
+    's1-1': function (s) { return (s.sectRep || 0) >= 30; },
+    's1-2': function (s) {
+      var sect = G.Data.sects && G.Data.sects.byId(s.sectId);
+      return !!(sect && (sect.skills || []).some(function (id) { return s.skills && s.skills[id]; }));
+    },
+    's1-3': function (s) { return (s.sectRep || 0) >= 200; },
+    's1-4': function (s) { return (s.sectRep || 0) >= 600; }
+  };
+  var BRANCH_NEXT = {
+    'f1-1': 'f1-2', 'f1-2': 'f1-3', 'f1-3': 'f1-4', 'f1-4': 'fdone',
+    's1-1': 's1-2', 's1-2': 's1-3', 's1-3': 's1-4', 's1-4': 'sdone'
+  };
+  /* 推进分叉；返回本次推进的文案（供 toast）。
+     ⚠️ 用 `while` 而不是 `if` —— 玩家可能在一步里同时满足多步条件（比如一口气刷完），
+        只推一步会让主线"卡在半路"直到下次进镇。 */
+  G.Overlays.tickQuest = function (save) {
+    var q = save && save.quest;
+    if (!q) return [];
+    var out = [];
+    if (q.step === 'm1done') {
+      q.step = (save.cult === 'sect') ? 's1-1' : 'f1-1';
+      out.push(q.step === 's1-1' ? '主线分岔 —— 宗门线' : '主线分岔 —— 散修线');
+    }
+    var guard = 0;
+    while (BRANCH_AT[q.step] && BRANCH_AT[q.step](save) && guard++ < 8) {
+      q.step = BRANCH_NEXT[q.step];
+      out.push('主线推进 —— ' + ((QUEST[q.step] || {}).t || q.step));
+    }
+    if (out.length) G.Storage.saveCurrent(save);
+    return out;
+  };
 
   /* ============================================================
      底栏
@@ -785,25 +859,27 @@
       return { rows: list.map(function (q) { return { id: q.id, sq: q }; }), win0: 0, total: list.length };
     }
     var q = save.quest || { step: 'free', flags: {} };
-    var idx = QUEST_ORDER.indexOf(q.step);
-    if (idx < 0) idx = QUEST_ORDER.length - 1;
+    /* ⚠️ 顺序表按**当前所在线**取（分叉后主线不再是一条） */
+    var order = questOrderOf(save);
+    var idx = order.indexOf(q.step);
+    if (idx < 0) idx = order.length - 1;
     var CAP = QP.maxRows;
     var win0 = 0;
-    if (QUEST_ORDER.length > CAP) {
-      win0 = Math.max(0, Math.min(idx - Math.floor(CAP / 2), QUEST_ORDER.length - CAP));
+    if (order.length > CAP) {
+      win0 = Math.max(0, Math.min(idx - Math.floor(CAP / 2), order.length - CAP));
     }
-    var rows = QUEST_ORDER.slice(win0, win0 + CAP).map(function (id, i) {
+    var rows = order.slice(win0, win0 + CAP).map(function (id, i) {
       return { id: id, gi: win0 + i, s: QUEST[id] };
     });
-    return { rows: rows, win0: win0, total: QUEST_ORDER.length };
+    return { rows: rows, win0: win0, total: order.length };
   }
 
   function drawQuest(x, scene) {
     var save = G.game.save;
     var q = save.quest || { step: 'free', flags: {} };
     var tab = scene.questTab || 'main';
-    var idx = QUEST_ORDER.indexOf(q.step);
-    if (idx < 0) idx = QUEST_ORDER.length - 1;
+    var idx = questOrderOf(save).indexOf(q.step);
+    if (idx < 0) idx = 0;
     var view = questRows(save, scene);
     var selId = scene.questSel || (tab === 'main' ? q.step : (G.Data.sideQuests.list[0] || {}).id);
     /* 选中项解析：主线行带 `s`（QUEST 条目），支线行带 `sq`（SIDEQ 条目）——
@@ -1748,15 +1824,17 @@
   G.Overlays.trackInfo = function (save) {
     var q = (save && save.quest) || { step: 'm0-1', flags: {} };
     var step = q.step || 'm0-1';
-    var idx = QUEST_ORDER.indexOf(step);
+    /* ⚠️ 顺序表按**当前所在线**取（分叉后主线不再是一条） */
+    var order = questOrderOf(save);
+    var idx = order.indexOf(step);
     if (idx < 0) idx = 0;
-    var s = QUEST[step] || QUEST[QUEST_ORDER[0]];
+    var s = QUEST[step] || QUEST[order[0]];
     var flags = q.flags || {};
     var done = !!(s.f && flags[s.f]);
     return {
-      id: step, idx: idx, total: QUEST_ORDER.length, s: s, flags: flags,
+      id: step, idx: idx, total: order.length, s: s, flags: flags,
       guide: (done && s.g2) ? s.g2 : (s.g || null),
-      upcoming: QUEST_ORDER.slice(idx + 1, idx + 3).map(function (id2) { return QUEST[id2]; })
+      upcoming: order.slice(idx + 1, idx + 3).map(function (id2) { return QUEST[id2]; })
     };
   };
 

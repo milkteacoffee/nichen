@@ -1462,6 +1462,11 @@
       G.Player.agePush(save, 'battle', 1);
       save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel || 1);
 
+      /* 野外击杀计数（v0.38.0）：散修线「云游四方」要"斩妖二十只"。
+         ⚠️ 只算**野外遭遇**（无 script、非副本）—— 剧情战与秘境不该算"云游"。
+         ⚠️ 放在 `_victory` 的最前面，任何分支 return 之前都能记上。 */
+      if (!p.script && !p.dungeon && !p.enemies) save.wildKills = (save.wildKills || 0) + 1;
+
       /* m0-1 沈伯教学：进山打赢 1 场（v0.3 §主线任务表）→ 回镇找沈伯领灵石 50 并解锁 m0-2。
          此前 won1 全项目无人写入，m0-1 → m0-2 直接断链、主线永久卡死。 */
       if (!p.script && save.quest && save.quest.step === 'm0-1') save.quest.flags.won1 = true;

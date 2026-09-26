@@ -406,6 +406,10 @@
     }
 
     if (G.Data.sideQuests) G.Data.sideQuests.tick(save);   /* 支线：条件达成则 1 → 2 */
+    /* 主线分叉推进（v0.38.0）：M1 之后按 quest.line 走散修线 / 宗门线 */
+    if (G.Overlays.tickQuest) {
+      G.Overlays.tickQuest(save).forEach(function (t) { G.game.toast(t); });
+    }
     /* 宗门岁俸（S4）：每长一岁领一次（位阶由贡献推导） */
     if (G.Player.tickStipend) {
       G.Player.tickStipend(save).forEach(function (t) { G.game.toast(t); });
