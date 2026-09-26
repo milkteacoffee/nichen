@@ -202,6 +202,14 @@ G.game.save = save;
    单独留档才好做视觉回归 —— 旧版 155/155 压在血条上的问题就在这两张里看得见。 */
 step(() => { save.pos = null; G.game.changeScene('town', { toSpawn: true }); }, 'hud.enter');
 shot('04_hud', 24);
+
+/* 悬浮说明实拍（v0.11.4）：tooltip 走的是"帧内登记 → 帧末统一画"，
+   所以**必须先注入 G.Input.mouse 再 pump**（shot 的 draw 钩子在 pump 之后跑，来不及）。
+   触屏上 G.Input.mouse 恒为 null → 提示条本就不出现，这两帧是桌面端专有形态。 */
+step(() => { G.Input.mouse = { x: 445, y: 35 }; }, 'hud.tip');   /* 仙晶格中心 */
+shot('04b_hud_tip', 2);
+step(() => { G.Input.mouse = null; }, 'hud.tip.off');
+shot('04c_hud_tip_off', 2);
 step(() => { save.hp = Math.max(1, Math.round(200 * 0.12)); }, 'hud.low');
 shot('04b_hud_lowhp', 24);
 step(() => { save.hp = 200; }, 'hud.restore');
@@ -729,6 +737,10 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'quest'); }, 'panel.quest');
 shot('32_panel_quest', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
 shot('33_panel_bag', 6);
+/* 储物格子的悬浮说明（鼠标落在第一个格子里：BG.x0=26, BG.y0=84, cell=46） */
+step(() => { G.Input.mouse = { x: 49, y: 107 }; }, 'bag.tip');
+shot('33b_bag_tip', 2);
+step(() => { G.Input.mouse = null; }, 'bag.tip.off');
 step(() => { G.Overlays.openPanel(G.game.scene, 'achieve'); }, 'panel.achieve');
 shot('34_panel_achieve', 6);
 

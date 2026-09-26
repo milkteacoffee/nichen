@@ -20,11 +20,11 @@
   hooks.overlayKey = G.TianDao.overlayKey;
 
   /* 门 → 对应室内地图（镇内三栋房子都能走进去） */
-  var DOOR_TO_MAP = { home: 'town_home', shop: 'town_shop', market: 'town_market' };
-
   hooks.onInteract = function (o, scene) {
     if (o.type !== 'door') return;
-    var to = DOOR_TO_MAP[o.id];
+    /* 屋门映射读地图数据（maps.js: town.doors）—— 探索场景的「路引」寻路也读同一份 */
+    var doors = (scene.map && scene.map.md && scene.map.md.doors) || {};
+    var to = doors[o.id];
     if (!to) { G.game.toast('门锁着，推不开'); return; }
     scene._transition({ to: to, spawn: G.Data.maps[to].spawn });
   };

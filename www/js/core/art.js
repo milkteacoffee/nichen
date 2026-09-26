@@ -796,9 +796,10 @@
   }
 
   /* ---------- 洞窟 ---------- */
-  function gCave(x, pal) {
+  /* 洞窟地面公共体：cave 与 bloodcave 只差**基色**与**矿点辉光色**，
+     流程逐字相同（M1 §5.1：bloodcave 复用 cave 纹理流程、基色 #5a3a3c）。 */
+  function gCaveBody(x, pal, base, glow) {
     var TS = GTS, r = rnd(3571);
-    var base = mix(pal.rock, '#2c2a30', 0.52);
     x.fillStyle = base; x.fillRect(0, 0, TS, TS);
     speckle(x, TS, base, 13, 14, 4, 0.12, -0.15, 0.10, 0.46);
     patches(x, TS, base, r, 24, 8, 28, 0.82);
@@ -840,14 +841,24 @@
       xx.fillStyle = alpha(shade(base, 0.26), 0.60); blob(xx, bx - 0.2, by - 0.3, o.rr * 0.74, 0.8);
     });
 
-    /* 微光矿点：洞窟里唯一的冷色，起呼吸感 */
+    /* 微光矿点：洞窟里唯一的冷色，起呼吸感。血洞换成暖红（血煞教据点）。 */
     var gl = [];
     for (var g0 = 0; g0 < 5; g0++) gl.push({ x: r() * TS, y: r() * TS });
     wrapEach(x, TS, gl, 6, function (xx, o, ox, oy) {
-      xx.fillStyle = alpha('#8fd6e8', 0.14); blob(xx, o.x + ox, o.y + oy, 4.2, 0.9);
-      xx.fillStyle = alpha('#8fd6e8', 0.40); blob(xx, o.x + ox, o.y + oy, 1.6, 0.9);
-      xx.fillStyle = alpha('#d8f4ff', 0.70); blob(xx, o.x + ox - 0.3, o.y + oy - 0.3, 0.8, 1);
+      xx.fillStyle = alpha(glow[0], 0.14); blob(xx, o.x + ox, o.y + oy, 4.2, 0.9);
+      xx.fillStyle = alpha(glow[0], 0.40); blob(xx, o.x + ox, o.y + oy, 1.6, 0.9);
+      xx.fillStyle = alpha(glow[1], 0.70); blob(xx, o.x + ox - 0.3, o.y + oy - 0.3, 0.8, 1);
     });
+  }
+
+  function gCave(x, pal) {
+    gCaveBody(x, pal, mix(pal.rock, '#2c2a30', 0.52), ['#8fd6e8', '#d8f4ff']);
+  }
+
+  /* M1 §5.1：血煞外堂据点地面。基色固定 #5a3a3c（不跟世界调色板走 ——
+     这是"血煞教的地盘"，换到哪一界都该是这个色）。 */
+  function gBloodcave(x, pal) {
+    gCaveBody(x, pal, mix('#5a3a3c', '#2a1a1e', 0.42), ['#e8846a', '#ffd9c4']);
   }
 
   /* 大尺度明暗图：与地面纹理同尺寸、1:1 绘制。
@@ -891,7 +902,7 @@
   A.warmup = function (pal) {
     if (!pal) return;
     var jobs = [];
-    ['grass', 'path', 'town', 'cave', 'floor'].forEach(function (k) {
+    ['grass', 'path', 'town', 'cave', 'floor', 'bloodcave'].forEach(function (k) {
       jobs.push(function () { A.groundTex(k, pal); });
       jobs.push(function () { A.shadeTex(k, pal); });
     });
@@ -905,7 +916,8 @@
     })();
   };
 
-  var GROUND = { grass: gGrass, path: gPath, town: gTown, cave: gCave, floor: gFloor };
+  var GROUND = { grass: gGrass, path: gPath, town: gTown, cave: gCave,
+    floor: gFloor, bloodcave: gBloodcave };
 
   /* 取地面大纹理（逻辑 GTS×GTS，内部 K 倍超采样） */
   var GTS_MARK = [];
@@ -1259,7 +1271,7 @@
 
   var DECOR_SIZE = {
     tree: [32, 48], rock: [32, 24], wallrock: [32, 32], fence: [32, 32],
-    well: [32, 40], wall: [32, 44]
+    well: [32, 40], wall: [32, 22]
   };
 
   A.decor = function (t, pal, v) {
@@ -1479,18 +1491,21 @@
   A._decorProc = function (t, pal, v) {
     v = v || 0;
 
-    /* 室内墙：砖砌墙身 + 木梁压顶。做成"上高下矮"的一格块，
-       连排时上沿自然形成一道墙线，读得出房间边界。 */
+    /* 室内墙：矮砖墙 + 木梁压顶。
+       ⚠️ 高度与 DECOR_SIZE.wall 是**一对**：装饰物的锚点是 oy = 16 − h，
+       也就是"底边贴本格下沿、向上长 (h−16) 像素"。h=44 时墙会向上长出 28px，
+       正好盖到**上一行**角色的下半身（玩家截图反馈"围墙把角色挡住了"）。
+       v0.11.4 砍到 22 → 只长出 6px，站位不再被切。改高度必须两处一起改。 */
     if (t === 'wall') {
-      return decorCanvas('d|wall|' + v, 32, 44, function (x) {
-        var W = 32, H = 44;
+      return decorCanvas('d|wall|' + v, 32, 22, function (x) {
+        var W = 32, H = 22;
         /* 墙体 */
         x.fillStyle = '#4a4038';
         x.fillRect(0, 4, W, H - 4);
-        /* 砖块：错缝排列 */
-        var bw = 10, bh = 5.6;
-        for (var row = 0; row < 7; row++) {
-          var y0 = 6 + row * bh;
+        /* 砖块：错缝排列（3 行，矮墙放得下） */
+        var bw = 10, bh = 5;
+        for (var row = 0; row < 3; row++) {
+          var y0 = 5.5 + row * bh;
           var off = (row % 2) ? -bw / 2 : 0;
           for (var c = -1; c < 4; c++) {
             var bx = off + c * bw;
@@ -1498,21 +1513,21 @@
             x.fillStyle = shade('#6b5f52', tone);
             x.fillRect(bx + 0.6, y0 + 0.6, bw - 1.2, bh - 1.2);
             x.fillStyle = alpha('#ffffff', 0.07);
-            x.fillRect(bx + 0.6, y0 + 0.6, bw - 1.2, 0.7);
+            x.fillRect(bx + 0.6, y0 + 0.6, bw - 1.2, 0.6);
           }
         }
         /* 墙脚阴影 */
-        var g = x.createLinearGradient(0, H - 12, 0, H);
+        var g = x.createLinearGradient(0, H - 7, 0, H);
         g.addColorStop(0, 'rgba(0,0,0,0)');
         g.addColorStop(1, 'rgba(0,0,0,0.34)');
-        x.fillStyle = g; x.fillRect(0, H - 12, W, 12);
+        x.fillStyle = g; x.fillRect(0, H - 7, W, 7);
         /* 木梁压顶 */
         x.fillStyle = '#5a4530';
-        x.fillRect(-0.6, 0, W + 1.2, 6);
+        x.fillRect(-0.6, 0, W + 1.2, 5.5);
         x.fillStyle = alpha('#9c7648', 0.55);
-        x.fillRect(-0.6, 0.6, W + 1.2, 1.4);
+        x.fillRect(-0.6, 0.6, W + 1.2, 1.2);
         x.fillStyle = alpha('#000000', 0.30);
-        x.fillRect(-0.6, 5.2, W + 1.2, 0.9);
+        x.fillRect(-0.6, 4.8, W + 1.2, 0.8);
       });
     }
 

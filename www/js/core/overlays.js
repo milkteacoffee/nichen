@@ -22,10 +22,18 @@
   /* 右端让开右上角的关闭钮（宽 22 + 6 边距 + 8 缝） */
   var TAB_X0 = CHAR_PANEL.x + CHAR_PANEL.w - 6 - 22 - 8 - (CHAR_TABS.length * TAB_W + (CHAR_TABS.length - 1) * TAB_GAP);
 
+  /* 「境界」子页的突破按钮几何：**建钮（panels.buildCharTabs）与挂悬浮说明
+     （overlays.charRealm）共用这一份**。两处各写一份必然漂 ——
+     漂了的表现是"悬浮说明浮在按钮旁边"而不是按钮上，且完全静默。 */
+  var CHAR_BREAK = {
+    x: CHAR_PANEL.x + CHAR_PANEL.w - 130, y: CHAR_PANEL.y + 48, w: 116, h: 22
+  };
+
   var O = {
     PANEL: PANEL,
     CHAR_PANEL: CHAR_PANEL,
     CHAR_TABS: CHAR_TABS,
+    CHAR_BREAK: CHAR_BREAK,
     /* 子页签几何：契约要用（写死在契约里等于没钉住） */
     CHAR_TAB_GEOM: { w: TAB_W, gap: TAB_GAP, h: TAB_H, y: TAB_Y, x0: TAB_X0 },
 
@@ -154,25 +162,33 @@
        原先只写在 town.js 的珠内空间里 —— 拆到底栏「功法」页后，**任何地图**都能突破，
        所以逻辑搬到这里（口径只有一份，两处调用不会漂）。
        mapId 取当前场景名：心魔战打完要回到"你刚才站的那张图"。 */
-    doBreak: function (scene) {
+    /* 突破的唯一口径（珠内空间 / 角色面板「境界」子页都调它，不各写一份规则）。
+       `back` = 结算后回到哪个面板：不传就**收起覆盖层回地图** ——
+       以前写死回 'skills'，那是"功法页曾经有突破按钮"时代的产物；
+       现在突破按钮在角色面板「境界」子页，回 'skills' 就跳错地方了。 */
+    doBreak: function (scene, back) {
       var save = G.game.save;
       var mapId = G.game.sceneName;
+      var ret = function () {
+        if (back) this.openPanel(scene, back);
+        else scene.clearOverlay();
+      }.bind(this);
       var r = G.Player.breakthrough(save);
       if (r.ok) {
         G.game.toast('突破成功 —— ' + r.info.n);
-        this.openPanel(scene, 'skills');
+        ret();
         return;
       }
       if (r.big) {
         var b = G.Player.startBigBreak(save);
-        if (!b.ok) { G.game.toast(b.reason); this.openPanel(scene, 'skills'); return; }
+        if (!b.ok) { G.game.toast(b.reason); ret(); return; }
         G.game.toast('「' + b.pill + '」已服下……问心魔劫起');
         scene.clearOverlay();
         G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
         return;
       }
       G.game.toast(r.reason);
-      this.openPanel(scene, 'skills');
+      ret();
     },
 
     /* 主属性卡：图标 + 标签在上、数值在下，横排三张。
@@ -304,52 +320,78 @@
         titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
     },
 
-    /* ---- ② 灵根 ----
-       灵根决定四件事：普攻属性（首元素）、功法匹配加成（同属 ×1.2）、
-       打坐收益（按首元素系数）、灵石回收加成。旧版只显示"金·木·水"一行，
-       玩家看不出自己灵根强弱 —— 这里把系数与相克关系摊开。 */
+    /* ---- ② 灵根（v0.11.4 改成「九维方块图」）----
+       九维 = 五行（金木水火土）+ 四象（光雷风暗），**正好九格**，3×3 摆开。
+       每格：属性字 + 该属性的灵气系数 + 底部一根按系数归一的比例条。
+       拥有的属性亮起、未拥有的压暗 —— 一眼看出"本世灵根倾向哪几维"。
+       旧版是一排只列**已拥有**属性的卡，看不出缺什么，也读不出强弱。
+
+       顺序固定按 NINE 常量，**不按拥有的排**：按拥有的排的话，
+       每次轮回灵根一变，格子的位置就全跳了，玩家记不住"金在哪一格"。 */
     charLinggen: function (x, save) {
-      var P = CHAR_PANEL, LX = P.x + 14, RX = P.x + 206;
+      var P = CHAR_PANEL, LX = P.x + 14;
       var lg = save.linggen || { kind: '五行', elems: ['无'], coef: {}, stoneBonus: 0 };
       var elems = (lg.elems && lg.elems.length) ? lg.elems : ['无'];
       var coef = lg.coef || {};
       var COL = (G.Data.elem && G.Data.elem.color) || {};
-      var coefOf = function (e) { return coef[e] != null ? coef[e] : 1; };
+      var coefOf = function (e) { return coef[e] != null ? coef[e] : 0; };
+      var RX = LX + 160;              /* 右栏起点：九宫格 142 宽 + 18 缝 */
+      var CW = 42, GAP = 8;           /* 格 42 + 缝 8 → 九宫格 142×142 */
 
       O.sec(x, LX, P.y + 38, '灵 根');
       G.UI.textOut(x, { x: P.x + P.w - 38, y: P.y + 39 },
         '类型　' + (lg.kind || '五行'), 11, G.UI.C.goldHi, 'right');
 
-      /* 元素卡：大字属性 + 该属性的灵气系数 */
-      var cw = 52, ch = 38, gp = 8;
-      elems.forEach(function (e, i) {
-        var cx = LX + i * (cw + gp), cy = P.y + 54;
-        G.UI.rr(x, { x: cx, y: cy, w: cw, h: ch }, 4);
-        x.fillStyle = 'rgba(216,183,104,0.12)'; x.fill();
-        x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.45)'; x.stroke();
-        G.UI.text(x, { x: cx + cw / 2, y: cy + 4 }, e, 16, COL[e] || G.UI.C.text, 'center');
-        G.UI.text(x, { x: cx + cw / 2, y: cy + 25 }, '×' + coefOf(e), 9.5,
-          G.UI.C.textDim, 'center');
+      var NINE = ['金', '木', '水', '火', '土', '光', '雷', '风', '暗'];
+      var MAXC = 2.5;                 /* 四象「光暗」2.5 是全系统上界，比例条按它归一 */
+      var gy0 = P.y + 48;
+      NINE.forEach(function (e, i) {
+        var cx = LX + (i % 3) * (CW + GAP);
+        var cy = gy0 + Math.floor(i / 3) * (CW + GAP);
+        var on = elems.indexOf(e) >= 0;
+        var v = coefOf(e);
+        G.UI.rr(x, { x: cx, y: cy, w: CW, h: CW }, 4);
+        x.fillStyle = on ? 'rgba(216,183,104,0.14)' : 'rgba(9,12,20,0.72)'; x.fill();
+        x.lineWidth = 1;
+        x.strokeStyle = on ? 'rgba(216,183,104,0.65)' : 'rgba(216,183,104,0.18)';
+        x.stroke();
+        G.UI.text(x, { x: cx + CW / 2, y: cy + 5 }, e, 14,
+          on ? (COL[e] || G.UI.C.text) : G.UI.C.textDim, 'center');
+        G.UI.textOut(x, { x: cx + CW / 2, y: cy + 23 }, v ? ('×' + v) : '—', 9.5,
+          on ? G.UI.C.goldHi : G.UI.C.textDim, 'center');
+        /* 比例条：槽 + 填充（长度 = 系数 / 上界） */
+        var bx = cx + 5, bw = CW - 10, by = cy + CW - 8;
+        x.fillStyle = 'rgba(255,255,255,0.07)';
+        x.fillRect(bx, by, bw, 3.5);
+        if (v > 0) {
+          x.fillStyle = COL[e] || G.UI.C.gold;
+          x.fillRect(bx, by, bw * Math.min(1, v / MAXC), 3.5);
+        }
       });
+      /* 格下说明：只两行、且**左栏宽度内收得住**（右栏从 RX 起，不能压过去） */
+      G.UI.text(x, { x: LX, y: gy0 + 3 * (CW + GAP) + 4 },
+        '五行在前 · 四象在后', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: LX, y: gy0 + 3 * (CW + GAP) + 18 },
+        '条长 = 系数 / 2.5', 10, G.UI.C.textDim);
 
-      /* 明细（左列） */
-      O.sec(x, LX, P.y + 100, '灵根明细');
+      /* ---- 右栏 ---- */
+      O.sec(x, RX, P.y + 38, '灵根明细');
       [
         ['普攻属性', elems[0] + '（首灵根）'],
         ['打坐收益', '×' + coefOf(elems[0]) + ' / 分钟'],
         ['灵石加成', lg.stoneBonus ? '+' + Math.round(lg.stoneBonus * 100) + '%' : '无'],
         ['功法匹配', '同属功法 ×1.2']
       ].forEach(function (r, i) {
-        var ry = P.y + 116 + i * 16;
-        G.UI.text(x, { x: LX, y: ry }, r[0], 10.5, G.UI.C.textDim);
-        G.UI.text(x, { x: LX + 68, y: ry }, r[1], 10.5, G.UI.C.text);
+        var ry = P.y + 56 + i * 16;
+        G.UI.text(x, { x: RX, y: ry }, r[0], 10.5, G.UI.C.textDim);
+        G.UI.text(x, { x: RX + 68, y: ry }, r[1], 10.5, G.UI.C.text);
       });
 
-      /* 五行相克环（右列）：金→木→土→水→火，火复克金。
+      /* 五行相克环：金→木→土→水→火，火复克金。
          箭头**矢量画** —— 不用 '→' 字符（字体回退会出豆腐块，同 panels.js 的 mark）。 */
-      O.sec(x, RX, P.y + 100, '五行相克');
+      O.sec(x, RX, P.y + 124, '五行相克');
       var WX = ['金', '木', '土', '水', '火'];
-      var mw = 24, mh = 22, ag = 12, my = P.y + 116;
+      var mw = 22, mh = 20, ag = 9, my = P.y + 140;
       WX.forEach(function (e, i) {
         var mx = RX + i * (mw + ag);
         var on = elems.indexOf(e) >= 0;
@@ -357,29 +399,27 @@
         x.fillStyle = on ? 'rgba(216,183,104,0.16)' : 'rgba(9,12,20,0.72)'; x.fill();
         x.lineWidth = 1;
         x.strokeStyle = on ? 'rgba(216,183,104,0.6)' : 'rgba(216,183,104,0.2)'; x.stroke();
-        G.UI.text(x, { x: mx + mw / 2, y: my + 5 }, e, 12, COL[e] || G.UI.C.text, 'center');
+        G.UI.text(x, { x: mx + mw / 2, y: my + 4 }, e, 11.5, COL[e] || G.UI.C.text, 'center');
         if (i < WX.length - 1) {
-          var ax = mx + mw + 1.5, ax2 = mx + mw + ag - 1.5, acy = my + mh / 2;
+          var ax = mx + mw + 1, ax2 = mx + mw + ag - 1, acy = my + mh / 2;
           x.save();
           x.strokeStyle = 'rgba(216,183,104,0.5)'; x.lineWidth = 1; x.lineCap = 'round';
-          x.beginPath(); x.moveTo(ax, acy); x.lineTo(ax2 - 2.4, acy); x.stroke();
+          x.beginPath(); x.moveTo(ax, acy); x.lineTo(ax2 - 2.2, acy); x.stroke();
           x.fillStyle = 'rgba(216,183,104,0.6)';
-          x.beginPath(); x.moveTo(ax2, acy); x.lineTo(ax2 - 3.2, acy - 2.2);
-          x.lineTo(ax2 - 3.2, acy + 2.2); x.closePath(); x.fill();
+          x.beginPath(); x.moveTo(ax2, acy); x.lineTo(ax2 - 3, acy - 2);
+          x.lineTo(ax2 - 3, acy + 2); x.closePath(); x.fill();
           x.restore();
         }
       });
-      G.UI.text(x, { x: RX, y: my + mh + 4 }, '火 复克 金，循环相制', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: RX, y: my + mh + 4 }, '火复克金，循环相制', 10, G.UI.C.textDim);
 
-      /* 底部：四象与系数表。三行都短 ——
-         合成长行会**顶出面板右沿**（横向越界契约原先只看左端 t.x，抓不到右端，v0.11.0 已补）。 */
-      O.sec(x, LX, P.y + 178, '四 象');
-      G.UI.text(x, { x: LX, y: P.y + 196 },
-        '光暗互克 · 光暗克风雷 · 风雷不相克 · 四象皆克五行', 10.5, G.UI.C.textDim);
-      G.UI.text(x, { x: LX, y: P.y + 209 },
-        '五行系数：单 1.5 / 双 1.2 / 三 1.0 / 四 0.8 / 五 0.6', 10, G.UI.C.textDim);
-      G.UI.text(x, { x: LX, y: P.y + 222 },
-        '四象系数：光暗 2.5 / 风雷 2.0 · 四象克五行 ×1.5', 10, G.UI.C.textDim);
+      /* 四象规则：压到右栏底部。**两行都必须短于右栏宽**（204），
+         长行会顶出面板右沿 —— 横向越界契约现判两端，抓得到。 */
+      O.sec(x, RX, P.y + 180, '四 象');
+      G.UI.text(x, { x: RX, y: P.y + 196 },
+        '光暗互克 · 风雷不相克', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: RX, y: P.y + 209 },
+        '四象克五行 · 四象强于五行', 10, G.UI.C.textDim);
     },
 
     /* ---- ③ 属性 ----
@@ -508,6 +548,17 @@
             G.UI.text(x, { x: cx, y: ry }, r.n, 10,
               cur ? G.UI.C.goldHi : (past ? G.UI.C.jadeHi : G.UI.C.textDim));
           });
+      });
+
+      /* 突破按钮（钮本体在 panels.buildCharTabs 里建）的悬浮说明：
+         不可破时把**原因**说清楚（差多少灵气 / 缺哪颗丹），
+         省得玩家对着灰按钮猜 —— 原因原先只在点下去的一瞬间用 toast 闪一下。
+         几何取 O.CHAR_BREAK，与建钮同源。 */
+      G.UI.hover(O.CHAR_BREAK, {
+        title: bs.ready ? '可突破' : '突破 · 条件未满足',
+        text: bs.ready
+          ? (bs.big ? '服下「' + bs.pill + '」，迎问心魔劫。' : '灵气已足，即刻破境。')
+          : (bs.reason || '条件未满足')
       });
     }
   };

@@ -67,6 +67,27 @@
       x.moveTo(0, -s * 0.65); x.lineTo(0, s * 0.6);
       x.moveTo(s * 0.3, -s * 0.5); x.lineTo(s * 0.3, s * 0.5);
       x.stroke();
+    } else if (kind === 'crystal') {   /* 仙晶：双柱棱晶（与"灵石"的菱形明确区分开） */
+      x.fillStyle = '#c9a8f0';
+      x.beginPath();
+      x.moveTo(-s * 0.72, s * 0.78);
+      x.lineTo(-s * 0.5, -s * 0.55);
+      x.lineTo(-s * 0.08, -s * 0.9);
+      x.lineTo(-s * 0.08, s * 0.78);
+      x.closePath(); x.fill();
+      x.strokeStyle = 'rgba(60,30,90,0.6)'; x.lineWidth = 0.6; x.stroke();
+      x.fillStyle = '#e8d8ff';
+      x.beginPath();
+      x.moveTo(s * 0.08, s * 0.78);
+      x.lineTo(s * 0.3, -s * 0.35);
+      x.lineTo(s * 0.66, -s * 0.72);
+      x.lineTo(s * 0.66, s * 0.78);
+      x.closePath(); x.fill();
+      x.strokeStyle = 'rgba(60,30,90,0.5)'; x.stroke();
+      x.fillStyle = 'rgba(255,255,255,0.75)';
+      x.beginPath();
+      x.moveTo(s * 0.34, -s * 0.3); x.lineTo(s * 0.5, -s * 0.6);
+      x.lineTo(s * 0.56, -s * 0.2); x.closePath(); x.fill();
     } else if (kind === 'hp') {
       x.fillStyle = '#d9534f';
       x.beginPath();
@@ -699,6 +720,16 @@
        ⚠️ 不要改成画 '×' / '✕' 字符：工程没有 @font-face，字体是系统回退，
        缺字会渲染成空心方框（豆腐块）且换机器表现不一致 —— 同 panels.js 的 mark()。 */
     this.glyph = o.glyph || null;
+    /* passive：**不可点但外观正常**（储物格子）。直接 disabled 会把整页格子压成灰块、
+       看起来像坏了 —— 所以单开一个开关：只吞点击，不改外观。 */
+    this.passive = !!o.passive;
+    /* fs / sub / subFs / subColor：格子类按钮要在一格里放"名称 + 数量"两行。
+       ⚠️ 这四个字段必须在这里**显式拷贝** —— render 里读的是 this.xxx，
+       漏拷不报错，只会静默不画副行（首版就踩过：格子全是空的）。 */
+    this.fs = o.fs;
+    this.sub = o.sub;
+    this.subFs = o.subFs;
+    this.subColor = o.subColor;
     this._p = 0;
   }
   Btn.prototype.hit = function (p) {
@@ -710,7 +741,10 @@
     var dy = down ? 1 : 0;
     var w = this.w, h = this.h;
 
-    if (this.disabled) {
+    /* passive：**不可点但正常外观**。用于"储物格子"这类——
+       格子要能承接悬浮说明、也要看起来是正常内容，但点下去没有动作。
+       直接 disabled 会把整页格子压成灰块（像坏了），所以单独一个开关。 */
+    if (this.disabled && !this.passive) {
       x.save();
       x.globalAlpha = 0.45;
       rr(x, { x: this.x, y: this.y, w: w, h: h }, 3);
@@ -728,7 +762,7 @@
     }
 
     var col;
-    if (this.disabled) col = '#5c6072';
+    if (this.disabled && !this.passive) col = '#5c6072';
     else if (this.variant === 'gold') col = down ? '#f6ecd8' : '#241a06';
     else if (this.variant === 'ghost') col = C.goldHi;
     else if (this.variant === 'tab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.82)';
@@ -749,11 +783,40 @@
       return;
     }
 
-    x.font = F(this.small ? 12 : 14);
+    x.font = F(this.fs || (this.small ? 12 : 14));
     x.fillStyle = col;
     x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(this.label, this.x + w / 2, this.y + h / 2 + 1 + dy);
+    /* 副行（sub）：格子类按钮要在一格里同时放"名称 + 数量/等级"。
+       为什么不让面板体自己画这两行：`panels.bounds.contract` 会判"文字压在按钮上"，
+       而格子**必须**是可点的按钮（点格子即用）—— 面板体再往上画字就必然报。
+       让按钮自己画（按钮的 label 不经过 textSpy，见 renderPanel 不渲染 buttons）即可。 */
+    var cy = this.y + h / 2 + 1 + dy;
+    if (this.sub) cy -= 5.5;
+    /* 只有"格子类按钮"（带 sub）才自动缩放 / 截断名称；普通按钮的 label 宽度是设计好的 */
+    x.fillText(this.sub ? fitCell(x, this.label, this.fs || (this.small ? 12 : 14), w - 7)
+      : this.label, this.x + w / 2, cy);
+    if (this.sub) {
+      x.font = F(this.subFs || 9.5);
+      x.fillStyle = (this.disabled && !this.passive) ? '#5c6072' : (this.subColor || C.textDim);
+      x.fillText(this.sub, this.x + w / 2, cy + 12.5);
+    }
   };
+
+  /* 格子里的文字必须**装得进格子**：储物格只有 46px 宽，「淬体突破丹」五个字
+     按 10.5px 排出来 52px，会直接顶到邻格的边框上（截图反馈实测）。
+     先自动缩字号（下限 8.5），仍放不下才截断加省略号。
+     ⚠️ 只给带 sub 的"格子类按钮"用 —— 普通按钮的 label 宽度是设计好的，
+     全局自动缩放会让既有一批截图无故变样。 */
+  function fitCell(x, str, size, maxW) {
+    var fs = size;
+    while (fs > 8.5 && x.measureText(str).width > maxW) {
+      fs -= 0.5; x.font = F(fs);
+    }
+    if (x.measureText(str).width <= maxW) return str;
+    var out = str;
+    while (out.length > 1 && x.measureText(out + '…').width > maxW) out = out.slice(0, -1);
+    return out + '…';
+  }
   UI.Btn = Btn;
 
   /* ---------- 打字机 ---------- */
@@ -769,6 +832,91 @@
   Typewriter.prototype.show = function () { this.n = this.text.length; this.done = true; };
   Typewriter.prototype.part = function () { return this.text.slice(0, Math.floor(this.n)); };
   UI.Typewriter = Typewriter;
+
+  /* ---------- 悬浮说明（tooltip） ----------
+     项目原先没有任何 hover 机制。做法是"每帧登记候选区、帧末统一画"：
+     调用方画自己的时候顺带 `G.UI.hover(rect, {title, text})`，
+     由 game.js 在**所有东西画完之后**调 `G.UI.drawHover(x)`。
+
+     ─ 为什么要延后：提示条是"覆盖层之上的覆盖层"，随手画会被后画的面板/按钮盖住。
+     ─ 为什么取**最后**一个而不是第一个：后画的在上层，命中判断必须与视觉层级一致
+       （面板里的格子注册得比底下的 HUD 晚 → 面板优先）。
+     ─ 触屏：`G.Input.mouse` 恒为 null → 整个机制自动静默，不会在手机上挂一块膏药。 */
+  var hoverList = [];
+  var HOVER_MAXW = 210;             /* 正文自动折行的最大宽度 */
+
+  UI.hoverReset = function () { hoverList.length = 0; };
+
+  UI.hover = function (rect, info) {
+    var m = G.Input && G.Input.mouse;
+    if (!m || !info) return false;
+    if (m.x < rect.x || m.x > rect.x + rect.w) return false;
+    if (m.y < rect.y || m.y > rect.y + rect.h) return false;
+    hoverList.push({ rect: rect, info: info });
+    return true;
+  };
+
+  /* 按最大宽度折行；显式 '\n' 强制断行 */
+  function wrapLines(x, text, maxw) {
+    var out = [];
+    String(text).split('\n').forEach(function (para) {
+      if (!para) { out.push(''); return; }
+      var line = '';
+      for (var i = 0; i < para.length; i++) {
+        var t = line + para[i];
+        if (x.measureText(t).width > maxw && line) { out.push(line); line = para[i]; }
+        else line = t;
+      }
+      if (line) out.push(line);
+    });
+    return out;
+  }
+
+  UI.drawHover = function (x) {
+    if (!hoverList.length) return;
+    var m = G.Input && G.Input.mouse;
+    if (!m) return;
+    var info = hoverList[hoverList.length - 1].info;
+    if (typeof info === 'string') info = { text: info };
+
+    var pad = 6, lh = 14;
+    x.font = F(11.5);
+    var titleLines = info.title ? wrapLines(x, info.title, HOVER_MAXW) : [];
+    x.font = F(10.5);
+    var bodyLines = info.text ? wrapLines(x, info.text, HOVER_MAXW) : [];
+    var lines = titleLines.length + bodyLines.length;
+    if (!lines) return;
+
+    var w = 0;
+    x.font = F(11.5);
+    titleLines.forEach(function (l) { w = Math.max(w, x.measureText(l).width); });
+    x.font = F(10.5);
+    bodyLines.forEach(function (l) { w = Math.max(w, x.measureText(l).width); });
+    w = Math.min(HOVER_MAXW, w) + pad * 2;
+    var h = pad * 2 + lh * lines + (titleLines.length && bodyLines.length ? 2 : 0);
+
+    /* 默认贴在被指物件的**下方**；越出下沿就翻到上方；左右再夹进画布 */
+    var r = hoverList[hoverList.length - 1].rect;
+    var bx = Math.max(4, Math.min(480 - w - 4, r.x));
+    var by = r.y + r.h + 4;
+    if (by + h > 272 - 4) by = Math.max(4, r.y - h - 4);
+
+    x.save();
+    x.shadowColor = 'rgba(0,0,0,0.55)'; x.shadowBlur = 6; x.shadowOffsetY = 2;
+    rr(x, { x: bx, y: by, w: w, h: h }, 4);
+    x.fillStyle = 'rgba(10,13,22,0.96)'; x.fill();
+    x.restore();
+    rr(x, { x: bx + 0.5, y: by + 0.5, w: w - 1, h: h - 1 }, 4);
+    x.strokeStyle = 'rgba(216,183,104,0.5)'; x.lineWidth = 1; x.stroke();
+
+    var ty = by + pad;
+    x.textAlign = 'left'; x.textBaseline = 'top';
+    x.font = F(11.5); x.fillStyle = C.goldHi;
+    titleLines.forEach(function (l) { x.fillText(l, bx + pad, ty); ty += lh; });
+    if (titleLines.length && bodyLines.length) ty += 2;
+    x.font = F(10.5); x.fillStyle = C.text;
+    bodyLines.forEach(function (l) { x.fillText(l, bx + pad, ty); ty += lh; });
+  };
 
   G.UI = UI;
 })();

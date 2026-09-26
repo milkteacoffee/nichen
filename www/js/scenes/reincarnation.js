@@ -252,6 +252,9 @@
         scene: 'town', map: 'town',
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,
+        /* 剧情战斗触发格已打完的节点（M1 §5.1 血煞据点）。键 = mapId + ':' + nodeId。
+           老存档没这个字段 → explore.js 用 `|| (… = [])` 就地补，不写迁移。 */
+        scriptBattlesDone: [],
         /* 仙力结算与寿元（轮回 v0.4 §3.2 / §4） */
         maxGlobalLevel: startGL, bossKills: 0, chronicle: [], _ageTick: 0,
         /* 副本（v3.3）：本世秘境序列随入世抽取。**种子化**（缺口 U8）——

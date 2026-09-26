@@ -40,18 +40,42 @@
 
   /* M0 主线链：与 town/field/cave/battle 里的判定一一对应。
      改任务链时**两处都要改** —— 这里只是给玩家看的文案，不做判定。 */
+  /* 主线表。
+     · t / d   标题与目标文案（任务面板与左侧追踪栏共用）
+     · f / fd  进度旗标与"已完成"短标
+     · g       路引目标 { map, x, y, who } —— 探索场景左侧追踪栏据此画箭头与距离。
+               map 是**场景 id**（town / town_shop / field_temple / cave …），
+               跨图时追踪栏沿出口与屋门做一次 BFS 找下一跳（见 explore.js: _routeTo）。
+               x / y 是格坐标，仅同图时用来算方位与距离；who 是目标显示名。
+     · g2      旗标 f 已置位后改用的目标（例：m0-1 打赢一场后要回镇找沈伯）
+     · subs    子任务清单 [{ t, f? }]：给了 f 就按旗标判完成，没给只作提示
+     路引是**纯提示**，不参与任何判定 —— 删掉 g 只影响显示，不会卡住任务。 */
   var QUEST = {
-    'm0-1': { t: '拜入药铺', d: '往翠微山打赢一头妖兽，再回镇复命', f: 'won1', fd: '已胜一场' },
-    'm0-2': { t: '雪夜山神庙', d: '入翠微山破庙，取回那件东西', f: 'templeDone', fd: '已得逆命珠' },
-    'm0-3': { t: '珠内点化', d: '入逆命珠内空间打坐，消化机缘', f: 'dream', fd: '已受点化' },
-    'm0-4': { t: '破境备丹', d: '修至淬体九段，回镇向沈伯取淬体突破丹', f: 'gotBreakPill', fd: '已得丹' },
-    'm0-5': { t: '赤牙洞 · 狼王', d: '修至炼气三重，入赤牙洞斩赤炎狼王', f: null, fd: '' },
-    'free': { t: '逍遥世间', d: '狼王已诛，可四处历练、刷秘境、寻界门飞升', f: null, fd: '' },
+    'm0-1': { t: '拜入药铺', d: '往翠微山打赢一头妖兽，再回镇复命', f: 'won1', fd: '已胜一场',
+      g: { map: 'field', x: 24, y: 32, who: '翠微山 · 前坡' },
+      g2: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' } },
+    'm0-2': { t: '雪夜山神庙', d: '入翠微山破庙，取回那件东西', f: 'templeDone', fd: '已得逆命珠',
+      g: { map: 'field_temple', x: 15, y: 6, who: '山神庙 · 神台' } },
+    'm0-3': { t: '珠内点化', d: '入逆命珠内空间打坐，消化机缘', f: 'dream', fd: '已受点化',
+      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（沈家小院）' } },
+    'm0-4': { t: '破境备丹', d: '修至淬体九段，回镇向沈伯取淬体突破丹', f: 'gotBreakPill', fd: '已得丹',
+      g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' },
+      subs: [{ t: '修至淬体九段' }, { t: '取淬体突破丹', f: 'gotBreakPill' }] },
+    'm0-5': { t: '赤牙洞 · 狼王', d: '修至炼气三重，入赤牙洞斩赤炎狼王', f: null, fd: '',
+      g: { map: 'cave', x: 16, y: 7, who: '赤牙洞 · 狼王' },
+      subs: [{ t: '修至炼气三重' }, { t: '斩赤炎狼王' }] },
+    'free': { t: '逍遥世间', d: '狼王已诛，可四处历练、刷秘境、寻界门飞升', f: null, fd: '', g: null },
     /* —— M1 主线（《M1 剧情与内容设计 v1.0》§3/§4）—— */
-    'm1-1': { t: '归镇辨丹', d: '把狼王妖丹交给沈伯过目', f: 'bloodDan', fd: '已辨丹' },
-    'm1-2': { t: '外堂探子', d: '镇上来了生面孔，去摸摸他的底', f: 'probe', fd: '已处置' },
-    'm1-3': { t: '沈伯旧账', d: '回药铺，听沈伯讲他的来历', f: 'oldDebt', fd: '已闻旧事' },
-    'm1-4': { t: '筑基筹备', d: '修至炼气九段圆满，并取得筑基丹', f: 'foundPill', fd: '已得丹' }
+    'm1-1': { t: '归镇辨丹', d: '把狼王妖丹交给沈伯过目', f: 'bloodDan', fd: '已辨丹',
+      g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' } },
+    'm1-2': { t: '外堂探子', d: '镇上来了生面孔，去摸摸他的底', f: 'probe', fd: '已处置',
+      g: { map: 'town', x: 25, y: 16, who: '行脚商（刘记旁）' },
+      subs: [{ t: '在镇上找到行脚商' }, { t: '处置探子', f: 'probe' }] },
+    'm1-3': { t: '沈伯旧账', d: '回药铺，听沈伯讲他的来历', f: 'oldDebt', fd: '已闻旧事',
+      g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' } },
+    'm1-4': { t: '筑基筹备', d: '修至炼气九段圆满，并取得筑基丹', f: 'foundPill', fd: '已得丹',
+      g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' },
+      subs: [{ t: '修至炼气九段' }, { t: '取得筑基丹', f: 'foundPill' }] }
   };
   var QUEST_ORDER = ['m0-1', 'm0-2', 'm0-3', 'm0-4', 'm0-5', 'free',
     'm1-1', 'm1-2', 'm1-3', 'm1-4'];
@@ -116,6 +140,21 @@
         }
       }));
     });
+    /* 「境界」子页的突破按钮（v0.11.4）：突破是**角色的事**，放在角色面板最顺，
+       原先只在功法页与珠内空间各有一个入口，玩家在角色页看着境界却破不了。
+       口径统一走 G.Overlays.doBreak，这里不重写规则；破完仍回到「境界」子页。 */
+    if (cur === 'realm') {
+      var save = G.game.save;
+      var bs = G.Player.breakState(save);
+      var B = G.Overlays.CHAR_BREAK;
+      btns.push(new G.UI.Btn({
+        x: B.x, y: B.y, w: B.w, h: B.h, small: true,
+        variant: bs.ready ? 'gold' : 'default',
+        label: bs.big ? '突破 · 问心魔劫' : '突破 · ' + (bs.next ? bs.next.n : '已至绝顶'),
+        disabled: !bs.ready,
+        onClick: function () { G.Overlays.doBreak(scene, 'char'); }
+      }));
+    }
   }
 
   function openPanel(scene, id) {
@@ -125,6 +164,8 @@
     /* 角色面板有子页签：**从别处切进来**时回到「总览」，
        面板内点页签（prev 已是 char）则保留当前子页 —— 否则每次点页签都跳回总览。 */
     if (id === 'char' && prev !== 'char') scene.charTab = 'overview';
+    /* 功法面板的下拉：从别处切进来时收起（选中的那本保留，换页签回来还是它） */
+    if (id === 'skills' && prev !== 'skills') scene.skillOpen = false;
     var btns = [];
     if (id === 'skills') buildSkills(btns, scene);
     if (id === 'bag') buildBag(btns, scene);
@@ -197,82 +238,208 @@
   /* ============================================================
      一、功法（境界 / 突破 / 功法精进）
      ============================================================ */
+  /* ============================================================
+     二、功法（v0.11.4 改版）
+     ─ 删掉顶部的「境界 / 灵气进度」整块：境界是角色面板的事，功法面板重复一遍没意义，
+       而且原来的「突破」按钮与角色面板「境界」子页的按钮是同一件事、两个入口。
+     ─ 列表改成**下拉选择**：头部一行显示当前选中，点开列出全部（等级降序），
+       选中后下方展示该功法的效果、面板贡献与「精进」。
+       下拉**展开时不再画详情与精进按钮** —— 两者在 y 上是重叠的，
+       而按钮数组的语义是"下标小 = 命中优先、下标大 = 画在上层"，重叠时这两条互相打架，
+       必有一处点不到。干脆做成互斥的两个状态（真下拉就是这样）。
+     ============================================================ */
+  var TIER_RANK = { '凡': 1, '灵': 2, '宝': 3, '玄': 4, '地': 5, '天': 6, '仙': 7 };
+
+  /* 等级最高的排最上面。同级按品阶降序，最后按 id ——
+     少了最后一层，同级的几本会随 Object.keys 的顺序漂，每次开面板顺序都在跳。 */
+  function skillIdsSorted(save) {
+    return Object.keys(save.skills).sort(function (a, b) {
+      var la = (save.skills[a] && save.skills[a].lv) || 0;
+      var lb = (save.skills[b] && save.skills[b].lv) || 0;
+      if (lb !== la) return lb - la;
+      var ta = TIER_RANK[(G.Data.skills[a] || {}).tier] || 0;
+      var tb = TIER_RANK[(G.Data.skills[b] || {}).tier] || 0;
+      if (tb !== ta) return tb - ta;
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+  }
+
+  /* 下拉头 / 下拉行 / 详情区的几何（渲染与契约共用一份） */
+  var SK = {
+    head: { x: P.x + 14, y: P.y + 40, w: P.w - 28, h: 24 },
+    rowH: 21, maxRows: 6,
+    infoY: P.y + 76,
+    secY: P.y + 96,
+    effY: P.y + 112,
+    contribY: P.y + 184,
+    btn: { x: P.x + P.w - 130, y: P.y + 180, w: 116, h: 22 },
+    hintY: P.y + 198
+  };
+  SK.listY = SK.head.y + SK.head.h + 2;
+
+  function selSkillId(scene, save) {
+    var ids = skillIdsSorted(save);
+    if (!ids.length) return null;
+    /* 没选过 / 选中的已被删掉 → 落回第一条（也就是等级最高的那本） */
+    if (ids.indexOf(scene.skillSel) < 0) scene.skillSel = ids[0];
+    return scene.skillSel;
+  }
+
+  /* 该功法的效果说明（按 kind 分支；与 computeStats 的口径对齐） */
+  function skillEffects(sd) {
+    if (!sd) return ['—'];
+    var out = [];
+    var tc = G.Data.tierCoef[sd.tier] || 1;
+    if (sd.kind === '攻击') {
+      out.push('主动 · 伤害 ×' + sd.mult + (sd.hits > 1 ? '（' + sd.hits + ' 段）' : ''));
+      var bits = [];
+      if (sd.cd > 0) bits.push('冷却 ' + sd.cd + ' 回合');
+      if (sd.hit && sd.hit < 100) bits.push('命中 ' + sd.hit + '%');
+      if (sd.target) bits.push('目标 ' + sd.target);
+      if (bits.length) out.push(bits.join('　'));
+      if (sd.status) {
+        out.push('附加「' + (ST_NAME[sd.status.t] || sd.status.t) + '」'
+          + Math.round(sd.status.chance * 100) + '%');
+      }
+      if (sd.healSelf) out.push('吸取伤害的 ' + Math.round(sd.healSelf * 100) + '% 回复气血');
+      if (sd.heal) out.push('同时回复 ' + Math.round(sd.heal * 100) + '% 气血');
+    } else if (sd.kind === '防御') {
+      out.push('被动 · 每级 防御 +' + (3 * tc) + '（品阶系数 ×' + tc + '）');
+    } else {
+      out.push('被动 · 每级 气血 +' + (20 * tc) + '（品阶系数 ×' + tc + '）');
+    }
+    if (sd.active) {
+      out.push('主动「' + sd.active.n + '」：回复 '
+        + Math.round(sd.active.heal * 100) + '% 气血，冷却 ' + sd.active.cd + ' 回合');
+    }
+    return out;
+  }
+
+  /* 该功法当前给面板加了多少（**与 computeStats 同一套系数**，不另写一份公式） */
+  function skillContrib(sd, lv, save) {
+    var coef = (save.linggen && save.linggen.coef) || {};
+    var m = (G.Data.tierCoef[sd.tier] || 1)
+      * (sd.elem !== '无' && coef[sd.elem] ? 1.2 : 1) * (coef[sd.elem] || 1);
+    if (sd.kind === '攻击') return '攻击 +' + Math.round(lv * 5 * m);
+    if (sd.kind === '防御') return '防御 +' + Math.round(lv * 3 * m);
+    return '气血 +' + Math.round(lv * 20 * m);
+  }
+
   function buildSkills(btns, scene) {
     var save = G.game.save;
-    var bs = G.Player.breakState(save);
-    btns.push(new G.UI.Btn({
-      x: P.x + P.w - 152, y: P.y + 40, w: 138, h: 24, small: true,
-      variant: bs.ready ? 'gold' : 'default',
-      label: bs.big ? '突破 · 问心魔劫' : '突破 · ' + (bs.next ? bs.next.n : '已至绝顶'),
-      disabled: !bs.ready,
-      onClick: function () { G.Overlays.doBreak(scene); }
-    }));
+    var ids = skillIdsSorted(save);
+    if (!ids.length) return;
+    var sel = selSkillId(scene, save);
+    var sd = G.Data.skills[sel] || { n: sel, tier: '凡', elem: '无', kind: '仙术' };
+    var lv = save.skills[sel].lv;
+    var cost = G.Player.skillCost(sd, lv);
 
-    Object.keys(save.skills).slice(0, 5).forEach(function (id, i) {
-      var sd = G.Data.skills[id] || { n: id };
-      var lv = save.skills[id].lv;
-      var cost = G.Player.skillCost(sd, lv);
+    /* 展开时先把列表压进数组 —— 下标小 = 命中优先，列表要盖住下面的一切 */
+    if (scene.skillOpen) {
+      ids.slice(0, SK.maxRows).forEach(function (id, i) {
+        var d = G.Data.skills[id] || { n: id, elem: '无', tier: '凡' };
+        var l = save.skills[id].lv;
+        btns.push(new G.UI.Btn({
+          x: SK.head.x, y: SK.listY + i * SK.rowH, w: SK.head.w, h: SK.rowH - 1,
+          small: true,
+          variant: id === sel ? 'gold' : 'battle',
+          label: d.n + '　Lv' + l + '　' + (d.elem || '无') + '　' + (d.tier || '凡') + '阶',
+          onClick: function () {
+            scene.skillSel = id; scene.skillOpen = false;
+            G.Overlays.openPanel(scene, 'skills');
+          }
+        }));
+      });
+    } else {
       btns.push(new G.UI.Btn({
-        x: P.x + P.w - 96, y: P.y + 94 + i * 21, w: 82, h: 19, small: true,
-        label: '精进 ' + cost, disabled: save.po < cost,
+        x: SK.btn.x, y: SK.btn.y, w: SK.btn.w, h: SK.btn.h, small: true,
+        variant: save.po >= cost ? 'gold' : 'default',
+        label: '精进 ' + cost + ' 灵力', disabled: save.po < cost,
         onClick: function () {
-          save.po -= cost; save.skills[id].lv += 1;
+          save.po -= cost; save.skills[sel].lv += 1;
           G.Storage.saveCurrent(save);
-          G.game.toast(sd.n + ' 精进至 Lv' + save.skills[id].lv);
+          G.game.toast(sd.n + ' 精进至 Lv' + save.skills[sel].lv);
           G.Overlays.openPanel(scene, 'skills');
         }
       }));
-    });
-  }
+    }
 
-  function drawSkills(x) {
-    var save = G.game.save;
-    var st = G.Player.computeStats(save);
-    var bs = G.Player.breakState(save);
-    var ri = G.Player.realmInfo(save.globalLevel);
-    shell(x, '功　法', '灵力 ' + Math.floor(save.po));
-
-    /* 境界与突破 */
-    sec(x, P.x + 14, P.y + 44, '境 界');
-    G.UI.textOut(x, { x: P.x + 60, y: P.y + 38 }, ri.n, 15, G.UI.C.goldHi);
-    var pr = bs.need ? Math.min(1, bs.have / bs.need) : 1;
-    G.UI.text(x, { x: P.x + 14, y: P.y + 62 }, '灵气', 10.5, G.UI.C.textDim);
-    G.UI.bar(x, { x: P.x + 44, y: P.y + 63, w: 108, h: 7 }, pr,
-      bs.ready ? '#f5e3a8' : G.UI.C.qi);
-    G.UI.textOut(x, { x: P.x + 158, y: P.y + 62 },
-      bs.ready ? '可突破' : (bs.have + ' / ' + bs.need), 10.5,
-      bs.ready ? G.UI.C.jadeHi : G.UI.C.textDim);
-
-    /* 功法列表（表头在 y+82，数据从 y+96 起 —— 两者绝不能压在一起） */
-    sec(x, P.x + 14, P.y + 80, '功 法');
-    G.UI.text(x, { x: P.x + 200, y: P.y + 82 }, '属性', 10, G.UI.C.textDim);
-    G.UI.text(x, { x: P.x + 262, y: P.y + 82 }, '等级', 10, G.UI.C.textDim);
-    var ids = Object.keys(save.skills);
-    if (!ids.length) empty(x, P.x + 14, P.y + 96, '尚无功法');
-    ids.slice(0, 5).forEach(function (id, i) {
-      var sd = G.Data.skills[id];
-      var lv = save.skills[id].lv;
-      var y = P.y + 96 + i * 21;
-      G.UI.text(x, { x: P.x + 14, y: y }, sd ? sd.n : id, 12,
-        sd && sd.tier === '仙' ? G.UI.C.goldHi : G.UI.C.text);
-      if (sd) {
-        G.UI.text(x, { x: P.x + 200, y: y + 1 }, sd.elem, 10.5,
-          (G.Data.elem && G.Data.elem.color[sd.elem]) || G.UI.C.textDim);
-        G.UI.text(x, { x: P.x + 262, y: y }, 'Lv' + lv, 11, G.UI.C.textDim);
+    /* 下拉头放最后：它只与"列表"相邻（不重叠），与详情区也不重叠。
+       当前选中的功法名**写进按钮自己的 label**（而不是在按钮上另画一行字）——
+       另画的话会与按钮居中的 label 叠字，panels.bounds.contract 会直接报。 */
+    btns.push(new G.UI.Btn({
+      x: SK.head.x, y: SK.head.y, w: SK.head.w, h: SK.head.h, small: true,
+      variant: scene.skillOpen ? 'gold' : 'default',
+      label: scene.skillOpen
+        ? '收起列表'
+        : sd.n + '　Lv' + lv + '　（共 ' + ids.length + ' 本）',
+      onClick: function () {
+        scene.skillOpen = !scene.skillOpen;
+        G.Overlays.openPanel(scene, 'skills');
       }
+    }));
+  }
+
+  function drawSkills(x, scene) {
+    var save = G.game.save;
+    shell(x, '功　法', '灵力 ' + Math.floor(save.po));
+    var ids = skillIdsSorted(save);
+
+    if (!ids.length) {
+      empty(x, P.x + 14, P.y + 60, '尚无功法 —— 拜师、拾遗、斩首领皆可得。');
+      return;
+    }
+    var sel = selSkillId(scene, save);
+    var sd = G.Data.skills[sel] || { n: sel, tier: '凡', elem: '无', kind: '仙术' };
+    var lv = save.skills[sel].lv;
+    var COL = (G.Data.elem && G.Data.elem.color) || {};
+
+    /* 下拉头：当前功法名与等级由按钮的 label 承担（见 buildSkills），
+       这里只补一个**矢量**展开箭头 —— 不用 '▾' 字符（字体回退会出豆腐块）。 */
+    var hb = SK.head;
+    x.save();
+    x.strokeStyle = G.UI.C.gold; x.lineWidth = 1.6; x.lineCap = 'round';
+    var ax = hb.x + hb.w - 34, ay = hb.y + hb.h / 2;
+    x.beginPath();
+    if (scene.skillOpen) { x.moveTo(ax - 4, ay + 2); x.lineTo(ax, ay - 2.4); x.lineTo(ax + 4, ay + 2); }
+    else { x.moveTo(ax - 4, ay - 2); x.lineTo(ax, ay + 2.4); x.lineTo(ax + 4, ay - 2); }
+    x.stroke();
+    x.restore();
+
+    if (scene.skillOpen) {
+      /* 展开态：只画列表（详情/精进按钮此时不存在，见文件头说明）。
+         列表外框衬一层底，免得文字直接压在面板的回纹上。 */
+      var lh = Math.min(ids.length, SK.maxRows) * SK.rowH;
+      G.UI.panel(x, { x: hb.x - 2, y: SK.listY - 2, w: hb.w + 4, h: lh + 3 },
+        'rgba(8,11,19,0.94)', 'rgba(216,183,104,0.28)', 4, { paper: false, shadow: false });
+      var more = ids.length - SK.maxRows;
+      if (more > 0) {
+        G.UI.textOut(x, { x: hb.x + hb.w - 10, y: SK.listY + lh + 3 },
+          '另有 ' + more + ' 本未列出', 10, G.UI.C.textDim, 'right');
+      }
+      G.UI.text(x, { x: P.x + 14, y: P.y + 202 },
+        '点一本即可切换；等级最高的排在最上面。', 10, G.UI.C.textDim);
+      return;
+    }
+
+    /* ---- 收起态：详情 ---- */
+    var info = (sd.tier || '凡') + '阶　' + sd.kind
+      + '　属性 ' + (sd.elem || '无') + '　等级 Lv' + lv;
+    G.UI.text(x, { x: P.x + 14, y: SK.infoY }, info, 11.5, G.UI.C.text);
+
+    sec(x, P.x + 14, SK.secY, '效 果');
+    skillEffects(sd).slice(0, 3).forEach(function (t, i) {
+      G.UI.text(x, { x: P.x + 14, y: SK.effY + i * 14 }, t, 10.5, G.UI.C.textDim);
     });
 
-    /* 属性速览（右侧空列） */
-    var sy = P.y + 100;
-    [['攻击', st.atk], ['防御', st.def], ['气血', st.maxhp], ['速度', st.spd]]
-      .forEach(function (r, i) {
-        G.UI.text(x, { x: P.x + 300, y: sy + i * 17 }, r[0], 10.5, G.UI.C.textDim);
-        G.UI.textOut(x, { x: P.x + 340, y: sy + i * 17 }, String(r[1]), 10.5, G.UI.C.text, 'right');
-      });
+    G.UI.text(x, { x: P.x + 14, y: SK.contribY }, '本功法贡献', 10.5, G.UI.C.textDim);
+    G.UI.text(x, { x: P.x + 84, y: SK.contribY },
+      skillContrib(sd, lv, save), 11, COL[sd.elem] || G.UI.C.jadeHi);
 
-    G.UI.text(x, { x: P.x + 14, y: P.y + 196 },
-      '「精进」消耗灵力（战斗所得）；大境界需先服突破丹。', 10, G.UI.C.textDim);
+    G.UI.text(x, { x: P.x + 14, y: SK.hintY },
+      '「精进」消耗灵力；贡献未计天赋与世界的百分比加成。', 10, G.UI.C.textDim);
   }
+
 
   /* ============================================================
      二、秘术
@@ -411,17 +578,96 @@
   }
 
   /* ============================================================
-     四、储物
-     ============================================================ */
+     四、储物（v0.11.4 改版：分类子页 + 方格陈列 + 悬浮说明）
+     ─ 原先是一张平铺列表（名 / 数量 / 说明各一列），功法、秘术、灵石根本进不来，
+       玩家看不到"我一共有些什么"。
+     ─ 现在按类分页，每类**独立方格**陈列（8 列 × 3 行 = 24 格），指针停在格上出说明。
+       各类的数据来源不同（杂项=save.items 平表 / 功法=save.skills / 灵石=save.stone 标量
+       / 秘术=save.secrets / 法宝 M2 才有），所以由 bagCells 逐类取。
+
+     ⚠️ 格子的名称与数量**必须由按钮自己画**（label + sub），不能在 drawBag 里另画：
+       `panels.bounds.contract` 会判"文字压在按钮上"，而格子**必须**是可点的按钮
+       （点格子即使用），面板体再往上画字必然报错。
+       renderPanel 不渲染 scene.buttons，所以按钮自己的 label 不进 textSpy。 */
+  var BAG_TABS = [
+    { id: 'misc', n: '杂项' },
+    { id: 'skill', n: '功法' },
+    { id: 'stone', n: '灵石' },
+    { id: 'treasure', n: '法宝' },
+    { id: 'secret', n: '秘术' }
+  ];
+  /* 方格几何：8 列 × 3 行，格 46 + 缝 6。
+     横向 8*46 + 7*6 = 410 ≤ 内容宽 428；纵向 3*46 + 2*6 = 150（84..234，面板底 238）。 */
+  var BG = {
+    tabY: P.y + 34, tabW: 62, tabH: 20, tabGap: 6,
+    x0: P.x + 14, y0: P.y + 58,
+    cell: 46, gap: 6, cols: 8, rows: 3
+  };
+  BG.cap = BG.cols * BG.rows;
+
+  /* 逐类取格子：{ n 名称, c 数量/等级, d 悬浮说明, use 可使用则填道具名 } */
+  function bagCells(tab, save) {
+    var out = [];
+    if (tab === 'misc') {
+      Object.keys(save.items || {}).forEach(function (k) {
+        if (!(save.items[k] > 0)) return;
+        out.push({ n: k, c: '×' + save.items[k], d: ITEM_D[k] || '—',
+          use: ITEM_USE[k] ? k : null });
+      });
+    } else if (tab === 'skill') {
+      skillIdsSorted(save).forEach(function (id) {
+        var sd = G.Data.skills[id] || { n: id, tier: '凡', kind: '仙术', elem: '无' };
+        out.push({
+          n: sd.n, c: 'Lv' + save.skills[id].lv,
+          d: (sd.tier || '凡') + '阶 · ' + sd.kind + ' · 属性 ' + (sd.elem || '无')
+            + '。精进在底栏「功法」页。'
+        });
+      });
+    } else if (tab === 'stone') {
+      out.push({
+        n: '灵石', c: save.stone || 0,
+        d: '下品灵石，通用通货。杂货铺买丹药、妖丹回收、秘境与任务奖励都用它。'
+      });
+    } else if (tab === 'secret') {
+      var Dg = G.Data.dungeons;
+      Object.keys(save.secrets || {}).forEach(function (id) {
+        var lv = save.secrets[id];
+        out.push({
+          n: (Dg.SECRETS && Dg.SECRETS[id]) || id,
+          c: 'Lv' + lv,
+          d: secretDesc(id, lv)
+        });
+      });
+    }
+    /* treasure（法宝）M2 才做 —— 不产出任何格子，由 drawBag 出空态文案。
+       不做"点了没反应"的僵尸格子。 */
+    return out;
+  }
+
   function buildBag(btns, scene) {
-    var save = G.game.save, items = save.items || {};
-    var ids = Object.keys(items).filter(function (k) { return items[k] > 0; });
-    ids.forEach(function (k, i) {
-      if (!ITEM_USE[k]) return;
+    var save = G.game.save;
+    var tab = scene.bagTab || 'misc';
+    BAG_TABS.forEach(function (t, i) {
       btns.push(new G.UI.Btn({
-        x: P.x + P.w - 92, y: P.y + 44 + i * 22, w: 78, h: 19, small: true,
-        label: '使用', disabled: !canUse(k),
-        onClick: function () { useItem(scene, k); }
+        x: BG.x0 + i * (BG.tabW + BG.tabGap), y: BG.tabY, w: BG.tabW, h: BG.tabH,
+        small: true, variant: 'subtab', active: tab === t.id, label: t.n,
+        onClick: function () {
+          scene.bagTab = t.id;
+          G.Overlays.openPanel(scene, 'bag');
+        }
+      }));
+    });
+    bagCells(tab, save).slice(0, BG.cap).forEach(function (c, i) {
+      var gx = BG.x0 + (i % BG.cols) * (BG.cell + BG.gap);
+      var gy = BG.y0 + Math.floor(i / BG.cols) * (BG.cell + BG.gap);
+      var usable = !!c.use && canUse(c.use);
+      btns.push(new G.UI.Btn({
+        x: gx, y: gy, w: BG.cell, h: BG.cell, small: true, fs: 10.5,
+        variant: usable ? 'battle' : 'default',
+        /* 可用 → 点即使用；不可用 → passive（外观正常但点不动） */
+        passive: !usable, disabled: !usable,
+        label: c.n, sub: c.c,
+        onClick: function () { if (usable) useItem(scene, c.use); }
       }));
     });
   }
@@ -457,22 +703,36 @@
     G.Overlays.openPanel(scene, 'bag');
   }
 
-  function drawBag(x) {
-    var save = G.game.save, items = save.items || {};
-    var ids = Object.keys(items).filter(function (k) { return items[k] > 0; });
+  function drawBag(x, scene) {
+    var save = G.game.save;
+    var tab = (scene && scene.bagTab) || 'misc';
     shell(x, '储　物', '灵石 ' + (save.stone || 0));
 
-    if (!ids.length) {
-      empty(x, P.x + 14, P.y + 44, '囊中空空。');
-      G.UI.text(x, { x: P.x + 14, y: P.y + 66 },
-        '杂货铺可购丹药；妖丹可回收换灵石。', 10.5, G.UI.C.textDim);
+    var cells = bagCells(tab, save);
+    /* 格子本体由按钮画（见文件头说明）；这里只画空态文案与"溢出"提示。
+       可用格子的边框由 'battle' 变体给，不可用的走 'default'。 */
+    if (!cells.length) {
+      empty(x, P.x + 14, BG.y0 + 8,
+        tab === 'treasure' ? '法宝尚未开放 —— M2 起可自坊市炼制。'
+          : tab === 'skill' ? '尚未习得任何功法。'
+            : tab === 'secret' ? '尚未获得任何秘术（秘境首通可得）。'
+              : '囊中空空。');
+      G.UI.text(x, { x: P.x + 14, y: BG.y0 + 32 },
+        tab === 'treasure' ? 'M1 阶段法宝不入库，相关天赋与词条先行保留。'
+          : '杂货铺可购丹药；妖丹可回收换灵石。', 10.5, G.UI.C.textDim);
       return;
     }
-    ids.slice(0, 8).forEach(function (k, i) {
-      var y = P.y + 44 + i * 22;
-      G.UI.text(x, { x: P.x + 14, y: y }, k, 12, G.UI.C.text);
-      G.UI.textOut(x, { x: P.x + 132, y: y + 1 }, '×' + items[k], 11, G.UI.C.gold, 'right');
-      G.UI.text(x, { x: P.x + 148, y: y + 1 }, ITEM_D[k] || '—', 10.5, G.UI.C.textDim);
+    var more = cells.length - BG.cap;
+    if (more > 0) {
+      G.UI.textOut(x, { x: P.x + P.w - 14, y: P.y + 38 },
+        '另有 ' + more + ' 件未列出', 10, G.UI.C.textDim, 'right');
+    }
+    /* 悬浮说明：逐格登记。提示条由 game.js 在帧末统一画（见 ui.js 的 hover 说明）。 */
+    cells.slice(0, BG.cap).forEach(function (c, i) {
+      var gx = BG.x0 + (i % BG.cols) * (BG.cell + BG.gap);
+      var gy = BG.y0 + Math.floor(i / BG.cols) * (BG.cell + BG.gap);
+      G.UI.hover({ x: gx, y: gy, w: BG.cell, h: BG.cell },
+        { title: c.n + '　' + c.c, text: c.d });
     });
   }
 
@@ -540,8 +800,28 @@
     return true;
   }
 
-  G.Overlays.PANELS = PANELS;
-  G.Overlays.PANEL_RECT = P;
+  /* 左侧追踪栏的**唯一取数口**（探索场景每帧要读）。
+     不让 explore.js 自己翻 QUEST 表 —— 表在这个闭包里，外面看不见；
+     也避免"两处各判一次当前步"，那种重复迟早会分叉。
+     返回：{ id, idx, total, s, flags, guide, upcoming }。
+     · guide 已按旗标做过 g → g2 的切换（打赢一场后自动改指回镇）。
+     · upcoming 是紧随其后的两步（追踪栏"子任务"的兜底内容）。 */
+  G.Overlays.trackInfo = function (save) {
+    var q = (save && save.quest) || { step: 'm0-1', flags: {} };
+    var step = q.step || 'm0-1';
+    var idx = QUEST_ORDER.indexOf(step);
+    if (idx < 0) idx = 0;
+    var s = QUEST[step] || QUEST[QUEST_ORDER[0]];
+    var flags = q.flags || {};
+    var done = !!(s.f && flags[s.f]);
+    return {
+      id: step, idx: idx, total: QUEST_ORDER.length, s: s, flags: flags,
+      guide: (done && s.g2) ? s.g2 : (s.g || null),
+      upcoming: QUEST_ORDER.slice(idx + 1, idx + 3).map(function (id2) { return QUEST[id2]; })
+    };
+  };
+
+  G.Overlays.PANELS = PANELS;  G.Overlays.PANEL_RECT = P;
   G.Overlays.BAR_Y = BAR_Y;
   G.Overlays.BAR_H = BAR_H;
   G.Overlays.isPanel = function (name) { return !!IDS[name]; };

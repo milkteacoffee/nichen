@@ -156,6 +156,12 @@
       x.fillRect(0, 0, this.W, this.H);
       if (this.scene.render) this.scene.render(x);
 
+      /* 悬浮说明：**必须在所有东西画完之后**才画（它是"覆盖层之上的覆盖层"），
+         候选区由场景/面板在 render 期间用 G.UI.hover() 登记。
+         reset 放在下一帧 render 之前，所以这里画完就清。 */
+      G.UI.drawHover(x);
+      G.UI.hoverReset();
+
       /* 按钮计时 */
       var allBtns = this.scene.buttons || [];
       for (var bi = 0; bi < allBtns.length; bi++) {

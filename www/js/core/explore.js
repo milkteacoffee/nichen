@@ -6,6 +6,14 @@
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
 
+  /* 左侧任务追踪栏（v0.11.4）。起点在场景铭牌之下（铭牌 y = HUD_H+5、高 19）。 */
+  var TR_X = 6, TR_Y = 78, TR_W = 118, TR_TOG_H = 16;
+
+  /* 跨图寻路与地图名的缓存。图与出口在存档生命周期内不变，
+     但追踪栏是**每帧**画的 —— 不缓存的话每帧都要跑一次 BFS 与全表扫描。
+     enter() 里清一次（换存档 / 首次进生成型区域后要重建）。 */
+  var NAME_CACHE = {}, ROUTE_CACHE = {};
+
   /* 资源数值压缩：超过一万用「万」。
      资源格只有 62px 宽，五行灵石中后期是五位数，不压缩就会顶到图标上。 */
   function num(n) {
@@ -55,6 +63,9 @@
            进门第一帧闪白补满、当场莫名其妙进战斗。 */
         this.flash = 0; this.flashDir = 0; this._pending = null;
         if (params.returned) { this.flash = 1; this.flashDir = -1; this.prot = 3; this.steps = 0; }
+        /* 追踪栏的寻路/取名缓存跟着存档走：换世、首次进生成型区域后图会变。
+           `trackOpen` 是**玩家偏好**，不在这里重置（否则每次换图都弹回来）。 */
+        ROUTE_CACHE = {}; NAME_CACHE = {};
         this._padButtons();
         G.Storage.saveCurrent(save);
         /* 场景钩子：进门演出之类的"一进来就发生"的事挂在这里 */
@@ -77,6 +88,19 @@
         }
         if (G.Overlays && G.Overlays.barBtns) {
           G.Overlays.barBtns(self, null).forEach(function (b) { self.buttons.push(b); });
+        }
+        /* 任务追踪栏的收起/展开钮 —— **整个追踪栏唯一的按钮**。
+           面板本体（见 _drawTracker）只画不登记按钮，所以点面板上的文字
+           走的仍是 onTap 的"点地面走过去"，不会出现"面板一盖地图就点不动"。 */
+        if (G.Overlays && G.Overlays.trackInfo) {
+          this.buttons.push(new G.UI.Btn({
+            x: TR_X, y: TR_Y, w: TR_W, h: TR_TOG_H, small: true, variant: 'ghost',
+            label: this.trackOpen === false ? '任务追踪' : '收起追踪',
+            onClick: function () {
+              self.trackOpen = (self.trackOpen === false);
+              self._padButtons();
+            }
+          }));
         }
       },
 
@@ -178,6 +202,17 @@
       _onEnterTile: function (x, y) {
         var key = x + ',' + y, save = G.game.save;
         if (this.map.exitCells[key]) { this._transition(this.map.exitCells[key]); return; }
+        /* 剧情战斗触发格（M1 §5.1 血煞据点）：**走到格子上即开战**，
+           与出入口同一处裁决 —— 所以放在 exitCells 之后、暗雷之前。
+           打过的节点记进 save.scriptBattlesDone（键含 mapId，避免跨图 id 撞车），
+           回图后再踩上来不会重打。判据放这里而不是各场景里，是为了只有一份真相源。 */
+        var sb = this.map.scriptBattles && this.map.scriptBattles[key];
+        if (sb && hooks.onScriptBattle) {
+          var done = save.scriptBattlesDone || (save.scriptBattlesDone = []);
+          if (done.indexOf(this.mapId + ':' + sb.id) < 0) {
+            if (hooks.onScriptBattle(sb, this)) return;
+          }
+        }
         if (this.map.md.safe) return;
         this.steps += 1;
         if (this.prot > 0) { this.prot -= 1; return; }
@@ -358,6 +393,12 @@
         var ty = Math.floor(this._camY() / 16 + p.y / 16);
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
 
+        /* ⓪ 点到出口传送阵：直接切图。
+           排在交互物之前 —— 出口格上不会同时有交互物，但顺序写死能省掉
+           以后"出口上放了个 NPC"时的一类诡异 bug。 */
+        var ex = this._exitAt(tx, ty);
+        if (ex) { this._transition(ex); return; }
+
         /* ① 点到交互物：走过去再交互 */
         if (this.map.interact[tx + ',' + ty]) {
           this._walkToInteract(tx, ty);
@@ -491,6 +532,14 @@
         /* 整屏大尺度明暗（在铺地之上、建筑之下） */
         this._drawShade(x, this._baseType(), this._pal(), camX, camY);
 
+        /* 出口传送阵（云雾）。画在铺地/明暗之上、角色之下 ——
+           角色站到阵上时人影压在雾上，读起来才是"站在阵里"而不是"雾浮在人身上"。
+           洞穴暗幕在更后面才画，所以洞里的传送阵会被压暗一档，属于预期（它就该埋在暗里发光）。 */
+        var selfP = this;
+        (this.map.md.exits || []).forEach(function (e) {
+          selfP._drawPortal(x, e, camX, camY);
+        });
+
         /* 建筑（室内图没有 structures/special 字段，必须容错） */
         (this.map.md.structures || []).forEach(function (s) {
           self._drawStructure(x, s, camX, camY);
@@ -522,12 +571,14 @@
           if (sp.kind === 'worldgate') self._drawWorldgate(x, sp, camX, camY);
         });
 
-        /* 洞窟暗幕（火把可视范围） */
-        if (this.map.md.ground === 'cave') this._drawVeil(x, camX, camY);
+        /* 洞窟暗幕（火把可视范围）。bloodcave 是 cave 的换色变体（M1 §5.1），
+           共用同一套暗幕 —— 判据收敛在 _isCaveGround() 一处，别在别处再写 'cave'。 */
+        if (this._isCaveGround()) this._drawVeil(x, camX, camY);
         /* 室内：暖色环境光 + 暗角，做出"封闭空间"的收束感 */
         if (this.map.md.indoor) this._drawIndoor(x);
 
         this._drawHUD(x);
+        this._drawTracker(x);
         this._drawInteractHint(x, camX, camY);
         this._drawMark(x, camX, camY);
         if (!this.overlay) this._drawHint(x);
@@ -540,11 +591,107 @@
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
       },
 
-      /* 区域基础类型（决定瓦片与过渡） */
+      /* ===== 出口传送阵（v0.11.4）=====
+         原先出口只是地面上一条颜色略深的路，玩家看不出"这里是出口"。
+         现在在出口格上画一座云雾传送阵，**点它直接切图**。
+         ① 全矢量 + 时间驱动，零素材依赖（缺图静默退回这种事不会发生在这里）；
+         ② 点击命中在 onTap 里排在寻路之前（见 _exitAt）；
+         ③ "走进去也触发"的老路径（_onEnterTile）原样保留 —— 两条路都通，
+            所以这个改动不可能让任何一张图变得走不出去。
+         ⚠️ **底边出口要抬高画**：底栏占 244..272，而底边出口那格正好是 256..272 ——
+         按格子居中画，雾会整个埋进底栏里（首版实测就是这样，等于白做）。
+         所以 bottom 出口整体上抬 LIFT，靠**向上飘的雾柱**把存在感做到栏以上。
+         北/东/西出口不抬（它们本来就在可视区里）。 */
+      _drawPortal: function (x, e, camX, camY) {
+        var bottom = (e.y >= this.map.h - 1);
+        var LIFT = bottom ? 14 : 0;
+        var cx = (e.x0 + e.x1 + 1) / 2 * 16 - camX;
+        var cy = e.y * 16 - camY + 10 - LIFT;
+        var rx = ((e.x1 - e.x0 + 1) * 16) / 2 + 3;
+        if (cx + rx < -10 || cx - rx > 490) return;
+        var t = performance.now() / 1000;
+
+        x.save();
+        /* 地面辉光 */
+        var g = x.createRadialGradient(cx, cy, 1, cx, cy, rx);
+        g.addColorStop(0, 'rgba(150,220,255,0.46)');
+        g.addColorStop(0.55, 'rgba(110,170,235,0.22)');
+        g.addColorStop(1, 'rgba(90,140,220,0)');
+        x.fillStyle = g;
+        x.beginPath(); x.ellipse(cx, cy, rx, 12, 0, 0, 6.2832); x.fill();
+
+        /* 上升雾柱：底边出口靠它把存在感顶到底栏以上（plume 高 28） */
+        var plume = 28;
+        var pg = x.createLinearGradient(0, cy - plume, 0, cy + 6);
+        pg.addColorStop(0, 'rgba(170,225,255,0)');
+        pg.addColorStop(0.45, 'rgba(170,225,255,0.16)');
+        pg.addColorStop(1, 'rgba(200,238,255,0.30)');
+        x.fillStyle = pg;
+        x.beginPath();
+        x.moveTo(cx - rx * 0.52, cy + 5);
+        x.quadraticCurveTo(cx - rx * 0.34, cy - plume * 0.5, cx - 5, cy - plume);
+        x.lineTo(cx + 5, cy - plume);
+        x.quadraticCurveTo(cx + rx * 0.34, cy - plume * 0.5, cx + rx * 0.52, cy + 5);
+        x.closePath(); x.fill();
+
+        /* 三道旋转雾环：相位与转速都错开，才不会读成"一个圈在闪" */
+        for (var i = 0; i < 3; i++) {
+          var ph = t * (0.9 + i * 0.35) + i * 2.1;
+          x.strokeStyle = 'rgba(198,236,255,' + (0.44 - i * 0.11).toFixed(3) + ')';
+          x.lineWidth = 1.5 - i * 0.3;
+          x.beginPath();
+          x.ellipse(cx, cy, rx * (0.86 - i * 0.17), 10.5 * (0.86 - i * 0.17), 0,
+            ph, ph + 4.2);
+          x.stroke();
+        }
+
+        /* 上升雾团：越飘越淡，做出"从阵里升起来"的感觉 */
+        for (var k = 0; k < 6; k++) {
+          var a = t * 0.7 + k * 1.05;
+          var up = (a % 1.6) / 1.6;
+          var mx = cx + Math.sin(a * 2.3) * rx * 0.55;
+          var my = cy - up * plume;
+          x.fillStyle = 'rgba(224,246,255,' + (0.32 * (1 - up)).toFixed(3) + ')';
+          x.beginPath(); x.arc(mx, my, 2.8 - up * 1.3, 0, 6.2832); x.fill();
+        }
+
+        /* 目的地名牌：挂在雾柱顶端。**必须在底栏之上**（244），否则等于没写。 */
+        if (e.label) {
+          x.font = G.UI.F(10);
+          var tw = x.measureText(e.label).width + 16;
+          var lx = cx - tw / 2, ly = Math.max(52, cy - plume - 15);
+          G.UI.panel(x, { x: lx, y: ly, w: tw, h: 14 }, 'rgba(6,10,18,0.78)',
+            'rgba(150,210,245,0.50)', 4, { paper: false, shadow: false });
+          G.UI.text(x, { x: cx, y: ly + 2.5 }, e.label, 10, '#c8e8ff', 'center');
+        }
+        x.restore();
+      },
+
+      /* 点到出口传送阵？返回出口对象，否则 null。
+         命中放宽到**上方一格**：传送阵的雾是向上飘的，视觉重心比它占的那格高一截，
+         玩家点雾的顶部时会落在上一行 —— 只认原格会出现"明明点在阵上却没反应"。 */
+      _exitAt: function (tx, ty) {
+        if (!this.map || !this.map.exitCells) return null;
+        return this.map.exitCells[tx + ',' + ty]
+          || this.map.exitCells[tx + ',' + (ty + 1)] || null;
+      },
+
+      /* 是否洞窟系地面（cave 与它的换色变体 bloodcave）。
+         唯一判据 —— 暗幕、瓦片基类都走这里，避免两处各写一份 'cave' 判断。 */
+      _isCaveGround: function () {
+        var g = this.map.md.ground;
+        return g === 'cave' || g === 'bloodcave';
+      },
+
+      /* 区域基础类型（决定瓦片与过渡）。
+         ⚠️ 必须返回**真实地面类型**，不能把 bloodcave 归回 'cave' ——
+         地面纹理走 `groundTex(this._baseType(), pal)`，归一化会让暗红地面
+         **静默渲染成普通洞窟**（不报错、只是颜色不对，属 G19 同类的"接线丢失"）。
+         "是否洞窟系"这种族判断一律用 `_isCaveGround()`，别在这里合并。 */
       _baseType: function () {
         var g = this.map.md.ground;
         if (g === 'town') return 'town';
-        if (g === 'cave') return 'cave';
+        if (g === 'cave' || g === 'bloodcave') return g;
         if (g === 'floor') return 'floor';
         return 'grass';
       },
@@ -647,7 +794,10 @@
       /* 大尺度明暗：整屏一层平滑起伏，1:1 平铺（不缩放，避免边缘钳制出直缝）。
          逐格 fillRect 叠明暗会在 16px 网格上留下方块补丁。 */
       _drawShade: function (x, kind, pal, camX, camY) {
-        if (kind === 'cave' || kind === 'floor') return;
+        /* 洞窟系（cave / bloodcave）**不铺明暗纹理** —— 它们走的是火把暗幕（`_drawVeil`）。
+           判据用 `_isCaveGround()` 而不是 `kind === 'cave'`：`kind` 现在是**真实地面类型**，
+           bloodcave 会漏过字符串比较 → 暗幕与明暗两层同时叠上（画面偏黑且多一份开销）。 */
+        if (this._isCaveGround() || kind === 'floor') return;
         var SP = G.Art.GROUND_TS;
         var sc = G.Art.shadeTex(kind, pal);
         var ox = -(((camX % SP) + SP) % SP), oy = -(((camY % SP) + SP) % SP);
@@ -894,6 +1044,7 @@
          ③ 资源三格与菜单各占一块固定宽度，数值再长（五位数）也不会互相压字;
          ④ 头像走 G.UI.avatar，内部已经把立绘按头部裁好，这里只给圆心与半径。 */
       _drawHUD: function (x) {
+        var self = this;
         var save = G.game.save;
         var st = G.Player.computeStats(save);
         var ri = G.Player.realmInfo(save.globalLevel);
@@ -931,12 +1082,14 @@
         G.UI.textOut(x, { x: 170, y: 21 }, Math.round(save.hp) + ' / ' + st.maxhp, 10.5,
           low ? '#ff9a92' : G.UI.C.text);
 
-        /* --- 修为（突破进度）---
+        /* --- 灵气（突破进度）---
+           标签是**灵气**不是「修为」：这个条画的 `breakState.have/need` 就是
+           `save.qi` 与该级所需灵气，修为是境界本身、不是这个数（v0.11.4 更正）。
            数值列与「可突破」**互斥**：灵气满时数值会变成 1200 / 100 这种超宽串，
            两个都画就会糊在一起（首版实测 "1200 / 100可突破" 连成一片）。
            灵气余额右边资源格里一直看得见，所以这里让位给可操作信息。 */
         var pr = bs.need ? Math.min(1, bs.have / bs.need) : 1;
-        G.UI.text(x, { x: 52, y: 36 }, '修为', 10.5, G.UI.C.textDim);
+        G.UI.text(x, { x: 52, y: 36 }, '灵气', 10.5, G.UI.C.textDim);
         G.UI.bar(x, { x: 80, y: 37.5, w: 84, h: 7 }, pr, bs.ready ? '#f5e3a8' : G.UI.C.qi);
         if (bs.ready) {
           x.save();
@@ -948,21 +1101,41 @@
           G.UI.textOut(x, { x: 170, y: 36 }, bs.have + ' / ' + bs.need, 10.5, G.UI.C.textDim);
         }
 
-        /* --- 右：资源（三格等宽，图标 + 右对齐数值）---
+        /* --- 右：资源（四格等宽，图标 + 右对齐数值）---
            背板要够暗：顶栏渐变到这一行已经快透明了，格子底压不住的话
            屋脊/树梢会从数字底下穿过去，数字就读不清了。
            底走 G.UI.panel（带缓存 → 1 次 blit）：HUD 每帧都画，
-           三个圆角矩形现描路径 + 现填 + 现描边是纯浪费。 */
-        [
-          ['stone', save.stone, '#a9d4f2'],
-          ['qi', save.qi, '#a8dcc4'],
-          ['po', save.po, '#e8c08a']
-        ].forEach(function (s, i) {
-          var sx = 278 + i * 66;
-          G.UI.panel(x, { x: sx, y: 27, w: 62, h: 17 }, 'rgba(8,11,19,0.86)',
+           四个圆角矩形现描路径 + 现填 + 现描边是纯浪费。
+           四格版式：起 x=244（左块数值最长到 ~230，留 14 余量），
+           格宽 54 / 间距 4 → 末格右沿 472，距画布右沿 8。 */
+        var RES = [
+          ['stone', save.stone, '#a9d4f2', {
+            title: '灵石（下品）',
+            text: '通用通货。杂货铺买丹药、妖丹回收、秘境与任务奖励都用它。'
+          }],
+          ['qi', save.qi, '#a8dcc4', {
+            title: '灵气',
+            text: '修炼与突破用的灵气。打坐、杀怪、任务都能得；攒够本境界所需即可破境。'
+          }],
+          ['po', save.po, '#e8c08a', {
+            title: '灵力',
+            text: '功法精进的经验（功法升级）。在功法面板「精进」消耗，部分秘术也要花它。'
+          }],
+          ['crystal', G.Player.xianliLive(save), '#d8c0f0', {
+            title: '仙晶',
+            text: '本世累积的仙力：境界 + 功法 + 击杀首领（每个 +30）+ 年岁。\n'
+              + '身故结算后可在轮回殿灌输仙躯，永久增益下一世。'
+          }]
+        ];
+        RES.forEach(function (s, i) {
+          var sx = 244 + i * 58;
+          var cell = { x: sx, y: 27, w: 54, h: 17 };
+          G.UI.panel(x, cell, 'rgba(8,11,19,0.86)',
             'rgba(216,183,104,0.32)', 4, { paper: false, shadow: false });
-          G.UI.icon(x, s[0], sx + 11, 35.5, 6.2);
-          G.UI.textOut(x, { x: sx + 55, y: 29.5 }, num(s[1]), 11.5, s[2], 'right');
+          G.UI.icon(x, s[0], sx + 10, 35.5, 6.2);
+          G.UI.textOut(x, { x: sx + 49, y: 29.5 }, num(s[1]), 11.5, s[2], 'right');
+          /* 面板打开时 HUD 被压暗，此时不该再挂提示（否则提示会浮在暗罩之上） */
+          if (!self.overlay) G.UI.hover(cell, s[3]);
         });
 
         /* 场景名称铭牌：顶栏之下。金框小牌，亮色地面也清晰。 */
@@ -975,6 +1148,206 @@
         x.fillStyle = G.UI.C.goldHi;
         x.beginPath(); x.arc(px + 11, py + ph / 2, 2.4, 0, 6.2832); x.fill();
         G.UI.textOut(x, { x: px + 18, y: py + 3.5 }, sname, 13, G.UI.C.goldHi);
+      },
+
+      /* ===== 左侧任务追踪栏（v0.11.4）=====
+         参考《烟雨江湖》：左侧常驻一条，展示**当前主任务 + 子任务 + 路引**
+         （路引 = 指向任务目的地的箭头 + 方位 + 距离）。
+         五条硬约束，改版式前先读：
+         ① **不吞地图点击**：面板本体不登记任何按钮 —— 唯一的按钮是顶部那根
+            「收起 / 展开」窄条（在 _padButtons 里注册）。点面板上的字走的仍是
+            onTap 的"点地面走过去"。
+         ② 宽度写死 TR_W：所有文字按它折行 / 截断，超出去会压到地图中央。
+         ③ 路引箭头**矢量画**，不用 '→' 字符（无 @font-face，缺字会变豆腐块）。
+         ④ 起点在场景铭牌之下（铭牌 y = HUD_H + 5、高 19）。
+         ⑤ 面板打开时整条不画 —— 面板自带暗罩，追踪栏浮在暗罩上会显得脏。 */
+      _drawTracker: function (x) {
+        if (this.overlay) return;
+        if (this.trackOpen === false) return;
+        var tk = G.Overlays.trackInfo ? G.Overlays.trackInfo(G.game.save) : null;
+        if (!tk || !tk.s) return;
+        var s = tk.s, C = G.UI.C;
+
+        /* 目标文案：折行最多 2 行（面板只有 118 宽，第 3 行就顶到面板底了） */
+        var dl = G.UI.wrap(x, s.d, 9.5, TR_W - 14);
+        if (dl.length > 2) { dl = dl.slice(0, 2); dl[1] = dl[1].replace(/.$/, '') + '…'; }
+        var subs = (s.subs || []).slice(0, 3);
+        var guide = tk.guide || null;
+        var route = guide ? this._routeTo(guide.map) : null;
+
+        var H = 9 + 12 + 14 + dl.length * 11 + subs.length * 11 + (guide ? 27 : 0) + 9;
+        var bx = TR_X, by = TR_Y + TR_TOG_H + 3, bw = TR_W;
+        G.UI.panel(x, { x: bx, y: by, w: bw, h: H }, 'rgba(6,9,16,0.80)',
+          'rgba(216,183,104,0.34)', 4, { paper: false, shadow: false });
+        x.fillStyle = 'rgba(216,183,104,0.55)';
+        x.fillRect(bx + 1.5, by + 4, 1.6, H - 8);
+
+        var cy = by + 7;
+        G.UI.text(x, { x: bx + 8, y: cy }, '主 线', 9.5, C.gold);
+        G.UI.textOut(x, { x: bx + bw - 7, y: cy + 0.5 },
+          (tk.idx + 1) + ' / ' + tk.total, 9, C.textDim, 'right');
+        cy += 12;
+
+        /* 当前步：金点 + 标题 */
+        x.fillStyle = C.goldHi;
+        x.beginPath(); x.arc(bx + 10, cy + 5, 2.2, 0, 6.2832); x.fill();
+        G.UI.text(x, { x: bx + 16, y: cy }, s.t, 11, C.goldHi);
+        cy += 14;
+
+        dl.forEach(function (ln) {
+          G.UI.text(x, { x: bx + 8, y: cy }, ln, 9.5, C.textDim); cy += 11;
+        });
+
+        /* 子任务：已完成画勾、未完成画空圈（都是矢量，无字符依赖） */
+        subs.forEach(function (sb) {
+          var done = !!(sb.f && tk.flags[sb.f]);
+          var sx2 = bx + 10, sy2 = cy + 5;
+          x.save();
+          if (done) {
+            x.strokeStyle = C.jadeHi; x.lineWidth = 1.2; x.lineCap = 'round';
+            x.beginPath();
+            x.moveTo(sx2 - 2.6, sy2); x.lineTo(sx2 - 0.7, sy2 + 2.2);
+            x.lineTo(sx2 + 3, sy2 - 2.4); x.stroke();
+          } else {
+            x.strokeStyle = 'rgba(150,158,178,0.7)'; x.lineWidth = 1;
+            x.beginPath(); x.arc(sx2, sy2, 2.4, 0, 6.2832); x.stroke();
+          }
+          x.restore();
+          G.UI.text(x, { x: bx + 16, y: cy }, sb.t, 9.5, done ? C.jadeHi : C.text);
+          cy += 11;
+        });
+
+        /* ---- 路引 ---- */
+        if (!guide) return;
+        x.fillStyle = 'rgba(216,183,104,0.18)';
+        x.fillRect(bx + 6, cy + 1.5, bw - 12, 0.8);
+        cy += 5;
+
+        var onMap = guide.map === this.mapId;
+        var hop = onMap ? null : route;          /* null = 同图；undefined = 无路 */
+        var tx = onMap ? guide.x : (hop ? hop.x : null);
+        var ty = onMap ? guide.y : (hop ? hop.y : null);
+        var pp = this._px();
+        var dx = 0, dy = 0, ok = false;
+        if (tx != null) {
+          dx = tx - pp.x / 16; dy = ty - pp.y / 16;
+          ok = Math.abs(dx) + Math.abs(dy) > 0.6;   /* 站在目标点上就别画箭头了 */
+        }
+
+        var acx = bx + 15, acy = cy + 8;
+        x.save();
+        x.fillStyle = 'rgba(216,183,104,0.14)';
+        x.beginPath(); x.arc(acx, acy, 8, 0, 6.2832); x.fill();
+        x.strokeStyle = 'rgba(216,183,104,0.40)'; x.lineWidth = 1;
+        x.beginPath(); x.arc(acx, acy, 8, 0, 6.2832); x.stroke();
+        x.restore();
+        if (ok) {
+          x.save();
+          x.translate(acx, acy); x.rotate(Math.atan2(dy, dx));
+          x.strokeStyle = C.goldHi; x.lineWidth = 1.4; x.lineCap = 'round';
+          x.beginPath(); x.moveTo(-4.2, 0); x.lineTo(3, 0); x.stroke();
+          x.fillStyle = C.goldHi;
+          x.beginPath(); x.moveTo(5, 0); x.lineTo(0.6, -3); x.lineTo(0.6, 3);
+          x.closePath(); x.fill();
+          x.restore();
+        } else {
+          x.fillStyle = C.goldHi;
+          x.beginPath(); x.arc(acx, acy, 2.2, 0, 6.2832); x.fill();
+        }
+
+        /* 目标名：同图用 NPC / 地点名，跨图用"下一跳地图名 · 出口名" */
+        var who = onMap
+          ? guide.who
+          : this._mapName(guide.map) + (hop && hop.name ? ' · ' + hop.name : '');
+        G.UI.text(x, { x: bx + 28, y: cy }, this._ellip(x, who, 10, bw - 35), 10, C.text);
+        var line2 = ok
+          ? this._dirName(dx, dy) + '　约 ' + Math.round(Math.sqrt(dx * dx + dy * dy)) + ' 格'
+          : (onMap ? '就在此处' : '往 ' + this._mapName(guide.map));
+        G.UI.text(x, { x: bx + 28, y: cy + 12 }, line2, 9, C.textDim);
+      },
+
+      /* 超宽截断：按字号量宽度，超出补 '…'（中文一个字就是一个字宽，够用） */
+      _ellip: function (x, str, size, maxW) {
+        x.font = G.UI.F(size);
+        if (x.measureText(str).width <= maxW) return str;
+        var out = str;
+        while (out.length > 1 && x.measureText(out + '…').width > maxW) {
+          out = out.slice(0, -1);
+        }
+        return out + '…';
+      },
+
+      /* 方位名：屏幕坐标里 +y 向下 = 南。0° 取东，每 45° 一档。 */
+      _dirName: function (dx, dy) {
+        var a = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+        return ['东', '东南', '南', '西南', '西', '西北', '北', '东北']
+          [Math.round(a / 45) % 8];
+      },
+
+      /* 地图显示名。手写图有 label，生成型区域查 regions 表，
+         最后才是兜底表 —— 三层都查不到就直接显示 id（不静默成空串）。 */
+      _mapName: function (id) {
+        if (!id) return '';
+        if (NAME_CACHE[id]) return NAME_CACHE[id];
+        var md = G.Data.maps[id], nm = '';
+        if (md && (md.label || md.n)) nm = md.label || md.n;
+        if (!nm && G.Data.regions) {
+          var Rg = G.Data.regions;
+          var r = Rg.byId ? Rg.byId(Rg.regionIdOf ? Rg.regionIdOf(id) : id) : null;
+          if (r && r.n) nm = r.n;
+        }
+        if (!nm) {
+          nm = { town: '青溪镇', field: '翠微山', cave: '赤牙洞', town_home: '沈家小院',
+            town_shop: '药铺', town_market: '刘记杂货', field_temple: '山神庙' }[id] || id;
+        }
+        NAME_CACHE[id] = nm;
+        return nm;
+      },
+
+      /* 本图的所有"通往别处"的边：出口 + 带 to 的建筑（山门/洞门）+ 屋门（md.doors）。
+         屋门映射读的是地图数据（maps.js: town.doors），与 town.js 的 onInteract 同源 ——
+         这里再抄一份就会分叉。 */
+      _linksOf: function (md) {
+        if (!md) return [];
+        var out = [], Rg = G.Data.regions;
+        (md.exits || []).forEach(function (e) {
+          var to = e.to;
+          if (Rg && Rg.mapIdOf) to = Rg.mapIdOf(to) || to;
+          out.push({ to: to, x: (e.x0 + e.x1) / 2, y: e.y, name: e.label || '' });
+        });
+        (md.structures || []).forEach(function (s) {
+          var dx = s.x + Math.floor((s.w || 1) / 2), dy = s.y + (s.h || 1);
+          if (s.to) out.push({ to: s.to, x: dx, y: dy, name: s.label || '' });
+          else if (s.id && md.doors && md.doors[s.id]) {
+            out.push({ to: md.doors[s.id], x: dx, y: dy, name: s.label || '' });
+          }
+        });
+        return out;
+      },
+
+      /* 跨图寻路：沿 _linksOf 的边做 BFS，返回**从当前图迈出的第一跳**。
+         返回值：null = 已在本图（调用方自己算方向）；undefined = 走不到；否则 {to,x,y,name}。
+         图很小（十几个节点），BFS 每帧跑也不心疼 —— 而且结果按 起>止 缓存了。 */
+      _routeTo: function (targetMap) {
+        if (!targetMap) return undefined;
+        if (targetMap === this.mapId) return null;
+        var key = this.mapId + '>' + targetMap;
+        if (key in ROUTE_CACHE) return ROUTE_CACHE[key];
+        var seen = {}, queue = [{ id: this.mapId, first: null }], res;
+        seen[this.mapId] = true;
+        for (var guard = 0; guard < 128 && queue.length; guard++) {
+          var cur = queue.shift();
+          var links = this._linksOf(G.Data.maps[cur.id]);
+          for (var i = 0; i < links.length; i++) {
+            var lk = links[i], first = cur.first || lk;
+            if (lk.to === targetMap) { res = first; guard = 999; break; }
+            if (seen[lk.to]) continue;
+            seen[lk.to] = true;
+            queue.push({ id: lk.to, first: first });
+          }
+        }
+        ROUTE_CACHE[key] = res;
+        return res;
       },
 
       /* 底部左侧的常驻操作提示：纯点击操作没有摇杆，得有一句话交代怎么玩。

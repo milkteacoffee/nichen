@@ -281,6 +281,22 @@
       return d;
     },
 
+    /* 本世**已累积**的仙力（HUD「仙晶」格用）。
+       ⚠️ 必须与 `xianliOf` 分开，不能直接调它：那个会写 `meta.achieve`（发成就），
+       而 HUD 每帧都画 —— 每帧发一次成就是不可接受的副作用。
+       这里只算 save 内的四项（境界/功法/击杀/年岁），**纯函数、零副作用**；
+       轮回成就那部分只有身故结算时才知道，本来也不该出现在"本世进行中"的读数里。 */
+    xianliLive: function (save) {
+      var gl = save.maxGlobalLevel || save.globalLevel || 1;
+      var lvSum = 0;
+      Object.keys(save.skills || {}).forEach(function (k) {
+        lvSum += (save.skills[k] && save.skills[k].lv) || 0;
+      });
+      var kills = save.bossKills || (save.bossKilled ? 1 : 0);
+      var age = save.age || 16;
+      return 10 * gl + 2 * lvSum + 30 * kills + Math.max(0, age - 15) * 2;
+    },
+
     /* 死因分类（§3.1）：M0 只做战死与寿终坐化 */
     deathCause: function (save) {
       if (save._cause === 'aged') return { id: 'aged', n: '寿终坐化', mul: 1.1 };

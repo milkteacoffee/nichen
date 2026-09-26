@@ -40,9 +40,10 @@
       for (var xx = e.x0; xx <= e.x1; xx++) exitCells[xx + ',' + e.y] = e;
     });
 
-    /* 边界围合（室内用砖墙，野外用树/石） */
+    /* 边界围合（室内用砖墙，野外用树/石）。bloodcave 是 cave 的换色变体 → 同样用岩壁。 */
+    var isCave = md.ground === 'cave' || md.ground === 'bloodcave';
     var borderDecor = md.indoor ? 'wall'
-      : (md.ground === 'cave' ? 'wallrock' : (md.ground === 'grass' ? 'tree' : 'rock'));
+      : (isCave ? 'wallrock' : (md.ground === 'grass' ? 'tree' : 'rock'));
     for (var bx = 0; bx < w; bx++) {
       [0, h - 1].forEach(function (by) {
         if (exitCells[bx + ',' + by]) return;
@@ -113,7 +114,7 @@
     });
 
     /* 特殊物件 */
-    var chests = {}, boss = null;
+    var chests = {}, boss = null, scriptBattles = {};
     (md.special || []).forEach(function (sp) {
       if (sp.kind === 'well') { addDecor('well', sp.x, sp.y, true); }
       else if (sp.kind === 'chest') {
@@ -124,6 +125,12 @@
         solid[sp.y][sp.x] = true; mark(sp.x, sp.y);
         boss = sp;
         setInteract(sp.x, sp.y + 1, { type: 'boss' });
+      } else if (sp.kind === 'scriptBattle') {
+        /* 剧情战斗触发格（M1 §5.1 血煞据点）：与 chest/boss 的"站旁边按交互"不同，
+           这里是**走到格子上即开战**（暗关，无暗雷、无宝箱）。
+           所以**不设实心、不登记 interact** —— 它必须是一格能走上去的地面。
+           触发在 explore.js: _onEnterTile（和出入口同一处裁决点）。 */
+        scriptBattles[sp.x + ',' + sp.y] = sp;
       } else if (sp.kind === 'entrance') {
         /* 副本入口（秘境裂隙）：占格实心，交互点登记在正下方一格，
            与 chest/boss 同一套"站到旁边才能触发"的走位约定。 */
@@ -183,7 +190,7 @@
     return {
       md: md, w: w, h: h, solid: solid, ground: ground,
       decor: decor, interact: interact, exitCells: exitCells,
-      chests: chests, boss: boss, rng: rng, npcs: npcs
+      chests: chests, boss: boss, rng: rng, npcs: npcs, scriptBattles: scriptBattles
     };
   }
 

@@ -32,6 +32,10 @@
       ],
       scatter: { trees: 6, rocks: 2 },
       special: [ { id: 'well', kind: 'well', x: 23, y: 16 } ],
+      /* 屋门 → 室内图。**单一真相源**：town.js 的 onInteract 与探索场景的
+         「路引」寻路都读这一份。以前这份映射写在 town.js 里（DOOR_TO_MAP），
+         路引要做跨图寻路就得再抄一遍 —— 两份表迟早会分叉。 */
+      doors: { home: 'town_home', shop: 'town_shop', market: 'town_market' },
       /* 站桩 NPC（探图 v0.2 §NPC）：占格实心、按 y 排序渲染、可点可面对交互。
          位置必须避开道路 —— 镇里的主路只有 1 格宽，NPC 站上去就把路堵死了。
          NPC 只有正面一套画法（程序化或 char.npc.<kind>），所以不配朝向。 */

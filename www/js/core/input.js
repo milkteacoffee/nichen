@@ -6,6 +6,7 @@
     pressed: {},   // 本帧按下
     taps: [],      // 本帧点击 {x,y}
     holds: {},     // 持续按住的虚拟键（方向键用）
+    mouse: null,   // 指针当前位置（触屏恒为 null）—— 悬浮说明用
 
     init: function (canvas) {
       this.canvas = canvas;
@@ -22,13 +23,20 @@
         var p = toInternal(e);
         self.taps.push(p);
         self._down = p;
+        self.mouse = e.pointerType === 'touch' ? null : p;
       });
+      /* 悬浮说明（tooltip）需要"没按下也知道指针在哪"，所以这里**无条件**记录位置。
+         触屏没有悬浮语义 → pointerType==='touch' 时置 null，免得手指离开后
+         提示条永远挂在最后一处触摸位置（手机上会像一块去不掉的膏药）。 */
       canvas.addEventListener('pointermove', function (e) {
-        if (self._down) { var p = toInternal(e); self._down = p; self.drag = p; }
+        var p = toInternal(e);
+        self.mouse = e.pointerType === 'touch' ? null : p;
+        if (self._down) { self._down = p; self.drag = p; }
       });
       function up() { self._down = null; self.drag = null; }
       canvas.addEventListener('pointerup', up);
       canvas.addEventListener('pointercancel', up);
+      canvas.addEventListener('pointerleave', function () { self.mouse = null; });
       canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
       window.addEventListener('keydown', function (e) {

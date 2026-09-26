@@ -2799,6 +2799,364 @@ pump(300, 'ui.fix.settle');
 step(() => { G.game.changeScene('title'); }, 'ui.fix.leave');
 pump(6, 'ui.fix.leave');
 
+/* ---------- 玩家截图反馈第二批（v0.11.4）----------
+   十项反馈里可断言的九项：HUD 四格与悬浮说明 / 功法面板去境界块 + 下拉排序 /
+   角色面板境界子页的突破入口 / 灵根九维图 / 储物分类子页 + 方格 /
+   任务追踪栏与路引（含跨图寻路）/ 出口传送阵 / 室内矮墙。
+   第十项（天道心魔与 Boss 机制设计）是文档，不在这里断言。
+   源码闸（正则扫关键表达式）+ 运行时（真开面板、真点按钮）双轨 ——
+   只查源码抓不到"函数在但没接上"，只跑运行时抓不到"面板本体偷偷登记了按钮"。 */
+step(function () {
+  const errors = [];
+  const BAIL = { bail: true };
+  const bail = (msg) => { errors.push(msg); throw BAIL; };
+  const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+  const ex = read('www/js/core/explore.js');
+  const pn = read('www/js/core/panels.js');
+  const ov = read('www/js/core/overlays.js');
+  const art = read('www/js/core/art.js');
+
+  /* ========== ① HUD：四格 + 悬浮说明 + 「灵气」命名 ========== */
+  const hud = ex.slice(ex.indexOf('_drawHUD: function'), ex.indexOf('_drawTracker: function'));
+  ['stone', 'qi', 'po', 'crystal'].forEach((k) => {
+    if (hud.indexOf("['" + k + "',") < 0) errors.push('HUD 缺资源格：' + k);
+  });
+  if ((hud.match(/\['(stone|qi|po|crystal)',/g) || []).length !== 4) {
+    errors.push('HUD 资源格不是 4 个（灵石 / 灵气 / 灵力 / 仙晶）');
+  }
+  if (hud.indexOf("'修为'") >= 0) errors.push('HUD 仍在用「修为」当突破进度条的标签（它是灵气）');
+  if (hud.indexOf("'灵气'") < 0) errors.push('HUD 突破进度条未标成「灵气」');
+  if (hud.indexOf('G.UI.hover(') < 0) errors.push('HUD 资源格没有挂悬浮说明');
+
+  /* 仙晶显示的是**纯函数版**本世仙力。xianliOf 会写 meta.achieve，
+     每帧调会把成就进度写脏（而且成就判定顺序敏感）。
+     ⚠️ 只比"调用前后 achieve 有没有变"是**抓不到**的 —— 本次契约之前的那几帧渲染
+     早就把 achieve 写出来了，before/after 恒等（反例验证时真踩到这个漏洞）。
+     所以两层都上：① 源码闸（函数体里不许出现 meta / G.game 访问）；
+     ② 运行时哨兵（先把 achieve 摘掉，看它会不会被重新写出来）。 */
+  if (typeof G.Player.xianliLive !== 'function') bail('缺 G.Player.xianliLive（纯函数版本世仙力）');
+  {
+    const pl = read('www/js/core/player.js');
+    const live = pl.slice(pl.indexOf('xianliLive: function'), pl.indexOf('deathCause: function'));
+    if (/\bmeta\s*\./.test(live) || /G\.game\s*\./.test(live)) {
+      errors.push('xianliLive 里出现 meta / G.game 访问 —— 它必须纯（每帧都会调）');
+    }
+    const meta = G.game.meta || (G.game.meta = {});
+    const hadOwn = Object.prototype.hasOwnProperty.call(meta, 'achieve');
+    const savedAch = meta.achieve;
+    delete meta.achieve;                       /* 摘掉哨兵：它若被写回来就说明有副作用 */
+    for (let i = 0; i < 3; i++) G.Player.xianliLive(G.game.save);
+    if (Object.prototype.hasOwnProperty.call(meta, 'achieve')) {
+      errors.push('xianliLive 有副作用（把 meta.achieve 写了回来）');
+    }
+    if (hadOwn) meta.achieve = savedAch;
+  }
+
+  /* 运行时：渲染一帧，HUD 那四格必须真挂出 4 条带 title/text 的提示 */
+  {
+    G.game.changeScene('town', { toSpawn: true });
+    const realHover = G.UI.hover, seen = [];
+    G.UI.hover = function (rect, info) { seen.push([rect, info]); return realHover.apply(this, arguments); };
+    pump(2, 'ui2.hover');
+    G.UI.hover = realHover;
+    const tips = seen.filter((s) => s[1] && s[0] && s[0].y < 48);
+    if (tips.length < 4) errors.push('HUD 悬浮说明只挂出 ' + tips.length + ' 条（应 ≥4）');
+    tips.forEach((s) => {
+      if (!s[1].title || !s[1].text) errors.push('HUD 悬浮说明缺 title/text');
+    });
+  }
+
+  /* ========== ② 功法面板：去境界块 + 下拉 + 等级降序 ========== */
+  {
+    const bs = pn.slice(pn.indexOf('function buildSkills'), pn.indexOf('function drawSkills'));
+    if (bs.indexOf('doBreak') >= 0) errors.push('功法面板仍有突破入口（境界内容归角色面板）');
+    if (bs.indexOf('skillOpen') < 0) errors.push('功法面板没有下拉开关 scene.skillOpen');
+    const ds = pn.slice(pn.indexOf('function drawSkills'), pn.indexOf('function drawSecrets'));
+    if (ds.indexOf('境 界') >= 0) errors.push('功法面板仍画着「境 界」分节');
+    const sortFn = pn.slice(pn.indexOf('function skillIdsSorted'), pn.indexOf('function selSkillId'));
+    if (!/lb\s*-\s*la/.test(sortFn)) errors.push('功法排序不是按等级降序');
+
+    const s = JSON.parse(JSON.stringify(save));
+    s.pos = null;
+    s.skills = { '青木诀': { lv: 3 }, '缠藤指': { lv: 9 }, '赤焰心法': { lv: 5 } };
+    G.game.save = s;
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    sc.clearOverlay(); sc.skillSel = null; sc.skillOpen = false;
+    G.Overlays.openPanel(sc, 'skills');
+    const head = sc.buttons.filter((b) => /共 3 本/.test(b.label || ''))[0];
+    if (!head) bail('功法面板没有下拉头（按钮上应显示「共 N 本」）');
+    if (head.label.indexOf('缠藤指') < 0) {
+      errors.push('下拉头默认选的不是等级最高的功法：' + head.label);
+    }
+    head.onClick();                                     /* 展开列表 */
+    const rows = sc.buttons.filter((b) => /Lv\d/.test(b.label || ''));
+    if (rows.length !== 3) errors.push('功法下拉应有 3 行，实为 ' + rows.length);
+    const lvs = rows.map((b) => parseInt((b.label.match(/Lv(\d+)/) || [0, 0])[1], 10));
+    for (let i = 1; i < lvs.length; i++) {
+      if (lvs[i] > lvs[i - 1]) errors.push('功法下拉未按等级降序：' + lvs.join(' / '));
+    }
+    if (rows.length && rows[0].label.indexOf('缠藤指') < 0) {
+      errors.push('下拉第一行不是等级最高的功法：' + rows[0].label);
+    }
+    /* 下拉行必须排在 buttons 前面（命中按数组顺序），否则会被「精进」抢走点击 */
+    if (sc.buttons[0].label.indexOf('Lv') < 0) {
+      errors.push('下拉行没排在 buttons 前面 —— 会被别的按钮抢走点击');
+    }
+    sc.clearOverlay();
+  }
+
+  /* ========== ③ 角色面板「境界」子页的突破入口 ========== */
+  {
+    const s = JSON.parse(JSON.stringify(save));
+    s.pos = null; s.globalLevel = 9;                    /* 淬体九段：可突破 */
+    G.game.save = s;
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    sc.clearOverlay();
+    /* ⚠️ 必须切两次：openPanel 在 prev !== 'char' 时会把 charTab 归到 overview，
+       所以"设 charTab 再开面板"这一种写法会被它覆盖掉（首版就踩了这个坑）。 */
+    G.Overlays.openPanel(sc, 'char');
+    sc.charTab = 'realm';
+    G.Overlays.openPanel(sc, 'char');
+    if (sc.charTab !== 'realm') errors.push('角色面板没有 realm 子页');
+    if (!sc.buttons.some((b) => /突破/.test(b.label || ''))) {
+      errors.push('角色面板「境界」子页没有突破按钮');
+    }
+    sc.clearOverlay();
+  }
+
+  /* ========== ④ 灵根九维方块图 ========== */
+  {
+    const at = ov.indexOf('charLinggen: function');
+    if (at < 0) bail('overlays.js 缺 charLinggen');
+    const body = ov.slice(at, at + 3200);
+    const nine = body.match(/var NINE = \[([^\]]*)\]/);
+    if (!nine) errors.push('灵根页没有九维表 NINE（还是文字列表）');
+    else if (nine[1].split(',').length !== 9) {
+      errors.push('灵根九维表不是 9 项：' + nine[1]);
+    }
+    /* 方块图 = 逐格画方框 + 格内比例条。两者缺一就还是"文字列表换了个壳"。 */
+    if (body.indexOf('var CW') < 0 || body.indexOf('fillRect') < 0
+      || body.indexOf('w: CW, h: CW') < 0) {
+      errors.push('灵根页没有九宫方块图（缺格子几何或比例条绘制）');
+    }
+  }
+
+  /* ========== ⑤ 储物：分类子页 + 方格 + 悬浮说明 ========== */
+  {
+    const s = JSON.parse(JSON.stringify(save));
+    s.pos = null;
+    s.items = { 回春丹: 2, 妖丹: 3 };
+    s.skills = { 缠藤指: { lv: 2 } };
+    G.game.save = s;
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    sc.clearOverlay(); sc.bagTab = 'misc';
+    G.Overlays.openPanel(sc, 'bag');
+    const tabs = sc.buttons.filter((b) => b.variant === 'subtab');
+    if (tabs.length !== 5) errors.push('储物分类子页签应为 5 个，实为 ' + tabs.length);
+    ['杂项', '功法', '灵石', '法宝', '秘术'].forEach((n) => {
+      if (!tabs.some((b) => b.label === n)) errors.push('储物缺分类子页：' + n);
+    });
+    if (!sc.buttons.some((b) => b.sub && /^×/.test(String(b.sub)))) {
+      errors.push('杂项页没有方格陈列（物品格按钮缺 sub 副行）');
+    }
+    const skTab = tabs.filter((b) => b.label === '功法')[0];
+    if (!skTab) bail('储物缺「功法」子页');
+    skTab.onClick();
+    if (sc.bagTab !== 'skill') errors.push('点「功法」子页没有切到 skill');
+    if (!sc.buttons.some((b) => b.sub && /^Lv/.test(String(b.sub)))) {
+      errors.push('功法子页没有功法方格');
+    }
+    /* 悬浮说明：方格必须带 hover 文案（渲染路径里挂的） */
+    const realHover = G.UI.hover, seen = [];
+    G.UI.hover = function (rect, info) { seen.push([rect, info]); return realHover.apply(this, arguments); };
+    pump(2, 'ui2.baghover');
+    G.UI.hover = realHover;
+    if (!seen.some((h) => h[1] && h[1].text)) errors.push('储物方格没有悬浮说明');
+    sc.clearOverlay();
+  }
+
+  /* ========== ⑥ 任务追踪栏 + 路引 ========== */
+  if (typeof G.Overlays.trackInfo !== 'function') bail('缺 G.Overlays.trackInfo（追踪栏取数口）');
+  {
+    const tk = G.Overlays.trackInfo({ quest: { step: 'm1-2', flags: {} } });
+    if (!tk || !tk.s || tk.id !== 'm1-2') errors.push('trackInfo 没取到当前步');
+    if (!tk.guide || tk.guide.map !== 'town') errors.push('m1-2 的路引目标不在镇上');
+    if (!(tk.s.subs || []).length) errors.push('m1-2 没有子任务清单');
+    /* g → g2 的切换：m0-1 打赢一场后应改指回镇找沈伯 */
+    const t2 = G.Overlays.trackInfo({ quest: { step: 'm0-1', flags: { won1: true } } });
+    if (!t2.guide || t2.guide.map !== 'town_shop') {
+      errors.push('m0-1 完成后路引未切到 town_shop（g2 没生效）');
+    }
+    const t3 = G.Overlays.trackInfo({ quest: { step: 'm0-1', flags: {} } });
+    if (!t3.guide || t3.guide.map !== 'field') errors.push('m0-1 未完成时路引应指向翠微山');
+
+    const s = JSON.parse(JSON.stringify(save));
+    s.pos = null;
+    G.game.save = s;
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    /* 跨图寻路：镇 → 药铺走的是**屋门**（md.doors），不是 exits ——
+       只认 exits 的话这条路永远找不到，路引会退化成一句"往 药铺"。 */
+    const route = sc._routeTo('town_shop');
+    if (!route || route.to !== 'town_shop') errors.push('镇 → 药铺的跨图寻路没找到下一跳');
+    if (sc._routeTo('town') !== null) errors.push('目标就在本图时应返回 null');
+    if (sc._mapName('town_shop') !== '药铺') errors.push('_mapName(town_shop) 不是药铺');
+    if (sc._mapName('town') !== '青溪镇') errors.push('_mapName(town) 不是青溪镇');
+    if (sc._mapName('field_temple') !== '山神庙') errors.push('_mapName(field_temple) 不是山神庙');
+    /* 追踪栏开关钮：**有且只有一个** */
+    const togs = sc.buttons.filter((b) => /追踪/.test(b.label || ''));
+    if (togs.length !== 1) errors.push('追踪栏开关钮应为 1 个，实为 ' + togs.length);
+    else {
+      const was = sc.trackOpen;
+      togs[0].onClick();
+      if (sc.trackOpen === was) errors.push('点追踪栏开关钮没有切换展开状态');
+      sc.trackOpen = true;
+      sc._padButtons();
+    }
+    /* 面板本体**不得登记按钮** —— 登记了就会吞掉地图点击（这是本轮的核心约束） */
+    const tkBody = ex.slice(ex.indexOf('_drawTracker: function'), ex.indexOf('_ellip: function'));
+    if (tkBody.indexOf('new G.UI.Btn') >= 0) {
+      errors.push('追踪栏面板本体登记了按钮 —— 会吞掉地图点击');
+    }
+    if (tkBody.indexOf('trackOpen') < 0) errors.push('追踪栏没有收缩开关');
+  }
+
+  /* ========== ⑦ 出口传送阵：命中 + 点击切图 ========== */
+  {
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    const e1 = sc._exitAt(18, 23);                       /* town 出口在 y=23 */
+    if (!e1 || e1.to !== 'field') errors.push('_exitAt 没命中镇出口');
+    const e2 = sc._exitAt(18, 22);                       /* 阵雾向上飘 → 上方一格也算 */
+    if (!e2 || e2.to !== 'field') errors.push('_exitAt 未覆盖传送阵上方一格');
+    if (sc._exitAt(5, 5)) errors.push('_exitAt 在非出口格误命中');
+    if (ex.indexOf('_drawPortal: function') < 0) errors.push('explore.js 缺 _drawPortal（出口传送阵）');
+    const portalBody = ex.slice(ex.indexOf('_drawPortal: function'), ex.indexOf('_exitAt: function'));
+    if (portalBody.indexOf('drawImage') >= 0) {
+      errors.push('出口传送阵用了素材图 —— 它必须纯矢量（缺图会静默退回）');
+    }
+    /* 点出口格 → 直接切图 */
+    const p = { x: 18 * 16 + 8 - sc._camX(), y: 23 * 16 + 8 - sc._camY() };
+    sc.onTap(p);
+    if (G.game.sceneName !== 'field') {
+      errors.push('点出口传送阵没有切到下一张图，实为 ' + G.game.sceneName);
+    }
+  }
+
+  /* ========== ⑧ 室内矮墙：高度与画布尺寸必须一致 ========== */
+  {
+    const sz = art.match(/wall:\s*\[(\d+),\s*(\d+)\]/);
+    if (!sz) errors.push('DECOR_SIZE 里找不到 wall');
+    else if (parseInt(sz[2], 10) > 24) {
+      errors.push('室内墙高 ' + sz[2] + ' 过大（锚点 oy = 16 − h，会长到上一行盖住角色）');
+    }
+    const wh = art.match(/decorCanvas\('d\|wall\|' \+ v, 32, (\d+)/);
+    if (!wh) errors.push('找不到 wall 的程序化画布尺寸');
+    else if (sz && parseInt(wh[1], 10) !== parseInt(sz[2], 10)) {
+      errors.push('wall 画布高 ' + wh[1] + ' 与 DECOR_SIZE 的 ' + sz[2] + ' 不一致（必须两处一起改）');
+    }
+  }
+
+  G.game.changeScene('title');
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('截图反馈第二批契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 截图反馈批二：HUD 四格+悬浮 / 功法下拉降序 / 境界突破入口 / 灵根九维 /'
+    + ' 储物五分类 / 追踪栏+路引 / 出口传送阵 / 矮墙');
+}, 'ui.batch2.contract');
+pump(6, 'ui.batch2.leave');
+
+/* ---------- 地面类型不得归一化（v0.11.4）----------
+   `_baseType()` 是 `groundTex()` 的**取纹理口**，必须返回**真实地面类型**。
+   把 bloodcave 归回 'cave' 会让暗红地面**静默渲染成普通洞窟** —— 不报错、只是颜色不对，
+   属 G19 / G33 同类的"接线丢失"。
+   "是否洞窟系"这种**族判断**（暗幕 `_drawVeil` / 明暗层 `_drawShade`）一律走 `_isCaveGround()`，
+   两个职责不能合并到同一个函数里。 */
+step(function () {
+  const errors = [];
+  /* read 是各契约块内的局部工具（不共享），这里自带一份 */
+  const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+  const ex = read('www/js/core/explore.js');
+
+  /* ⚠️ 源码闸**必须先剥注释**：注释里常常正好提到被闸的符号名
+     （本例 `_drawShade` 上方的说明就写了 `_isCaveGround()`），
+     不剥的话 `indexOf` 恒真 —— 反例验证时真踩到了（反例 B 没报）。
+     剥注释是源码闸的**通用前置**，不是这一条的局部技巧。 */
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  /* ① 源码闸：_baseType 必须原样返回地面类型，不得归一化 */
+  const bt = stripC(ex.slice(ex.indexOf('_baseType: function'), ex.indexOf('_pal: function')));
+  if (bt.indexOf('bloodcave') < 0) {
+    errors.push('_baseType 没处理 bloodcave（新地面类型加了却没接进来）');
+  }
+  if (!/return\s+g\s*;/.test(bt)) {
+    errors.push('_baseType 未原样返回地面类型 —— 归一化会让 bloodcave 静默用 cave 纹理');
+  }
+
+  /* ② 源码闸：_drawShade 的提前返回必须走 _isCaveGround()。
+     若写成 `kind === 'cave'`，bloodcave 会漏过 → 暗幕与明暗层同时叠上（画面偏黑且多一份开销）。 */
+  const sh = stripC(ex.slice(ex.indexOf('_drawShade: function'), ex.indexOf('_drawStructure: function')));
+  if (sh.indexOf('_isCaveGround()') < 0) {
+    errors.push('_drawShade 未用 _isCaveGround() 判族 —— bloodcave 会同时叠暗幕与明暗层');
+  }
+
+  /* ③ 换色是否接上：**源码闸 + 对象同一性**。
+     ⚠️ 这里**不能比像素** —— 无头环境用的是桩 canvas，`getImageData` 恒返回
+     4 个零字节（`tools/smoke.js` 的 `makeCanvas`），拿它比两张纹理**永远判"相同"**，
+     属于"假绿"（首版就写了像素比对，反例验证时才发现它恒报错而不是恒通过，
+     真因是桩的局限）。真·逐像素验证在 `tools/browser-probe.js`（真 canvas）里做。 */
+  const art = read('www/js/core/art.js');
+  const gi = art.indexOf('function gCave(x, pal)');
+  const bi = art.indexOf('function gBloodcave(x, pal)');
+  const si = art.indexOf('大尺度明暗图');
+  if (gi < 0 || bi < 0 || si < 0 || !(gi < bi && bi < si)) {
+    errors.push('找不到 gCave / gBloodcave 的函数体（结构变了就更新这段锚点）');
+  } else {
+    const cBody = art.slice(gi, bi).replace(/\s+/g, '');
+    const bBody = art.slice(bi, si).replace(/\s+/g, '');
+    if (cBody === bBody) {
+      errors.push('gCave 与 gBloodcave 的实参逐字相同 —— 换色没接上（会静默同色）');
+    }
+    if (bBody.indexOf('#5a3a3c') < 0) {
+      errors.push('gBloodcave 没用 M1 §5.1 规定的基色 #5a3a3c');
+    }
+  }
+  /* 运行时：两次取纹理必须命中**不同的缓存条目**（同条目 = 同一个生成器） */
+  const pal = G.game.save.world.pal;
+  const ca = G.Art.groundTex('cave', pal);
+  const cb = G.Art.groundTex('bloodcave', pal);
+  if (!ca || !cb) bail('groundTex 取不到 cave / bloodcave 纹理');
+  if (ca === cb) errors.push('groundTex 对 cave / bloodcave 返回了同一个画布 —— 类型没区分开');
+
+  /* ④ 运行时：桩地图上 _baseType() 必须返回 bloodcave、_isCaveGround() 必须为真 */
+  {
+    const s = JSON.parse(JSON.stringify(save));
+    s.pos = null;
+    G.game.save = s;
+    G.game.changeScene('cave', { toSpawn: true });
+    const sc = G.game.scene;
+    const keep = sc.map.md.ground;
+    sc.map.md.ground = 'bloodcave';
+    if (sc._baseType() !== 'bloodcave') {
+      errors.push('_baseType() 在 bloodcave 图上返回了 ' + sc._baseType());
+    }
+    if (!sc._isCaveGround()) errors.push('_isCaveGround() 不认 bloodcave');
+    sc.map.md.ground = keep;
+  }
+
+  G.game.changeScene('title');
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('地面类型契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 地面类型：cave / bloodcave 纹理可区分，_baseType 不归一化，洞窟族走 _isCaveGround');
+}, 'ground.type.contract');
+pump(6, 'ground.type.leave');
+
 /* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------
    裂隙点了必须开**那一处**秘境的面板（此前一律跳通用枢纽）；
    并且裂隙的槽位副本要与秘境枢纽的序列**逐槽一致** ——
