@@ -74,6 +74,23 @@ function drawSpy() {
   return c;
 }
 
+/* 带坐标的文本探针：记录每次 fillText 的 (文本, x, y, 字号)。
+   为什么要坐标：**排版越界是静默的** —— 字画到面板外、或压住下一行，都不报错，
+   只有截图才看得出来（32_panel_quest 的末条任务、34_panel_achieve 的末条成就
+   就是这么漏出去的）。G.UI.text 的 y 是 textBaseline='top'，所以 y + 字号 = 文字底。
+   用法见 panels.bounds.contract。 */
+function textSpyXY() {
+  const c = makeCtx();
+  const seen = [];
+  c.fillText = function (s, x, y) {
+    const m = /(\d+(?:\.\d+)?)px/.exec(String(c.font));
+    seen.push({ s: String(s), x: x, y: y, size: m ? parseFloat(m[1]) : 10, align: c.textAlign });
+    return undefined;
+  };
+  c.__seenXY = seen;
+  return c;
+}
+
 function makeCanvas(w, h) {
   const c = {
     width: w || 300, height: h || 150,
@@ -1782,9 +1799,11 @@ step(function () {
   if (Math.abs(ratio - 1.30) > 0.02) errors.push(`永久加成倍率应约 1.30，实际 ${ratio.toFixed(3)}`);
 }, 'hell.contract');
 
-/* ---------- 界域难度面板契约（设计 v1.1 §2.5 / 缺口 U2） ----------
-   菜单里有入口 → 能打开 → 点击按 普通→困难→地狱→普通 轮换并落盘；
-   未解锁的界改不动；渲染分支不炸（新增 overlay 时最容易漏掉路由，这里一并钉住）。 */
+/* ---------- 设置面板 + 界域难度契约（设计 v1.1 §2.5 / 缺口 U2；v0.8.0 改版） ----------
+   v0.8.0 起**没有「菜单」这一页**：角色等六项已拆到常驻底栏，秘境在区域裂隙上点，
+   顶栏右上角那颗按钮直接叫「设置」→ 开设置页（天道模型 / 界域难度 / 关于）。
+   契约：设置页里有「界域难度」入口与三种协议 → 能打开 → 点击按 普通→困难→地狱→普通
+   轮换并落盘；未解锁的界改不动；两个页面的渲染路由都真的把文案画出来（文本探针）。 */
 step(function () {
   const s = JSON.parse(JSON.stringify(save));
   s.pos = null;
@@ -1802,10 +1821,19 @@ step(function () {
   G.game.changeScene('town', { toSpawn: true });
   const sc = G.game.scene;
 
-  G.TianDao.openMenu(sc);
-  if (sc.overlay !== 'menu') { errors.push('openMenu 未设置 overlay'); return; }
+  G.TianDao.openSettings(sc);
+  if (sc.overlay !== 'settings') { errors.push('openSettings 未设置 overlay'); return; }
   if (!sc.buttons.some(function (b) { return (b.label || '').indexOf('界域') >= 0; })) {
-    errors.push('菜单里没有「界域难度」入口');
+    errors.push('设置页里没有「界域难度」入口');
+  }
+  /* 三种协议都得能选（缺口：天道原先只支持 OpenAI 兼容接口） */
+  ['OpenAI', 'Claude', '原生 Response'].forEach(function (n) {
+    if (!sc.buttons.some(function (b) { return b.label === n; })) {
+      errors.push('设置页缺少协议选项：' + n);
+    }
+  });
+  if (!sc.buttons.some(function (b) { return (b.label || '').indexOf('…') >= 0 || b.label === '未填写'; })) {
+    errors.push('设置页缺少密钥输入行');
   }
 
   G.TianDao.openWorlds(sc);
@@ -1838,12 +1866,15 @@ step(function () {
   if (!cx.__seen.some(function (t) { return t.indexOf('三界碎片集齐') >= 0; })) {
     errors.push('overlay=worlds 没有渲染出面板文案（场景 renderOverlay 路由漏了）');
   }
-  sc.overlay = 'menu';
+  sc.overlay = 'settings';
   const cm = textSpy();
   sc.render(cm);
-  /* 按钮文字是 game.js 画的、不在 scene.render 里，所以这里只查面板标题 */
-  if (!cm.__seen.some(function (t) { return t.indexOf('菜') >= 0; })) {
-    errors.push('overlay=menu 没有渲染出菜单面板');
+  /* 按钮文字是 game.js 画的、不在 scene.render 里，所以这里只查面板标题与静态文案 */
+  if (!cm.__seen.some(function (t) { return t.indexOf('设') >= 0; })) {
+    errors.push('overlay=settings 没有渲染出设置面板');
+  }
+  if (!cm.__seen.some(function (t) { return t.indexOf('协议') >= 0; })) {
+    errors.push('overlay=settings 没有渲染出「协议」一行');
   }
 }, 'worlds.panel.contract');
 
@@ -2086,8 +2117,8 @@ step(function () {
   if (!tog) { errors.push('轮回殿没有「飞升台」入口'); return; }
   tog.onClick();
   if (sc.view !== 'ascend') { errors.push('点击后没有切到飞升台视图'); return; }
-  /* 4 界 × (主界 + 难度) + 底部 3 键 */
-  if (sc.buttons.length !== 11) errors.push(`飞升台按钮数应为 11（4+4+3），实际 ${sc.buttons.length}`);
+  /* 4 界 × (主界 + 难度) + 底部 5 键（返回标题 / 仙躯灌注 / 飞升台 / 前世经历 / 转世重修） */
+  if (sc.buttons.length !== 13) errors.push(`飞升台按钮数应为 13（4+4+5），实际 ${sc.buttons.length}`);
 
   /* 未解锁的仙界（左列第 3 行 = index 4）点了不写 */
   sc.buttons[4].onClick();
@@ -2163,6 +2194,303 @@ step(function () {
     if (got.indexOf(id) < 0) errors.push(`条件满足后未发成就 ${id}（${byId[id].n}）`);
   });
 }, 'achieve.contract');
+
+/* ---------- 底栏功能栏 + 六个面板契约（v0.8.0） ----------
+   这六项（角色/功法/秘术/任务/储物/成就）原先藏在「菜单」二级页里，现在常驻底栏。
+   三个易漏点，全部用探针钉住：
+     ① 底栏按钮是否真的挂到了探索场景上（漏挂 = 底栏画得出来但点不动）；
+     ② 每个面板的渲染路由（漏路由是**静默不画**，只断言"不抛异常"抓不到）；
+     ③ 底栏区域不能响应点地（否则点功能栏会让人物跑起来）。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = { x: 5, y: 5 };
+  G.game.save = s;
+  if (!G.game.meta) G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: [] };
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+
+  const NAMES = ['角色', '功法', '秘术', '任务', '储物', '成就'];
+  NAMES.forEach(function (n) {
+    if (!sc.buttons.some(function (b) { return b.label === n && b.variant === 'tab'; })) {
+      errors.push('底栏缺少功能入口：' + n);
+    }
+  });
+  if (typeof G.Explore.BOT_H !== 'number' || G.Explore.BOT_H <= 0) {
+    errors.push('Explore.BOT_H 未导出（onTap 靠它挡底栏误触）');
+  }
+
+  const TITLE = {
+    char: '角 色', skills: '功　法', secrets: '秘　术',
+    quest: '任　务', bag: '储　物', achieve: '成　就'
+  };
+  Object.keys(TITLE).forEach(function (id) {
+    G.Overlays.openPanel(sc, id);
+    if (sc.overlay !== id) { errors.push('openPanel(' + id + ') 未设置 overlay'); return; }
+    if (!sc.buttons.some(function (b) { return b.variant === 'tab' && b.active; })) {
+      errors.push('面板 ' + id + ' 里没有高亮当前页签');
+    }
+    const cx = textSpy(); sc.render(cx);
+    if (!cx.__seen.some(function (t) { return t.indexOf(TITLE[id]) >= 0; })) {
+      errors.push('面板 ' + id + ' 没有渲染出标题（场景 renderOverlay 路由漏了）');
+    }
+  });
+
+  /* 六个面板之间可以直接互切（不用先退回探索） */
+  G.Overlays.openPanel(sc, 'quest');
+  const otherTab = sc.buttons.filter(function (b) { return b.variant === 'tab' && b.label === '储物'; })[0];
+  if (!otherTab) { errors.push('面板内没有底栏（无法直接切页）'); return; }
+  otherTab.onClick();
+  if (sc.overlay !== 'bag') errors.push('面板内切页失败，overlay=' + sc.overlay);
+
+  /* 再点当前页签 = 收起 */
+  const curTab = sc.buttons.filter(function (b) { return b.variant === 'tab' && b.active; })[0];
+  curTab.onClick();
+  if (sc.overlay) errors.push('再点当前页签应收起面板，实际 overlay=' + sc.overlay);
+
+  /* 底栏区域不响应点地 */
+  const p0 = JSON.stringify(s.pos);
+  sc.onTap({ x: 240, y: 272 - 3 });
+  if (JSON.stringify(s.pos) !== p0) errors.push('点底栏不该让人物移动');
+}, 'panels.contract');
+
+/* ---------- 面板内容不得越界（v0.8.0） ----------
+   越界是**静默**的：字画到面板外、或压住下一行，都不报错，只有截图才看得出来。
+   这里用带坐标的文本探针把「所有文字都落在面板矩形内」变成断言。
+   取最坏情况数据（6 步任务链 + 9 项成就全达成 + 满背包），把每一行都逼出来。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = { x: 5, y: 5 };
+  s.quest = { step: 'free', flags: { won1: 1, templeDone: 1, dream: 1, gotBreakPill: 1 } };
+  s.skills = { '缠藤指': { lv: 3 }, '铁布衫': { lv: 2 }, '吐纳术': { lv: 1 },
+               '回春诀': { lv: 1 }, '御风步': { lv: 1 }, '千斤坠': { lv: 1 } };
+  s.items = { '回春丹': 4, '淬体突破丹': 1, '妖丹': 7, '解封符': 2,
+              '大还丹': 2, '聚气散': 3, '醒神散': 1 };
+  G.game.save = s;
+  G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: ['破狱·凡尘', '破狱·灵渊'] };
+  (G.Player.ACHIEVE || []).forEach(function (a) { G.game.meta.achieve[a.id] = 1; });
+
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+
+  /* 缺字会渲染成空心方框（豆腐块），且换机器表现不一致 —— 一律走矢量绘制。
+     详见 panels.js 的 mark()。 */
+  const BAD = '\u2713\u2714\u25b6\u25b7';
+
+  /* 字宽估算：桩的 measureText 一律返回"长度 × 7"，对中文严重低估（会漏掉横向压字）。
+     CJK/全角按字号算，ASCII 按 0.55 —— 够用来判"两行是不是压在一起"。 */
+  const bw = function (t) {
+    let w = 0;
+    for (let i = 0; i < t.s.length; i++) {
+      w += t.s.charCodeAt(i) > 0x2e80 ? t.size : t.size * 0.55;
+    }
+    return w;
+  };
+  const box = function (t) {
+    const w = bw(t);
+    const x0 = t.align === 'right' ? t.x - w : t.x;
+    return { x0: x0, x1: x0 + w, y0: t.y, y1: t.y + t.size };
+  };
+
+  /* 共用断言：① 不越出面板矩形；② 不含缺字标记；③ 两行不叠字；④ 文字不压在按钮上。
+     ④ 单列出来是因为**按钮是另一条绘制路径**（game.js 画底 + 自己画标签），
+     文字探针看不到它 —— 设置页底部提示被「关闭」按钮压住就是这么漏出去的。 */
+  const checkTexts = function (id, R, body, btns) {
+    if (!body.length) { errors.push('面板 ' + id + ' 一个字都没画'); return; }
+    body.forEach(function (t) {
+      if (t.y < R.y - 0.5 || t.y + t.size > R.y + R.h + 0.5) {
+        errors.push('面板 ' + id + ' 文字纵向越界（' + JSON.stringify(t.s)
+          + ' y=' + t.y + ' 字号=' + t.size + '，面板 ' + R.y + '..' + (R.y + R.h) + '）');
+      }
+      if (t.x < R.x - 0.5 || t.x > R.x + R.w + 0.5) {
+        errors.push('面板 ' + id + ' 文字横向越界（' + JSON.stringify(t.s)
+          + ' x=' + t.x + '，面板 ' + R.x + '..' + (R.x + R.w) + '）');
+      }
+      for (let i = 0; i < t.s.length; i++) {
+        if (BAD.indexOf(t.s[i]) >= 0) {
+          errors.push('面板 ' + id + ' 用了缺字标记 ' + JSON.stringify(t.s[i])
+            + '（会渲染成空心方框，请改用矢量绘制）');
+        }
+      }
+    });
+
+    /* 叠字：两行压在一起**不越界**、但会糊成一团（34_panel_achieve 的「称号」
+       压在「叩门道界」上就是这么来的）。纵向重叠超过较矮一行高度的 40% 才算叠字，
+       给正常行距留余量。 */
+    const bs = body.map(box);
+    for (let i = 0; i < bs.length; i++) {
+      for (let j = i + 1; j < bs.length; j++) {
+        const oy = Math.min(bs[i].y1, bs[j].y1) - Math.max(bs[i].y0, bs[j].y0);
+        const ox = Math.min(bs[i].x1, bs[j].x1) - Math.max(bs[i].x0, bs[j].x0);
+        const minH = Math.min(bs[i].y1 - bs[i].y0, bs[j].y1 - bs[j].y0);
+        if (ox > 1 && oy > minH * 0.4) {
+          errors.push('面板 ' + id + ' 文字叠字：' + JSON.stringify(body[i].s)
+            + ' × ' + JSON.stringify(body[j].s) + '（纵向重叠 ' + oy.toFixed(1) + 'px）');
+        }
+      }
+    }
+
+    (btns || []).forEach(function (btn) {
+      if (!btn || !(btn.w > 0) || !(btn.h > 0)) return;
+      body.forEach(function (t) {
+        const b = box(t);
+        const oy = Math.min(b.y1, btn.y + btn.h) - Math.max(b.y0, btn.y);
+        const ox = Math.min(b.x1, btn.x + btn.w) - Math.max(b.x0, btn.x);
+        if (ox > 2 && oy > (b.y1 - b.y0) * 0.4) {
+          errors.push('面板 ' + id + ' 文字压在按钮上：' + JSON.stringify(t.s)
+            + ' × 「' + btn.label + '」');
+        }
+      });
+    });
+  };
+
+  /* 底栏（y ≥ BAR_Y）本来就在内容面板之外，不算越界。 */
+  const BAR_Y = G.Overlays.BAR_Y;
+  const inBand = function (t) { return t.y < BAR_Y; };
+
+  /* ① 底栏六个面板。只跑 G.Overlays.renderPanel（= 面板体 + 底栏），**不跑整个场景** ——
+     否则 HUD 顶栏与场景名铭牌也会进探针，得靠坐标打补丁把它们挑出去。 */
+  [
+    { id: 'skills', R: G.Overlays.PANEL_RECT },
+    { id: 'secrets', R: G.Overlays.PANEL_RECT },
+    { id: 'quest', R: G.Overlays.PANEL_RECT },
+    { id: 'bag', R: G.Overlays.PANEL_RECT },
+    { id: 'achieve', R: G.Overlays.PANEL_RECT },
+    { id: 'char', R: G.Overlays.CHAR_PANEL }
+  ].forEach(function (item) {
+    G.Overlays.openPanel(sc, item.id);
+    if (sc.overlay !== item.id) { errors.push('openPanel(' + item.id + ') 失败'); return; }
+    const cx = textSpyXY();
+    if (!G.Overlays.renderPanel(cx, sc)) { errors.push('renderPanel(' + item.id + ') 返回 false'); return; }
+    checkTexts(item.id, item.R, cx.__seenXY.filter(inBand), sc.buttons);
+  });
+
+  /* ② 天道三页（设置 / 界域难度 / 关于）走同一套断言。 */
+  [
+    { id: 'settings', R: G.TianDao.SET_P, open: function () { G.TianDao.openSettings(sc); } },
+    { id: 'worlds', R: G.TianDao.WORLDS_P, open: function () { G.TianDao.openWorlds(sc); } },
+    { id: 'about', R: G.TianDao.ABOUT_P, open: function () { G.TianDao.openAbout(sc); } }
+  ].forEach(function (item) {
+    item.open();
+    if (sc.overlay !== item.id) { errors.push(item.id + ' 未设置 overlay'); return; }
+    const cx = textSpyXY();
+    G.TianDao.renderOverlay(cx, sc);
+    checkTexts(item.id, item.R, cx.__seenXY, sc.buttons);
+  });
+}, 'panels.bounds.contract');
+
+/* ---------- 天道多协议契约（v0.8.0） ----------
+   缺口：天道原先只认 OpenAI 兼容的 /chat/completions。
+   现在要支持 Claude（/messages，system 在顶层、x-api-key）与原生 Response
+   （/responses，instructions + input）。三家的差异全在 buildRequest / extractText 两处，
+   这里把"打哪个路径、怎么鉴权、请求体形状、从哪取文本"逐条钉死。 */
+step(function () {
+  const TD = G.TianDao;
+  const mk = function (proto, endpoint, key) {
+    return { protocol: proto, endpoint: endpoint, model: 'm', apiKey: key || '', temp: 0.7 };
+  };
+
+  /* —— OpenAI 兼容 —— */
+  let r = TD.buildRequest(mk('openai', 'https://api.openai.com/v1', 'sk-1'), 'S', 'U');
+  if (r.url !== 'https://api.openai.com/v1/chat/completions') errors.push('openai 端点拼接错误：' + r.url);
+  if (r.headers['Authorization'] !== 'Bearer sk-1') errors.push('openai 缺少 Bearer 鉴权');
+  if (!r.body.messages || r.body.messages[0].role !== 'system') errors.push('openai 请求体缺少 system 消息');
+
+  /* —— Claude —— */
+  r = TD.buildRequest(mk('claude', 'https://api.anthropic.com/v1', 'sk-ant'), 'S', 'U');
+  if (r.url !== 'https://api.anthropic.com/v1/messages') errors.push('claude 端点错误：' + r.url);
+  if (r.headers['x-api-key'] !== 'sk-ant') errors.push('claude 缺少 x-api-key');
+  if (!r.headers['anthropic-version']) errors.push('claude 缺少 anthropic-version 头');
+  if (r.body.system !== 'S') errors.push('claude 的 system 应在顶层而非 messages 里');
+  if (!r.body.messages || r.body.messages[0].content !== 'U') errors.push('claude 用户输入位置错误');
+
+  /* —— 原生 Response —— */
+  r = TD.buildRequest(mk('response', 'https://api.openai.com/v1', 'sk-2'), 'S', 'U');
+  if (r.url !== 'https://api.openai.com/v1/responses') errors.push('response 端点错误：' + r.url);
+  if (r.body.instructions !== 'S' || r.body.input !== 'U') {
+    errors.push('response 请求体应为 instructions + input');
+  }
+
+  /* —— 端点健壮性 —— */
+  r = TD.buildRequest(mk('openai', 'https://x.example/v1/chat/completions', ''), 'S', 'U');
+  if (r.url !== 'https://x.example/v1/chat/completions') {
+    errors.push('端点已是完整路径时不该再拼后缀：' + r.url);
+  }
+  r = TD.buildRequest(mk('openai', 'http://localhost:11434/v1', ''), 'S', 'U');
+  if (r.headers['Authorization']) errors.push('密钥留空时不该带 Authorization（本地 Ollama 不需要）');
+
+  /* —— 三种响应体取文本 —— */
+  const t1 = TD.extractText({ choices: [{ message: { content: 'A' } }] }, 'openai');
+  const t2 = TD.extractText({ content: [{ type: 'text', text: 'B' }] }, 'claude');
+  const t3 = TD.extractText({ output: [{ content: [{ text: 'C' }] }] }, 'response');
+  const t4 = TD.extractText({ output_text: 'D' }, 'response');
+  if (t1 !== 'A' || t2 !== 'B' || t3 !== 'C' || t4 !== 'D') {
+    errors.push(`extractText 取文本错误：${t1}/${t2}/${t3}/${t4}`);
+  }
+
+  /* —— 容错解析：模型爱裹 ```json 围栏、爱在前后加废话 —— */
+  if (!TD.pickJson('```json\n{"台词":"x"}\n```')) errors.push('pickJson 未能剥掉 ```json 围栏');
+  if (!TD.pickJson('好的，这是：{"台词":"y"} 以上')) errors.push('pickJson 未能从夹叙里取出 JSON');
+  if (TD.validate('{"台词":"这是一段完全合规的谶语"}') !== '这是一段完全合规的谶语') {
+    errors.push('validate 把正常台词误判掉了');
+  }
+  if (TD.validate('{"台词":"这个游戏很好玩"}') !== null) errors.push('validate 未拦截违禁词');
+
+  /* —— 旧档配置迁移：v0.7.0 以前的 cfg 没有 protocol / apiKey —— */
+  const legacy = { mode: 'remote', endpoint: 'http://a/v1', model: 'q', temp: 0.8 };
+  G.TianDao.cfg = null;
+  G.TianDao.ensure({ tiandao: legacy });
+  if (legacy.protocol !== 'openai') errors.push('旧档 tiandao 配置未补 protocol 默认值');
+  if (legacy.apiKey !== '') errors.push('旧档 tiandao 配置未补 apiKey 默认值');
+}, 'tiandao.protocol.contract');
+
+/* ---------- 设备标识 + 每一世经历契约（v0.8.0） ----------
+   需求：天道要记录玩家每一世的经历，轮回殿能看到设备/浏览器标识做区分。
+   数据侧：meta.past[] 每世一条（death.js 写入，含 chronicle 走马灯与 dev）；
+   展示侧：轮回殿「前世经历」视图可翻页、标出记录来源设备。 */
+step(function () {
+  const id1 = G.Storage.deviceId(), id2 = G.Storage.deviceId();
+  if (!id1 || id1 !== id2) errors.push('deviceId 不稳定：' + id1 + ' vs ' + id2);
+  const b1 = G.Storage.browserId(), b2 = G.Storage.browserId();
+  if (!b1 || b1 !== b2) errors.push('browserId 不稳定：' + b1 + ' vs ' + b2);
+
+  const m = { past: [], perfusion: {}, achieve: {}, titles: [] };
+  G.Storage.stampDevice(m);
+  if (!m.device || m.device.id !== id1) errors.push('stampDevice 未写入 device.id');
+  if (!m.device.browser) errors.push('stampDevice 未写入 device.browser');
+
+  /* 每一世都带上来源设备 —— 换机后旧记录会留着别的 dev 号 */
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  m.past = [
+    { life: 1, age: 39, realm: '炼气三重', xianli: 120, causeName: '寿元尽', dev: id1,
+      chronicle: [{ id: 'x', t: 16, s: '入世青溪镇' }, { id: 'y', t: 39, s: '手刃赤炎狼王' }] },
+    { life: 2, age: 22, realm: '炼气一重', xianli: 90, causeName: '战死', dev: 'dev-other',
+      chronicle: [{ id: 'z', t: 22, s: '殁于黑风岭' }] }
+  ];
+  m.device = { id: id1, browser: b1 };
+  G.game.meta = m;
+
+  const sc = G.scenes.hall;
+  sc.enter();
+  const lives = sc.buttons.filter(function (b) { return b.label === '前世经历'; })[0];
+  if (!lives) { errors.push('轮回殿缺少「前世经历」入口'); return; }
+  lives.onClick();
+  if (sc.view !== 'lives') { errors.push('点击后没有切到前世经历视图'); return; }
+
+  const cx = textSpy(); sc.render(cx);
+  const has = function (t) { return cx.__seen.some(function (x2) { return x2.indexOf(t) >= 0; }); };
+  if (!has('前 世 经 历')) errors.push('前世经历视图没有渲染出标题');
+  if (!has('入世青溪镇')) errors.push('前世经历没有渲染出该世走马灯');
+  if (!has('炼气三重')) errors.push('前世经历没有渲染出该世境界');
+  if (!has(id1)) errors.push('前世经历没有标出本机设备号');
+  if (!has('dev-other')) errors.push('前世经历没有标出其它设备的记录');
+  if (!has(b1)) errors.push('轮回殿没有展示浏览器标识');
+
+  /* 倒序：最新一世排在最前 */
+  const i2 = cx.__seen.findIndex(function (t) { return t.indexOf('第 2 世') >= 0; });
+  const i1 = cx.__seen.findIndex(function (t) { return t.indexOf('第 1 世') >= 0; });
+  if (i2 < 0 || i1 < 0 || i2 > i1) errors.push('前世经历应按时间倒序（最新在前）');
+}, 'device.contract');
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

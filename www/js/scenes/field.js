@@ -1,7 +1,7 @@
 /* 翠微山：探索引擎包装；山神庙是一栋可以走进去的房子（室内地图 field_temple） */
 (function () {
   var hooks = {};
-  hooks.menu = function (scene) { G.TianDao.openMenu(scene); };
+  hooks.menu = function (scene) { G.TianDao.openSettings(scene); };
   hooks.overlayTap = G.TianDao.overlayTap;
   hooks.overlayKey = G.TianDao.overlayKey;
 
@@ -13,10 +13,7 @@
   };
 
   hooks.renderOverlay = function (x, scene) {
-    if (G.TianDao.isMenuOverlay(scene.overlay)) {
-      G.TianDao.renderOverlay(x, scene);
-      return;
-    }
+    if (G.Overlays.route(x, scene)) return;
     if (scene.overlay === 'temple') {
       G.Overlays.frame(x, '雪夜 · 山神庙');
       var lines = [
@@ -29,8 +26,6 @@
       lines.forEach(function (l, i) {
         G.UI.text(x, { x: 92, y: 78 + i * 24 }, l, 13, G.UI.C.text);
       });
-    } else if (scene.overlay === 'char') {
-      G.Overlays.renderChar(x);
     }
   };
 
@@ -50,7 +45,7 @@
   }
 
   G.scenes.field_temple = G.Explore.create('field_temple', {
-    menu: function (scene) { G.TianDao.openMenu(scene); },
+    menu: function (scene) { G.TianDao.openSettings(scene); },
     overlayTap: G.TianDao.overlayTap,
     overlayKey: G.TianDao.overlayKey,
     /* 一进门就演：比"在庙外点一下弹面板"更符合"走进去探索" */

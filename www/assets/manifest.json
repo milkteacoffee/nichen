@@ -1,4 +1,5 @@
 {
+  "avatar.luchen": "assets/img/avatar.luchen.png",
   "battle.enemy.b1big": "assets/img/battle.enemy.b1big.png",
   "battle.enemy.b1mid": "assets/img/battle.enemy.b1mid.png",
   "battle.enemy.b2big": "assets/img/battle.enemy.b2big.png",
@@ -50,6 +51,7 @@
   "portrait.elder": "assets/img/portrait.elder.png",
   "portrait.keeper": "assets/img/portrait.keeper.png",
   "portrait.killer": "assets/img/portrait.killer.png",
+  "portrait.luchen": "assets/img/portrait.luchen.png",
   "portrait.shenbo": "assets/img/portrait.shenbo.png",
   "portrait.villager": "assets/img/portrait.villager.png"
 }

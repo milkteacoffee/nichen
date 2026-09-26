@@ -4,6 +4,7 @@
   var MOVE_T = 0.18;
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
   var HUD_H = 48;                         /* 顶栏高度：这一段不响应点地 */
+  var BOT_H = 28;                         /* 底栏高度：这一段不响应点地（功能栏） */
 
   /* 资源数值压缩：超过一万用「万」。
      资源格只有 62px 宽，五行灵石中后期是五位数，不压缩就会顶到图标上。 */
@@ -60,15 +61,22 @@
         if (hooks.enter) hooks.enter(this);
       },
 
-      /* 右上角「菜单」是唯一的常驻按钮：其余操作全靠点击场景 */
+      /* 右上角「设置」+ 底部常驻功能栏。
+         六项功能（角色/功法/秘术/任务/储物/成就）原先藏在「菜单」二级页里，
+         是探索途中最高频的操作 —— 每次要点两下，现在常驻底栏一键直达。
+         底栏按钮也进 this.buttons，所以开覆盖层时会被 setOverlay 换掉，
+         面板内部由 G.Overlays 自己重画底栏（见 panels.js: renderBar）。 */
       _padButtons: function () {
         var self = this;
         this.buttons = [];
         if (hooks.menu) {
           this.buttons.push(new G.UI.Btn({
-            x: 412, y: 5, w: 60, h: 20, small: true, variant: 'ghost', label: '菜单',
+            x: 412, y: 5, w: 60, h: 20, small: true, variant: 'ghost', label: '设置',
             onClick: function () { hooks.menu(self); }
           }));
+        }
+        if (G.Overlays && G.Overlays.barBtns) {
+          G.Overlays.barBtns(self, null).forEach(function (b) { self.buttons.push(b); });
         }
       },
 
@@ -342,6 +350,7 @@
         }
         if (this.flashDir === 1) return;
         if (p.y < HUD_H) return;                    /* 顶栏不响应，避免误触 HUD */
+        if (p.y >= 272 - BOT_H) return;             /* 底栏同理：那是功能栏，不是地面 */
         var tx = Math.floor(this._camX() / 16 + p.x / 16);
         var ty = Math.floor(this._camY() / 16 + p.y / 16);
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
@@ -957,13 +966,14 @@
       },
 
       /* 底部左侧的常驻操作提示：纯点击操作没有摇杆，得有一句话交代怎么玩。
-         进图后显示 14 秒，随后 2 秒淡出，不长期占画面。 */
+         进图后显示 14 秒，随后 2 秒淡出，不长期占画面。
+         位置必须**让开底栏**（272−BOT_H=244 起是功能栏），否则被压在底栏底下。 */
       _drawHint: function (x) {
         var life = Math.max(0, Math.min(1, (16 - this.hintT) / 2));
         if (life <= 0) return;
         x.save();
         x.globalAlpha = 0.74 * life;
-        G.UI.textOut(x, { x: 12, y: 254 }, '点击地面移动　·　点击门与物件交互', 10.5,
+        G.UI.textOut(x, { x: 12, y: 272 - BOT_H - 18 }, '点击地面移动　·　点击门与物件交互', 10.5,
           'rgba(226,216,192,0.95)', 'left', 'rgba(0,0,0,0.7)', 2.4);
         x.restore();
       },
@@ -980,5 +990,5 @@
     return scene;
   }
 
-  G.Explore = { create: create };
+  G.Explore = { create: create, HUD_H: HUD_H, BOT_H: BOT_H };
 })();

@@ -265,7 +265,7 @@
   function sceneFor(regionId) {
     if (G.scenes[regionId]) return G.scenes[regionId];
     var hooks = {
-      menu: function (s) { G.TianDao.openMenu(s); },
+      menu: function (s) { G.TianDao.openSettings(s); },
       overlayTap: G.TianDao.overlayTap,
       overlayKey: G.TianDao.overlayKey,
       onInteract: function (o, s) {
@@ -295,8 +295,7 @@
         }
       },
       renderOverlay: function (x, s) {
-        if (G.TianDao.isMenuOverlay(s.overlay)) { G.TianDao.renderOverlay(x, s); return; }
-        if (s.overlay === 'char') { G.Overlays.renderChar(x); }
+        G.Overlays.route(x, s);
       }
     };
     var sc = G.Explore.create(regionId, hooks);

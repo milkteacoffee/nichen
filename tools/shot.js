@@ -544,6 +544,84 @@ step(() => {
 }, 'hall.ascend');
 shot('28_hall_ascend', 8);
 
+/* 10) v0.8.0：底栏六功能 + 设置多协议 + 前世经历
+   这四张是"底栏真的常驻、六个面板真的能开、设置真的能配云端模型"的肉眼凭据。
+   每步都重建存档 —— death 场景会把当世档清空（G.game.save = null）。 */
+const richSave = () => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.skills = { 缠藤指: { lv: 3 }, 铁布衫: { lv: 2 }, 吐纳术: { lv: 1 }, 回春诀: { lv: 1 } };
+  s.secrets = { n_xuehai: 1, x_jiuxiao: 2, s_longxiang: 1.5, x_zhanxian: 2 };
+  s.items = { 回春丹: 4, 淬体突破丹: 1, 妖丹: 7, 解封符: 2 };
+  s.po = 260; s.stone = 1420; s.qi = 3200; s.hp = 92;
+  s.quest = { step: 'm0-4', flags: { won1: true, templeDone: true, dream: true } };
+  s.globalLevel = 8;
+  s.pos = null;
+  return s;
+};
+const richMeta = () => ({
+  lives: 3, xianli: 260, totalXianli: 1180,
+  perfusion: { body: 2, qi: 1, po: 0, stone: 3, rescue: 0 },
+  achieve: { A1: 1, A2: 1, A4: 1 }, pity: 0,
+  heaven: { talks: 0, watchTotal: 0, memory: [], karma: [] },
+  titles: ['破狱·凡尘', '破狱·灵渊'], hellCleared: { fan: true, ling: true },
+  device: { id: G.Storage.deviceId(), browser: G.Storage.browserId(), first: Date.now(), last: Date.now() },
+  progress: {
+    difficulty: 'normal', activeWorld: 'fan', nextWorld: null,
+    worlds: { fan: true, ling: true, xian: false, dao: false },
+    worldDiff: { fan: 'hard', ling: 'hell', xian: 'normal', dao: 'normal' },
+    daoKey: false, daoShards: { fan: true, ling: true, xian: false }
+  },
+  past: [
+    { life: 1, age: 27, realm: '炼气三段', level: 12, xianli: 152, causeName: '战死', dev: 'dev-other01',
+      chronicle: [{ s: '入世青溪镇' }, { s: '山神庙得逆命珠' }, { s: '殁于黑风岭' }] },
+    { life: 2, age: 34, realm: '筑基一段', level: 19, xianli: 260, causeName: '寿元尽', dev: G.Storage.deviceId(),
+      chronicle: [{ s: '入世落霞镇' }, { s: '破入炼气一重' }, { s: '手刃赤炎狼王' }] },
+    { life: 3, age: 41, realm: '筑基圆满', level: 22, xianli: 312, causeName: '寿元尽', dev: G.Storage.deviceId(),
+      chronicle: [{ s: '入世雷泽荒原' }, { s: '破入筑基一段' }, { s: '以地狱难度踏破灵界' }] }
+  ]
+});
+
+step(() => {
+  G.game.save = richSave();
+  G.game.meta = richMeta();
+  G.game.changeScene('town', { toSpawn: true });
+}, 'hud.bar');
+shot('29_hud_bar', 12);
+
+step(() => { G.Overlays.openPanel(G.game.scene, 'skills'); }, 'panel.skills');
+shot('30_panel_skills', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'secrets'); }, 'panel.secrets');
+shot('31_panel_secrets', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'quest'); }, 'panel.quest');
+shot('32_panel_quest', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
+shot('33_panel_bag', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'achieve'); }, 'panel.achieve');
+shot('34_panel_achieve', 6);
+
+step(() => {
+  /* 打开设置页并把协议切到 Claude、填上地址与模型，看看"配云端"这条路的样子 */
+  G.TianDao.ensure(G.game.meta);
+  G.game.meta.tiandao = {
+    mode: 'remote', protocol: 'claude',
+    endpoint: 'https://api.anthropic.com/v1',
+    model: 'claude-3-5-haiku-20241022',
+    apiKey: 'sk-ant-api03-abcdefghijklmnop', temp: 0.8
+  };
+  G.TianDao.openSettings(G.game.scene);
+}, 'settings');
+shot('35_settings', 6);
+
+step(() => {
+  G.game.save = richSave();
+  G.game.meta = richMeta();
+  G.game.changeScene('hall');
+  G.scenes.hall.view = 'lives';
+  G.scenes.hall.page = 0;
+  G.scenes.hall._build();
+}, 'hall.lives');
+shot('36_hall_lives', 10);
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n渲染期间异常 (' + errors.length + ')：');

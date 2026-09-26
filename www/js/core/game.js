@@ -202,7 +202,9 @@
       if (!this.toasts.length) return;
       var pad = 9, lineH = 20, w = 240;
       var h = this.toasts.length * lineH + pad;
-      var y0 = this.H - h - 14;
+      /* 底部要让开探索场景的功能栏（28px），否则提示被压在底栏底下看不见 */
+      var bot = (G.Explore && G.Explore.BOT_H) || 0;
+      var y0 = this.H - h - 14 - bot;
       G.UI.panel(x, { x: this.W / 2 - w / 2, y: y0, w: w, h: h },
         '#161b28', 'rgba(216,183,104,0.65)', 5);
       for (var i = 0; i < this.toasts.length; i++) {

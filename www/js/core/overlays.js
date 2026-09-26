@@ -3,7 +3,8 @@
   /* 通用面板；角色面板内容更多，单独用一块更高的面板，
      并把"离开"按钮放到面板外，避免压住属性行。 */
   var PANEL = { x: 56, y: 24, w: 368, h: 224 };
-  var CHAR_PANEL = { x: 44, y: 8, w: 392, h: 234 };
+  /* 角色面板从底栏进入，底部要让出 28px 的功能栏 —— 所以比通用面板更扁一点 */
+  var CHAR_PANEL = { x: 44, y: 6, w: 392, h: 232 };
 
   var O = {
     PANEL: PANEL,
@@ -17,6 +18,19 @@
     frame: function (x, title, rect) {
       this.dim(x);
       G.UI.frame(x, rect || PANEL, title, { paper: true });
+    },
+
+    /* 覆盖层统一路由：各探索场景的 renderOverlay 先调它，返回 true = 已处理。
+       顺序：功能面板（角色/功法/秘术/任务/储物/成就）→ 天道页（设置/界域难度/界门）
+       → 场景自有页（对话/商店/珠内空间…）。
+       为什么收成一处：面板清单以后还会加，散在五个场景里改，漏一处就是"点了没反应"。 */
+    route: function (x, scene) {
+      if (this.isPanel && this.isPanel(scene.overlay)) return this.renderPanel(x, scene);
+      if (G.TianDao && G.TianDao.isMenuOverlay(scene.overlay)) {
+        G.TianDao.renderOverlay(x, scene);
+        return true;
+      }
+      return false;
     },
 
     /* 对话覆盖层：立绘 + 名牌 + 台词。
@@ -67,8 +81,34 @@
       });
     },
 
+    /* 角色面板：现在走底栏面板通道（底栏自己会画，再点「角色」页签即收起） */
     openChar: function (scene) {
-      scene.setOverlay('char', [this.closeBtn(scene, 246)]);
+      this.openPanel(scene, 'char');
+    },
+
+    /* 突破：小境界直接升；大境界扣丹后进心魔战。
+       原先只写在 town.js 的珠内空间里 —— 拆到底栏「功法」页后，**任何地图**都能突破，
+       所以逻辑搬到这里（口径只有一份，两处调用不会漂）。
+       mapId 取当前场景名：心魔战打完要回到"你刚才站的那张图"。 */
+    doBreak: function (scene) {
+      var save = G.game.save;
+      var mapId = G.game.sceneName;
+      var r = G.Player.breakthrough(save);
+      if (r.ok) {
+        G.game.toast('突破成功 —— ' + r.info.n);
+        this.openPanel(scene, 'skills');
+        return;
+      }
+      if (r.big) {
+        var b = G.Player.startBigBreak(save);
+        if (!b.ok) { G.game.toast(b.reason); this.openPanel(scene, 'skills'); return; }
+        G.game.toast('「' + b.pill + '」已服下……问心魔劫起');
+        scene.clearOverlay();
+        G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
+        return;
+      }
+      G.game.toast(r.reason);
+      this.openPanel(scene, 'skills');
     },
 
     /* 主属性卡：图标 + 标签在上、数值在下，横排三张。

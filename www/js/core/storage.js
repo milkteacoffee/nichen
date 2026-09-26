@@ -138,7 +138,59 @@
     },
 
     hasMeta: function () { return !!localStorage.getItem(K_META); },
-    hasCurrent: function () { return !!localStorage.getItem(K_SAVE); }
+    hasCurrent: function () { return !!localStorage.getItem(K_SAVE); },
+
+    /* ===== 设备 / 浏览器标识（v0.8.0）=====
+       用途：同一台机器上可能有多个存档（不同浏览器 / 清过缓存 / 换机），
+       轮回殿要能看出"这一世的记录是哪台设备写的"，好区分与排查。
+       隐私：**纯本地**。deviceId 是本机首次运行时生成的随机串，存在 localStorage；
+       browserId 是"浏览器指纹摘要"（UA/语言/屏幕/时区/核数 → FNV-1a 取前 8 位），
+       只用于比对是否同一浏览器，不含任何可识别个人的信息，也不外发。 */
+    DEVICE_KEY: 'nichen_device',
+
+    deviceId: function () {
+      try {
+        var v = localStorage.getItem(this.DEVICE_KEY);
+        if (!v) {
+          v = 'dev-' + Math.random().toString(36).slice(2, 8)
+            + Date.now().toString(36).slice(-4);
+          localStorage.setItem(this.DEVICE_KEY, v);
+        }
+        return v;
+      } catch (e) { return 'dev-unknown'; }
+    },
+
+    browserId: function () {
+      var nav = (typeof navigator !== 'undefined' && navigator) || {};
+      var scr = (typeof screen !== 'undefined' && screen) || {};
+      var raw = [
+        nav.userAgent || '', nav.language || '', nav.platform || '',
+        (scr.width || 0) + 'x' + (scr.height || 0), scr.colorDepth || 0,
+        (new Date()).getTimezoneOffset(), nav.hardwareConcurrency || 0
+      ].join('|');
+      var h = (G.RNG && G.RNG.hash) ? G.RNG.hash(raw) : 0;
+      return 'br-' + ('00000000' + h.toString(16)).slice(-8);
+    },
+
+    /* 把标识写进 meta：只在首次或浏览器换了的时候动，
+       免得每次开游戏都写盘（meta 是跨世档，写得越少越安全）。 */
+    stampDevice: function (meta) {
+      if (!meta) return null;
+      var id = this.deviceId(), br = this.browserId();
+      if (!meta.device) {
+        meta.device = { id: id, browser: br, first: Date.now(), last: Date.now() };
+      } else if (meta.device.browser !== br) {
+        /* 同一台机器换了浏览器 → 记下上一个，方便对照旧记录 */
+        meta.device.prev = meta.device.prev || [];
+        if (meta.device.prev.indexOf(meta.device.browser) < 0) {
+          meta.device.prev.push(meta.device.browser);
+          if (meta.device.prev.length > 8) meta.device.prev.shift();
+        }
+        meta.device.browser = br;
+        meta.device.last = Date.now();
+      }
+      return meta.device;
+    }
   };
 
   G.Storage = Storage;

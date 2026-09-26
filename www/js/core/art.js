@@ -2424,6 +2424,34 @@
   A.PORTRAIT_KEYS = Object.keys(PORTRAIT_P);
   A.PORTRAIT_ART = PORTRAIT_ART;
 
+  /* HUD 圆形头像专用素材（`avatar.<key>`）。
+     为什么单开一张：圆形头像只取"脸"那一小块，拿**全身立绘**裁头要放大 4 倍
+     （源 9 逻辑 px → 目标 36 逻辑 px），圆里糊成一团、看不出是谁。
+     专用胸像的面部像素密度够，1 倍出头就够用。
+     没登记的角色照旧走 portrait.<key>，行为完全不变。 */
+  var AVATAR_ART = { luchen: 'avatar.luchen' };
+  A.AVATAR_ART = AVATAR_ART;
+
+  /* 头像取景源：返回 74×74 逻辑框内的画布（与 A.portrait 同尺寸，可直接 blit）。
+     有 avatar.<key> 用它；否则直接退回 A.portrait（含 battle.hero 兜底链）。 */
+  A.avatar = function (key) {
+    key = key || 'villager';
+    var ak = AVATAR_ART[key];
+    var im = (ak && G.Assets && G.Assets.img) ? G.Assets.img(ak) : null;
+    if (!im) return A.portrait(key);
+    var o = cached('avatar|' + key, PORTRAIT_LW, PORTRAIT_LH, function (x) {
+      var iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+      var cb = contentBox(im, iw, ih);
+      var sx = cb ? cb[0] : 0, sy = cb ? cb[1] : 0;
+      var sw = cb ? cb[2] : iw, sh = cb ? cb[3] : ih;
+      var s = Math.min(PORTRAIT_LW / sw, PORTRAIT_LH / sh) * PORTRAIT_FIT;
+      var dw = sw * s, dh = sh * s;
+      x.drawImage(im, sx, sy, sw, sh,
+        (PORTRAIT_LW - dw) / 2, (PORTRAIT_LH - dh) / 2, dw, dh);
+    });
+    return { c: o.c, ox: 0, oy: 0, w: PORTRAIT_LW, h: PORTRAIT_LH };
+  };
+
   /* 头像取景：立绘里「脸」的位置 —— [cx, cy, 源正方形边长]，逻辑坐标，相对 74×74 立绘框。
      为什么要一张表：立绘有两种版式，取景必须分开写
        · 全身站姿（battle.hero）：发髻在 y=3、下巴在 y=17，头只占框高的 20%；
@@ -2433,11 +2461,18 @@
      —— 肩颈是**平滑过渡**，没有"脖子塌陷"这个断点，任何"宽度突变就停"的
      启发式都会一路扫到腰。所以改成显式表：换素材时改这里一行，比修启发式靠谱。 */
   var AVATAR_HEAD = {
-    luchen: [36, 12, 20]
+    luchen: [36, 12, 20],              /* 兜底：portrait.luchen 全身正面立绘 */
+    'avatar.luchen': [36, 34, 44]      /* 专用正面胸像：脸心略偏上、含肩 */
   };
   /* 兜底 = 程序化半身像的几何：头心 (37,27)、头半径 16 → 边长 16*2/0.72 ≈ 44 */
   var AVATAR_HEAD_DEF = [PORTRAIT_LW / 2, 27, 44];
+  /* 取景表按**实际用的那张图**查：有 avatar.<key> 就查它，否则查立绘键。
+     两张图的版式不同（全身 vs 胸像），混用会把脸裁到肩膀上去。 */
   A.headBox = function (key) {
+    var ak = AVATAR_ART[key];
+    if (ak && G.Assets && G.Assets.img && G.Assets.img(ak)) {
+      return AVATAR_HEAD[ak] || AVATAR_HEAD_DEF;
+    }
     return AVATAR_HEAD[key] || AVATAR_HEAD_DEF;
   };
 

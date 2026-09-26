@@ -6,6 +6,7 @@
  * 两处难度入口共用同一份逻辑，菜单那处是"世内便捷入口"，此处是**正式入口**。 */
 (function () {
   var MAXLV = 10;
+  var LIVES_PER = 4;              /* 前世经历每页几条 */
 
   /* key 与 meta.perfusion 的字段一一对应；body 已被 Player.computeStats 消费，
      其余四项在 reincarnation.finish() 里折算为开局资源。 */
@@ -32,7 +33,8 @@
     smooth: true,
     t: 0,
     hint: '',
-    view: 'perfuse',              /* 'perfuse' 仙躯灌注 / 'ascend' 飞升台 */
+    view: 'perfuse',              /* 'perfuse' 仙躯灌注 / 'ascend' 飞升台 / 'lives' 前世经历 */
+    page: 0,                      /* 前世经历视图的翻页（每页 6 世） */
 
     enter: function () {
       if (!G.game.meta) {
@@ -52,9 +54,11 @@
       if (!m.titles) m.titles = [];
       if (!m.progress) m.progress = {};
       if (typeof m.xianli !== 'number') m.xianli = 0;
+      if (G.Storage.stampDevice) { G.Storage.stampDevice(m); G.Storage.saveMeta(m); }
       this.t = 0;
       this.hint = '';
       this.view = 'perfuse';
+      this.page = 0;
       this._build();
     },
 
@@ -78,8 +82,30 @@
     /* ===== 按钮构建 ===== */
     _build: function () {
       this.buttons = [];
-      if (this.view === 'ascend') this._buildAscend(); else this._buildPerfuse();
+      if (this.view === 'ascend') this._buildAscend();
+      else if (this.view === 'lives') this._buildLives();
+      else this._buildPerfuse();
       this._buildFooter();
+    },
+
+    /* 前世经历视图：只放翻页 */
+    _buildLives: function () {
+      var self = this;
+      var n = (G.game.meta.past || []).length;
+      var pages = Math.max(1, Math.ceil(n / LIVES_PER));
+      if (this.page > pages - 1) this.page = pages - 1;
+      if (this.page < 0) this.page = 0;
+      var y = 226;
+      this.buttons.push(new G.UI.Btn({
+        x: 28, y: y, w: 64, h: 20, small: true, variant: 'ghost', label: '‹ 上一页',
+        disabled: this.page <= 0,
+        onClick: function () { self.page -= 1; self._build(); }
+      }));
+      this.buttons.push(new G.UI.Btn({
+        x: 100, y: y, w: 64, h: 20, small: true, variant: 'ghost', label: '下一页 ›',
+        disabled: this.page >= pages - 1,
+        onClick: function () { self.page += 1; self._build(); }
+      }));
     },
 
     _buildPerfuse: function () {
@@ -192,22 +218,29 @@
       });
     },
 
+    /* 三个视图直接平铺成页签 —— 用一颗"切换"按钮轮换看不出还有第三页 */
     _buildFooter: function () {
       var self = this;
+      var V = [
+        { id: 'perfuse', n: '仙躯灌注' },
+        { id: 'ascend', n: '飞升台' },
+        { id: 'lives', n: '前世经历' }
+      ];
       this.buttons.push(new G.UI.Btn({
-        x: 16, y: 232, w: 86, h: 26, small: true, variant: 'ghost',
+        x: 16, y: 232, w: 78, h: 26, small: true, variant: 'ghost',
         label: '返回标题', onClick: function () { G.game.changeScene('title'); }
       }));
-      this.buttons.push(new G.UI.Btn({
-        x: 116, y: 232, w: 92, h: 26, small: true,
-        variant: this.view === 'perfuse' ? 'default' : 'ghost',
-        label: this.view === 'perfuse' ? '飞升台' : '仙躯灌注',
-        onClick: function () {
-          self.view = (self.view === 'perfuse') ? 'ascend' : 'perfuse';
-          self.hint = '';
-          self._build();
-        }
-      }));
+      V.forEach(function (v, i) {
+        self.buttons.push(new G.UI.Btn({
+          x: 100 + i * 82, y: 232, w: 78, h: 26, small: true,
+          variant: self.view === v.id ? 'gold' : 'default',
+          label: v.n,
+          onClick: function () {
+            if (self.view === v.id) return;
+            self.view = v.id; self.hint = ''; self.page = 0; self._build();
+          }
+        }));
+      });
       this.buttons.push(new G.UI.Btn({
         x: 366, y: 232, w: 98, h: 26, small: true, variant: 'gold',
         label: '转世重修', onClick: function () { G.game.changeScene('reincarnation'); }
@@ -254,10 +287,12 @@
       G.UI.text(x, { x: 16, y: 36 },
         this.hint || (this.view === 'ascend'
           ? '真灵不灭。此处定下一世入世之界，亦可调各界天道难度。'
-          : '真灵不灭，仙力长存。以仙力灌注仙躯，可携往下一世。'),
+          : (this.view === 'lives'
+            ? '天道录你每一世的行止。翻页可阅旧世经历。'
+            : '真灵不灭，仙力长存。以仙力灌注仙躯，可携往下一世。')),
         11.5, this.hint ? G.UI.C.jadeHi : G.UI.C.textDim);
 
-      /* 档案条（两视图共用；末格随视图切换） */
+      /* 档案条（三视图共用；末格随视图切换） */
       G.UI.panel(x, { x: 16, y: 52, w: 448, h: 30 }, '#131828',
         'rgba(216,183,104,0.30)', 4, { paper: false, shadow: false });
       G.UI.text(x, { x: 30, y: 61 }, '轮回', 11, G.UI.C.textDim);
@@ -272,10 +307,24 @@
       G.UI.text(x, { x: 448, y: 61 },
         this.view === 'ascend'
           ? ('碎片 ' + this._shards(m) + '/3')
-          : ('仙躯 Lv' + (m.perfusion.body || 0)),
+          : (this.view === 'lives'
+            ? ('记录 ' + (m.past || []).length + ' 世')
+            : ('仙躯 Lv' + (m.perfusion.body || 0))),
         11, G.UI.C.jadeHi, 'right');
 
-      if (this.view === 'ascend') this._renderAscend(x); else this._renderPerfuse(x);
+      if (this.view === 'ascend') this._renderAscend(x);
+      else if (this.view === 'lives') this._renderLives(x);
+      else this._renderPerfuse(x);
+
+      /* 本机标识：一眼看出"这个档是哪台设备/哪个浏览器写的"。
+         换机、换浏览器、清过缓存之后，旧记录会带着别的 dev 号，便于对照排查。 */
+      var dev = m.device || {};
+      var here = G.Storage.deviceId ? G.Storage.deviceId() : '';
+      var mine = !dev.id || dev.id === here;
+      G.UI.text(x, { x: 16, y: 260 },
+        '本机 ' + (dev.id || here || '—') + '　·　浏览器 ' + (dev.browser || '—')
+        + (mine ? '' : '　·　当前非本档设备'), 9,
+        mine ? G.UI.C.textDim : G.UI.C.danger);
 
       /* 暗角 */
       var vg = x.createRadialGradient(240, 136, 130, 240, 136, 330);
@@ -339,6 +388,47 @@
       G.UI.text(x, { x: 448, y: 212 },
         sel ? ('下一世：' + WN[sel]) : '下一世：天道抽定', 10,
         sel ? G.UI.C.gold : G.UI.C.textDim, 'right');
+    },
+
+    /* ===== 前世经历视图 =====
+       天道"记录每一世经历"的落地：数据早就在 meta.past[] 里（death.js 每世压一条，
+       chronicle 是那一世的走马灯），此前**界面上没有任何地方能看**，等于白记。
+       这里按页倒序翻，每世一行摘要 + 一行走马灯，并标出记录来源设备。 */
+    _renderLives: function (x) {
+      var m = G.game.meta;
+      var past = m.past || [];
+      var pages = Math.max(1, Math.ceil(past.length / LIVES_PER));
+      if (this.page > pages - 1) this.page = pages - 1;
+      if (this.page < 0) this.page = 0;
+
+      G.UI.frame(x, { x: 16, y: 88, w: 448, h: 134 }, null, { paper: true });
+      G.UI.text(x, { x: 28, y: 94 }, '前 世 经 历', 12, G.UI.C.gold);
+      G.UI.textOut(x, { x: 448, y: 96 },
+        '第 ' + (this.page + 1) + ' / ' + pages + ' 页', 10, G.UI.C.textDim, 'right');
+      G.UI.divider(x, 240, 111, 424, 'rgba(216,183,104,0.28)');
+
+      if (!past.length) {
+        G.UI.text(x, { x: 32, y: 130 }, '尚无前世。走完这一世，天道自会记下。', 12, G.UI.C.textDim);
+        return;
+      }
+      var here = G.Storage.deviceId ? G.Storage.deviceId() : '';
+      var end = past.length - this.page * LIVES_PER;
+      var slice = past.slice(Math.max(0, end - LIVES_PER), end).reverse();
+      slice.forEach(function (p, i) {
+        var y = 120 + i * 26;
+        var same = !p.dev || !here || p.dev === here;
+        G.UI.text(x, { x: 32, y: y }, '第 ' + p.life + ' 世', 11.5, G.UI.C.goldHi);
+        G.UI.text(x, { x: 94, y: y + 1 },
+          p.realm + ' · ' + p.age + ' 岁 · ' + (p.causeName || '—'), 10.5, G.UI.C.text);
+        G.UI.textOut(x, { x: 448, y: y + 1 }, '+' + p.xianli + ' 仙力', 10.5, G.UI.C.gold, 'right');
+        /* 走马灯：太长的截断，避免糊到面板边上 */
+        var line = (p.chronicle || []).map(function (c) { return c.s; }).join(' · ') || '（无载）';
+        if (line.length > 52) line = line.slice(0, 51) + '…';
+        G.UI.text(x, { x: 94, y: y + 12 }, line, 9, G.UI.C.textDim);
+        /* 记录来源设备：不是本机写的就标红，换机后一眼能分清 */
+        G.UI.textOut(x, { x: 448, y: y + 13 }, p.dev || '—', 8.5,
+          same ? G.UI.C.textDim : G.UI.C.danger, 'right');
+      });
     }
   };
 

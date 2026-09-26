@@ -1,40 +1,63 @@
-/* 天道意志：本地 LLM 接入（v2.7）
+/* 天道意志：LLM 接入（v2.7 起本地 Ollama，v0.8.0 起支持云端多协议）
    铁律：模型只产文本，不写存档、不算伤害、不发物品、不改天劫数值。
-   模式：remote（OpenAI 兼容接口）/ off（模板兜底）。 */
+   模式：remote（模型）/ off（预置谶语兜底）。
+   协议：openai（OpenAI 兼容 /v1/chat/completions，本地 Ollama、vLLM、各家云都走它）
+        claude（Anthropic /v1/messages）
+        response（OpenAI 原生 /v1/responses，非 chat 形态） */
 (function () {
+  /* 默认配置：新档与旧档迁移共用一份，避免两处默认值漂 */
+  function defaults() {
+    return {
+      mode: 'off',
+      protocol: 'openai',
+      endpoint: 'http://localhost:11434/v1',
+      model: 'qwen2.5:7b-instruct-q4_K_M',
+      apiKey: '',
+      temp: 0.8
+    };
+  }
+  var PROTO_LABEL = { openai: 'OpenAI', claude: 'Claude', response: '原生' };
+  /* 切协议时把端点与模型名带到该协议的常用值 —— 但只在用户没自己改过时替换，
+     所以这里只作为"占位提示"用，不自动改写用户填的内容。 */
+  var PROTO_HINT = {
+    openai: { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+    claude: { endpoint: 'https://api.anthropic.com/v1', model: 'claude-3-5-haiku-20241022' },
+    response: { endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }
+  };
+
   var TD = {
     cfg: null,
     busy: false,
     testStatus: '',
+    testOk: false,
 
     /* ============ 配置 ============ */
     ensure: function (meta) {
       meta = meta || G.game.meta;
       /* 无 meta（工具脚本未建元数据）时用内存默认配置，不得抛错 */
       if (!meta) {
-        this.cfg = this.cfg || {
-          mode: 'off',
-          endpoint: 'http://localhost:11434/v1',
-          model: 'qwen2.5:7b-instruct-q4_K_M',
-          temp: 0.8
-        };
+        if (!this.cfg) this.cfg = defaults();
+        this._fill(this.cfg);
         return this.cfg;
       }
-      if (!meta.tiandao) {
-        meta.tiandao = {
-          mode: 'off',
-          endpoint: 'http://localhost:11434/v1',
-          model: 'qwen2.5:7b-instruct-q4_K_M',
-          temp: 0.8
-        };
-      }
+      if (!meta.tiandao) meta.tiandao = defaults();
       this.cfg = meta.tiandao;
+      this._fill(this.cfg);
       return this.cfg;
+    },
+    /* 老档补字段：v0.7.0 以前的 cfg 只有 mode/endpoint/model/temp */
+    _fill: function (c) {
+      var d = defaults();
+      Object.keys(d).forEach(function (k) { if (c[k] == null) c[k] = d[k]; });
+      if (!PROTO_LABEL[c.protocol]) c.protocol = 'openai';
+      return c;
     },
     saveCfg: function () {
       var meta = G.game.meta;
       if (meta) G.Storage.saveMeta(meta);
     },
+    PROTO_LABEL: PROTO_LABEL,
+    PROTO_HINT: PROTO_HINT,
 
     /* ============ 感应阶段 ============ */
     STAGES: [
@@ -101,8 +124,102 @@
       return trigger;
     },
 
-    /* ============ 远程调用 ============ */
-    /* cb(err, text, meta{ms,src}) */
+    /* ============ 远程调用 ============
+       三种协议的差别只在"打哪个路径 / 怎么带鉴权 / 请求体长什么样 / 从哪取文本"，
+       其余（超时、重试、兜底、过滤）完全共用。 */
+
+    /* 端点拼接：用户既可能填 `https://host/v1`，也可能直接填完整路径，
+       两种都要能用 —— 已经带了这个后缀就不再重复拼。 */
+    joinUrl: function (base, path) {
+      base = String(base || '').replace(/\/+$/, '');
+      if (base.slice(-path.length) === path) return base;
+      return base + path;
+    },
+
+    /* 请求规格：{ url, headers, body } */
+    buildRequest: function (cfg, sys, usr) {
+      var p = cfg.protocol, key = cfg.apiKey || '';
+      if (p === 'claude') {
+        var h = { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' };
+        if (key) h['x-api-key'] = key;
+        /* Claude 的 system 是顶层字段，不是 messages 里的一条 */
+        return {
+          url: this.joinUrl(cfg.endpoint, '/messages'),
+          headers: h,
+          body: {
+            model: cfg.model, max_tokens: 400, temperature: cfg.temp,
+            system: sys, messages: [{ role: 'user', content: usr }]
+          }
+        };
+      }
+      if (p === 'response') {
+        var h2 = { 'Content-Type': 'application/json' };
+        if (key) h2['Authorization'] = 'Bearer ' + key;
+        /* 原生 Responses API：instructions = 系统提示，input = 用户输入 */
+        return {
+          url: this.joinUrl(cfg.endpoint, '/responses'),
+          headers: h2,
+          body: {
+            model: cfg.model, instructions: sys, input: usr,
+            max_output_tokens: 400, temperature: cfg.temp
+          }
+        };
+      }
+      /* openai（默认）：本地 Ollama / vLLM / 绝大多数云端兼容层都走这个形状。
+         刻意**不带 response_format** —— 不少第三方实现不支持，带上会直接 400；
+         JSON 的可靠性改由提示词 + 容错解析保证（见 pickJson）。 */
+      var h3 = { 'Content-Type': 'application/json' };
+      if (key) h3['Authorization'] = 'Bearer ' + key;
+      return {
+        url: this.joinUrl(cfg.endpoint, '/chat/completions'),
+        headers: h3,
+        body: {
+          model: cfg.model, temperature: cfg.temp, max_tokens: 400,
+          messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }]
+        }
+      };
+    },
+
+    /* 从三家不同的响应体里取文本 */
+    extractText: function (j, proto) {
+      if (!j) return null;
+      if (proto === 'claude') {
+        if (j.content && j.content.length) {
+          for (var i = 0; i < j.content.length; i++) {
+            if (j.content[i] && j.content[i].text) return j.content[i].text;
+          }
+        }
+        return null;
+      }
+      if (proto === 'response') {
+        if (typeof j.output_text === 'string' && j.output_text) return j.output_text;
+        if (j.output && j.output.length) {
+          for (var k = 0; k < j.output.length; k++) {
+            var it = j.output[k];
+            if (it && it.content && it.content.length) {
+              for (var m = 0; m < it.content.length; m++) {
+                if (it.content[m] && it.content[m].text) return it.content[m].text;
+              }
+            }
+          }
+        }
+        return null;
+      }
+      return (j.choices && j.choices[0] && j.choices[0].message
+        && j.choices[0].message.content) || null;
+    },
+
+    /* 容错取 JSON：模型经常裹 ```json 围栏、或在前后加一句解释 */
+    pickJson: function (text) {
+      if (!text) return null;
+      var s = String(text).trim();
+      s = s.replace(/^```[a-zA-Z]*\s*/, '').replace(/```\s*$/, '').trim();
+      var a = s.indexOf('{'), b = s.lastIndexOf('}');
+      if (a >= 0 && b > a) s = s.slice(a, b + 1);
+      try { return JSON.parse(s); } catch (e) { return null; }
+    },
+
+    /* cb(err, text, meta{ms,src,err}) */
     callModel: function (trigger, extra, cb) {
       var cfg = this.ensure();
       if (cfg.mode !== 'remote') {
@@ -111,48 +228,46 @@
       }
       var self = this, t0 = Date.now();
       var packet = this.buildPacket(trigger, extra);
-      var body = {
-        model: cfg.model,
-        messages: [
-          { role: 'system', content: this.systemPrompt(packet) },
-          { role: 'user', content: this.userPrompt(trigger, extra) }
-        ],
-        temperature: cfg.temp, max_tokens: 180,
-        response_format: { type: 'json_object' }
-      };
+      var sys = this.systemPrompt(packet), usr = this.userPrompt(trigger, extra);
+      var lastErr = '';
       var attempts = 0;
       function attempt(temp) {
         attempts++;
-        body.temperature = temp;
+        cfg.temp = temp;
+        var req = self.buildRequest(cfg, sys, usr);
         var ctrl = new AbortController();
         var timer = setTimeout(function () { ctrl.abort(); }, 30000);
-        fetch(cfg.endpoint.replace(/\/$/, '') + '/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: ctrl.signal
+        fetch(req.url, {
+          method: 'POST', headers: req.headers,
+          body: JSON.stringify(req.body), signal: ctrl.signal
         }).then(function (r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
+          if (!r.ok) {
+            lastErr = 'HTTP ' + r.status;
+            throw new Error(lastErr);
+          }
           return r.json();
         }).then(function (j) {
           clearTimeout(timer);
-          var line = self.validate(j);
-          if (!line) throw new Error('bad json');
+          var line = self.validate(self.extractText(j, cfg.protocol));
+          if (!line) { lastErr = '返回内容不合规'; throw new Error('bad'); }
           cb(null, line, { ms: Date.now() - t0, src: 'model' });
-        }).catch(function () {
+        }).catch(function (e) {
           clearTimeout(timer);
+          if (!lastErr && e && e.name === 'AbortError') lastErr = '请求超时';
           if (attempts < 2) { attempt(0.3); return; }
-          cb(null, self.fallback(trigger, extra), { ms: Date.now() - t0, src: 'template' });
+          cb(null, self.fallback(trigger, extra),
+            { ms: Date.now() - t0, src: 'template', err: lastErr });
         });
       }
       attempt(cfg.temp);
     },
 
     FORBIDDEN: ['游戏', '程序', '系统', '手机', '电脑', '互联网', '玩家', '存档', 'AI', 'BUG', '软件', '网络'],
-    validate: function (j) {
+    /* 入参从"响应体"改成"模型产出的文本"—— 三家取文本的路径不同，已在 extractText 里归一 */
+    validate: function (text) {
       try {
-        var content = j.choices[0].message.content;
-        var o = JSON.parse(content);
+        var o = this.pickJson(text);
+        if (!o) return null;
         var line = o.台词 || o.line || '';
         line = String(line).trim();
         if (!line) return null;
@@ -217,10 +332,12 @@
 
     /* ============ 问卦测试 ============ */
     runTest: function (cb) {
-      var t0 = Date.now();
+      var t0 = Date.now(), self = this;
       this.callModel('test', {}, function (e, line, meta) {
-        cb(line + '　（' + (meta.ms || (Date.now() - t0)) + 'ms · '
-          + (meta.src === 'model' ? '模型' : '模板') + '）');
+        var ms = meta.ms || (Date.now() - t0);
+        self.testOk = (meta.src === 'model');
+        if (self.testOk) { cb(line + '　（' + ms + 'ms · 模型应答）'); return; }
+        cb((meta.err ? meta.err + '　' : '') + line + '　（' + ms + 'ms · 预置兜底）');
       });
     },
 
@@ -245,9 +362,11 @@
         });
         this.el = el;
       },
-      /* rect 内坐标；get/set 读写字符串 */
-      focus: function (rect, get, set) {
+      /* rect 内坐标；get/set 读写字符串。opt.secret → 输入框按密码态显示（API 密钥） */
+      focus: function (rect, get, set, opt) {
         if (!this.el) this._build();
+        opt = opt || {};
+        this.el.type = opt.secret ? 'password' : 'text';
         var cv = G.game.canvas, r = cv.getBoundingClientRect();
         var sx = r.left + rect.x / 480 * r.width;
         var sy = r.top + rect.y / 272 * r.height;
@@ -269,33 +388,97 @@
       }
     },
 
-    /* ============ 菜单 / 设置面板 ============ */
-    MENU_P: { x: 130, y: 40, w: 220, h: 196 },
-    SET_P: { x: 40, y: 16, w: 400, h: 240 },
+    /* ============ 设置面板 ============
+       v0.8.0 起**没有「菜单」这一页**了：原先它是个二级目录（角色/秘境/难度/天道设置），
+       其中角色等六项已拆到底栏常驻，秘境在区域裂隙上直接点，难度在本页。
+       所以顶栏右上角那颗按钮直接叫「设置」，点开就是这一页。 */
+    SET_P: { x: 16, y: 14, w: 448, h: 244 },
     WORLDS_P: { x: 40, y: 16, w: 400, h: 240 },
+    ABOUT_P: { x: 60, y: 40, w: 360, h: 192 },
 
-    /* 本模块负责渲染的 overlay 白名单。
-       各探索场景的 renderOverlay 用它做路由 —— 以后**新增菜单页只改这里**，
-       不用再去改 town/field/cave/regiongen/interiorgen 五处（漏一处就是"点了没反应"）。 */
-    MENU_OVERLAYS: { menu: 1, worlds: 1, tiandao: 1, worldgate: 1 },
+    /* 本模块负责渲染的 overlay 白名单（各场景 renderOverlay 统一走 G.Overlays.route）。
+       新增菜单页只改这里，不用再去改 town/field/cave/regiongen/interiorgen 五处。 */
+    MENU_OVERLAYS: { settings: 1, worlds: 1, worldgate: 1, about: 1 },
     isMenuOverlay: function (name) { return !!this.MENU_OVERLAYS[name]; },
 
-    openMenu: function (scene) {
-      var self = this;
-      scene.setOverlay('menu', [
-        new G.UI.Btn({ x: 160, y: 64, w: 160, h: 24, small: true,
-          label: '角　色', onClick: function () { G.Overlays.openChar(scene); } }),
-        new G.UI.Btn({ x: 160, y: 96, w: 160, h: 24, small: true, variant: 'gold',
-          label: '秘　境', onClick: function () {
-            scene.clearOverlay();
-            G.game.changeScene('dungeon');
+    /* 密钥显示：只露头尾，中间打点（面板是每帧重画的，明文天天糊在屏幕上不好） */
+    maskKey: function (k) {
+      k = String(k || '');
+      if (!k) return '未填写';
+      if (k.length <= 10) return k.slice(0, 2) + '****';
+      return k.slice(0, 6) + '…' + k.slice(-4);
+    },
+
+    openSettings: function (scene) {
+      var self = this, cfg = this.ensure();
+      function rebuild() { self.openSettings(scene); }
+      var on = cfg.mode === 'remote';
+      var bx = [70, 190, 310], by = 84;
+
+      scene.setOverlay('settings', [
+        /* ① 是否启用模型 */
+        new G.UI.Btn({ x: 70, y: 48, w: 110, h: 24, small: true,
+          variant: on ? 'gold' : 'default',
+          label: '启用模型', onClick: function () { cfg.mode = 'remote'; self.saveCfg(); rebuild(); } }),
+        new G.UI.Btn({ x: 190, y: 48, w: 110, h: 24, small: true,
+          variant: on ? 'default' : 'gold',
+          label: '关闭·预置', onClick: function () { cfg.mode = 'off'; self.saveCfg(); rebuild(); } }),
+
+        /* ② 接口协议三选一 */
+        new G.UI.Btn({ x: bx[0], y: by, w: 110, h: 24, small: true,
+          variant: cfg.protocol === 'openai' ? 'gold' : 'default', label: 'OpenAI',
+          onClick: function () { cfg.protocol = 'openai'; self.saveCfg(); rebuild(); } }),
+        new G.UI.Btn({ x: bx[1], y: by, w: 110, h: 24, small: true,
+          variant: cfg.protocol === 'claude' ? 'gold' : 'default', label: 'Claude',
+          onClick: function () { cfg.protocol = 'claude'; self.saveCfg(); rebuild(); } }),
+        new G.UI.Btn({ x: bx[2], y: by, w: 110, h: 24, small: true,
+          variant: cfg.protocol === 'response' ? 'gold' : 'default', label: '原生 Response',
+          onClick: function () { cfg.protocol = 'response'; self.saveCfg(); rebuild(); } }),
+
+        /* ③ 连接三件套（点一下弹原生输入框，支持中文 IME 与移动端键盘） */
+        new G.UI.Btn({ x: 110, y: 122, w: 340, h: 22, small: true, variant: 'ghost',
+          label: cfg.endpoint,
+          onClick: function () {
+            self.Field.focus({ x: 110, y: 122, w: 340, h: 22 },
+              function () { return cfg.endpoint; },
+              function (v) { if (v) cfg.endpoint = v; self.saveCfg(); rebuild(); });
           } }),
-        new G.UI.Btn({ x: 160, y: 128, w: 160, h: 24, small: true,
+        new G.UI.Btn({ x: 110, y: 148, w: 340, h: 22, small: true, variant: 'ghost',
+          label: cfg.model,
+          onClick: function () {
+            self.Field.focus({ x: 110, y: 148, w: 340, h: 22 },
+              function () { return cfg.model; },
+              function (v) { if (v) cfg.model = v; self.saveCfg(); rebuild(); });
+          } }),
+        new G.UI.Btn({ x: 110, y: 174, w: 340, h: 22, small: true, variant: 'ghost',
+          label: this.maskKey(cfg.apiKey),
+          onClick: function () {
+            self.Field.focus({ x: 110, y: 174, w: 340, h: 22 },
+              function () { return cfg.apiKey || ''; },
+              function (v) { cfg.apiKey = v; self.saveCfg(); rebuild(); }, { secret: true });
+          } }),
+
+        /* ④ 自检 + 其它入口 + 关闭（一行四键；关闭原先单占一行，会压住底部提示） */
+        new G.UI.Btn({ x: 26, y: 216, w: 96, h: 22, small: true, variant: 'gold',
+          label: '问　卦',
+          onClick: function () {
+            self.testStatus = '感应中……'; self.testOk = false;
+            self.runTest(function (s) { self.testStatus = s; });
+          } }),
+        new G.UI.Btn({ x: 132, y: 216, w: 104, h: 22, small: true,
           label: '界域难度', onClick: function () { self.openWorlds(scene); } }),
-        new G.UI.Btn({ x: 160, y: 160, w: 160, h: 24, small: true,
-          label: '天道设置', onClick: function () { self.openSettings(scene); } }),
-        new G.UI.Btn({ x: 160, y: 192, w: 160, h: 24, small: true, variant: 'ghost',
-          label: '返　回', onClick: function () { scene.clearOverlay(); } })
+        new G.UI.Btn({ x: 246, y: 216, w: 90, h: 22, small: true, variant: 'ghost',
+          label: '关　于', onClick: function () { self.openAbout(scene); } }),
+        new G.UI.Btn({ x: 346, y: 216, w: 104, h: 22, small: true, variant: 'ghost',
+          label: '关　闭', onClick: function () { scene.clearOverlay(); } })
+      ]);
+    },
+
+    openAbout: function (scene) {
+      var self = this;
+      scene.setOverlay('about', [
+        new G.UI.Btn({ x: 190, y: 206, w: 100, h: 22, small: true, variant: 'ghost',
+          label: '返　回', onClick: function () { self.openSettings(scene); } })
       ]);
     },
 
@@ -333,54 +516,12 @@
         y += 34;
       });
       btns.push(new G.UI.Btn({ x: 190, y: 222, w: 100, h: 24, small: true, variant: 'ghost',
-        label: '返　回', onClick: function () { self.openMenu(scene); } }));
+        label: '返　回', onClick: function () { self.openSettings(scene); } }));
       scene.setOverlay('worlds', btns);
     },
 
-    openSettings: function (scene) {
-      var self = this, cfg = this.ensure();
-      function rebuild() { self.openSettings(scene); }
-      scene.setOverlay('tiandao', [
-        new G.UI.Btn({ x: 70, y: 54, w: 110, h: 26, small: true,
-          variant: cfg.mode === 'remote' ? 'gold' : 'default',
-          label: '远程模型', onClick: function () { cfg.mode = 'remote'; self.saveCfg(); rebuild(); } }),
-        new G.UI.Btn({ x: 190, y: 54, w: 110, h: 26, small: true,
-          variant: cfg.mode === 'off' ? 'gold' : 'default',
-          label: '关闭（模板）', onClick: function () { cfg.mode = 'off'; self.saveCfg(); rebuild(); } }),
-
-        new G.UI.Btn({ x: 150, y: 92, w: 260, h: 24, small: true, variant: 'ghost',
-          label: cfg.endpoint,
-          onClick: function () {
-            self.Field.focus({ x: 150, y: 92, w: 260, h: 24 },
-              function () { return cfg.endpoint; },
-              function (v) { if (v) cfg.endpoint = v; self.saveCfg(); rebuild(); });
-          } }),
-        new G.UI.Btn({ x: 150, y: 124, w: 260, h: 24, small: true, variant: 'ghost',
-          label: cfg.model,
-          onClick: function () {
-            self.Field.focus({ x: 150, y: 124, w: 260, h: 24 },
-              function () { return cfg.model; },
-              function (v) { if (v) cfg.model = v; self.saveCfg(); rebuild(); });
-          } }),
-
-        new G.UI.Btn({ x: 70, y: 158, w: 110, h: 26, small: true, variant: 'gold',
-          label: '问　卦',
-          onClick: function () {
-            self.testStatus = '感应中……';
-            self.runTest(function (s) { self.testStatus = s; });
-          } }),
-
-        new G.UI.Btn({ x: 190, y: 222, w: 100, h: 24, small: true, variant: 'ghost',
-          label: '离　开', onClick: function () { scene.clearOverlay(); } })
-      ]);
-    },
-
     renderOverlay: function (x, scene) {
-      if (scene.overlay === 'menu') {
-        G.Overlays.dim(x);
-        G.UI.frame(x, this.MENU_P, '菜　单', { paper: true });
-        G.UI.text(x, { x: 240, y: 222 }, 'Esc 关闭', 10, G.UI.C.textDim, 'center');
-      } else if (scene.overlay === 'worlds') {
+      if (scene.overlay === 'worlds') {
         var WP = this.WORLDS_P;
         G.Overlays.dim(x);
         G.UI.frame(x, WP, '界 域 难 度', { paper: true });
@@ -395,22 +536,48 @@
         G.UI.text(x, { x: GP.x + 30, y: 44 }, '点击前往已解锁的界', 11, G.UI.C.textDim);
         G.UI.text(x, { x: GP.x + 30, y: 185 }, '凡界 — 下品灵石　灵界 — 中品　仙界 — 上品/极品', 10, G.UI.C.textDim);
         G.UI.text(x, { x: GP.x + 30, y: 202 }, '道界需集齐三界地狱的道之钥匙碎片', 10, G.UI.C.goldHi);
-      } else if (scene.overlay === 'tiandao') {
-        var P = this.SET_P;
+      } else if (scene.overlay === 'about') {
+        var AP = this.ABOUT_P;
         G.Overlays.dim(x);
-        G.UI.frame(x, P, '天 道 设 置', { paper: true });
+        G.UI.frame(x, AP, '关　于', { paper: true });
+        var lines = [
+          '逆尘　·　万界轮回，微尘逆命',
+          '横屏单机仙侠轮回 Roguelite　—　原生 JS + Canvas2D',
+          '',
+          '天道意志由你自备的模型驱动：本机（Ollama 等）或云端皆可。',
+          '支持 OpenAI / Claude / 原生 Response 三种接口协议。',
+          '模型只负责措辞，不写存档、不算数值、不发物品。',
+          '关闭或断网时自动改用预置谶语，流程不中断。'
+        ];
+        lines.forEach(function (l, i) {
+          G.UI.text(x, { x: AP.x + 20, y: AP.y + 40 + i * 18 }, l, 11,
+            i === 0 ? G.UI.C.goldHi : G.UI.C.textDim);
+        });
+      } else if (scene.overlay === 'settings') {
+        var P = this.SET_P, cfg = this.ensure();
+        G.Overlays.dim(x);
+        G.UI.frame(x, P, '设　置', { paper: true });
 
-        G.UI.text(x, { x: P.x + 18, y: 60 }, '感应模式', 12, G.UI.C.textDim);
-        G.UI.text(x, { x: P.x + 18, y: 98 }, '服务器', 12, G.UI.C.textDim);
-        G.UI.text(x, { x: P.x + 18, y: 130 }, '模型名', 12, G.UI.C.textDim);
+        G.UI.text(x, { x: P.x + 20, y: 54 }, '天道', 11.5, G.UI.C.gold);
+        G.UI.text(x, { x: P.x + 20, y: 90 }, '协议', 11.5, G.UI.C.gold);
+        G.UI.text(x, { x: P.x + 20, y: 128 }, '服务器', 11, G.UI.C.textDim);
+        G.UI.text(x, { x: P.x + 20, y: 154 }, '模型名', 11, G.UI.C.textDim);
+        G.UI.text(x, { x: P.x + 20, y: 180 }, '密　钥', 11, G.UI.C.textDim);
+        G.UI.text(x, { x: P.x + 20, y: 200 }, '自检', 11.5, G.UI.C.gold);
 
-        G.UI.text(x, { x: 196, y: 162 }, this.testStatus || '未问卦', 11,
-          this.testStatus.indexOf('ms') >= 0 ? G.UI.C.goldHi : G.UI.C.textDim);
+        G.UI.text(x, { x: P.x + 20, y: 40 }, cfg.mode === 'remote'
+          ? '当前：由模型应答（问卦 / 低语 / 拦魂）'
+          : '当前：关闭，使用预置谶语', 10.5,
+          cfg.mode === 'remote' ? G.UI.C.jadeHi : G.UI.C.textDim);
 
-        G.UI.text(x, { x: P.x + 18, y: 196 },
-          '内容由你本机模型即时生成，不联外网、不影响存档数值；', 10.5, G.UI.C.textDim);
-        G.UI.text(x, { x: P.x + 18, y: 212 },
-          '关闭或断网时自动使用预置谶语，流程不中断。', 10.5, G.UI.C.textDim);
+        /* 自检结果：模型应答=金，兜底=灰（并带上失败原因，便于排查密钥/地址） */
+        G.UI.text(x, { x: 140, y: 201 }, this.testStatus || '未问卦', 10.5,
+          this.testOk ? G.UI.C.goldHi : G.UI.C.textDim);
+
+        /* 底部提示：与按钮行（216..238）**水平错开**不了，只能靠垂直分开 ——
+           提示压在最底（244..254），按钮行收在 238，中间留 6px。 */
+        G.UI.text(x, { x: P.x + 20, y: 244 },
+          '密钥只写在本机存档里，不上传；留空则按匿名调用。', 9.5, G.UI.C.textDim);
       }
     },
 

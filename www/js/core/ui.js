@@ -124,10 +124,14 @@
   }
   function clearCache() { cache = {}; }
 
-  /* ---------- 回纹角饰（国风） ---------- */
+  /* ---------- 回纹角饰（国风） ----------
+     v0.8.0 减负：去掉了原来的"内折小钩"（每个角 2 段描边 × 4 角 = 8 段），
+     并把线宽与不透明度压下来。角饰现在只出现在**面板**上；
+     按钮上**一律不画** —— 一屏可能有三十几个按钮，每个四角都描线，
+     整幅画面就只剩框了（用户原话："线框感太重，整个游戏很臃肿"）。 */
   function cornerMarks(x, s, col, len) {
-    len = len || 7;
-    var L = len, o = 2.2;
+    len = len || 6;
+    var L = len, o = 2.6;
     x.strokeStyle = col;
     x.lineWidth = 0.8;
     var pts = [
@@ -135,17 +139,10 @@
       [s.x + o, s.y + s.h - o, 1, -1], [s.x + s.w - o, s.y + s.h - o, -1, -1]
     ];
     pts.forEach(function (p) {
-      var px = p[0], py = p[1], dx = p[2], dy = p[3];
       x.beginPath();
-      x.moveTo(px, py + dy * L);
-      x.lineTo(px, py);
-      x.lineTo(px + dx * L, py);
-      x.stroke();
-      /* 内折 */
-      x.beginPath();
-      x.moveTo(px + dx * 2, py + dy * 2.6);
-      x.lineTo(px + dx * 2, py + dy * 2);
-      x.lineTo(px + dx * 2.6, py + dy * 2);
+      x.moveTo(p[0], p[1] + p[3] * L);
+      x.lineTo(p[0], p[1]);
+      x.lineTo(p[0] + p[2] * L, p[1]);
       x.stroke();
     });
   }
@@ -202,27 +199,16 @@
         x.restore();
       }
 
-      /* 内墨线 */
-      rr(x, { x: 1.4, y: 1.4, w: w - 2.8, h: h - 2.8 }, Math.max(0, r - 1));
-      x.strokeStyle = 'rgba(0,0,0,0.45)';
-      x.lineWidth = 0.9;
-      x.stroke();
+      /* 内墨线（v0.8.0 已删）：外框 + 内墨线 + 金线内衬三层描边叠在一个面板上，
+         远看就是"一圈又一圈的线"。现在只留最外那一层。 */
 
-      /* 外框 */
+      /* 外框（唯一的一层描边） */
       rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
       x.strokeStyle = border || C.line;
       x.lineWidth = 1;
       x.stroke();
 
-      /* 金线内衬 */
-      if (border === C.gold || opt.gold) {
-        rr(x, { x: 2.8, y: 2.8, w: w - 5.6, h: h - 5.6 }, Math.max(0, r - 2));
-        x.strokeStyle = 'rgba(216,183,104,0.34)';
-        x.lineWidth = 0.7;
-        x.stroke();
-      }
-
-      if (opt.corners) cornerMarks(x, s, 'rgba(216,183,104,0.75)', Math.min(9, w * 0.14));
+      if (opt.corners) cornerMarks(x, s, 'rgba(216,183,104,0.45)', Math.min(7, w * 0.12));
     });
   }
 
@@ -237,14 +223,11 @@
       rr(x, { x: 0.9, y: 0.9, w: w - 1.8, h: h - 1.8 }, Math.min(2, h / 2));
       x.fillStyle = '#05070c';
       x.fill();
-      /* 外框 */
+      /* 外框：细一档，进度条本来就有高光带，描边再重就糊成一条白边 */
       rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, Math.min(2.5, h / 2));
-      x.strokeStyle = 'rgba(216,183,104,0.55)';
-      x.lineWidth = 1;
+      x.strokeStyle = 'rgba(216,183,104,0.34)';
+      x.lineWidth = 0.8;
       x.stroke();
-      /* 顶部内阴影 */
-      x.fillStyle = 'rgba(0,0,0,0.5)';
-      x.fillRect(1.6, 1.6, w - 3.2, 1);
     });
   }
 
@@ -311,36 +294,26 @@
       x.drawImage(c, Math.round(s.x) - pad, Math.round(s.y) - pad, s.w + pad * 2, s.h + pad * 2);
     },
 
-    /* 主面板（金框 + 回纹角 + 纸纹）—— 覆盖层通用 */
+    /* 主面板（金框 + 回纹角 + 纸纹）—— 覆盖层通用。
+       v0.8.0：标题两侧的"云纹短线 + 两个菱形端点"删掉了（一页里出现四五次太吵），
+       只留一条从标题往两边退让的细线。 */
     frame: function (x, s, title, opt) {
       opt = opt || {};
       UI.panel(x, s, opt.fill || '#161b28', opt.border || 'rgba(216,183,104,0.7)', 5,
         { corners: true, paper: true, gold: true });
       if (title) {
-        /* 标题底衬 */
-        var tw = x.measureText(title).width;
         UI.textOut(x, { x: s.x + s.w / 2, y: s.y + 11 }, title, 16, C.goldHi, 'center');
         x.font = F(16);
-        tw = x.measureText(title).width;
+        var tw = x.measureText(title).width;
         var cx = s.x + s.w / 2;
-        /* 左右云纹短线 */
-        x.strokeStyle = 'rgba(216,183,104,0.55)';
-        x.lineWidth = 0.9;
+        x.strokeStyle = 'rgba(216,183,104,0.32)';
+        x.lineWidth = 0.8;
         x.beginPath();
-        x.moveTo(s.x + 12, s.y + 21);
-        x.lineTo(cx - tw / 2 - 10, s.y + 21);
-        x.moveTo(cx + tw / 2 + 10, s.y + 21);
-        x.lineTo(s.x + s.w - 12, s.y + 21);
+        x.moveTo(s.x + 14, s.y + 21);
+        x.lineTo(cx - tw / 2 - 12, s.y + 21);
+        x.moveTo(cx + tw / 2 + 12, s.y + 21);
+        x.lineTo(s.x + s.w - 14, s.y + 21);
         x.stroke();
-        x.fillStyle = 'rgba(216,183,104,0.75)';
-        [[s.x + 12, s.y + 21], [s.x + s.w - 12, s.y + 21]].forEach(function (p) {
-          x.beginPath();
-          x.moveTo(p[0], p[1] - 2.4);
-          x.lineTo(p[0] + 2.4, p[1]);
-          x.lineTo(p[0], p[1] + 2.4);
-          x.lineTo(p[0] - 2.4, p[1]);
-          x.closePath(); x.fill();
-        });
       }
       return s;
     },
@@ -409,7 +382,7 @@
           xx.beginPath(); xx.arc(cc, cc, r, 0, 6.2832); xx.clip();
           xx.fillStyle = '#0d1018';
           xx.fillRect(cc - r, cc - r, r * 2, r * 2);
-          var art = A.portrait(key);
+          var art = A.avatar(key);
           if (art) {
             var hb = A.headBox(key);
             var sw = hb[2];
@@ -454,22 +427,23 @@
     },
 
 
-    /* 回纹分隔线 */
+    /* 回纹分隔线：v0.8.0 减负 —— 线细一档、中间菱形缩到 2.4 且压暗，
+       面板里一页常有四五条分隔线，原来每条都挂一个亮菱形，很吵。 */
     divider: function (x, cx, y, w, col) {
-      col = col || 'rgba(216,183,104,0.42)';
+      col = col || 'rgba(216,183,104,0.32)';
       x.strokeStyle = col;
-      x.lineWidth = 0.8;
+      x.lineWidth = 0.7;
       x.beginPath();
       x.moveTo(cx - w / 2, y);
-      x.lineTo(cx - 6, y);
-      x.moveTo(cx + 6, y);
+      x.lineTo(cx - 5, y);
+      x.moveTo(cx + 5, y);
       x.lineTo(cx + w / 2, y);
       x.stroke();
       x.fillStyle = col;
       x.save();
       x.translate(cx, y);
       x.beginPath();
-      x.moveTo(0, -3.2); x.lineTo(3.2, 0); x.lineTo(0, 3.2); x.lineTo(-3.2, 0);
+      x.moveTo(0, -2.4); x.lineTo(2.4, 0); x.lineTo(0, 2.4); x.lineTo(-2.4, 0);
       x.closePath(); x.fill();
       x.restore();
     },
@@ -590,7 +564,9 @@
     Typewriter: null   /* 下方赋值 */
   };
 
-  /* ---------- 按钮 ---------- */
+  /* ---------- 按钮 ----------
+     v0.8.0 减负：**所有变体都不再画回纹角**，双层描边收成一层。
+     一屏可能有三十几个按钮，每个四角描线 + 内外两圈框，整幅画面就只剩线条了。 */
   function btnCanvas(w, h, variant, pressed, r) {
     var key = 'b|' + w + 'x' + h + '|' + variant + '|' + (pressed ? 1 : 0);
     var pad = 3;
@@ -617,19 +593,14 @@
           g.addColorStop(0.72, '#c8a355'); g.addColorStop(1, '#a8843f');
         }
         rr(x, s, r); x.fillStyle = g; x.fill();
-        /* 内亮线 */
-        rr(x, { x: 1.5, y: 1.5, w: w - 3, h: h - 3 }, Math.max(0, r - 1));
-        x.strokeStyle = pressed ? 'rgba(255,240,190,0.35)' : 'rgba(255,250,225,0.65)';
-        x.lineWidth = 0.9; x.stroke();
-        /* 外描边 */
+        /* 单层描边（原先是"内亮线 + 外描边"两层） */
         rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
-        x.strokeStyle = '#6d5326'; x.lineWidth = 1; x.stroke();
+        x.strokeStyle = pressed ? '#6d5326' : '#8a6a2c'; x.lineWidth = 1; x.stroke();
         /* 顶部高光带 */
         if (!pressed) {
           x.fillStyle = 'rgba(255,255,255,0.34)';
           x.fillRect(3, 1.6, w - 6, 1.1);
         }
-        cornerMarks(x, { x: 2.5, y: 2.5, w: w - 5, h: h - 5 }, 'rgba(110,84,32,0.55)', Math.min(6, h * 0.3));
 
       } else if (variant === 'ghost') {
         rr(x, s, r);
@@ -638,9 +609,17 @@
         gg.addColorStop(1, pressed ? 'rgba(20,24,38,0.9)' : 'rgba(10,13,22,0.62)');
         x.fillStyle = gg; x.fill();
         rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
-        x.strokeStyle = pressed ? 'rgba(245,227,168,0.9)' : 'rgba(216,183,104,0.55)';
-        x.lineWidth = 1; x.stroke();
-        cornerMarks(x, { x: 2, y: 2, w: w - 4, h: h - 4 }, 'rgba(216,183,104,0.42)', Math.min(5, h * 0.28));
+        x.strokeStyle = pressed ? 'rgba(245,227,168,0.85)' : 'rgba(216,183,104,0.34)';
+        x.lineWidth = 0.9; x.stroke();
+
+      } else if (variant === 'tab') {
+        /* 底栏页签：无描边、无角饰 —— 常驻六个，再描边就把底栏压成一条黑框。
+           选中态由 Btn.render 在底部画一条亮线表达（见下）。 */
+        rr(x, s, r);
+        var tg = x.createLinearGradient(0, 0, 0, h);
+        tg.addColorStop(0, pressed ? 'rgba(40,48,72,0.95)' : 'rgba(22,27,41,0.95)');
+        tg.addColorStop(1, pressed ? 'rgba(28,34,52,0.95)' : 'rgba(14,18,28,0.95)');
+        x.fillStyle = tg; x.fill();
 
       } else if (variant === 'danger') {
         var dg = x.createLinearGradient(0, 0, 0, h);
@@ -663,13 +642,12 @@
         }
         rr(x, s, r); x.fillStyle = g2; x.fill();
         rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
-        x.strokeStyle = pressed ? '#4a5578' : '#54608c';
+        x.strokeStyle = pressed ? '#4a5578' : '#46527a';
         x.lineWidth = 1; x.stroke();
         if (!pressed) {
           x.fillStyle = 'rgba(255,255,255,0.11)';
           x.fillRect(3, 1.6, w - 6, 1.1);
         }
-        cornerMarks(x, { x: 2.5, y: 2.5, w: w - 5, h: h - 5 }, 'rgba(150,164,200,0.30)', Math.min(5, h * 0.28));
       }
     });
   }
@@ -680,6 +658,7 @@
     this.disabled = !!o.disabled; this.small = o.small;
     this.variant = o.variant || 'default';
     this.tier = o.tier;
+    this.active = !!o.active;      /* 底栏页签的选中态 */
     this._p = 0;
   }
   Btn.prototype.hit = function (p) {
@@ -701,12 +680,18 @@
     } else {
       var c = btnCanvas(w, h, this.variant, down, 3);
       x.drawImage(c, Math.round(this.x) - 3, Math.round(this.y + dy) - 3, w + 6, h + 6);
+      /* 页签选中：底部一条亮线（不用描边框，省得底栏变重） */
+      if (this.variant === 'tab' && this.active) {
+        x.fillStyle = C.goldHi;
+        x.fillRect(this.x + 6, this.y + h - 2, w - 12, 1.5);
+      }
     }
 
     var col;
     if (this.disabled) col = '#5c6072';
     else if (this.variant === 'gold') col = down ? '#f6ecd8' : '#241a06';
     else if (this.variant === 'ghost') col = C.goldHi;
+    else if (this.variant === 'tab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.82)';
     else if (this.variant === 'danger') col = '#ffe4dc';
     else { col = C.text; if (this.tier === '仙') col = C.goldHi; }
 

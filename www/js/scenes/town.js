@@ -13,7 +13,7 @@
 
   var hooks = {};
 
-  hooks.menu = function (scene) { G.TianDao.openMenu(scene); };
+  hooks.menu = function (scene) { G.TianDao.openSettings(scene); };
 
   /* 天道面板的点击/按键转发（输入框失焦、Esc 关闭） */
   hooks.overlayTap = G.TianDao.overlayTap;
@@ -119,25 +119,10 @@
     G.game.toast('灵气 +' + g + (yrs ? '　岁月 +' + yrs : ''));
   }
 
-  /* 突破入口：小境界直接升；大境界扣丹后进心魔战 */
+  /* 突破入口：口径统一在 G.Overlays.doBreak（底栏「功法」页也调它）。
+     珠内空间这里只是"另一个入口"，不另写一份规则。 */
   function doBreak(scene) {
-    var save = G.game.save;
-    var r = G.Player.breakthrough(save);
-    if (r.ok) {
-      G.game.toast('突破成功 —— ' + r.info.n);
-      openCult(scene);
-      return;
-    }
-    if (r.big) {
-      var b = G.Player.startBigBreak(save);
-      if (!b.ok) { G.game.toast(b.reason); openCult(scene); return; }
-      G.game.toast('「' + b.pill + '」已服下……问心魔劫起');
-      scene.clearOverlay();
-      G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town' });
-      return;
-    }
-    G.game.toast(r.reason);
-    openCult(scene);
+    G.Overlays.doBreak(scene);
   }
 
   function openCult(scene) {
@@ -254,10 +239,7 @@
 
   hooks.renderOverlay = function (x, scene) {
     var save = G.game.save;
-    if (G.TianDao.isMenuOverlay(scene.overlay)) {
-      G.TianDao.renderOverlay(x, scene);
-      return;
-    }
+    if (G.Overlays.route(x, scene)) return;
     /* 对话类覆盖层统一走 dialog（立绘 + 名牌 + 折行台词） */
     var d = DIALOGS[scene.overlay];
     if (d) {
@@ -306,8 +288,6 @@
       G.UI.text(x, { x: SP.x + 18, y: y }, '妖丹回收', 12, G.UI.C.text);
       G.UI.text(x, { x: SP.x + SP.w - 92, y: y },
         '15 灵石', 11, G.UI.C.gold, 'right');
-    } else if (scene.overlay === 'char') {
-      G.Overlays.renderChar(x);
     }
   };
 
@@ -319,7 +299,7 @@
      ============================================================ */
   function makeInterior(mapId, acts) {
     return G.Explore.create(mapId, {
-      menu: function (scene) { G.TianDao.openMenu(scene); },
+      menu: function (scene) { G.TianDao.openSettings(scene); },
       overlayTap: G.TianDao.overlayTap,
       overlayKey: G.TianDao.overlayKey,
       onInteract: function (o, scene) {

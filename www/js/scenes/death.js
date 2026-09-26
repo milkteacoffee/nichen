@@ -45,6 +45,8 @@
         atk: st.atk, maxhp: st.maxhp, stone: stone, boss: boss,
         xianli: xianli, detail: d, cause: d.cause, causeName: d.causeName,
         chronicle: (save.chronicle || []).slice(-MAX_CHRONICLE),
+        /* 记下这一世是哪台设备写的 —— 换机/换浏览器后能一眼分清（见 Storage.stampDevice） */
+        dev: (G.Storage.deviceId ? G.Storage.deviceId() : ''),
         at: Date.now()
       };
       this.rec = rec;
@@ -66,6 +68,7 @@
 
       meta.past.push(rec);
       if (meta.past.length > 60) meta.past.shift();
+      if (G.Storage.stampDevice) G.Storage.stampDevice(meta);
       G.Storage.saveMeta(meta);
 
       /* 当世档到此为止 */
