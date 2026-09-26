@@ -2707,6 +2707,44 @@ step(function () {
   if (!(e.hp > 0 && e.maxhp > 0)) errors.push('词缀把气血算成了非正数');
 }, 'dungeon.affix.contract');
 
+/* ---------- 宗门位阶与岁俸契约（v0.37.0，S4，对标《鬼谷八荒》） ----------
+   ① 位阶**由贡献推导**（外门 <200 / 内门 ≥200 / 真传 ≥600）—— 不另存字段
+   ② 散修**不发**岁俸
+   ③ 宗门弟子：长一岁发一次，**同一年不重复发**
+   ④ 位阶越高给得越多
+   ⑤ **首次结算只记基线、不补发** —— 否则老档一进镇就"一夜暴富" */
+step(function () {
+  const P = G.Player;
+  if (P.rankOf({ sectRep: 0 }) !== 'outer') errors.push('贡献 0 应为外门');
+  if (P.rankOf({ sectRep: 200 }) !== 'inner') errors.push('贡献 200 应为内门');
+  if (P.rankOf({ sectRep: 600 }) !== 'core') errors.push('贡献 600 应为真传');
+
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.cult = 'free'; s2.age = 30; s2.stipendAge = 20; s2.stone = 0;
+  if (P.tickStipend(s2).length) errors.push('散修不该领岁俸');
+  if (s2.stone !== 0) errors.push('散修领岁俸时不该发灵石');
+
+  s2.cult = 'sect'; s2.sectId = 'qxj'; s2.sectRep = 0;
+  s2.age = 30; s2.stipendAge = 29; s2.stone = 0; s2.items = {};
+  const r1 = P.tickStipend(s2);
+  if (!r1.length) errors.push('宗门弟子长一岁应发岁俸');
+  if (s2.stone !== P.STIPEND.outer.stone) {
+    errors.push('外门岁俸灵石数额不对：' + s2.stone + '（应 ' + P.STIPEND.outer.stone + '）');
+  }
+  if (P.tickStipend(s2).length) errors.push('同一年不该重复发岁俸');
+
+  if (!(P.STIPEND.core.stone > P.STIPEND.inner.stone
+    && P.STIPEND.inner.stone > P.STIPEND.outer.stone)) {
+    errors.push('岁俸应随位阶递增');
+  }
+
+  const s3 = JSON.parse(JSON.stringify(save));
+  s3.cult = 'sect'; s3.sectId = 'qxj'; s3.age = 50; s3.stone = 0;
+  delete s3.stipendAge;
+  if (P.tickStipend(s3).length) errors.push('首次结算不该补发岁俸（老档会一夜暴富）');
+  if (s3.stone !== 0) errors.push('首次结算发了灵石');
+}, 'sect.stipend.contract');
+
 /* ---------- 开局功法来源契约（v0.25.0） ----------
    用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，
    不是每次都随机三个功法」。

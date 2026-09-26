@@ -1305,7 +1305,10 @@
     G.UI.text(x, { x: P.x + 14, y: P.y + 32 },
       '当前阵营：' + (isSect ? ((s && s.n) || '宗门弟子') : '散修'), 12, G.UI.C.goldHi);
     G.UI.text(x, { x: P.x + 14, y: P.y + 50 },
-      isSect ? ('位阶 ' + RANK_N[save.sectRank || 'outer'] + '　贡献 ' + (save.sectRep || 0))
+      /* 位阶**由贡献推导**（S4）—— 面板与 Player.rankOf 同源，不读 save.sectRank
+         （那个字段已退化为"迁移用"，留着只会两处真相源分叉）。 */
+      isSect ? ('位阶 ' + (G.Player.RANK_N[G.Player.rankOf(save)] || '外门')
+        + '　贡献 ' + (save.sectRep || 0))
              : ('散修声望 ' + (save.sectRep || 0)), 11, G.UI.C.textDim);
     G.UI.text(x, { x: P.x + 14, y: P.y + 70 },
       isSect ? '宗门功法与散修功法互不相通；本门弟子以贡献兑换本门功法。'

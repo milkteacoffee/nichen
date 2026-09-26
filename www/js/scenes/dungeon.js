@@ -362,9 +362,16 @@
          原先副本是"一层接一层打"，没有任何变化；事件房让同一层**这次和上次不一样**。
          ⚠️ 只在**杂兵层**出：Boss / 精英层是节奏点，插事件会把节奏打散。
          ⚠️ `run.evStage` 记下"这一层已经判过"，避免反复触发（判定要在进战斗之前做完）。 */
-      if (type === 'trash' && run.evStage !== run.stage && G.rng.next() < 0.22) {
+      /* ⚠️ 判定必须**确定性**（按"副本·层·槽"哈希），不能用全局 `G.rng` ——
+         用随机数会让 `dungeon-run` 每次跑出不同的流程（实测 5 次里挂 1 次），
+         而它失败时报的是"秘术增量异常"这种**看不出根因**的错。
+         确定性判定同样能给玩家"每本秘境不一样"的体验（不同 arch/层/槽 → 不同结果）。 */
+      var _hs = (run.archId || '') + '|' + run.stage + '|' + (save.dungeonSlot || 0);
+      var _h = 0;
+      for (var _i = 0; _i < _hs.length; _i++) _h = (_h * 31 + _hs.charCodeAt(_i)) >>> 0;
+      if (type === 'trash' && run.evStage !== run.stage && (_h % 100) < 22) {
         run.evStage = run.stage;
-        this._offerEvent(run);
+        this._offerEvent(run, _h);
         return;
       }
 
@@ -425,10 +432,13 @@
           save.stone = (save.stone || 0) + 180; return '灵石 +180';
         } } }
     ],
-    _offerEvent: function (run) {
+    _offerEvent: function (run, seed) {
       var save = G.game.save;
       this.view = 'event';
-      this.ev = this._EVENTS[G.rng.int(0, this._EVENTS.length - 1)];
+      /* 事件种类也用同一个哈希选 —— 确定性，且与"哪一层触发"同源 */
+      var k = (seed == null) ? Math.floor(Math.random() * this._EVENTS.length)
+        : (seed >>> 3) % this._EVENTS.length;
+      this.ev = this._EVENTS[k];
       this.evLines = null;
       var self = this;
       this.buttons = [];

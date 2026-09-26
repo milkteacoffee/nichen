@@ -406,6 +406,10 @@
     }
 
     if (G.Data.sideQuests) G.Data.sideQuests.tick(save);   /* 支线：条件达成则 1 → 2 */
+    /* 宗门岁俸（S4）：每长一岁领一次（位阶由贡献推导） */
+    if (G.Player.tickStipend) {
+      G.Player.tickStipend(save).forEach(function (t) { G.game.toast(t); });
+    }
     if (q.step === 'm1-2' && q.flags.probeWin && !q.flags.probe) openChoice1(scene);
   };
 

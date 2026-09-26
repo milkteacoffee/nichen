@@ -727,6 +727,48 @@
       return save.sectRep;
     },
 
+    /* ===== 宗门位阶与岁俸（S4，对标《鬼谷八荒》）=====
+       用户问「其他主流游戏是怎么设计宗门的」→ 鬼谷八荒的宗门有**职位**，
+       职位带来**稳定收益**（月俸），这才让"待在宗门里"有实感。
+       我们的时间单位是**岁**（不是月），所以做**岁俸**：每长一岁领一次。
+       · 位阶**由贡献推导**，不另存一个字段（两处真相源必然分叉）：
+         外门 <200 / 内门 ≥200 / 真传 ≥600。
+       · `save.stipendAge` 记上次结算的年龄 —— 同一年不重复发。 */
+    RANK_N: { outer: '外门', inner: '内门', core: '真传' },
+    RANK_AT: { inner: 200, core: 600 },
+    rankOf: function (save) {
+      var rep = (save && save.sectRep) || 0;
+      if (rep >= this.RANK_AT.core) return 'core';
+      if (rep >= this.RANK_AT.inner) return 'inner';
+      return 'outer';
+    },
+    /* 岁俸数额：按位阶给灵石 + 丹药（真传还多一颗聚气散） */
+    STIPEND: {
+      outer: { stone: 120, items: {} },
+      inner: { stone: 320, items: { '回春丹': 2 } },
+      core: { stone: 700, items: { '回春丹': 3, '聚气散': 1 } }
+    },
+    /* 结算岁俸；返回本次发放的文案数组（没到新岁 / 非宗门弟子则返回空数组） */
+    tickStipend: function (save) {
+      if (!save || save.cult !== 'sect' || !save.sectId) return [];
+      var age = save.age || 0;
+      if (save.stipendAge == null) { save.stipendAge = age; return []; }
+      if (save.stipendAge >= age) return [];
+      save.stipendAge = age;
+      var rank = this.rankOf(save);
+      var sp = this.STIPEND[rank] || this.STIPEND.outer;
+      save.stone = (save.stone || 0) + sp.stone;
+      save.items = save.items || {};
+      var got = [];
+      Object.keys(sp.items).forEach(function (k) {
+        save.items[k] = (save.items[k] || 0) + sp.items[k];
+        got.push(k + ' ×' + sp.items[k]);
+      });
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return ['岁俸（' + (this.RANK_N[rank] || rank) + '）　灵石 +' + sp.stone]
+        .concat(got.length ? ['　' + got.join('　')] : []);
+    },
+
     /* ===== 门派商店（S3，对标《烟雨江湖》）=====
        用**贡献**换丹药/符箓/材料 —— 宗门弟子除了功法还有稳定补给，
        这是"宗门 vs 散修"资源差的落点（散修只能靠买与刷）。

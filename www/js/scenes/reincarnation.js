@@ -252,6 +252,7 @@
         quest: { step: 'm0-1', flags: {}, line: 'free' },
         /* 宗门与散修（《宗门与散修体系设计 v1.0》§7.2）：入世默认散修 */
         cult: 'free', sectId: null, sectRep: 0, sectRank: 'outer', cultSwitchUsed: false,
+        stipendAge: 0,                             /* 岁俸：上次结算的年龄 */
         askedRealms: {},
         side: {},                                  /* 支线进度：{ <id>: 1进行/2可交/3完成 } */
         fly: false,                                /* 御剑飞行开关（金丹境起可用） */
