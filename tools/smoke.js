@@ -2434,6 +2434,29 @@ step(function () {
   if (SQ.canTurnIn(s2, q)) errors.push('已完成的支线不该能重复交付');
 }, 'sidequest.contract');
 
+/* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
+   `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
+   选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。
+   这类"换了数据源但兜底没跟上"的错，只有真渲染一帧才看得见。 */
+step(function () {
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.pos = null; s2.side = {};
+  G.game.save = s2;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.questTab = 'side'; sc.questSel = null;
+  G.Overlays.openPanel(sc, 'quest', true);
+  const cx = textSpy();
+  sc.render(cx);
+  const seen = cx.__seen || [];
+  if (!seen.some(function (t) { return t.indexOf('支线') >= 0; })) {
+    errors.push('任务面板支线页没有渲染出内容（选中项兜底可能挂了旧数据源）');
+  }
+  if (!seen.some(function (t) { return t.indexOf('浣衣妇') >= 0; })) {
+    errors.push('任务面板支线页没有列出内容型支线');
+  }
+}, 'quest.side.render.contract');
+
 /* ---------- 宗门与散修契约（《宗门与散修体系设计 v1.0》） ----------
    ① 宗门数据完整：凡 9 / 灵 7 / 仙 5 / 道 0，且 region / 功法池都指向真实存在的东西
    ② 功法归属：每本功法都有 src；src='sect' 的必须带 sect 且该宗门存在

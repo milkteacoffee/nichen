@@ -843,6 +843,15 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'secrets'); }, 'panel.secrets');
 shot('31_panel_secrets', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'quest'); }, 'panel.quest');
 shot('32_panel_quest', 6);
+/* 支线页（内容型支线）：切到「支线」页签并选中第一条 */
+step(() => {
+  const sc = G.game.scene;
+  sc.questTab = 'side'; sc.questSel = 'sq_washer';
+  G.game.save.side = { sq_washer: 1 };
+  G.Overlays.openPanel(sc, 'quest', true);
+}, 'panel.quest.side');
+shot('32b_panel_quest_side', 6);
+step(() => { G.game.scene.questTab = 'main'; }, 'quest.tab.back');
 step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
 shot('33_panel_bag', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'cave'); }, 'panel.cave');

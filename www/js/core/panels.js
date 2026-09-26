@@ -683,7 +683,25 @@
       hint: '底栏「宗门」。每世只有一次改换门庭的机会。',
       done: function (s) { return s.cult === 'sect' || !!s.cultSwitchUsed; } }
   ];
-  function sideDone(s, it) { try { return !!it.done(s); } catch (e) { return false; } }
+
+
+  /* 按**字数**折行（不依赖 `measureText`）。
+     为什么要自己折：`G.UI.wrap` 用 `measureText`，而无头桩返回"长度 × 7"，
+     对中文严重低估 → 桩里根本不折行，`panels.bounds.contract` 按真实字宽一算就判越界。
+     任务详情是**中文为主**的整句，按"每行 maxW/size 个字"切就够准，且两个口径一致。 */
+  function wrapCJK(str, size, maxW, maxLines) {
+    str = String(str || '');
+    var per = Math.max(4, Math.floor(maxW / size));
+    var out = [], i = 0;
+    while (i < str.length && out.length < maxLines) {
+      out.push(str.slice(i, i + per));
+      i += per;
+    }
+    if (i < str.length && out.length) {
+      out[out.length - 1] = out[out.length - 1].slice(0, -1) + '…';
+    }
+    return out;
+  }
 
   /* 左栏此刻**实际显示**的行 —— drawQuest 与 buildQuest 共用这一份，
      两处各算一次窗口必然分叉（点到的行和看到的行对不上）。 */
@@ -717,12 +735,19 @@
     var idx = QUEST_ORDER.indexOf(q.step);
     if (idx < 0) idx = QUEST_ORDER.length - 1;
     var view = questRows(save, scene);
-    var selId = scene.questSel || (tab === 'main' ? q.step : SIDE[0].id);
+    var selId = scene.questSel || (tab === 'main' ? q.step : (G.Data.sideQuests.list[0] || {}).id);
+    /* 选中项解析：主线行带 `s`（QUEST 条目），支线行带 `sq`（SIDEQ 条目）——
+       ⚠️ 两边的字段名不同，**兜底也必须分叉**。曾经兜底统一取 `.s`，
+       支线页于是永远取不到选中项 → `return` → **面板整块不画、只剩按钮浮在场景上**
+       （截图反馈踩过；这类"换了数据源但兜底没跟上"只有真渲染一帧才看得见）。 */
     var sel = null, selGi = -1, selSide = null;
-    view.rows.forEach(function (r) {
-      if (r.id === selId) { sel = r.s; selGi = r.gi; selSide = r.side; }
-    });
-    if (!sel && view.rows.length) { sel = view.rows[0].s; selSide = view.rows[0].side; }
+    function pick(r) {
+      if (!r) return;
+      if (r.sq) { sel = r.sq; selSide = r.sq; }
+      else { sel = r.s; selGi = r.gi; }
+    }
+    view.rows.forEach(function (r) { if (r.id === selId) pick(r); });
+    if (!sel) pick(view.rows[0]);
     if (!sel) return;
 
     shell(x, '任　务', tab === 'main' ? '主线' : '支线');
@@ -765,7 +790,7 @@
       sideDesc = st0 === 0 ? selSide.intro
         : selSide.steps[Math.min(st0, 3) - 1].d;
     }
-    var dl = G.UI.wrap(x, selSide ? sideDesc : sel.d, 11, QP.detW);
+    var dl = wrapCJK(selSide ? sideDesc : sel.d, 11, QP.detW, 3);
     dl.slice(0, 3).forEach(function (l, i) {
       G.UI.text(x, { x: dx, y: dy + 22 + i * 15 }, l, 11, G.UI.C.text);
     });
@@ -781,7 +806,7 @@
       G.UI.text(x, { x: dx, y: by + 20 }, '提示', 10, G.UI.C.gold);
       var hint = st === 0 ? '去镇上找他说说话。'
         : (st >= 3 ? '此桩已了。' : selSide.steps[st - 1].hint);
-      G.UI.wrap(x, hint, 10, QP.detW).slice(0, 2).forEach(function (l, i) {
+      wrapCJK(hint, 10, QP.detW, 2).forEach(function (l, i) {
         G.UI.text(x, { x: dx, y: by + 34 + i * 13 }, l, 10, G.UI.C.textDim);
       });
       return;
@@ -812,7 +837,7 @@
     var save = G.game.save;
     var q = save.quest || { step: 'free', flags: {} };
     var tab = scene.questTab || 'main';
-    var selId = scene.questSel || (tab === 'main' ? q.step : SIDE[0].id);
+    var selId = scene.questSel || (tab === 'main' ? q.step : (G.Data.sideQuests.list[0] || {}).id);
 
     /* 页签：主线 / 支线 */
     [{ id: 'main', n: '主线' }, { id: 'side', n: '支线' }].forEach(function (t, i) {
@@ -821,7 +846,7 @@
         small: true, variant: 'subtab', active: tab === t.id, label: t.n,
         onClick: function () {
           scene.questTab = t.id;
-          scene.questSel = (t.id === 'main') ? q.step : SIDE[0].id;
+          scene.questSel = (t.id === 'main') ? q.step : (G.Data.sideQuests.list[0] || {}).id;
           G.Overlays.openPanel(scene, 'quest', true);
         }
       }));
