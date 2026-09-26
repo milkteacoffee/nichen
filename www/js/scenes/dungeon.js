@@ -357,6 +357,17 @@
 
       if (type === 'rest') { this._doRest(); return; }
 
+      /* ===== 随机事件房（v0.35.0，设计稿 §5.2）=====
+         用户问「其他主流游戏是怎么设计副本的」→ 对标《鬼谷八荒》的秘境随机事件。
+         原先副本是"一层接一层打"，没有任何变化；事件房让同一层**这次和上次不一样**。
+         ⚠️ 只在**杂兵层**出：Boss / 精英层是节奏点，插事件会把节奏打散。
+         ⚠️ `run.evStage` 记下"这一层已经判过"，避免反复触发（判定要在进战斗之前做完）。 */
+      if (type === 'trash' && run.evStage !== run.stage && G.rng.next() < 0.22) {
+        run.evStage = run.stage;
+        this._offerEvent(run);
+        return;
+      }
+
       var st = D().makeStage(arch, world, slot, this._diff(), run.stage);
       G.Storage.saveCurrent(save);
       G.game.changeScene('battle', {
@@ -365,6 +376,95 @@
           diff: this._diff(), stage: run.stage },
         enemies: st.enemies
       });
+    },
+
+    /* ===== 事件房（v0.35.0）=====
+       四类事件，各给两个选择 —— 重点是"**有取舍**"而不是"白给"：
+         · 商人：花灵石买丹药（舍不得就空手走）
+         · 机缘：白得一样东西（最舒服，但给得不多）
+         · 陷阱：掉血换灵石（血少的时候是赌博）
+         · 古碑：给功法碎片（长线收益，但要绕路）
+       ⚠️ 结果一律写进 `save` 并落盘（事件房是不可逆的推进）。 */
+    _EVENTS: [
+      { id: 'merchant', n: '行脚商人', d: '“这位道友，山货要不要？”',
+        a: { t: '买下丹药（灵石 -200）', run: function (save) {
+          if ((save.stone || 0) < 200) return '灵石不够，商人摇了摇头。';
+          save.stone -= 200;
+          save.items['回春丹'] = (save.items['回春丹'] || 0) + 3;
+          return '灵石 -200，得回春丹 ×3';
+        } },
+        b: { t: '不买，继续赶路', run: function () { return '你摆摆手，径直走了。'; } } },
+      { id: 'boon', n: '一缕机缘', d: '石缝里透出一线灵光。',
+        a: { t: '就地打坐吸纳（灵气 +800）', run: function (save) {
+          save.qi = (save.qi || 0) + 800; return '灵气 +800';
+        } },
+        b: { t: '掰下那块灵石（灵石 +260）', run: function (save) {
+          save.stone = (save.stone || 0) + 260; return '灵石 +260';
+        } } },
+      { id: 'trap', n: '陷坑', d: '脚下土石松动 —— 是个旧年留下的陷坑。',
+        a: { t: '硬闯（气血 -18%，灵石 +320）', run: function (save) {
+          var st = G.Player.computeStats(save);
+          var lose = Math.round(st.maxhp * 0.18);
+          save.hp = Math.max(1, (save.hp || st.maxhp) - lose);
+          save.stone = (save.stone || 0) + 320;
+          return '气血 -' + lose + '，灵石 +320';
+        } },
+        b: { t: '绕路（气血 -6%）', run: function (save) {
+          var st = G.Player.computeStats(save);
+          var lose = Math.round(st.maxhp * 0.06);
+          save.hp = Math.max(1, (save.hp || st.maxhp) - lose);
+          return '气血 -' + lose;
+        } } },
+      { id: 'stele', n: '半截古碑', d: '碑上刻着残缺的道纹，看久了眼晕。',
+        a: { t: '拓下碑文（得功法碎片 ×2）', run: function (save) {
+          var sh = (G.Data.shardByTier && G.Data.shardByTier['凡']) || '凡品功法碎片';
+          save.items[sh] = (save.items[sh] || 0) + 2;
+          return '得 ' + sh + ' ×2';
+        } },
+        b: { t: '砸开取石（灵石 +180）', run: function (save) {
+          save.stone = (save.stone || 0) + 180; return '灵石 +180';
+        } } }
+    ],
+    _offerEvent: function (run) {
+      var save = G.game.save;
+      this.view = 'event';
+      this.ev = this._EVENTS[G.rng.int(0, this._EVENTS.length - 1)];
+      this.evLines = null;
+      var self = this;
+      this.buttons = [];
+      var pick = function (which) {
+        return function () {
+          var txt = self.ev[which].run(save);
+          self.evLines = [txt];
+          G.Storage.saveCurrent(save);
+          /* 选完直接进战斗（事件房**不占一层**，只是这一层的开场） */
+          self.view = 'brief';
+          self.briefTitle = '第 ' + run.stage + ' 关';
+          self.briefLines = [txt, '前路仍有敌踪。'];
+          self._buildBriefButtons('继续前行');
+        };
+      };
+      this.buttons.push(new G.UI.Btn({
+        x: 60, y: 176, w: 160, h: 24, small: true, fs: 10, variant: 'gold',
+        label: this.ev.a.t, onClick: pick('a')
+      }));
+      this.buttons.push(new G.UI.Btn({
+        x: 260, y: 176, w: 160, h: 24, small: true, fs: 10, variant: 'ghost',
+        label: this.ev.b.t, onClick: pick('b')
+      }));
+      G.Storage.saveCurrent(save);
+    },
+    _renderEvent: function (x) {
+      var e = this.ev || { n: '?', d: '' };
+      G.UI.textOut(x, { x: 240, y: 40 }, e.n, 20, '#f0e2b0', 'center', 'rgba(6,8,14,0.7)', 3);
+      G.UI.panel(x, { x: 70, y: 78, w: 340, h: 60 },
+        'rgba(10,14,24,0.86)', 'rgba(216,183,104,0.40)', 5, { tex: false, shadow: false });
+      G.UI.text(x, { x: 240, y: 96 }, e.d, 11.5, '#cfd6e6', 'center');
+      var ln = this.evLines || [];
+      ln.slice(0, 2).forEach(function (t, i) {
+        G.UI.text(x, { x: 240, y: 118 + i * 14 }, t, 10, '#9ad0a8', 'center');
+      });
+      G.UI.text(x, { x: 240, y: 158 }, '择一而行', 10, '#8f95a6', 'center');
     },
 
     /* ================= 休整关（大副本第6关）================= */
@@ -725,6 +825,7 @@
       else if (this.view === 'daohub') this._renderDaoHub(x);
       else if (this.view === 'entrance') this._renderEntrance(x);
       else if (this.view === 'buff') this._renderBuff(x);
+      else if (this.view === 'event') this._renderEvent(x);
       else this._renderBrief(x);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);

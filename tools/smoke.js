@@ -2627,6 +2627,48 @@ step(function () {
   if ((s4.dungeonRun.buffs || []).indexOf(pick) < 0) errors.push('选了增益却没写进 run.buffs');
 }, 'dungeon.buff.contract');
 
+/* ---------- 副本事件房契约（v0.35.0） ----------
+   用户问「其他主流游戏是怎么设计副本的」→ 对标《鬼谷八荒》的秘境随机事件。
+   ① 每个事件：有名称/描述，且**两个选择都有文案与结算函数**
+   ② 每个选择都能真的结算 —— **空态（灵石 0 / 无道具 / 血 1）也不许抛异常**
+   ③ 结算不会把灵石扣成负数（商人那条必须有门槛）
+   ④ 视图能开且**恰 2 个选择**；选完回到 brief（事件房不占一层） */
+step(function () {
+  const d = G.scenes.dungeon;
+  if (!d._EVENTS || !d._EVENTS.length) { errors.push('副本事件表为空'); return; }
+  d._EVENTS.forEach(function (e) {
+    if (!e.n || !e.d) errors.push('事件 ' + e.id + ' 缺名称或描述');
+    ['a', 'b'].forEach(function (k) {
+      if (!e[k] || !e[k].t || typeof e[k].run !== 'function') {
+        errors.push('事件 ' + e.id + ' 的 ' + k + ' 选择不完整');
+      }
+    });
+  });
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.stone = 0; s2.items = {}; s2.hp = 1; s2.qi = 0;
+  G.game.save = s2;
+  d._EVENTS.forEach(function (e) {
+    ['a', 'b'].forEach(function (k) {
+      try { e[k].run(s2); } catch (err) {
+        errors.push('事件 ' + e.id + '.' + k + ' 结算抛异常：' + err.message);
+      }
+    });
+  });
+  if (s2.stone < 0) errors.push('事件结算把灵石扣成了负数');
+
+  s2.dungeonSet = ['B1', 'S1', 'S2', 'B2', 'S3']; s2.dungeonSlot = 0;
+  s2.dungeonRun = { archId: 'B1', stage: 2, buffs: [] };
+  G.game.changeScene('dungeon');
+  const dd = G.game.scene;
+  dd._offerEvent(s2.dungeonRun);
+  if (dd.view !== 'event') errors.push('_offerEvent 未切到 event 视图');
+  if ((dd.buttons || []).length !== 2) {
+    errors.push('事件房应有 2 个选择，实际 ' + (dd.buttons || []).length);
+  }
+  dd.buttons[0].onClick();
+  if (dd.view !== 'brief') errors.push('事件选完后应回到 brief（继续前行）');
+}, 'dungeon.event.contract');
+
 /* ---------- 开局功法来源契约（v0.25.0） ----------
    用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，
    不是每次都随机三个功法」。

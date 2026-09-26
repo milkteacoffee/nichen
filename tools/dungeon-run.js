@@ -184,6 +184,11 @@ function clearDungeon(slot) {
       if (sc.view === 'buff') {
         step(() => sc._takeBuff(sc.buffPick[0].id), 'buff'); pump(8); continue;
       }
+      /* 随机事件房（v0.35.0）：杂兵层 22% 概率出。
+         同样必须处理 —— 未知 view 会让循环直接 break，报出一串**不相关**的错。 */
+      if (sc.view === 'event') {
+        step(() => sc.buttons[0].onClick(), 'event'); pump(8); continue;
+      }
       if (sc.view === 'hub') break;
     }
     break;
