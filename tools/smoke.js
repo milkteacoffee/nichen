@@ -2856,6 +2856,62 @@ step(function () {
   G.game.time = t0;
 }, 'panel.slide.contract');
 
+/* ---------- 区域连通度契约（v0.34.0） ----------
+   用户口径：「宗门的地方每个场景都是四通八达」。
+   ① 除道界（固定回廊，天然线性）外，**每个区域至少 2 个出口**
+   ② **宗门所在区域至少 3 个出口**
+   ③ 出口必须**双向**：A→B 有路，B→A 也得有
+      ⚠️ 只算有向会放过"只有回程、没有去程"的断头路（项目踩过这个坑） */
+step(function () {
+  const Rg = G.Data.regions;
+  /* ⚠️ 没有 Rg.list —— 区域表挂在 Rg.index（id → 区域） */
+  const ids = Object.keys(Rg.index);
+  const adj = {};
+  ids.forEach(function (id) { adj[id] = []; });
+  /* 生成型区域的出口 */
+  ids.forEach(function (id) {
+    const r = Rg.index[id];
+    (r.exits || []).forEach(function (e) { if (adj[id] && adj[e.to]) adj[id].push(e.to); });
+  });
+  /* 手写地图的出口（town=fan1 / field=fan2 / cave=fan3） */
+  const HM = { town: 'fan1', field: 'fan2', cave: 'fan3' };
+  Object.keys(HM).forEach(function (m) {
+    const mm = G.Data.maps[m];
+    if (!mm) return;
+    (mm.exits || []).forEach(function (e) {
+      const to = HM[e.to] || e.to;
+      if (adj[HM[m]] && adj[to]) adj[HM[m]].push(to);
+    });
+    /* ⚠️ 手写地图里还有**结构体出口**（赤牙洞是 `S('caveIn','gate',…, {to:'cave'})`），
+       只在 exits 里找会漏掉它 —— 漏掉就会误报"断头路"（踩过）。 */
+    (mm.structures || []).forEach(function (st) {
+      if (!st.to) return;
+      const to = HM[st.to] || st.to;
+      if (adj[HM[m]] && adj[to]) adj[HM[m]].push(to);
+    });
+  });
+
+  /* ① 出口数（道界除外） */
+  ids.forEach(function (id) {
+    if (id.indexOf('dao') === 0) return;
+    const n = adj[id].length;
+    if (n < 2) errors.push('区域 ' + id + ' 出口只有 ' + n + ' 条（应 ≥2，四通八达）');
+  });
+  /* ② 宗门所在区域 ≥3 */
+  (G.Data.sects ? G.Data.sects.list : []).forEach(function (s) {
+    const n = (adj[s.region] || []).length;
+    if (n < 3) errors.push('宗门「' + s.n + '」所在区域 ' + s.region + ' 出口只有 ' + n + ' 条（应 ≥3）');
+  });
+  /* ③ 双向 */
+  ids.forEach(function (id) {
+    adj[id].forEach(function (to) {
+      if ((adj[to] || []).indexOf(id) < 0) {
+        errors.push('出口单向：' + id + ' → ' + to + ' 没有回程路（断头路）');
+      }
+    });
+  });
+}, 'region.link.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。
