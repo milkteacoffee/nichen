@@ -1293,9 +1293,15 @@ step(function () {
   const bb = P.startBigBreak(s);
   if (bb.ok) errors.push('无突破丹却开始了心魔战');
   /* 有丹 → 扣丹 + 进心魔战；胜利 → 炼气1 */
-  s.items = { 淬体突破丹: 1 };
-  const bb2 = P.startBigBreak(s);
-  if (!bb2.ok) errors.push('持丹却无法开始大境界突破：' + bb2.reason);
+  /* ⚠️ 破境是**概率事件**（封顶 95%）→ 单次调用会 5% 偶发假红。
+     这里同样**重试**（每次补一颗丹），残余概率 ≈ 0.05^6。 */
+  let bb2 = null;
+  for (let i = 0; i < 6; i++) {
+    s.items = { 淬体突破丹: 1 };
+    bb2 = P.startBigBreak(s);
+    if (bb2.ok) break;
+  }
+  if (!bb2.ok) errors.push('持丹却无法开始大境界突破（重试 6 次仍失败）：' + bb2.reason);
   if (s.items['淬体突破丹']) errors.push('心魔战开始时未消耗突破丹');
   const info = P.winBigBreak(s);
   if (s.globalLevel !== 10) errors.push('心魔战胜利后应为炼气1（10），实为 ' + s.globalLevel);
