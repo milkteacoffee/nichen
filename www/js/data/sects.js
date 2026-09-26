@@ -95,8 +95,18 @@
   LIST.forEach(function (s) { index[s.id] = s; });
 
   G.Data = G.Data || {};
+  /* 门派商店（S3）：贡献换物。各宗**通用同一张表** ——
+     差异留给"可换的品阶"（后续按宗门 tier 过滤），先保证"宗门弟子有稳定补给"这件事成立。 */
+  var SHOP = [
+    { item: '回春丹', n: 3, cost: 30 },
+    { item: '解封符', n: 2, cost: 40 },
+    { item: '聚气散', n: 1, cost: 60 },
+    { item: '妖丹', n: 2, cost: 50 }
+  ];
+
   G.Data.sects = {
     list: LIST,
+    SHOP: SHOP,
     byId: function (id) { return index[id] || null; },
     ofWorld: function (w) {
       return LIST.filter(function (s) { return s.world === w; });

@@ -1203,6 +1203,22 @@
   }
   function drawSect(x, scene) {
     var save = G.game.save || {};
+    /* 门派商店子视图（S3）：贡献换丹药/符箓/材料。
+       单开一屏而不是挤在主页 —— 宗门页已经有阵营/贡献/功法三块，
+       再塞商店必然压到「退门帖」按钮（版面越界是静默的）。 */
+    if (scene.sectView === 'shop') {
+      shell(x, '宗门', '贡献 ' + (save.sectRep || 0));
+      G.UI.text(x, { x: P.x + 14, y: P.y + 34 }, '门派商店 · 以贡献换取', 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 54 },
+        '贡献来自副本通关（首杀 +20 / 刷取 +8）。', 10, G.UI.C.textDim);
+      var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
+      SH.forEach(function (it, i) {
+        G.UI.text(x, { x: P.x + 22, y: SP.y + 86 + i * 24 },
+          it.item + ' ×' + it.n + '　　' + it.cost + ' 贡献', 11,
+          (save.sectRep || 0) >= it.cost ? G.UI.C.text : G.UI.C.textDim);
+      });
+      return;
+    }
     shell(x, '宗门', '第 ' + (save.life || 1) + ' 世');
     var s = sectOf(save);
     var isSect = (save.cult === 'sect');
@@ -1244,6 +1260,32 @@
   function buildSect(btns, scene) {
     var save = G.game.save;
     var isSect = (save.cult === 'sect');
+
+    /* 商店子视图 */
+    if (scene.sectView === 'shop') {
+      var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
+      SH.forEach(function (it, i) {
+        var can = (save.sectRep || 0) >= it.cost;
+        btns.push(new G.UI.Btn({
+          x: SP.x + SP.w - 96, y: SP.y + 82 + i * 24 - 4, w: 92, h: 20, small: true, fs: 10,
+          variant: can ? 'gold' : 'ghost',
+          label: can ? ('换取 ' + it.cost) : '贡献不足',
+          onClick: function () {
+            var r = G.Player.buySectItem(save, i);
+            G.game.toast(r.ok ? ('得 ' + r.item.item + ' ×' + r.item.n + '　贡献 -' + r.item.cost)
+              : ('无法换取：' + r.reason));
+            if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
+          }
+        }));
+      });
+      btns.push(new G.UI.Btn({
+        x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'ghost',
+        label: '返　回',
+        onClick: function () { scene.sectView = null; G.Overlays.openPanel(scene, 'sect', true); }
+      }));
+      return;
+    }
+    scene.sectView = null;
 
     if (!save.cultSwitchUsed) {
       if (!isSect) {
@@ -1296,7 +1338,15 @@
           }));
         });
         btns.push(new G.UI.Btn({
-          x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'danger',
+          x: P.x + 14, y: P.y + 184, w: 128, h: 22, small: true, variant: 'default',
+          label: '门派商店',
+          onClick: function () {
+            scene.sectView = 'shop';
+            G.Overlays.openPanel(scene, 'sect', true);
+          }
+        }));
+        btns.push(new G.UI.Btn({
+          x: P.x + 150, y: P.y + 184, w: 128, h: 22, small: true, variant: 'danger',
           label: '递退门帖 · 转散修',
           onClick: function () {
             var n = G.Player.switchCult(save, false, null);

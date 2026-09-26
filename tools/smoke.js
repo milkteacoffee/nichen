@@ -2774,6 +2774,35 @@ step(function () {
   const again = (sc.buttons || []).filter(function (b) { return /拜入|退门帖/.test(b.label || ''); });
   if (again.length) errors.push('本世已转过阵营，不应再出现拜入/退门按钮');
 
+  /* ⑤d 功法前置链（S3，对标《太吾绘卷》）：第 2 本需第 1 本 Lv3 */
+  if (mySect.skills.length >= 2) {
+    s0.sectRep = 500;
+    s0.skills[mySect.skills[0]] = { lv: 2, voided: false };
+    delete s0.skills[mySect.skills[1]];
+    if (G.Player.learnSectSkill(s0, mySect.skills[1]).ok) {
+      errors.push('前置链失效：第 1 本未达 Lv3 却能换第 2 本');
+    }
+    s0.skills[mySect.skills[0]] = { lv: 3, voided: false };
+    const r4 = G.Player.learnSectSkill(s0, mySect.skills[1]);
+    if (!r4.ok) errors.push('第 1 本达 Lv3 后应能换第 2 本：' + r4.reason);
+  }
+
+  /* ⑤e 门派商店（S3，对标《烟雨江湖》） */
+  const SH = G.Data.sects.SHOP;
+  if (!SH || !SH.length) errors.push('门派商店表为空');
+  else {
+    s0.sectRep = 0;
+    if (G.Player.buySectItem(s0, 0).ok) errors.push('贡献为 0 时不该能换物');
+    s0.sectRep = SH[0].cost;
+    s0.items = s0.items || {};
+    const b0 = s0.items[SH[0].item] || 0;
+    const br = G.Player.buySectItem(s0, 0);
+    if (!br.ok) errors.push('贡献足够时应能换物：' + br.reason);
+    if ((s0.items[SH[0].item] || 0) !== b0 + SH[0].n) errors.push('换物后物品数量不对');
+    if (s0.sectRep !== 0) errors.push('换物应扣贡献');
+    if (G.Player.buySectItem(s0, 999).ok) errors.push('不存在的商品不该能换');
+  }
+
   /* ⑥ 底栏 */
   const bar = (sc.buttons || []).filter(function (b) { return b.variant === 'tab'; });
   if (bar.length !== 6) errors.push(`底栏应为 6 项，实际 ${bar.length}`);

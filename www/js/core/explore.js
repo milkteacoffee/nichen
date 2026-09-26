@@ -599,6 +599,18 @@
         var camX = this._camX(), camY = this._camY();
         var self = this;
 
+        /* ===== 遇敌转场：闪白 + **镜头缩放脉冲**（v0.23.0）=====
+           用户口径："现在的游戏质感没有动画，还是很像 PPT"。
+           只有闪白的话，观感像"画面闪了一下"（甚至像 bug）；加一次整体轻微放大再回落，
+           才读得出"被拉进战斗"的仪式感（对标《宝可梦》的转场擦除/缩放）。
+           ⚠️ 只缩**世界层**，HUD / 追踪栏 / 提示不缩 —— 它们缩了会糊且不像 UI。 */
+        var _zoom = 1;
+        if (this.flashDir === 1) _zoom = 1 + 0.06 * Math.sin(this.flash * Math.PI);
+        if (_zoom !== 1) {
+          x.save();
+          x.translate(240, 136); x.scale(_zoom, _zoom); x.translate(-240, -136);
+        }
+
         /* 地面：整图已预烘好，每帧只 blit 视口这一块（1 次，而不是逐格 540 次）。
            详见 _bakeGround —— 逐格从 672×672 大纹理取子块实测每帧 7.8~22.6ms，
            室内大图直接把帧率压到 30fps，是整个游戏最浪费的一处。
@@ -656,6 +668,8 @@
         /* 环境粒子（v0.22.0）：**放在暗幕/室内光之后** ——
            洞窟里的火星、阴气要在暗幕之上才有"发光"感，放下面会被一起压暗。 */
         this._drawParticles(x);
+
+        if (_zoom !== 1) x.restore();      /* 世界层缩放到此为止，UI 不参与 */
 
         this._drawHUD(x);
         this._drawTracker(x);

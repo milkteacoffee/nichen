@@ -883,6 +883,14 @@ step(() => {
   G.Overlays.openPanel(G.game.scene, 'sect');
 }, 'panel.sect.joined');
 shot('34b_panel_sect_joined', 6);
+/* 门派商店（S3）：贡献换物 */
+step(() => {
+  const s = G.game.save;
+  s.cult = 'sect'; s.sectId = 'qxj'; s.sectRep = 120; s.sectRank = 'inner';
+  G.game.scene.sectView = 'shop';
+  G.Overlays.openPanel(G.game.scene, 'sect', true);
+}, 'panel.sect.shop');
+shot('34c_panel_sect_shop', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'map'); }, 'panel.map');
 shot('36_panel_map', 6);
 /* 储物格子的悬浮说明（鼠标落在第一个格子里：BG.x0=26, BG.y0=84, cell=46） */

@@ -700,6 +700,24 @@
       return save.sectRep;
     },
 
+    /* ===== 门派商店（S3，对标《烟雨江湖》）=====
+       用**贡献**换丹药/符箓/材料 —— 宗门弟子除了功法还有稳定补给，
+       这是"宗门 vs 散修"资源差的落点（散修只能靠买与刷）。
+       ⚠️ 商品表按宗门品阶过滤：小宗门只出凡阶，大宗门才出灵阶。 */
+    buySectItem: function (save, idx) {
+      var SH = G.Data.sects && G.Data.sects.SHOP;
+      if (!SH || !SH[idx]) return { ok: false, reason: '无此商品' };
+      var it = SH[idx];
+      if ((save.sectRep || 0) < it.cost) {
+        return { ok: false, reason: '贡献不足（需 ' + it.cost + '）' };
+      }
+      save.sectRep -= it.cost;
+      save.items = save.items || {};
+      save.items[it.item] = (save.items[it.item] || 0) + it.n;
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true, item: it };
+    },
+
     /* 入门试炼的**门槛**（试炼本身是一场切磋战，见 battle.js: sectTrial） */
     trialReady: function (save) {
       return (save.globalLevel || 1) >= 10;       /* 炼气一段起 */
@@ -713,6 +731,21 @@
         return { ok: false, reason: '已习得' };
       }
       if (!this.canUseSkill(save, id)) return { ok: false, reason: '非本门功法' };
+      /* ===== 功法前置链（S3，对标《太吾绘卷》）=====
+         本门功法**按池子顺序解锁**：第 2 本需要第 1 本达 Lv3。
+         没有前置链的话，贡献一够就能直接买最强的 —— "成长"没有层次，
+         玩家也不会去用第一本。 */
+      var sect = G.Data.sects.byId(save.sectId);
+      var pool = (sect && sect.skills) || [];
+      var myIdx = pool.indexOf(id);
+      if (myIdx > 0) {
+        var prev = pool[myIdx - 1];
+        var pv = (save.skills && save.skills[prev] && save.skills[prev].lv) || 0;
+        if (pv < 3) {
+          var pn = (G.Data.skills[prev] && G.Data.skills[prev].n) || prev;
+          return { ok: false, reason: '需先修《' + pn + '》至 Lv3（当前 Lv' + pv + '）' };
+        }
+      }
       var cost = (sk.tier === '灵') ? 150 : 50;
       if ((save.sectRep || 0) < cost) {
         return { ok: false, reason: '贡献不足（需 ' + cost + '）' };
