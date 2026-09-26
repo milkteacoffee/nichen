@@ -1,0 +1,65 @@
+/* 《逆尘》GitHub Pages 部署（v0.9.0 起）
+ *
+ * 为什么走 Actions 而不是「Deploy from a branch」：
+ *   ① 部署单元是 `www/` 子目录，分支部署只能整个仓库根或 /docs，得把 www 挪来挪去；
+ *   ② `configure-pages` 的 `enablement: true` 能用 GITHUB_TOKEN 自动开通 Pages 站点
+ *      —— 免去"先去 Settings 里点一下 Source"的手工步骤；
+ *   ③ 可以在部署前**卡一道冒烟测试**，坏代码进不了线上（这是本项目最重要的纪律）。
+ *
+ * ⚠️ 游戏必须走 HTTP：素材清单是 `fetch('assets/manifest.json')`，file:// 会被 CORS 拦。
+ *    Pages 天然是 HTTPS，正好。
+ *
+ * ⚠️ 仓库根 `.gitignore` 排除了 `_gen/` / `_shots/`，但 Pages 只上传 `www/`，
+ *    所以切图中间产物与截图本来就不会进站点。
+ */
+name: Deploy 《逆尘》 to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署；新的 push 直接顶掉排队中的旧任务
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 部署前的闸门：冒烟不过就不发。这条是项目纪律（见 HANDOVER §3.1），
+      # 也让"坏代码把线上打挂"变成不可能。
+      - name: 冒烟测试（不过则中止部署）
+        run: node tools/smoke.js
+
+      - name: 开通并读取 Pages 配置
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: 打包 www/ 为站点产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
