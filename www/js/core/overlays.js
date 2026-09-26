@@ -3,8 +3,22 @@
   /* 通用面板；角色面板内容更多，单独用一块更高的面板，
      并把"离开"按钮放到面板外，避免压住属性行。 */
   var PANEL = { x: 56, y: 24, w: 368, h: 224 };
-  /* 角色面板从底栏进入，底部要让出 28px 的功能栏 —— 所以比通用面板更扁一点 */
+  /* 角色面板从底栏进入，底部要让出 28px 的功能栏 —— 所以比通用面板更扁一点。
+     v0.14.0：与底栏五面板同一套卷轴版式 —— **左缘一条竖排标题带**，内容区右移。
+     ⚠️ `CHAR_PANEL` 是**外框**（导出给契约、四个子页签的几何也按它算）；
+        `CHAR_BODY` 才是**内容区**（四个子页的绘制按它定位）。
+        把两者混用 → 内容整体右移 30px（静默，只有截图看得出来）。 */
   var CHAR_PANEL = { x: 44, y: 6, w: 392, h: 232 };
+  var CHAR_BAND_W = 30;
+  var CHAR_BODY = {
+    x: CHAR_PANEL.x + CHAR_BAND_W, y: CHAR_PANEL.y,
+    w: CHAR_PANEL.w - CHAR_BAND_W, h: CHAR_PANEL.h
+  };
+  /* 竖排标题带矩形（角色面板这一条）。五面板那条在 panels.js，用同一个绘制函数。 */
+  var CHAR_BAND = {
+    x: CHAR_PANEL.x + 6, y: CHAR_PANEL.y + 8,
+    w: CHAR_BAND_W - 12, h: CHAR_PANEL.h - 16
+  };
 
   /* 角色面板的四个子页签（v0.11.0）。
      以前「角色」一页把立绘/境界/灵根/属性/功法/称号全挤在一起，密度高但**细看不了**：
@@ -32,10 +46,30 @@
   var O = {
     PANEL: PANEL,
     CHAR_PANEL: CHAR_PANEL,
+    CHAR_BODY: CHAR_BODY,
+    CHAR_BAND: CHAR_BAND,
     CHAR_TABS: CHAR_TABS,
     CHAR_BREAK: CHAR_BREAK,
     /* 子页签几何：契约要用（写死在契约里等于没钉住） */
     CHAR_TAB_GEOM: { w: TAB_W, gap: TAB_GAP, h: TAB_H, y: TAB_Y, x0: TAB_X0 },
+
+    /* 左缘竖排标题带（v0.14.0，参考《烟雨江湖》的卷轴版式）：
+       内嵌窄板 + 竖排大字（一列一字、整列纵向居中）。卷轴感来自
+       "窄板 + 上下留白 + 竖排字"，不依赖素材。
+       **唯一实现**：六面板（五面板在 panels.js + 角色面板在 renderChar）都调这里 ——
+       两处各画一份的话，字号/行距一改就漂，而且漂了只有截图看得出来。 */
+    titleBand: function (x, b, title) {
+      G.UI.panel(x, b, 'rgba(9,14,26,0.70)', 'rgba(158,206,246,0.32)', 4,
+        { tex: false, shadow: false });
+      var chars = String(title || '').replace(/[\s　]/g, '').split('');
+      if (!chars.length) return;
+      var fs = 15, lh = 21;
+      var top = b.y + (b.h - chars.length * lh) / 2;
+      chars.forEach(function (c, i) {
+        G.UI.text(x, { x: b.x + b.w / 2, y: top + i * lh + (lh - fs) / 2 }, c,
+          fs, G.UI.C.goldHi, 'center');
+      });
+    },
 
     dim: function (x) {
       x.fillStyle = 'rgba(5,7,12,0.70)';
@@ -238,17 +272,18 @@
         String(val), 11.5, col || G.UI.C.text, 'right');
     },
 
-    /* ===== 角色面板：四子页分发（v0.11.0）=====
-       标题改成**左置**，把顶部那条带子让给子页签 + 右上角关闭钮；
-       内容区仍从 P.y+36 起，所以「总览」页的排版与旧版逐像素一致。 */
+    /* ===== 角色面板：四子页分发（v0.11.0；v0.14.0 换卷轴版式）=====
+       标题从"顶部左置"改成**左缘竖排带**（与底栏五面板同一套），
+       顶部那条带子只留子页签 + 右上角关闭钮；
+       四个子页的绘制一律用 `CHAR_BODY`（内容区），不是 `CHAR_PANEL`（外框）。 */
     renderChar: function (x, scene) {
       var save = G.game.save;
-      var P = CHAR_PANEL;
       var tab = (scene && scene.charTab) || 'overview';
       this.dim(x);
-      G.UI.frame(x, P, null, { tex: true });
-      G.UI.textOut(x, { x: P.x + 14, y: P.y + 8 }, '角 色', 14, G.UI.C.goldHi);
-      G.UI.divider(x, 240, P.y + 30, P.w - 56, 'rgba(216,183,104,0.18)');
+      G.UI.frame(x, CHAR_PANEL, null, { tex: true });
+      this.titleBand(x, CHAR_BAND, '角色');
+      G.UI.divider(x, CHAR_BODY.x + CHAR_BODY.w / 2, CHAR_BODY.y + 30,
+        CHAR_BODY.w - 42, 'rgba(216,183,104,0.18)');
       if (tab === 'linggen') { this.charLinggen(x, save); return; }
       if (tab === 'attr') { this.charAttr(x, save); return; }
       if (tab === 'realm') { this.charRealm(x, save); return; }
@@ -258,7 +293,7 @@
     /* ---- ① 总览：立绘 / 境界 / 简版属性 / 功法 / 称号（原「角色」页内容）---- */
     charOverview: function (x, save) {
       var st = G.Player.computeStats(save);
-      var P = CHAR_PANEL;
+      var P = CHAR_BODY;
 
       var LX = P.x + 18;              /* 62  */
       var RX = P.x + 206;             /* 250 */
@@ -337,8 +372,16 @@
       var ty = P.y + P.h - 22;
       G.UI.divider(x, RX + RW / 2, ty - 8, RW, 'rgba(216,183,104,0.22)');
       G.UI.text(x, { x: RX, y: ty }, '称号', 11, G.UI.C.textDim);
-      G.UI.textOut(x, { x: RX + RW, y: ty - 0.5 },
-        titles.length ? titles.join('·') : '无', 11,
+      /* ⚠️ 称号会越加越多（每界地狱通关一枚），**必须按可用宽截断** ——
+         右栏只有 RW 宽（内容区收窄后更窄），写死画到 RX+RW 迟早压到「称号」两字上
+         （v0.14.0 内容区右移 30px 后，三枚称号就已经贴到一起了）。 */
+      var raw = titles.length ? titles.join('·') : '无';
+      var avail = RW - 26 - 6;            /* 让开「称号」两字 + 一点缝 */
+      x.font = G.UI.F(11);
+      var tstr = raw;
+      while (tstr.length > 1 && x.measureText(tstr).width > avail) tstr = tstr.slice(0, -1);
+      if (tstr !== raw) tstr = tstr.slice(0, -1) + '…';
+      G.UI.textOut(x, { x: RX + RW, y: ty - 0.5 }, tstr, 11,
         titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
     },
 
@@ -351,7 +394,7 @@
        顺序固定按 NINE 常量，**不按拥有的排**：按拥有的排的话，
        每次轮回灵根一变，格子的位置就全跳了，玩家记不住"金在哪一格"。 */
     charLinggen: function (x, save) {
-      var P = CHAR_PANEL, LX = P.x + 14;
+      var P = CHAR_BODY, LX = P.x + 14;
       var lg = save.linggen || { kind: '五行', elems: ['无'], coef: {}, stoneBonus: 0 };
       var elems = (lg.elems && lg.elems.length) ? lg.elems : ['无'];
       var coef = lg.coef || {};
@@ -448,7 +491,7 @@
        数值只有五个来源（角色成长设计：境界成长 + 功法 ×(1+天赋%+出身%) + 仙躯），
        旧版只给结果数字，玩家看不出"为什么是这个数"。这里把各层加成摊开。 */
     charAttr: function (x, save) {
-      var P = CHAR_PANEL, LX = P.x + 14;
+      var P = CHAR_BODY, LX = P.x + 14;
       var st = G.Player.computeStats(save);
       var gl = save.globalLevel || 1;
       var meta = G.game.meta || {};
@@ -487,16 +530,20 @@
           r[0], r[1], r[2], r[3]);
       });
 
-      /* 派生属性：四项横排 */
+      /* 派生属性：五项横排（v0.14.0 加「法力」——释放主动技的代价）。
+         ⚠️ 内容区右沿 = CHAR_PANEL.x + CHAR_PANEL.w - 14 = 422；LX = CHAR_BODY.x + 14 = 88。
+         可用宽 334：4×间距 + 格宽 ≤ 334 → 取 间距 70 / 格宽 64 → 88..432。
+         **加第 6 项前必须先算这条不等式**（超了是静默的，只有 panels.bounds 会报）。 */
       var lifeMax = G.Player.lifespanOf(gl), lifeAge = save.age || 16;
       [
         ['速度', st.spd, G.UI.C.text],
+        ['法力', st.mpMax, '#8fb8e8'],
         ['暴击', (st.crit * 100).toFixed(1) + '%', G.UI.C.gold],
         ['暴伤', Math.round(st.critDmg * 100) + '%', G.UI.C.gold],
         ['寿元', lifeAge + '/' + lifeMax,
           lifeAge >= lifeMax * 0.85 ? G.UI.C.danger : G.UI.C.text]
       ].forEach(function (r, i) {
-        O.statCell(x, LX + i * 92, P.y + 108, r[0], r[1], r[2], 80);
+        O.statCell(x, LX + i * 70, P.y + 108, r[0], r[1], r[2], 64);
       });
 
       G.UI.divider(x, 240, P.y + 130, P.w - 56, 'rgba(216,183,104,0.18)');
@@ -505,7 +552,7 @@
       /* 六行：每一层都是**现算**的，不再重写一份公式（避免与 computeStats 漂移） */
       [
         ['境界成长', '攻 ' + (10 + gl * 2) + '　防 ' + Math.round(5 + gl * 1.5)
-          + '　血 ' + (100 + gl * 20) + '　速 ' + (10 + gl * 0.5)],
+          + '　血 ' + (100 + gl * 20) + '　速 ' + (10 + gl * 0.5) + '　法 ' + (20 + gl * 2)],
         ['仙躯灌注', bk > 0 ? (bk + ' 点　攻 +' + (2 * bk) + '　防 +' + bk
           + '　血 +' + (12 * bk) + '　速 +' + bk) : '未灌注'],
         ['天赋 · 出身', layer(te.a, te.f, te.h, te.s, tExtra)],
@@ -523,7 +570,7 @@
        旧版只在总览里显示"当前境界"一个名字，玩家看不出自己在「四界十九境」里的位置，
        也不知道离破境还差多少。这里给当前境界 + 灵气进度 + 全境界总览。 */
     charRealm: function (x, save) {
-      var P = CHAR_PANEL, LX = P.x + 14;
+      var P = CHAR_BODY, LX = P.x + 14;
       var gl = save.globalLevel || 1;
       var ri = G.Player.realmInfo(gl);
       var bs = G.Player.breakState(save);

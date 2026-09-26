@@ -353,24 +353,34 @@
       Object.keys(save.skills || {}).forEach(function (id) {
         var sd = G.Data.skills[id];
         if (!sd) return;
+        /* 法力消耗随**功法等级**涨（v0.14.0）：装配时算一次挂在技能条目上，
+           结算与按钮禁用读同一个数 —— 每处各算一遍必然漂。 */
+        var lv = (save.skills[id] && save.skills[id].lv) || 1;
+        var cost = G.Player.manaCost(sd, lv);
         if (sd.kind === '攻击' && sd.mult) {
           atkSkills.push({ id: id, n: sd.n, mult: sd.mult, cd: sd.cd || 0, cdLeft: 0,
-            hit: sd.hit, elem: sd.elem, status: sd.status, target: sd.target, kind: 'atk' });
+            hit: sd.hit, elem: sd.elem, status: sd.status, target: sd.target, kind: 'atk',
+            lv: lv, cost: cost });
         } else if (sd.active) {
           healSkills.push({ id: id, n: sd.active.n, mult: 0, heal: sd.active.heal,
-            cd: sd.active.cd || 0, cdLeft: 0, hit: sd.active.hit, elem: sd.elem, kind: 'heal' });
+            cd: sd.active.cd || 0, cdLeft: 0, hit: sd.active.hit, elem: sd.elem, kind: 'heal',
+            lv: lv, cost: cost });
         }
       });
       var skills = atkSkills.concat(healSkills).slice(0, SKILL_SLOTS);
       if (!skills.length) {
+        /* 兜底普攻：**不耗法力**（耗了就会出现"一点法力都没有时只能站着"的死局） */
         skills.push({ id: 'basic', n: '凝气拳', mult: 1.0, cd: 0, cdLeft: 0,
-          elem: st.attackElem, kind: 'atk' });
+          elem: st.attackElem, kind: 'atk', lv: 1, cost: 0 });
       }
 
       this.p = {
         name: '陆尘', side: 'left',
         level: save.globalLevel,
         maxhp: st.maxhp, hp: Math.max(1, save.hp),
+        /* 法力：**每场开战回满**（战斗内资源，不落盘）。
+           落盘会让玩家在探索时被"没蓝"卡住，且要额外处理打坐/休息回蓝 —— 收益为零。 */
+        mpMax: st.mpMax, mp: st.mpMax,
         atk: st.atk, def: st.def, spd: st.spd,
         crit: st.crit, critDmg: st.critDmg,
         elem: st.attackElem, im: st.im,
@@ -555,6 +565,17 @@
           b.label = this.fleeTries >= MAX_FLEE ? '逃跑(尽)' : '逃跑';
         }
         if (b._key === '自动') b.label = this.auto ? '自动中' : '自动';
+        /* 功法按钮：一条都放不出来时标「(乏)」（法力或冷却）。
+           按钮**不置灰** —— 点开下拉能看到每一条各自的"冷却/法力不足"原因，
+           直接禁用等于把唯一的信息来源也关掉了。 */
+        if (b._key === '功法') {
+          var ok = false;
+          for (var k = 0; k < this.p.skills.length; k++) {
+            var s = this.p.skills[k];
+            if (s.cdLeft <= 0 && this.p.mp >= (s.cost || 0)) { ok = true; break; }
+          }
+          b.label = ok ? '功法' : '功法(乏)';
+        }
       }
     },
 
@@ -628,12 +649,18 @@
         var y = y0 + i * 22;
         if (en.kind === 'skill') {
           var sk = en.sk, ready = sk.cdLeft <= 0;
+          /* 法力不足 = 不可用（v0.14.0）。与冷却**分开判、合并显示** ——
+             两条原因都要能一眼看出来，否则玩家只看到"按钮灰着"会以为是 bug。 */
+          var poor = self.p.mp < (sk.cost || 0);
           var ec = sk.elem && sk.elem !== '无' ? '　' + sk.elem : '';
+          var tail = sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）'
+            : (sk.cost > 0 ? '（法力 ' + sk.cost + '）' : '');
           dropdown.push(new G.UI.Btn({
-            x: x0, y: y, w: w, h: 20, small: true, disabled: !ready,
+            x: x0, y: y, w: w, h: 20, small: true, disabled: !ready || poor,
             variant: 'battle',
-            label: sk.n + ec + (sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）'
-              : (sk.cd > 0 ? '（CD ' + sk.cd + '）' : '')),
+            label: sk.n + ec + tail,
+            sub: poor ? '法力不足 ' + self.p.mp + '/' + sk.cost : null,
+            subFs: 9, subColor: '#e08a7a',
             onClick: function () {
               if (sk.kind === 'heal') { self._playerAction(sk, 'P'); return; }
               self._pickTarget(sk);
@@ -836,6 +863,13 @@
             var alive = self._aliveEs();
             if (!alive.length) { self._victory(); return; }
             tgt = alive[0];
+          }
+          /* 法力扣除（v0.14.0）：在**真正出手那一刻**扣，不在点按钮时扣 ——
+             点技能还会经过选目标（`_pickTarget`），中途可能取消；
+             提前扣就会出现"取消也扣蓝"。 */
+          if (sk && sk.cost > 0) {
+            self.p.mp = Math.max(0, self.p.mp - sk.cost);
+            self._float('P', '法力 -' + sk.cost, '#9ab8ff');
           }
           self._act(self.p, tgt, 'P', tgt.key, sk, next);
         } else {
@@ -1213,6 +1247,15 @@
         save.po = (save.po || 0) + this.p._mangshan;
         this._float('P', '灵力 +' + this.p._mangshan, '#9ad0ff');
       }
+      /* 法力回复（v0.14.0）：每回合固定回 MP_REGEN 点，上限封顶。
+         只有主角回 —— 敌人走 `_enemyPick` 的 cd 体系，不引入第二套资源。 */
+      if (this.p.mpMax) {
+        var before = this.p.mp;
+        this.p.mp = Math.min(this.p.mpMax, this.p.mp + G.Player.MP_REGEN);
+        if (this.p.mp > before) {
+          this._float('P', '法力 +' + (this.p.mp - before), '#9ab8ff');
+        }
+      }
       this.pSkill = null;
       this.round += 1;
       this.cmdTimer = CMD_TIMER;  /* 新回合重置思考倒计时（v0.11.2） */
@@ -1457,6 +1500,20 @@
       save.qi = (save.qi || 0) + qi;
       save.po = (save.po || 0) + po;
       var aw = G.Player.activeWorldId(G.game.meta);
+      /* 野外刷怪：功法碎片**一定几率**掉落（v0.14.0，用户口径："野外刷怪有一定几率"）。
+         品阶按**当前所在界**定（`activeWorldId` 是"当前界"的唯一真相源）；
+         逐只判定 —— 群刷收益略高，但单只 6% 不会失控。
+         副本杂兵不走这里（它们的碎片在副本通关结算里给），避免同一次战斗双份。 */
+      var shardTier = (G.Data.tierByWorld || {})[aw] || '凡';
+      var shardItem = (G.Data.shardByTier || {})[shardTier];
+      var shardGot = 0;
+      if (shardItem) {
+        this.es.forEach(function () { if (G.rng.next() < 0.06) shardGot += 1; });
+        if (shardGot > 0) {
+          save.items = save.items || {};
+          save.items[shardItem] = (save.items[shardItem] || 0) + shardGot;
+        }
+      }
       if (aw === 'dao') {
         var dcr = G.Data.dungeons.daoCrystalDrop(G.Data.dungeons.diffOf(G.game.meta, 'dao'));
         save.daoCrystal = (save.daoCrystal || 0) + dcr;
@@ -1466,6 +1523,7 @@
         this._log('战利：灵气 +' + qi + '　灵力 +' + po + '　灵石 +' + st
           + (cut ? '（境界压制，收益减半）' : ''));
       }
+      if (shardGot > 0) this._log('拾得「' + shardItem + '」×' + shardGot);
       G.Storage.saveCurrent(save);
       this._finish(true, this.mapId);
     },
@@ -1799,12 +1857,15 @@
       }
       x.restore();
 
-      /* 名牌 + 血条：多敌时收窄，避免互相压住；Boss 留宽一点放得下全名 */
+      /* 名牌 + 血条（+ 主角多一条法力条）：多敌时收窄，避免互相压住；Boss 留宽一点放得下全名。
+         主角名牌**加高 10px** 放法力条（v0.14.0）—— 面板向上长，不往下压（下方是台座与地面）。 */
       var bw = this.es.length > 1 && !isP ? (u.boss ? 96 : 84) : 100;
       var bx = Math.max(8, Math.min(480 - bw - 8, cx - bw / 2));
-      var byy = by - s - 26;
+      var hasMp = !!(isP && u.mpMax);
+      var ph = hasMp ? 34 : 24;
+      var byy = by - s - 26 - (ph - 24);
 
-      G.UI.panel(x, { x: bx, y: byy, w: bw, h: 24 }, 'rgba(12,15,24,0.86)',
+      G.UI.panel(x, { x: bx, y: byy, w: bw, h: ph }, 'rgba(12,15,24,0.86)',
         isP ? 'rgba(216,183,104,0.55)' : 'rgba(199,84,80,0.6)', 3, { shadow: false });
       x.font = G.UI.F(10);
       x.textAlign = 'left'; x.textBaseline = 'top';
@@ -1822,6 +1883,16 @@
       G.UI.bar(x, { x: bx + 4, y: byy + 15, w: bw - 8, h: 6 },
         u.maxhp ? (this.shown[key] == null ? u.hp : this.shown[key]) / u.maxhp : 0,
         isP ? G.UI.C.hp : '#d24b4b');
+      /* 法力条（v0.14.0）：只在主角名牌上画。右侧留 26px 放数字，条子不顶到边。 */
+      if (hasMp) {
+        var mw = 26;
+        G.UI.bar(x, { x: bx + 4, y: byy + 24, w: bw - 8 - mw, h: 5 },
+          u.mpMax ? Math.max(0, u.mp) / u.mpMax : 0, '#6f9ad8');
+        x.font = G.UI.F(8.5);
+        x.textAlign = 'right'; x.textBaseline = 'middle';
+        x.fillStyle = 'rgba(180,208,246,0.95)';
+        x.fillText(Math.round(u.mp) + '/' + u.mpMax, bx + bw - 5, byy + 26.5);
+      }
       /* 护盾条：叠在血条上沿的青色段 */
       if (u.shield > 0) {
         var sw2 = (bw - 8) * Math.min(1, u.shield / u.maxhp);

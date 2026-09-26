@@ -3709,6 +3709,255 @@ step(function () {
 }, 'mist.material.contract');
 pump(6, 'mist.leave');
 
+/* ---------- 战斗法力值（v0.14.0）----------
+   用户口径：主动技要耗法力（"不然有点太无敌了"）、**最低 10 点才能放**、
+   每回合回 5 点、**功法等级越高耗得越多**。本契约钉五件事：
+     ① 口径锚点（凡 lv1=10 / 凡 lv5=26 / 灵 lv1=15 / 宝 lv1=20、MP_REGEN=5、等级单调增）；
+     ② 开战装配：mp == mpMax，且每条技能带 cost（与 manaCost 同源）；
+     ③ 法力不足：按钮 disabled **且给出原因**（只"灰着"玩家会以为是 bug）；
+     ④ 扣除：真驱动一次释放，整回合后 mp 恰好 = min(mpMax, 满 - cost + 5)；
+     ⑤ 回复：0 → +5，满 → 不超上限。
+   驱动方式是"把敌人改成打不死的木桩"，这样一整个回合必然跑完（含 _endRound）。 */
+step(function () {
+  const errors = [];
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const P = G.Player;
+
+  /* ① 口径锚点 */
+  const costOf = (tier, lv) => P.manaCost({ tier: tier }, lv);
+  if (costOf('凡', 1) !== 10) errors.push('凡阶 lv1 法力消耗应为 10，实为 ' + costOf('凡', 1));
+  if (costOf('凡', 5) !== 26) errors.push('凡阶 lv5 法力消耗应为 26，实为 ' + costOf('凡', 5));
+  if (costOf('灵', 1) !== 15) errors.push('灵阶 lv1 法力消耗应为 15，实为 ' + costOf('灵', 1));
+  if (costOf('宝', 1) !== 20) errors.push('宝阶 lv1 法力消耗应为 20，实为 ' + costOf('宝', 1));
+  if (P.MP_REGEN !== 5) errors.push('每回合法力回复应为 5，实为 ' + P.MP_REGEN);
+  if (costOf('凡', 2) <= costOf('凡', 1)) errors.push('功法等级越高法力消耗应越多（lv2 未高于 lv1）');
+
+  /* ② 开战装配 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.globalLevel = 14;
+  s.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 3 } };
+  s.hp = 99999;
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+  pump(6, 'mana.enter');
+  let b = G.game.scene;
+  if (!b || typeof b._cmd !== 'function') bail('法力契约：没能进入战斗');
+  if (b.p.mpMax !== P.computeStats(s).mpMax) {
+    errors.push('战斗法力上限与面板口径不一致（' + b.p.mpMax + ' vs ' + P.computeStats(s).mpMax + '）');
+  }
+  if (b.p.mp !== b.p.mpMax) errors.push('开战法力应回满，实为 ' + b.p.mp + '/' + b.p.mpMax);
+  const withCost = b.p.skills.filter((k) => k.cost > 0);
+  if (!withCost.length) bail('法力契约：装配的技能里没有带消耗的（测试存档的功法没生效）');
+  withCost.forEach((k) => {
+    const want = P.manaCost(G.Data.skills[k.id], s.skills[k.id].lv);
+    if (k.cost !== want) {
+      errors.push('技能「' + k.n + '」的 cost=' + k.cost + ' 与 manaCost 口径 ' + want + ' 不一致');
+    }
+  });
+
+  /* ③ 法力不足 → 禁用 + 给出原因 */
+  const sk = withCost[0];
+  b.p.mp = 5;
+  b._openSkill();
+  const pick = (bs, k) => bs.filter((x) => typeof x.label === 'string'
+    && x.label.indexOf(k.n) === 0)[0];
+  let btn = pick(b.buttons, sk);
+  if (!btn) bail('法力契约：下拉里找不到「' + sk.n + '」的按钮');
+  if (!btn.disabled) errors.push('法力 5 < 消耗 ' + sk.cost + ' 时「' + sk.n + '」应禁用');
+  if (!btn.sub) errors.push('法力不足的按钮应给出原因（sub 为空）—— 只"灰着"玩家会以为是 bug');
+  /* 法力充足 → 恢复可用 */
+  b.p.mp = b.p.mpMax;
+  b._openSkill();
+  btn = pick(b.buttons, sk);
+  if (btn && btn.disabled) errors.push('法力充足时「' + sk.n + '」不该禁用');
+
+  /* ④ 扣除：木桩敌人 + 一整回合 */
+  b.p.mp = b.p.mpMax;
+  b.es.forEach((e) => { e.maxhp = 99999; e.hp = 99999; e.atk = 0; });
+  b.phase = 'command';
+  b._buildCommand();
+  const before = b.p.mp;
+  b._playerAction(sk, b.es[0].key);
+  pump(150, 'mana.cast');
+  if (G.game.sceneName !== 'battle') bail('法力契约：驱动释放后已离开战斗（木桩不该被打死）');
+  b = G.game.scene;
+  const want = Math.min(b.p.mpMax, before - sk.cost + P.MP_REGEN);
+  if (b.p.mp !== want) {
+    errors.push('释放「' + sk.n + '」整回合后法力应为 ' + want + '（满 ' + before
+      + ' − 消耗 ' + sk.cost + ' + 回复 ' + P.MP_REGEN + '），实为 ' + b.p.mp);
+  }
+
+  /* ⑤ 回合回复 */
+  b.p.mp = 0;
+  b._endRound();
+  if (b.p.mp !== P.MP_REGEN) {
+    errors.push('法力为 0 时回合结束应回 ' + P.MP_REGEN + '，实为 ' + b.p.mp);
+  }
+  b.p.mp = b.p.mpMax;
+  b._endRound();
+  if (b.p.mp !== b.p.mpMax) errors.push('法力满时回合结束不应超过上限，实为 ' + b.p.mp);
+
+  /* 源码闸：接线点必须真的在 */
+  const bs = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+  if (bs.indexOf('MP_REGEN') < 0) errors.push('battle.js 未接入 MP_REGEN（每回合回复没接线）');
+  if (!/sk\.cost > 0/.test(bs)) errors.push('battle.js 未按 sk.cost 扣除法力');
+
+  G.game.changeScene('title');
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('法力契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 战斗法力：最低 10 点 / 等级越高耗越多 / 每回合回 5 / 不足禁用并给原因');
+}, 'battle.mana.contract');
+pump(6, 'mana.leave');
+
+/* ---------- 功法碎片（v0.14.0）----------
+   用户口径：副本要给功法碎片、野外刷怪也有几率掉。
+   本契约钉四件事：
+     ① 数据层：三种碎片齐、参悟池**现算且非空**、界→品阶映射齐、消耗 = 10；
+     ② 参悟：够数 → 优先补未习得（全习得才转 +1 级）；**不足 → 拒绝且存档一分不动**；
+     ③ 野外掉落：把 `G.rng.next` 钉成 0（必中）→ 一定掉，且掉的是**当前界**对应品阶；
+     ④ 副本掉落：大副本 3–5 / 小副本 1–2 / 重复刷减半且至少 1（走场景方法直调）。
+   ⚠️ 掉落判定走 `G.rng`（**运行时玩法随机**，按项目纪律不换固定种子）；
+      断言里则把 `next` 临时钉死再还原 —— 否则 6% 的判定会偶发假红。 */
+step(function () {
+  const errors = [];
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const Dt = G.Data;
+
+  /* ① 数据层 */
+  ['凡', '灵', '宝'].forEach((t) => {
+    if (!Dt.shardByTier[t]) errors.push('缺 ' + t + ' 品阶的碎片逻辑名');
+    const pool = Dt.shardPool(t);
+    if (!pool.length) errors.push(t + ' 品阶的参悟池是空的（参悟会永远失败）');
+    pool.forEach((id) => {
+      if (!Dt.skills[id]) errors.push('参悟池里有不存在的功法：' + id);
+    });
+  });
+  if (Dt.shardCost !== 10) errors.push('参悟消耗应为 10 片，实为 ' + Dt.shardCost);
+  ['fan', 'ling', 'xian', 'dao'].forEach((w) => {
+    if (!Dt.tierByWorld[w]) errors.push('界 ' + w + ' 没有映射到碎片品阶');
+  });
+  /* 品阶必须随界**单调不降**（凡 → 灵 → 宝 → 宝）。
+     只查"映射存在"是不够的：把仙界写成凡品，映射照样存在、掉落照样发生，
+     只是高阶界的碎片悄悄贬值 —— 玩家要刷很久才发现。 */
+  const ORDER = { '凡': 0, '灵': 1, '宝': 2 };
+  const SEQ = ['fan', 'ling', 'xian', 'dao'];
+  for (let i = 1; i < SEQ.length; i++) {
+    const a = Dt.tierByWorld[SEQ[i - 1]], b = Dt.tierByWorld[SEQ[i]];
+    if ((ORDER[b] == null) || (ORDER[a] == null) || ORDER[b] < ORDER[a]) {
+      errors.push('碎片品阶不能随界倒退：' + SEQ[i - 1] + '=' + a + ' → ' + SEQ[i] + '=' + b);
+    }
+  }
+
+  /* ② 参悟三态 */
+  const mk = (shards, skills) => {
+    const o = JSON.parse(JSON.stringify(save));
+    o.skills = skills || {};
+    o.items = shards || {};
+    return o;
+  };
+  const s1 = mk({ '凡品功法碎片': 10 });
+  const r1 = G.Player.inscribe(s1, '凡');
+  if (!r1.ok) errors.push('10 片凡品碎片应能参悟，实为：' + r1.reason);
+  else {
+    if (!r1.learned) errors.push('空功法表参悟应"习得"而非"精进"');
+    if (Dt.shardPool('凡').indexOf(r1.id) < 0) errors.push('参悟所得不在凡品池里：' + r1.id);
+    if (!s1.skills[r1.id]) errors.push('参悟后功法没进 save.skills');
+    if (s1.items['凡品功法碎片']) {
+      errors.push('参悟后碎片没扣干净（剩 ' + s1.items['凡品功法碎片'] + '）');
+    }
+  }
+  const s2 = mk({ '凡品功法碎片': 5 });
+  const r2 = G.Player.inscribe(s2, '凡');
+  if (r2.ok) errors.push('只有 5 片时应拒绝参悟');
+  if (s2.items['凡品功法碎片'] !== 5) errors.push('参悟失败却扣了碎片');
+  if (Object.keys(s2.skills).length) errors.push('参悟失败却给了功法');
+
+  const all = {};
+  Dt.shardPool('凡').forEach((id) => { all[id] = { lv: 1 }; });
+  const s3 = mk({ '凡品功法碎片': 10 }, all);
+  const n3 = Object.keys(s3.skills).length;
+  const r3 = G.Player.inscribe(s3, '凡');
+  if (!r3.ok) errors.push('已全习得时应转"精进"，实为：' + r3.reason);
+  else {
+    if (r3.learned) errors.push('已全习得时不该报"习得"');
+    if (Object.keys(s3.skills).length !== n3) errors.push('精进不该新增功法');
+    if (s3.skills[r3.id].lv !== 2) errors.push('精进应 +1 级，实为 Lv' + s3.skills[r3.id].lv);
+  }
+  const s4 = { items: { '凡品功法碎片': 10, '灵品功法碎片': 10 }, skills: {} };
+  if (G.Player.bestShardTier(s4) !== '灵') {
+    errors.push('够数时应取最高品阶（期望 灵），实为 ' + G.Player.bestShardTier(s4));
+  }
+  if (G.Player.bestShardTier({ items: {}, skills: {} }) !== null) {
+    errors.push('一片都没有时 bestShardTier 应为 null');
+  }
+
+  /* ③ 野外掉落：钉死 rng 必中 */
+  const s5 = mk({});
+  s5.quest = { step: 'free', flags: {} };
+  s5.globalLevel = 6;
+  G.game.save = s5;
+  const realNext = G.rng.next;
+  G.rng.next = () => 0;                 /* 0 < 0.06 → 必掉 */
+  try {
+    G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 3, '青纹蛇'), mapId: 'field' });
+    pump(6, 'shard.enter');
+    const bb = G.game.scene;
+    if (!bb || typeof bb._victory !== 'function') bail('碎片契约：没能进入战斗');
+    bb.es.forEach((e) => { e.hp = 0; });
+    bb._victory();
+    pump(4, 'shard.win');
+  } finally { G.rng.next = realNext; }
+  const tierW = (G.Data.tierByWorld[G.Player.activeWorldId(G.game.meta)]) || '凡';
+  const itemW = G.Data.shardByTier[tierW];
+  if (!(s5.items[itemW] > 0)) {
+    errors.push('野外刷怪在"必中"条件下没掉碎片（期望 ' + itemW + '）');
+  }
+
+  /* ④ 副本掉落量：大 3–5 / 小 1–2 / farm 减半且 ≥1 */
+  const dz = G.scenes.dungeon;
+  if (!dz || typeof dz._addShards !== 'function') {
+    errors.push('副本场景缺 _addShards（副本不掉碎片）');
+  } else {
+    const before = {};
+    const run = (kind, farm) => {
+      const s6 = mk({});
+      G.game.save = s6;
+      dz._addShards({ kind: kind }, farm);
+      const k = Object.keys(s6.items)[0];
+      return { k: k, n: k ? s6.items[k] : 0 };
+    };
+    for (let i = 0; i < 12; i++) {
+      const big = run('big', false);
+      if (big.n < 3 || big.n > 5) errors.push('大副本碎片应为 3–5，实为 ' + big.n);
+      const sm = run('small', false);
+      if (sm.n < 1 || sm.n > 2) errors.push('小副本碎片应为 1–2，实为 ' + sm.n);
+      const fm = run('big', true);
+      if (fm.n < 1 || fm.n > 2) errors.push('重复刷碎片应减半且至少 1（3–5 → 1–2），实为 ' + fm.n);
+    }
+    /* 副本掉落的品阶必须跟**所在界**走 */
+    const t = run('small', false);
+    const want = G.Data.shardByTier[(G.Data.tierByWorld[dz._worldId()]) || '凡'];
+    if (t.k !== want) errors.push('副本碎片品阶与所在界不符（期望 ' + want + '，实为 ' + t.k + '）');
+  }
+
+  /* 源码闸：两条掉落接线必须在 */
+  const bsrc = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+  if (bsrc.indexOf('shardByTier') < 0) errors.push('battle.js 没接野外碎片掉落');
+  const dsrc = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/dungeon.js'), 'utf8'));
+  if (dsrc.indexOf('_addShards') < 0) errors.push('dungeon.js 没接副本碎片掉落');
+
+  G.game.changeScene('title');
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('功法碎片契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 功法碎片：10 片参悟（优先补新）/ 副本 3-5·1-2·刷减半 / 野外必中掉当前界品阶');
+}, 'skill.shard.contract');
+pump(6, 'shard.leave');
+
 /* ---------- 游戏内版本号必须与 HANDOVER 同步（v0.12.0）----------
    `G.VERSION` 从 v0.0.2 起就再没同步过，一直显示成初始占位 —— 标题「关于」与关于页
    都拿它当版本号，玩家看到的是两年前的数。这类"两处各写一遍、谁也不会同时改"的常量
@@ -4242,15 +4491,36 @@ step(function () {
     char: '角 色', skills: '功　法', secrets: '秘　术',
     quest: '任　务', bag: '储　物', achieve: '成　就'
   };
+  /* 标题已改成**左缘竖排带**（一列一字，v0.14.0）→ 不再是一条完整文本 run。
+     判据改成"标题的每个字都画在**该面板自己的竖带矩形内**"——
+     只查"某处出现过这个字"太松：面板正文里本来就常出现「功」「法」这类字，
+     那样断言恒真（G36 同族）。⚠️ 角色面板的带子在**另一个位置**（它用 CHAR_PANEL），
+     所以矩形必须按面板取，不能一律用五面板那条。 */
+  const bandOf = function (id) {
+    return id === 'char' ? G.Overlays.CHAR_BAND : G.Overlays.PANEL_BAND;
+  };
+  if (!G.Overlays.PANEL_BAND || !(G.Overlays.PANEL_BAND.w > 0)) {
+    errors.push('未导出 PANEL_BAND（五面板的左缘竖排标题带）');
+  }
+  if (!G.Overlays.CHAR_BAND || !(G.Overlays.CHAR_BAND.w > 0)) {
+    errors.push('未导出 CHAR_BAND（角色面板的左缘竖排标题带）');
+  }
   Object.keys(TITLE).forEach(function (id) {
     G.Overlays.openPanel(sc, id);
     if (sc.overlay !== id) { errors.push('openPanel(' + id + ') 未设置 overlay'); return; }
     if (!sc.buttons.some(function (b) { return b.variant === 'tab' && b.active; })) {
       errors.push('面板 ' + id + ' 里没有高亮当前页签');
     }
-    const cx = textSpy(); sc.render(cx);
-    if (!cx.__seen.some(function (t) { return t.indexOf(TITLE[id]) >= 0; })) {
-      errors.push('面板 ' + id + ' 没有渲染出标题（场景 renderOverlay 路由漏了）');
+    const band = bandOf(id);
+    const cx = textSpyXY(); sc.render(cx);
+    const inBand = (cx.__seenXY || []).filter(function (t) {
+      return t.x >= band.x - 1 && t.x <= band.x + band.w + 1
+        && t.y >= band.y - 1 && t.y <= band.y + band.h + 1;
+    }).map(function (t) { return t.s; });
+    const chars = TITLE[id].replace(/[\s　]/g, '').split('');
+    const missing = chars.filter(function (c) { return inBand.indexOf(c) < 0; });
+    if (missing.length) {
+      errors.push('面板 ' + id + ' 左缘竖排标题缺字：' + missing.join(''));
     }
   });
 

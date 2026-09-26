@@ -548,6 +548,10 @@
       if (!lg.elems || !lg.elems.length) lg.elems = ['无'];
       var atk = 10 + gl * 2, def = 5 + gl * 1.5;
       var hp = 100 + gl * 20, spd = 10 + gl * .5;
+      /* 法力上限（v0.14.0）：释放主动技的代价，战斗内每回合回 MP_REGEN 点。
+         基础随境界涨；仙术类功法额外贡献（与"仙术→气血"同一条分支）——
+         不新增"第六个来源"，仍走「境界成长 + 功法」这两条老口径。 */
+      var mp = 20 + gl * 2;
 
       /* 功法 */
       Object.keys(save.skills || {}).forEach(function (id) {
@@ -559,7 +563,7 @@
         var m = base * matched * lgCoef;
         if (sd.kind === '攻击') atk += lv * 5 * m;
         else if (sd.kind === '防御') def += lv * 3 * m;
-        else hp += lv * 20 * m;
+        else { hp += lv * 20 * m; mp += lv * 6 * m; }
       });
 
       /* 仙躯灌注 */
@@ -582,7 +586,7 @@
 
       /* 地狱难度永久加成（跨世；生效时机见设计 v1.1 §2.5）——全属性同乘 */
       var hb = this.hellBonusPct(meta);
-      if (hb > 0) { atk *= 1 + hb; def *= 1 + hb; hp *= 1 + hb; spd *= 1 + hb; }
+      if (hb > 0) { atk *= 1 + hb; def *= 1 + hb; hp *= 1 + hb; spd *= 1 + hb; mp *= 1 + hb; }
 
       /* 圣术（签名秘术）百分比 */
       var sp2 = this.secretPct(save);
@@ -592,6 +596,7 @@
       var st = {
         maxhp: Math.round(hp), atk: Math.round(atk), def: Math.round(def),
         spd: Math.round(spd), crit: crit, critDmg: critDmg,
+        mpMax: Math.max(10, Math.round(mp)),
         te: te, we: we,
         /* 免疫状态（天赋 T003/T009/T018/T019/T024/T028 等） */
         im: te.im.slice(),
@@ -623,6 +628,70 @@
     skillCost: function (sd, currentLv) {
       var tc = G.Data.tierCoef[sd.tier] || 1;
       return Math.round(30 * currentLv * tc);
+    },
+
+    /* 战斗内每回合回复的法力（v0.14.0）。写在这里而不是 battle.js ——
+       契约与面板都要读同一份，散在场景里就等于有两个口径。 */
+    MP_REGEN: 5,
+
+    /* 释放主动技的法力消耗（v0.14.0）：
+       基础 **10 点**（用户口径："最低 10 点才能释放一个技能"），
+       **功法等级越高耗得越多**（每级 +4），再乘品阶系数（凡 1.0 / 灵 1.5 / 宝 2.0）。
+       品阶系数沿用 `tierCoef` —— 与功法对面板的贡献同源，不另立一套。
+       ⚠️ 系数改了这里会自动跟着变，但**消耗的绝对值会变**，契约钉了 lv1 凡阶 = 10。 */
+    manaCost: function (sd, lv) {
+      var tc = G.Data.tierCoef[(sd && sd.tier) || '凡'] || 1;
+      var base = 10 + (Math.max(1, lv || 1) - 1) * 4;
+      return Math.round(base * tc);
+    },
+
+    /* 碎片持有量（v0.14.0）：储物里按逻辑名存，缺字段一律当 0 */
+    shardCount: function (save, tier) {
+      var item = (G.Data.shardByTier || {})[tier];
+      if (!item) return 0;
+      return ((save.items || {})[item]) || 0;
+    },
+
+    /* 当前**碎片够数**的最高品阶（宝 → 灵 → 凡），没有则 null。
+       功法面板的「参悟」按钮读它 —— 让玩家不必自己算哪个品阶够了。 */
+    bestShardTier: function (save) {
+      var need = G.Data.shardCost || 10;
+      var order = ['宝', '灵', '凡'];
+      for (var i = 0; i < order.length; i++) {
+        if (this.shardCount(save, order[i]) >= need) return order[i];
+      }
+      return null;
+    },
+
+    /* 参悟（v0.14.0）：消耗 shardCost 片同品阶碎片 → 随机一本该品阶功法。
+       **优先补未习得**：全习得了才转"精进"（+1 级）——
+       否则老玩家会反复抽到同一本，碎片等于白花。
+       返回 { ok, reason?, id?, name?, lv?, learned? }。 */
+    inscribe: function (save, tier) {
+      var Dt = G.Data;
+      var item = (Dt.shardByTier || {})[tier];
+      if (!item) return { ok: false, reason: '未知品阶：' + tier };
+      var need = Dt.shardCost || 10;
+      var have = this.shardCount(save, tier);
+      if (have < need) {
+        return { ok: false, reason: item + '不足（' + have + '/' + need + '）' };
+      }
+      var pool = Dt.shardPool(tier);
+      if (!pool.length) return { ok: false, reason: '此品阶暂无功法可参悟' };
+
+      var fresh = pool.filter(function (id) { return !save.skills[id]; });
+      var pick = G.rng.pick(fresh.length ? fresh : pool);
+      save.items = save.items || {};
+      save.items[item] -= need;
+      if (save.items[item] <= 0) delete save.items[item];
+
+      var learned = !save.skills[pick];
+      if (learned) save.skills[pick] = { lv: 1 };
+      else save.skills[pick].lv += 1;
+      return {
+        ok: true, id: pick, name: (Dt.skills[pick] || {}).n || pick,
+        lv: save.skills[pick].lv, learned: learned
+      };
     },
 
     /* 打坐：每分钟灵气 = 10 × 首灵根系数 × (1+灵气加成) */

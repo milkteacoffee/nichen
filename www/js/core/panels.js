@@ -11,9 +11,21 @@
  *      （各场景的 renderOverlay 统一走 G.Overlays.isPanel / renderPanel）。
  */
 (function () {
-  /* 内容面板：底栏占 y 244..272，所以面板底边收到 240 为止 */
-  var P = { x: 12, y: 26, w: 456, h: 212 };
+  /* 面板版式（v0.14.0 参考《烟雨江湖》的卷轴式）：
+     外框**左缘留一条竖排标题带**，内容区整体右移 BAND_W。
+     ⚠️ 两个矩形别混：
+        · `FRAME` 是外框（也是导出给契约的 PANEL_RECT —— 越界判据按外框算）；
+        · `P` 是**内容区**（各面板都按 `P.x + N` / `P.y + N` 定位）。
+        把 FRAME 当 P 用，所有面板内容会整体右移 34px；
+        把 P 当 FRAME 用，外框会缩到内容区（左缘那条带子就露不出来）。 */
+  var FRAME = { x: 12, y: 26, w: 456, h: 212 };
+  var BAND_W = 34;
+  var P = { x: FRAME.x + BAND_W, y: FRAME.y, w: FRAME.w - BAND_W, h: FRAME.h };
   var BAR_Y = 244, BAR_H = 28;
+
+  /* 左缘竖排标题带矩形（五面板这一条）。**绘制实现统一在 overlays.js**
+     （`G.Overlays.titleBand`）—— 角色面板那条也调它，两处各画一份必然漂。 */
+  var BAND = { x: FRAME.x + 6, y: FRAME.y + 8, w: BAND_W - 12, h: FRAME.h - 16 };
 
   var WN = { fan: '凡界', ling: '灵界', xian: '仙界', dao: '道界' };
   var ST_NAME = { '麻': '麻痹', '毒': '中毒', '烧': '灼烧', '封': '封印' };
@@ -32,7 +44,11 @@
     '回城符': '返回已到过的城镇（M2 用）',
     '淬体突破丹': '大境界突破所需',
     '筑基丹': '炼气圆满破境筑基所需',
-    '妖丹': '杂货铺回收，15 灵石 / 枚'
+    '妖丹': '杂货铺回收，15 灵石 / 枚',
+    /* 功法碎片（v0.14.0）：副本通关与野外刷怪掉落，集满 10 片在「功法」页参悟 */
+    '凡品功法碎片': '10 片可在「功法」页参悟一本凡阶功法',
+    '灵品功法碎片': '10 片可在「功法」页参悟一本灵阶功法',
+    '宝品功法碎片': '10 片可在「功法」页参悟一本宝阶功法'
   };
   /* 可在面板里直接使用的道具（战斗外的即时收益） */
   var ITEM_USE = {
@@ -204,12 +220,16 @@
 
   function shell(x, title, right) {
     G.Overlays.dim(x);
-    G.UI.frame(x, P, null, { tex: true });
-    G.UI.textOut(x, { x: P.x + 14, y: P.y + 6 }, title, 15, G.UI.C.goldHi);
-    /* 右栏数值**必须让开关闭钮**（钮占 P.x+P.w-28 .. P.x+P.w-6）——
-       原先右端贴到 P.x+P.w-14，正好压在钮上（panels.bounds.contract 会报"文字压在按钮上"）。 */
-    if (right) G.UI.textOut(x, { x: P.x + P.w - 38, y: P.y + 9 }, right, 11, G.UI.C.textDim, 'right');
-    G.UI.divider(x, 240, P.y + 30, P.w - 56, 'rgba(216,183,104,0.18)');
+    G.UI.frame(x, FRAME, null, { tex: true });
+    G.Overlays.titleBand(x, BAND, title);
+    /* 右上角数值**必须让开关闭钮**（钮占 FRAME.x+FRAME.w-28 .. -6）——
+       原先右端贴到内沿，正好压在钮上（panels.bounds.contract 会报"文字压在按钮上"）。 */
+    if (right) {
+      G.UI.textOut(x, { x: FRAME.x + FRAME.w - 38, y: FRAME.y + 9 }, right, 11,
+        G.UI.C.textDim, 'right');
+    }
+    /* 顶条分隔线：标题已移到左缘竖带，这里只把"右上角数值"与正文分开 */
+    G.UI.divider(x, P.x + P.w / 2, FRAME.y + 30, P.w - 42, 'rgba(216,183,104,0.18)');
   }
 
   /* 分节小标题：**实现统一在 overlays.js**（`G.Overlays.sec`），这里只转发 ——
@@ -281,9 +301,15 @@
     infoY: P.y + 76,
     secY: P.y + 96,
     effY: P.y + 112,
-    contribY: P.y + 184,
-    btn: { x: P.x + P.w - 130, y: P.y + 180, w: 116, h: 22 },
-    hintY: P.y + 198
+    /* 贡献行上移到 154，给下面那排按钮（172..194）与末行提示（200..210）让位 ——
+       原先 184 与按钮同一段 y，只是靠 x 错开；加了「参悟」之后两个按钮并排，
+       再靠 x 错开会变成"文字压在按钮上"（panels.bounds.contract 会直接报）。
+       ⚠️ 提示行 y + 字号必须 ≤ 面板底 238（P.y=26 → 偏移上限 202）。 */
+    contribY: P.y + 154,
+    btn: { x: P.x + P.w - 130, y: P.y + 172, w: 116, h: 22 },
+    /* 参悟按钮（v0.14.0）：与「精进」同一行，落在左半段（原本是空白） */
+    shardBtn: { x: P.x + 14, y: P.y + 172, w: 152, h: 22 },
+    hintY: P.y + 200
   };
   SK.listY = SK.head.y + SK.head.h + 2;
 
@@ -335,6 +361,25 @@
     return '气血 +' + Math.round(lv * 20 * m);
   }
 
+  /* 参悟用哪一档碎片（v0.14.0）：
+     够数 → 取**够数里最高**的品阶（宝 > 灵 > 凡）；
+     都不够 → 取**持有最多**的那档做展示（玩家一眼知道该刷哪一档，而不是看个空按钮）。 */
+  function shardPick(save) {
+    var order = ['宝', '灵', '凡'];
+    var best = G.Player.bestShardTier(save);
+    if (best) return { tier: best, ok: true, have: G.Player.shardCount(save, best) };
+    var bt = '凡', bh = -1, any = false;
+    order.forEach(function (t) {
+      var n = G.Player.shardCount(save, t);
+      if (n > 0) any = true;
+      if (n > bh) { bh = n; bt = t; }
+    });
+    /* 一片都没有 → 一律显示「凡品」：玩家最先掉的就是它。
+       不这么做的话，三档都是 0 时会显示「宝品（0/10）」—— 新号看着莫名其妙。 */
+    if (!any) bt = '凡';
+    return { tier: bt, ok: false, have: Math.max(0, bh) };
+  }
+
   function buildSkills(btns, scene) {
     var save = G.game.save;
     var ids = skillIdsSorted(save);
@@ -369,6 +414,24 @@
           save.po -= cost; save.skills[sel].lv += 1;
           G.Storage.saveCurrent(save);
           G.game.toast(sd.n + ' 精进至 Lv' + save.skills[sel].lv);
+          G.Overlays.openPanel(scene, 'skills');
+        }
+      }));
+      /* 参悟（v0.14.0）：碎片 → 功法。与「精进」并排（灵力 vs 碎片，两条成长线）。
+         展开列表时**不建**这个按钮 —— 列表要盖住下方，留着它会与列表区重叠。 */
+      var sp = shardPick(save);
+      btns.push(new G.UI.Btn({
+        x: SK.shardBtn.x, y: SK.shardBtn.y, w: SK.shardBtn.w, h: SK.shardBtn.h,
+        small: true, variant: sp.ok ? 'gold' : 'default',
+        label: '参悟 · ' + sp.tier + '品（' + sp.have + '/' + G.Data.shardCost + '）',
+        disabled: !sp.ok,
+        onClick: function () {
+          var r = G.Player.inscribe(save, sp.tier);
+          if (!r.ok) { G.game.toast(r.reason); return; }
+          G.Storage.saveCurrent(save);
+          G.game.toast(r.learned
+            ? '参悟得「' + r.name + '」'
+            : '「' + r.name + '」精进至 Lv' + r.lv);
           G.Overlays.openPanel(scene, 'skills');
         }
       }));
@@ -447,7 +510,7 @@
       skillContrib(sd, lv, save), 11, COL[sd.elem] || G.UI.C.jadeHi);
 
     G.UI.text(x, { x: P.x + 14, y: SK.hintY },
-      '「精进」消耗灵力；贡献未计天赋与世界的百分比加成。', 10, G.UI.C.textDim);
+      '「精进」耗灵力；碎片由副本与野外掉落，10 片参悟一本。', 10, G.UI.C.textDim);
   }
 
 
@@ -611,7 +674,9 @@
   var BG = {
     tabY: P.y + 34, tabW: 62, tabH: 20, tabGap: 6,
     x0: P.x + 14, y0: P.y + 58,
-    cell: 46, gap: 6, cols: 8, rows: 3
+    /* 格宽 46 → 44（v0.14.0）：内容区左沿右移 34 后，8 列 46 会顶出外框右沿。
+       8×44 + 7×6 = 394 = 内容可用宽，正好收住。改格宽前先算这条。 */
+    cell: 44, gap: 6, cols: 8, rows: 3
   };
   BG.cap = BG.cols * BG.rows;
 
@@ -781,7 +846,8 @@
     }
 
     var ty = P.y + P.h - 20;
-    G.UI.divider(x, 240, ty - 8, P.w - 28, 'rgba(216,183,104,0.18)');
+    /* 居中点必须跟着内容区走（内容区左移了 34）—— 写死 240 会偏心 */
+    G.UI.divider(x, P.x + P.w / 2, ty - 8, P.w - 28, 'rgba(216,183,104,0.18)');
     var titles = (m.titles && m.titles.length) ? m.titles.join(' · ') : '无';
     G.UI.text(x, { x: P.x + 14, y: ty }, '称号', 11, G.UI.C.textDim);
     /* 右端让开右上角关闭钮（同 shell 的道理） */
@@ -833,7 +899,10 @@
     };
   };
 
-  G.Overlays.PANELS = PANELS;  G.Overlays.PANEL_RECT = P;
+  G.Overlays.PANELS = PANELS;  G.Overlays.PANEL_RECT = FRAME;
+  /* 内容区也导出：契约要判"内容不越出外框"，两处都得拿到 */
+  G.Overlays.PANEL_BODY = P;
+  G.Overlays.PANEL_BAND = BAND;
   G.Overlays.BAR_Y = BAR_Y;
   G.Overlays.BAR_H = BAR_H;
   G.Overlays.isPanel = function (name) { return !!IDS[name]; };

@@ -496,6 +496,8 @@
           this._addDan(2);
           lines.push('秘术已习，折算妖丹 ×2');
         }
+        var sh1 = this._addShards(arch, false);
+        if (sh1) lines.push('功法碎片：' + sh1.item + ' ×' + sh1.n);
         return lines;
       }
 
@@ -517,6 +519,8 @@
         this._addDan(3);
         lines.push('稀有收获：妖丹 ×3');
       }
+      var sh2 = this._addShards(arch, true);
+      if (sh2) lines.push('功法碎片：' + sh2.item + ' ×' + sh2.n);
       return lines;
     },
 
@@ -552,6 +556,21 @@
       var save = G.game.save;
       save.items = save.items || {};
       save.items['妖丹'] = (save.items['妖丹'] || 0) + n;
+    },
+
+    /* 功法碎片掉落（v0.14.0）：按**副本档次**给量、按**所在界**定品阶。
+       大副本（九关）3–5 片 / 小副本（五关）1–2 片；重复刷减半（至少 1）。
+       用户口径："副本需要增加功法碎片获取"。 */
+    _addShards: function (arch, farm) {
+      var save = G.game.save;
+      var tier = (G.Data.tierByWorld || {})[this._worldId()] || '凡';
+      var item = (G.Data.shardByTier || {})[tier];
+      if (!item) return null;
+      var n = arch.kind === 'big' ? 3 + G.rng.int(0, 2) : 1 + G.rng.int(0, 1);
+      if (farm) n = Math.max(1, Math.floor(n / 2));
+      save.items = save.items || {};
+      save.items[item] = (save.items[item] || 0) + n;
+      return { item: item, n: n };
     },
     _missingSecrets: function () {
       var save = G.game.save, have = save.secrets || {};

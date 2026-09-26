@@ -62,6 +62,30 @@
   /* 品阶系数（成长规格 v0.1） */
   var tierCoef = { '凡': 1.0, '灵': 1.5, '宝': 2.0, '玄': 3.0, '地': 4.5, '天': 6.5, '仙': 10.0 };
 
+  /* ===== 功法碎片（v0.14.0）=====
+     用户口径：副本要给功法碎片，野外刷怪也有几率掉。
+     按**品阶**分三种，键沿用 `tierCoef` 的品阶名 —— 不另立一套命名：
+       凡界 → 凡品功法碎片 / 灵界 → 灵品功法碎片 / 仙·道界 → 宝品功法碎片。
+     用途 = 功法面板「参悟」：**10 片同品阶** → 随机一本该品阶功法
+       （未习得 → 习得 lv1；已习得 → +1 级）。
+     ⚠️ 池子**现算**（按 `tier` 过滤 S），不写静态清单 —— 加新功法不用回来改这里。 */
+  var SHARD_BY_TIER = { '凡': '凡品功法碎片', '灵': '灵品功法碎片', '宝': '宝品功法碎片' };
+  var SHARD_COST = 10;
+  var TIER_BY_WORLD = { fan: '凡', ling: '灵', xian: '宝', dao: '宝' };
+  /* 品阶 → 更低品阶（该品阶一本功法都没有时往下退，否则「参悟」会抽空池）。
+     目前 宝 阶还没有功法 → 宝品碎片退到灵品；加功法后自动生效，不用改这里。 */
+  var TIER_FALLBACK = { '宝': '灵', '灵': '凡' };
+  function shardPool(tier) {
+    var t = tier;
+    for (var guard = 0; guard < 4; guard++) {
+      var ids = Object.keys(S).filter(function (id) { return S[id].tier === t; });
+      if (ids.length) return ids;
+      if (!TIER_FALLBACK[t]) break;
+      t = TIER_FALLBACK[t];
+    }
+    return [];
+  }
+
   G.Data = G.Data || {};
   G.Data.skills = S;
   G.Data.skillDropPool = dropPool;
@@ -69,4 +93,8 @@
   G.Data.shenBoPool = shenBoPool;
   G.Data.startSkillByElem = startByElem;
   G.Data.tierCoef = tierCoef;
+  G.Data.shardByTier = SHARD_BY_TIER;
+  G.Data.shardCost = SHARD_COST;
+  G.Data.tierByWorld = TIER_BY_WORLD;
+  G.Data.shardPool = shardPool;
 })();
