@@ -2539,6 +2539,109 @@
   };
 
   /* ============================================================
+     道具图标（v0.19.0）
+     ------------------------------------------------------------
+     素材优先 `item.<id>`，缺图走**程序化兜底**（按类别画简化图标）。
+     逻辑尺寸由调用方给（储物格子 44px），返回 {c,ox,oy,w,h}，与其它 Art 工厂同构。
+     id 规则见 panels.js: ITEM_ICON_ID —— 前缀决定画法：
+       pill_*     丹药（圆丹 + 高光 + 丹纹）
+       talisman_* 符箓（黄纸 + 朱砂符头）
+       shard_*    功法碎片（碎瓷片，按品阶换色）
+       mat_*      素材珠（妖丹：暗红内发光）
+       stone      灵石（菱形晶体）
+     ============================================================ */
+  var ICON_PAL = {
+    /* 品阶配色：[底, 高光, 描边] */
+    fan: ['#7d8a76', '#a9b79f', '#4a5344'],
+    ling: ['#4f7f9c', '#7fb4cf', '#2c4a5c'],
+    bao: ['#9a7a3c', '#d9b45f', '#5c4720'],
+    dao: ['#6b4f9c', '#a884d9', '#3d2c5c'],
+    red: ['#8c3a3a', '#c96a6a', '#4d1f1f'],
+    gold: ['#a8873a', '#e0c061', '#5c4a1e'],
+    jade: ['#3f8a72', '#7fc9ae', '#1f4a3c']
+  };
+  function iconPal(id) {
+    if (id.indexOf('shard_fan') === 0) return ICON_PAL.fan;
+    if (id.indexOf('shard_ling') === 0) return ICON_PAL.ling;
+    if (id.indexOf('shard_bao') === 0) return ICON_PAL.bao;
+    if (id.indexOf('mat_') === 0) return ICON_PAL.red;
+    if (id === 'stone') return ICON_PAL.jade;
+    if (id.indexOf('pill_cuiti') === 0 || id.indexOf('pill_zhuji') === 0) return ICON_PAL.gold;
+    if (id.indexOf('talisman') === 0) return ICON_PAL.gold;
+    return ICON_PAL.ling;
+  }
+
+  A.itemIcon = function (id, sz) {
+    sz = sz || 44;
+    var im = G.Assets.img('item.' + id);
+    if (im) {
+      /* 等比内含、居中：图标是正方形源图，按短边贴合即可 */
+      var k = Math.min(sz / im.width, sz / im.height);
+      var dw = im.width * k, dh = im.height * k;
+      return { c: im, ox: (sz - dw) / 2, oy: (sz - dh) / 2, w: dw, h: dh };
+    }
+    var P = iconPal(id);
+    var o = cached('icon|' + id + '|' + sz, sz, sz, function (x) {
+      var c = sz / 2, R = sz * 0.30;
+      x.lineJoin = 'round'; x.lineCap = 'round';
+
+      if (id.indexOf('talisman') === 0) {
+        /* 符：竖长黄纸 + 朱砂符头 */
+        var w2 = sz * 0.34, h2 = sz * 0.62;
+        x.fillStyle = '#d8c489'; x.strokeStyle = P[2]; x.lineWidth = 1.4;
+        x.beginPath();
+        x.moveTo(c - w2 / 2, c - h2 / 2); x.lineTo(c + w2 / 2, c - h2 / 2);
+        x.lineTo(c + w2 / 2, c + h2 / 2 - 3); x.lineTo(c, c + h2 / 2);
+        x.lineTo(c - w2 / 2, c + h2 / 2 - 3); x.closePath();
+        x.fill(); x.stroke();
+        x.strokeStyle = '#a8321f'; x.lineWidth = 1.5;
+        x.beginPath(); x.moveTo(c, c - h2 * 0.30); x.lineTo(c, c + h2 * 0.18); x.stroke();
+        x.beginPath(); x.moveTo(c - w2 * 0.22, c - h2 * 0.12); x.lineTo(c + w2 * 0.22, c - h2 * 0.12); x.stroke();
+        return;
+      }
+      if (id.indexOf('shard_') === 0) {
+        /* 碎片：不规则三角瓷片 */
+        x.fillStyle = P[0]; x.strokeStyle = P[2]; x.lineWidth = 1.4;
+        x.beginPath();
+        x.moveTo(c - R * 0.9, c + R * 0.7); x.lineTo(c + R * 0.2, c - R * 1.0);
+        x.lineTo(c + R * 1.0, c + R * 0.4); x.closePath();
+        x.fill(); x.stroke();
+        x.fillStyle = P[1]; x.globalAlpha = 0.75;
+        x.beginPath();
+        x.moveTo(c + R * 0.2, c - R * 1.0); x.lineTo(c + R * 1.0, c + R * 0.4);
+        x.lineTo(c + R * 0.3, c + R * 0.15); x.closePath(); x.fill();
+        x.globalAlpha = 1;
+        return;
+      }
+      if (id === 'stone') {
+        /* 灵石：菱形晶体 + 内棱 */
+        x.fillStyle = P[0]; x.strokeStyle = P[2]; x.lineWidth = 1.4;
+        x.beginPath();
+        x.moveTo(c, c - R * 1.15); x.lineTo(c + R * 0.85, c); x.lineTo(c, c + R * 1.15);
+        x.lineTo(c - R * 0.85, c); x.closePath(); x.fill(); x.stroke();
+        x.fillStyle = P[1]; x.globalAlpha = 0.8;
+        x.beginPath();
+        x.moveTo(c, c - R * 1.15); x.lineTo(c + R * 0.85, c); x.lineTo(c, c + R * 0.15);
+        x.closePath(); x.fill();
+        x.globalAlpha = 1;
+        return;
+      }
+      /* pill_* 与 mat_*：圆珠 */
+      var g = x.createRadialGradient(c - R * 0.35, c - R * 0.40, R * 0.15, c, c, R * 1.25);
+      g.addColorStop(0, P[1]); g.addColorStop(0.55, P[0]); g.addColorStop(1, P[2]);
+      x.fillStyle = g; x.strokeStyle = P[2]; x.lineWidth = 1.4;
+      x.beginPath(); x.arc(c, c, R, 0, 6.2832); x.fill(); x.stroke();
+      /* 丹纹：一道弧 */
+      x.strokeStyle = 'rgba(255,255,255,0.34)'; x.lineWidth = 1.1;
+      x.beginPath(); x.arc(c, c, R * 0.55, -2.5, -0.6); x.stroke();
+      /* 高光点 */
+      x.fillStyle = 'rgba(255,255,255,0.55)';
+      x.beginPath(); x.arc(c - R * 0.34, c - R * 0.38, R * 0.20, 0, 6.2832); x.fill();
+    });
+    return { c: o.c, ox: 0, oy: 0, w: sz, h: sz };
+  };
+
+  /* ============================================================
      导出
      ============================================================ */
   A.K = K;

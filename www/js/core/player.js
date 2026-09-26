@@ -485,8 +485,14 @@
       return { ok: true, gl: save.globalLevel, info: this.realmInfo(save.globalLevel), cost: st.need };
     },
 
-    /* 大境界：校验灵气 + 扣丹，交由战斗场景打「问心魔劫」 */
-    startBigBreak: function (save) {
+    /* 大境界：校验灵气 + 扣丹，交由战斗场景打「问心魔劫」。
+       ⚠️ v0.18.0 起**先掷破境成功率**（用户口径"会存在失败"）：
+       失败 → 丹照扣 + `save.breakFails += 1`（筑基后累计道基，下次更容易）；
+       成功 → 才进「问心魔劫」。心魔战是**演出的高潮**，不是第二道门槛 ——
+       两道都掷会让实际成功率变成"概率²"，玩家算不明白。
+       `roll` 只给测试用（传 0..1），不传才真掷；用 `Math.random` 而不是 `G.rng`
+       —— 破境是玩家行为，不该消耗全局序列（那会带歪回归基线）。 */
+    startBigBreak: function (save, meta, roll) {
       var st = this.breakState(save);
       if (st.maxed) return { ok: false, reason: st.reason };
       if (st.worldcap) return { ok: false, worldcap: true, reason: st.reason };
@@ -494,10 +500,24 @@
       if (!st.big) return { ok: false, reason: '尚未修至大圆满' };
       if (st.have < st.need) return { ok: false, reason: st.reason };
       if (!st.pillOwned) return { ok: false, reason: '需「' + st.pill + '」' };
+      var ch = this.breakChance(save, meta);
+      var r = typeof roll === 'number' ? roll : Math.random();
+      if (r * 100 >= ch.total) {
+        /* 失败：丹照扣（"大道五十，天衍四九"—— 试错是有代价的） */
+        save.items[st.pill] -= 1;
+        if (save.items[st.pill] <= 0) delete save.items[st.pill];
+        save.breakFails = (save.breakFails || 0) + 1;
+        if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+        return {
+          ok: false, failed: true, chance: ch, from: st.gl,
+          reason: '破境失败（成功率 ' + ch.total + '%）—— 道基受损，再寻破境丹可增胜算'
+        };
+      }
       save.items[st.pill] -= 1;
       if (save.items[st.pill] <= 0) delete save.items[st.pill];
+      save.breakFails = 0;                      /* 成功即清零（道基不再累积） */
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
-      return { ok: true, pill: st.pill, need: st.need, from: st.gl, to: st.gl + 1 };
+      return { ok: true, pill: st.pill, need: st.need, from: st.gl, to: st.gl + 1, chance: ch };
     },
 
     /* 心魔战胜利：扣突破灵气并升入下一大境界 */
@@ -583,6 +603,97 @@
       if (hc.ling && wd.xian) pct += 0.10;       /* 灵界地狱 → 飞升仙界后 */
       if (hc.xian && pr.daoKey) pct += 0.10;     /* 仙界地狱 → 道界开启后 */
       return pct;
+    },
+
+    /* ===== 宗门与散修：功法归属门禁（《宗门与散修体系设计 v1.0》§2.2）=====
+       这是"两道互斥"的**唯一判定口** —— 装备、面板显示、战斗技能栏三处都调它，
+       不各判一次（三处各判迟早分叉）。
+
+       规则：
+         · `voided`（废功）→ 一律不可用（转阵营时被打上，保留条目但封掉）
+         · `common` 开局三本 → 两道通用
+         · `free`   散修功法 → 仅散修（`cult !== 'sect'`）
+         · `sect`   宗门功法 → 仅本门（按**根宗门**判：山门/总部/道场算同一门） */
+    canUseSkill: function (save, id) {
+      var sk = G.Data.skills && G.Data.skills[id];
+      if (!sk) return false;
+      var own = (save && save.skills && save.skills[id]) || null;
+      if (own && own.voided) return false;
+      var src = sk.src || 'free';
+      if (src === 'common') return true;
+      if (src === 'free') return (save.cult || 'free') !== 'sect';
+      if (src === 'sect') {
+        if ((save.cult || 'free') !== 'sect' || !save.sectId) return false;
+        if (!G.Data.sects) return true;
+        return G.Data.sects.rootOf(save.sectId) === sk.sect;
+      }
+      return true;
+    },
+
+    /* 该功法为什么不可用（面板/装备失败时的提示文案）；可用则返回 null */
+    skillBlockReason: function (save, id) {
+      var sk = G.Data.skills && G.Data.skills[id];
+      if (!sk) return '无此功法';
+      var own = (save && save.skills && save.skills[id]) || null;
+      if (own && own.voided) return '已废功（改换门庭所致）';
+      if (this.canUseSkill(save, id)) return null;
+      return (sk.src === 'sect') ? '宗门功法，非本门弟子不可用' : '散修功法，宗门弟子不可用';
+    },
+
+    /* ===== 问道（v0.20.0）=====
+       用户口径：「天道赐福属于**问道其中的一种**；每个大境界可以问道一次；
+       突破之后，问道可能是奖励也可能是惩罚，扣除灵石、灵力、灵气之类的」。
+
+       · 触发：**破大境成功之后**（心魔劫胜）自动问一次
+       · 频次：每个「境」一次 —— `save.askedRealms[境名]`，**本世有效**（轮回清空）
+       · 结果：加权抽取，正负都有；「赐福」写 `meta.blessing`，
+         直接进破境公式的"天道赐福 额外 +1~5%"那一项
+       · 扣减有**下限保护**：不会把资源扣成负数 */
+    ASK_TABLE: [
+      { id: 'bless', w: 26, k: 'good', t: '天道赐福 · 此后破境 +{n}%' },
+      { id: 'stone', w: 16, k: 'good', t: '灵石 +{n}' },
+      { id: 'qi', w: 14, k: 'good', t: '灵气 +{n}' },
+      { id: 'po', w: 10, k: 'good', t: '灵力 +{n}' },
+      { id: 'plain', w: 12, k: 'none', t: '天道无言，唯余风声' },
+      { id: 'lostS', w: 10, k: 'bad', t: '天道索偿 · 灵石 -{n}' },
+      { id: 'lostQ', w: 8, k: 'bad', t: '天道索偿 · 灵气 -{n}' },
+      { id: 'lostP', w: 4, k: 'bad', t: '天道索偿 · 灵力 -{n}' }
+    ],
+
+    /* 返回 {id,k,text,n,realm}；本境已问过则返回 null（调用方据此决定要不要出提示） */
+    askDao: function (save, meta) {
+      if (!save || !meta) return null;
+      var realm = this.realmOf(save.globalLevel || 1);
+      save.askedRealms = save.askedRealms || {};
+      if (save.askedRealms[realm.n]) return null;
+      save.askedRealms[realm.n] = 1;
+
+      var T = this.ASK_TABLE, tot = 0;
+      T.forEach(function (e) { tot += e.w; });
+      var r = G.rng.next() * tot, pick = T[T.length - 1];
+      for (var i = 0; i < T.length; i++) { r -= T[i].w; if (r < 0) { pick = T[i]; break; } }
+
+      /* 数额随境界走：越高的境，赏罚越大 */
+      var lvl = Math.max(1, Math.round((save.globalLevel || 1) / 8));
+      var n = 0;
+      if (pick.id === 'bless') {
+        n = 1 + Math.floor(G.rng.next() * 5);              /* 1~5 */
+        meta.blessing = Math.max(meta.blessing || 0, n);
+      } else if (pick.id === 'stone') { n = 60 * lvl; save.stone = (save.stone || 0) + n; }
+      else if (pick.id === 'qi') { n = 220 * lvl; save.qi = (save.qi || 0) + n; }
+      else if (pick.id === 'po') { n = 6 * lvl; save.po = (save.po || 0) + n; }
+      else if (pick.id === 'lostS') {
+        n = Math.min(60 * lvl, save.stone || 0); save.stone = (save.stone || 0) - n;
+      } else if (pick.id === 'lostQ') {
+        n = Math.min(220 * lvl, save.qi || 0); save.qi = (save.qi || 0) - n;
+      } else if (pick.id === 'lostP') {
+        n = Math.min(6 * lvl, save.po || 0); save.po = (save.po || 0) - n;
+      }
+      if (G.Storage) {
+        if (G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+        if (G.Storage.saveMeta) G.Storage.saveMeta(meta);
+      }
+      return { id: pick.id, k: pick.k, text: pick.t.replace('{n}', n), n: n, realm: realm.n };
     },
 
     computeStats: function (save, meta) {
@@ -674,6 +785,52 @@
     skillCost: function (sd, currentLv) {
       var tc = G.Data.tierCoef[sd.tier] || 1;
       return Math.round(30 * currentLv * tc);
+    },
+
+    /* ===== 破境成功率（v0.18.0）=====
+       用户口径：「大道五十，天衍四九，人遁其一」——
+         成功率 = **基础 + 失败累计道基 + 破境丹 + 天道赐福**；
+         其中（基础 + 道基 + 破境丹）**封顶 95%**（"天衍四九"），天道赐福**额外**再加 1%~5%。
+       三条规则（用户原话）：
+         · 基础突破概率与失败累计道基**随境界提升而降低**；
+         · 破境丹：下品固定 +10%，每品级额外 +2%，**最高道级也只 +30%**；
+         · **所有大境界破境都需要破境丹**（现有规则，这里只是把它写进公式）。
+       ⚠️ 基础概率用**境界序号**衰减，不是用 gl —— gl 有 171 级，
+       拿它做线性衰减会让中期直接掉到 0（"后期必失败"不是设计意图）。 */
+    PILL_QUALITY: [
+      { n: '下品', add: 10 }, { n: '中品', add: 12 }, { n: '上品', add: 14 },
+      { n: '极品', add: 16 }, { n: '黄级', add: 18 }, { n: '玄级', add: 20 },
+      { n: '地级', add: 22 }, { n: '天级', add: 24 }, { n: '圣级', add: 26 },
+      { n: '神级', add: 28 }, { n: '仙级', add: 30 }, { n: '道级', add: 30 }
+    ],
+    /* 破境丹的品级序号（1..12）= 它服务的**大境界序号**映射到 12 档。
+       ⚠️ 必须**单调不降**：写成"高境界反而吃低品丹"会让后期破境比前期还容易。 */
+    pillQualityIdx: function (gl) {
+      var name = this.realmOf(gl || 1).n;
+      var list = this.REALMS || [];
+      var i = 0;
+      for (var k = 0; k < list.length; k++) { if (list[k].n === name) { i = k; break; } }
+      var n = Math.max(1, list.length);
+      return Math.max(1, Math.min(12, Math.round(i / Math.max(1, n - 1) * 11) + 1));
+    },
+    /* 筑基的 gl（"失败累计道基"从这一刻起才生效 —— 用户口径"筑基之后才有"） */
+    BASE_GL: 19,
+    breakChance: function (save, meta) {
+      var st = this.breakState(save);
+      var gl = st.gl;
+      var q = this.pillQualityIdx(gl);
+      var base = 90 - (q - 1) * 5;                       /* 90 / 85 / … / 35 */
+      var dao = 0;
+      if (gl >= this.BASE_GL) dao = Math.min(20, (save.breakFails || 0) * 6);
+      var pill = this.PILL_QUALITY[q - 1].add;
+      var b = (meta && meta.blessing) || 0;
+      var bless = b > 0 ? Math.max(1, Math.min(5, b)) : 0;
+      var core = Math.min(95, base + dao + pill);        /* 「天衍四九」：前三项封顶 95 */
+      return {
+        base: base, dao: dao, pill: pill, bless: bless,
+        core: core, total: Math.min(100, core + bless),
+        q: q, pillName: this.PILL_QUALITY[q - 1].n, fails: save.breakFails || 0
+      };
     },
 
     /* 战斗内每回合回复的法力（v0.14.0）。写在这里而不是 battle.js ——

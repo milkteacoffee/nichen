@@ -21,6 +21,10 @@
   var FRAME = { x: 12, y: 26, w: 456, h: 212 };
   var BAND_W = 34;
   var P = { x: FRAME.x + BAND_W, y: FRAME.y, w: FRAME.w - BAND_W, h: FRAME.h };
+  /* 角色组的**功法/秘术**两页与其余子页共用同一个外框（CHAR_PANEL）。
+     原先它们用五面板的 FRAME（456×212），比 CHAR_PANEL（392×232）更宽更矮，
+     玩家在「境界」与「功法」之间切换时会看到面板忽宽忽窄（截图反馈）。 */
+  var SP = G.Overlays.CHAR_BODY;
   var BAR_Y = 244, BAR_H = 28;
 
   /* 左缘竖排标题带矩形（五面板这一条）。**绘制实现统一在 overlays.js**
@@ -53,6 +57,19 @@
   /* 可在面板里直接使用的道具（战斗外的即时收益） */
   var ITEM_USE = {
     '回春丹': { heal: 0.40 }, '大还丹': { heal: 0.75 }, '聚气散': { qi: 500 }
+  };
+
+  /* 道具图标逻辑名（v0.19.0）：中文道具名 → `item.<id>`。
+     取图见 art.js: A.itemIcon（素材优先，缺图按前缀走程序化兜底）。
+     新增道具时**两处都要加**：这里的映射 + assets-build.py 的 SIZES。 */
+  var ITEM_ICON_ID = {
+    '回春丹': 'pill_huichun', '大还丹': 'pill_dahuan', '聚气散': 'pill_juqi',
+    '醒神散': 'pill_xingshen', '解毒丹': 'pill_jiedu', '甘霖丹': 'pill_ganlin',
+    '舒筋丹': 'pill_shujin', '淬体突破丹': 'pill_cuiti', '筑基丹': 'pill_zhuji',
+    '解封符': 'talisman_jiefeng', '回城符': 'talisman_huicheng',
+    '妖丹': 'mat_yaodan',
+    '凡品功法碎片': 'shard_fan', '灵品功法碎片': 'shard_ling', '宝品功法碎片': 'shard_bao',
+    '灵石': 'stone'
   };
 
   /* M0 主线链：与 town/field/cave/battle 里的判定一一对应。
@@ -118,6 +135,7 @@
     { id: 'char', n: '角色' },
     { id: 'quest', n: '任务' },
     { id: 'bag', n: '储物' },
+    { id: 'sect', n: '宗门' },
     { id: 'cave', n: '洞府' },
     { id: 'map', n: '地图' }
   ];
@@ -165,10 +183,12 @@
 
   /* 角色面板的子页签（总览 / 灵根 / 属性 / 境界）——排在标题带右侧，
      给右上角的关闭钮留出位置（几何来自 overlays.js，单一真相源）。 */
-  function buildCharTabs(btns, scene, frame) {
-    /* 五面板外框要给左上角的状态文字留位；角色面板标题在左带里，不需要留 */
-    var g = G.Overlays.charTabGeom(frame || G.Overlays.CHAR_PANEL,
-      frame === FRAME ? G.Overlays.TAB_RESERVE : 0);
+  function buildCharTabs(btns, scene, frame, reserve) {
+    /* ⚠️ 六个子页签**必须用同一份几何**：原先按"是不是五面板外框"决定要不要留位，
+       结果「境界」与「功法」两页的页签起点差 100px —— 玩家在组内切页时页签会跳
+       （截图反馈的"功法和其他界面长宽不一致"就是这个观感的一部分）。
+       现在整组统一：同一个外框（CHAR_PANEL）+ 同一份左侧保留位（给状态文字）。 */
+    var g = G.Overlays.charTabGeom(frame || G.Overlays.CHAR_PANEL, reserve);
     /* 当前子页：功法/秘术由 overlay 决定，其余看 scene.charTab */
     var cur = (scene.overlay === 'skills' || scene.overlay === 'secrets')
       ? scene.overlay : (scene.charTab || 'overview');
@@ -195,7 +215,8 @@
         variant: bs.ready ? 'gold' : 'default',
         label: bs.big ? '突破 · 问心魔劫' : '突破 · ' + (bs.next ? bs.next.n : '已至绝顶'),
         disabled: !bs.ready,
-        onClick: function () { G.Overlays.doBreak(scene, 'char'); }
+        /* keepTab=true：突破完留在「境界」子页，别弹回总览 */
+        onClick: function () { G.Overlays.doBreak(scene, 'char', true); }
       }));
     }
   }
@@ -213,18 +234,20 @@
     if (id === 'skills' && prev !== 'skills') scene.skillOpen = false;
     var btns = [];
     if (id === 'skills') buildSkills(btns, scene);
+    if (id === 'quest') buildQuest(btns, scene);
     if (id === 'bag') buildBag(btns, scene);
     if (id === 'cave') buildCave(btns, scene);
+    if (id === 'sect') buildSect(btns, scene);
     if (id === 'map') buildMap(btns, scene);
     /* 角色组三个页共用同一条子页签条。外框按当前页取：
        角色页用 CHAR_PANEL，功法/秘术页用五面板的 FRAME（它们的外框不同）。 */
     if (G.Overlays.isCharGroup(id)) {
-      buildCharTabs(btns, scene, id === 'char' ? G.Overlays.CHAR_PANEL : FRAME);
+      buildCharTabs(btns, scene, G.Overlays.CHAR_PANEL, G.Overlays.TAB_RESERVE);
     }
     /* 底栏高亮：功法/秘术属角色组，高亮落在「角色」上（否则进了这两页底栏一个都不亮） */
     barBtns(scene, G.Overlays.isCharGroup(id) ? 'char' : id).forEach(function (b) { btns.push(b); });
     /* 关闭钮：每个面板统一加（角色页的面板矩形不同，故取各自的外框）。 */
-    btns.push(closeBtn(scene, id === 'char' ? G.Overlays.CHAR_PANEL : FRAME));
+    btns.push(closeBtn(scene, G.Overlays.isCharGroup(id) ? G.Overlays.CHAR_PANEL : FRAME));
     scene.buttons = btns;
   }
 
@@ -246,21 +269,26 @@
 
   function shell(x, title, right, opts) {
     opts = opts || {};
+    /* 外框/标题带/内容区可覆盖：角色组的**功法/秘术**两页要跟其余四个子页共用
+       CHAR_PANEL（见 SP 的注释），其余面板用五面板的 FRAME。 */
+    var frame = opts.frame || FRAME;
+    var band = opts.band || BAND;
+    var p = opts.p || P;
     G.Overlays.dim(x);
-    G.UI.frame(x, FRAME, null, { tex: true });
-    G.Overlays.titleBand(x, BAND, title);
+    G.UI.frame(x, frame, null, { tex: true });
+    G.Overlays.titleBand(x, band, title);
     if (right) {
       if (opts.left) {
         /* 角色组的右上角被**子页签条**占了 → 状态文字改左对齐，让到页签左边。
            （压上去会变成"文字压在按钮上"，panels.bounds.contract 直接报。） */
-        G.UI.textOut(x, { x: P.x + 14, y: FRAME.y + 9 }, right, 11, G.UI.C.textDim);
+        G.UI.textOut(x, { x: p.x + 14, y: frame.y + 9 }, right, 11, G.UI.C.textDim);
       } else {
-        G.UI.textOut(x, { x: FRAME.x + FRAME.w - 38, y: FRAME.y + 9 }, right, 11,
+        G.UI.textOut(x, { x: frame.x + frame.w - 38, y: frame.y + 9 }, right, 11,
           G.UI.C.textDim, 'right');
       }
     }
     /* 顶条分隔线：标题已移到左缘竖带，这里只把顶条与正文分开 */
-    G.UI.divider(x, P.x + P.w / 2, FRAME.y + 30, P.w - 42, 'rgba(216,183,104,0.18)');
+    G.UI.divider(x, p.x + p.w / 2, frame.y + 30, p.w - 42, 'rgba(216,183,104,0.18)');
   }
 
   /* 分节小标题：**实现统一在 overlays.js**（`G.Overlays.sec`），这里只转发 ——
@@ -327,20 +355,20 @@
 
   /* 下拉头 / 下拉行 / 详情区的几何（渲染与契约共用一份） */
   var SK = {
-    head: { x: P.x + 14, y: P.y + 40, w: P.w - 28, h: 24 },
+    head: { x: SP.x + 14, y: SP.y + 40, w: SP.w - 28, h: 24 },
     rowH: 21, maxRows: 6,
-    infoY: P.y + 76,
-    secY: P.y + 96,
-    effY: P.y + 112,
+    infoY: SP.y + 76,
+    secY: SP.y + 96,
+    effY: SP.y + 112,
     /* 贡献行上移到 154，给下面那排按钮（172..194）与末行提示（200..210）让位 ——
        原先 184 与按钮同一段 y，只是靠 x 错开；加了「参悟」之后两个按钮并排，
        再靠 x 错开会变成"文字压在按钮上"（panels.bounds.contract 会直接报）。
-       ⚠️ 提示行 y + 字号必须 ≤ 面板底 238（P.y=26 → 偏移上限 202）。 */
-    contribY: P.y + 154,
-    btn: { x: P.x + P.w - 130, y: P.y + 172, w: 116, h: 22 },
+       ⚠️ 提示行 y + 字号必须 ≤ 面板底 238（SP.y=26 → 偏移上限 202）。 */
+    contribY: SP.y + 154,
+    btn: { x: SP.x + SP.w - 130, y: SP.y + 172, w: 116, h: 22 },
     /* 参悟按钮（v0.14.0）：与「精进」同一行，落在左半段（原本是空白） */
-    shardBtn: { x: P.x + 14, y: P.y + 172, w: 152, h: 22 },
-    hintY: P.y + 200
+    shardBtn: { x: SP.x + 14, y: SP.y + 172, w: 152, h: 22 },
+    hintY: SP.y + 200
   };
   SK.listY = SK.head.y + SK.head.h + 2;
 
@@ -486,11 +514,12 @@
 
   function drawSkills(x, scene) {
     var save = G.game.save;
-    shell(x, '功　法', '灵力 ' + Math.floor(save.po), { left: true });
+    shell(x, '功　法', '灵力 ' + Math.floor(save.po),
+      { left: true, frame: G.Overlays.CHAR_PANEL, band: G.Overlays.CHAR_BAND, p: SP });
     var ids = skillIdsSorted(save);
 
     if (!ids.length) {
-      empty(x, P.x + 14, P.y + 60, '尚无功法 —— 拜师、拾遗、斩首领皆可得。');
+      empty(x, SP.x + 14, SP.y + 60, '尚无功法 —— 拜师、拾遗、斩首领皆可得。');
       return;
     }
     var sel = selSkillId(scene, save);
@@ -521,7 +550,7 @@
         G.UI.textOut(x, { x: hb.x + hb.w - 10, y: SK.listY + lh + 3 },
           '另有 ' + more + ' 本未列出', 10, G.UI.C.textDim, 'right');
       }
-      G.UI.text(x, { x: P.x + 14, y: P.y + 202 },
+      G.UI.text(x, { x: SP.x + 14, y: SP.y + 202 },
         '点一本即可切换；等级最高的排在最上面。', 10, G.UI.C.textDim);
       return;
     }
@@ -529,18 +558,18 @@
     /* ---- 收起态：详情 ---- */
     var info = (sd.tier || '凡') + '阶　' + sd.kind
       + '　属性 ' + (sd.elem || '无') + '　等级 Lv' + lv;
-    G.UI.text(x, { x: P.x + 14, y: SK.infoY }, info, 11.5, G.UI.C.text);
+    G.UI.text(x, { x: SP.x + 14, y: SK.infoY }, info, 11.5, G.UI.C.text);
 
-    sec(x, P.x + 14, SK.secY, '效 果');
+    sec(x, SP.x + 14, SK.secY, '效 果');
     skillEffects(sd).slice(0, 3).forEach(function (t, i) {
-      G.UI.text(x, { x: P.x + 14, y: SK.effY + i * 14 }, t, 10.5, G.UI.C.textDim);
+      G.UI.text(x, { x: SP.x + 14, y: SK.effY + i * 14 }, t, 10.5, G.UI.C.textDim);
     });
 
-    G.UI.text(x, { x: P.x + 14, y: SK.contribY }, '本功法贡献', 10.5, G.UI.C.textDim);
-    G.UI.text(x, { x: P.x + 84, y: SK.contribY },
+    G.UI.text(x, { x: SP.x + 14, y: SK.contribY }, '本功法贡献', 10.5, G.UI.C.textDim);
+    G.UI.text(x, { x: SP.x + 84, y: SK.contribY },
       skillContrib(sd, lv, save), 11, COL[sd.elem] || G.UI.C.jadeHi);
 
-    G.UI.text(x, { x: P.x + 14, y: SK.hintY },
+    G.UI.text(x, { x: SP.x + 14, y: SK.hintY },
       '「精进」耗灵力；碎片由副本与野外掉落，10 片参悟一本。', 10, G.UI.C.textDim);
   }
 
@@ -589,70 +618,112 @@
     var all = Object.keys(Dg.SECRETS);
     var have = save.secrets || {};
     var owned = all.filter(function (id) { return have[id]; });
-    shell(x, '秘　术', '已习 ' + owned.length + ' / ' + all.length, { left: true });
+    shell(x, '秘　术', '已习 ' + owned.length + ' / ' + all.length,
+      { left: true, frame: G.Overlays.CHAR_PANEL, band: G.Overlays.CHAR_BAND, p: SP });
 
     if (!owned.length) {
-      empty(x, P.x + 14, P.y + 44, '尚未习得任何秘术。');
-      G.UI.text(x, { x: P.x + 14, y: P.y + 66 },
+      empty(x, SP.x + 14, SP.y + 44, '尚未习得任何秘术。');
+      G.UI.text(x, { x: SP.x + 14, y: SP.y + 66 },
         '通关秘境（第 5 关或第 9 关）可得该秘境的签名秘术，', 10.5, G.UI.C.textDim);
-      G.UI.text(x, { x: P.x + 14, y: P.y + 82 },
+      G.UI.text(x, { x: SP.x + 14, y: SP.y + 82 },
         '品阶随所得界域提升：凡品 1 → 灵品 1.5 → 仙品 2 → 道品 2.5。', 10.5, G.UI.C.textDim);
       return;
     }
     owned.slice(0, 7).forEach(function (id, i) {
-      var y = P.y + 44 + i * 23;
+      var y = SP.y + 44 + i * 23;
       var g = Dg.gradeOf(save, id);
       var e = Dg.SECRET_EFFECTS[id] || {};
       var catCol = e.cat === '仙' ? G.UI.C.goldHi
         : (e.cat === '神' ? G.UI.C.jadeHi : G.UI.C.text);
-      G.UI.text(x, { x: P.x + 14, y: y }, Dg.SECRETS[id], 12, catCol);
-      G.UI.text(x, { x: P.x + 122, y: y + 1 }, '品阶 ' + g, 10, G.UI.C.gold);
-      G.UI.text(x, { x: P.x + 186, y: y + 1 }, secretDesc(id, g), 10.5, G.UI.C.textDim);
+      G.UI.text(x, { x: SP.x + 14, y: y }, Dg.SECRETS[id], 12, catCol);
+      G.UI.text(x, { x: SP.x + 122, y: y + 1 }, '品阶 ' + g, 10, G.UI.C.gold);
+      G.UI.text(x, { x: SP.x + 186, y: y + 1 }, secretDesc(id, g), 10.5, G.UI.C.textDim);
     });
     if (owned.length > 7) {
-      G.UI.text(x, { x: P.x + 14, y: P.y + 206 }, '……另有 ' + (owned.length - 7) + ' 项', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: SP.x + 14, y: SP.y + 206 }, '……另有 ' + (owned.length - 7) + ' 项', 10, G.UI.C.textDim);
     }
   }
 
   /* ============================================================
      三、任务
      ============================================================ */
-  function drawQuest(x) {
-    var save = G.game.save;
-    var q = save.quest || { step: 'free', flags: {} };
-    var cur = QUEST[q.step] || QUEST.free;
-    shell(x, '任　务', cur.t);
+  /* ============================================================
+     任务（v0.20.0 改版）：主线 / 支线分列 + **列表可点** + 右侧详情
+     ------------------------------------------------------------
+     旧版把整条主线铺成一张**不可点**的清单，玩家只能"看"不能"选"
+     （用户口径：「这些任务必须要能点击，选择任务可以查看任务的详情」）。
+     现在：左栏是可点列表，点一下 → 右栏出该任务的详情（目标 / 子任务 / 状态 / 提示）。
+     ⚠️ 列表行用 `variant:'plain'`（**只登记命中、不画任何像素**），外观仍由本函数自绘 ——
+        换成普通按钮它会自己画底板 + 居中 label，和"状态点 + 标题 + 完成标"的版式冲突。
+     ============================================================ */
+  /* 详情栏宽度必须**够放一行不折的正文**：`G.UI.wrap` 依赖 `measureText`，而
+     无头 smoke 的桩返回"长度 × 7"，对中文严重低估 → 桩里根本不折行，
+     `panels.bounds.contract` 按真实字宽一算就判越界。真机虽然会折，但把宽度留够
+     可以让"真机"和"契约"两个口径一致（少一类假阳性）。 */
+  var QP = {
+    tabY: P.y + 30, tabW: 64, tabH: 20, tabGap: 6,
+    listX: P.x + 14, listW: 150, listY: P.y + 64, rowH: 15, maxRows: 9,
+    detX: P.x + 168, detW: P.w - 182, detY: P.y + 64
+  };
 
+  /* 支线（**系统型**）：从已有系统派生、可自动判定完成。
+     内容型支线（有 NPC、有剧情）留待后续版本 —— 这里先给"长线目标"清单，
+     让玩家在任务面板里看得到"除了主线还能干什么"。 */
+  var SIDE = [
+    { id: 'sd_dungeon', t: '秘境历练', d: '通关任意一个秘境副本。',
+      hint: '底栏「角色」→ 秘境，或地图上的秘境裂隙。',
+      done: function (s) { return (s.dungeonSlot || 0) > 0 || (s.dungeonFarm || 0) > 0; } },
+    { id: 'sd_skill', t: '功法小成', d: '习得 3 本功法。',
+      hint: '副本掉落、野外刷怪、宗门传功皆可。',
+      done: function (s) { return Object.keys(s.skills || {}).length >= 3; } },
+    { id: 'sd_zhuji', t: '筑基之路', d: '修至筑基境。',
+      hint: '破境需破境丹 + 天劫，见角色面板「境界」子页。',
+      done: function (s) { return (s.globalLevel || 1) >= 19; } },
+    { id: 'sd_cult', t: '道途之择', d: '拜入宗门，或改换门庭一次。',
+      hint: '底栏「宗门」。每世只有一次改换门庭的机会。',
+      done: function (s) { return s.cult === 'sect' || !!s.cultSwitchUsed; } }
+  ];
+  function sideDone(s, it) { try { return !!it.done(s); } catch (e) { return false; } }
+
+  /* 左栏此刻**实际显示**的行 —— drawQuest 与 buildQuest 共用这一份，
+     两处各算一次窗口必然分叉（点到的行和看到的行对不上）。 */
+  function questRows(save, scene) {
+    var tab = scene.questTab || 'main';
+    if (tab === 'side') {
+      return { rows: SIDE.map(function (it) { return { id: it.id, side: it }; }), win0: 0, total: SIDE.length };
+    }
+    var q = save.quest || { step: 'free', flags: {} };
     var idx = QUEST_ORDER.indexOf(q.step);
     if (idx < 0) idx = QUEST_ORDER.length - 1;
-
-    /* 当前目标 */
-    sec(x, P.x + 14, P.y + 42, '当前目标');
-    G.UI.text(x, { x: P.x + 14, y: P.y + 60 }, cur.t, 13.5, G.UI.C.goldHi);
-    var dl = G.UI.wrap(x, cur.d, 11.5, P.w - 32);
-    dl.forEach(function (l, i) {
-      G.UI.text(x, { x: P.x + 14, y: P.y + 80 + i * 18 }, l, 11.5, G.UI.C.text);
+    var CAP = QP.maxRows;
+    var win0 = 0;
+    if (QUEST_ORDER.length > CAP) {
+      win0 = Math.max(0, Math.min(idx - Math.floor(CAP / 2), QUEST_ORDER.length - CAP));
+    }
+    var rows = QUEST_ORDER.slice(win0, win0 + CAP).map(function (id, i) {
+      return { id: id, gi: win0 + i, s: QUEST[id] };
     });
+    return { rows: rows, win0: win0, total: QUEST_ORDER.length };
+  }
 
-    /* 链条：起点由上面目标文案的**实际折行数**推出来（写死会让加一句话就顶穿面板下沿），
-       行距 15 → 末行底 ≈ 236，面板底 238，刚好收住。
-       注：面板底 = P.y + P.h = 238，**窗口最多 6 行**。
-       M1 起主线有 10+ 步，整条铺不下 → 改成**以当前步为中心的滑动窗口**：
-       窗口恒 6 行，越界的部分用上下省略号提示，链再长也不会顶穿面板
-       （越界是静默的，不会报错，所以这里必须自己保证行数上界）。 */
-    var sy = P.y + 80 + dl.length * 18 + 10;
-    var ry = sy + 16;
-    /* 窗口行数由**剩余可用高度**反推，不写死 6：目标文案多折一行，窗口就自动少一行。
-       （写死过 6，加一句长目标就顶穿面板下沿 —— 排版问题是静默的，不报错。） */
-    var CAP = Math.max(3, Math.min(6, Math.floor((P.y + P.h - 10 - ry) / 15)));
-    var win0 = Math.max(0, Math.min(idx - Math.floor(CAP / 2), QUEST_ORDER.length - CAP));
-    if (QUEST_ORDER.length <= CAP) win0 = 0;
-    var win = QUEST_ORDER.slice(win0, win0 + CAP);
-    sec(x, P.x + 14, sy, '主线进程');
-    /* 右上角标"第 n / N 步"：窗口滚动后光看标题会不知道整条有多长 */
-    G.UI.textOut(x, { x: P.x + 168, y: sy }, '第 ' + (idx + 1) + ' / ' + QUEST_ORDER.length + ' 步',
-      9.5, G.UI.C.textDim, 'right');
-    /* 上下截断提示：用矢量三角，不依赖字体（缺字会渲染成豆腐块且换机不一致） */
+  function drawQuest(x, scene) {
+    var save = G.game.save;
+    var q = save.quest || { step: 'free', flags: {} };
+    var tab = scene.questTab || 'main';
+    var idx = QUEST_ORDER.indexOf(q.step);
+    if (idx < 0) idx = QUEST_ORDER.length - 1;
+    var view = questRows(save, scene);
+    var selId = scene.questSel || (tab === 'main' ? q.step : SIDE[0].id);
+    var sel = null, selGi = -1, selSide = null;
+    view.rows.forEach(function (r) {
+      if (r.id === selId) { sel = r.s; selGi = r.gi; selSide = r.side; }
+    });
+    if (!sel && view.rows.length) { sel = view.rows[0].s; selSide = view.rows[0].side; }
+    if (!sel) return;
+
+    shell(x, '任　务', tab === 'main' ? '主线' : '支线');
+
+    /* ---- 左栏：可点列表 ---- */
     var chev = function (cx, cy, up) {
       x.save(); x.fillStyle = 'rgba(150,158,180,0.75)';
       x.beginPath();
@@ -660,25 +731,108 @@
       else { x.moveTo(cx - 3.4, cy - 1.8); x.lineTo(cx + 3.4, cy - 1.8); x.lineTo(cx, cy + 2.0); }
       x.closePath(); x.fill(); x.restore();
     };
-    if (win0 > 0) chev(P.x + 150, ry - 7, true);
-    win.forEach(function (id, i) {
-      var gi = win0 + i;
-      var s = QUEST[id];
-      var y = ry + i * 15;
-      var state = gi < idx ? 'done' : (gi === idx ? 'now' : 'todo');
-      mark(x, P.x + 18, y + 5.5, state);
-      var col = state === 'done' ? G.UI.C.jadeHi
-        : (state === 'now' ? G.UI.C.goldHi : G.UI.C.textDim);
-      G.UI.text(x, { x: P.x + 30, y: y }, s.t, 10.5, col);
-      var flag = s.f && q.flags && q.flags[s.f];
-      if (flag && s.fd) G.UI.text(x, { x: P.x + 150, y: y }, s.fd, 10, G.UI.C.jadeHi);
+    view.rows.forEach(function (r, i) {
+      var on = (r.id === selId);
+      var done;
+      if (r.side) {
+        done = sideDone(save, r.side);
+      } else {
+        done = (r.gi < idx);
+      }
+      /* 状态点画在按钮**左侧之外**（按钮矩形从 QP.listX 起）——
+         行的标签由按钮自己画（见 buildQuest），面板这边只补这个点。
+         行文字不在这里画：画了就会判"面板文字压在按钮上"。 */
+      mark(x, QP.listX - 8, QP.listY + i * QP.rowH + 2, done ? 'done' : (on ? 'now' : 'todo'));
     });
-    if (win0 + CAP < QUEST_ORDER.length) chev(P.x + 150, ry + CAP * 15 - 3.5, false);
+    if (tab === 'main') {
+      if (view.win0 > 0) chev(QP.listX + QP.listW - 10, QP.listY - 8, true);
+      if (view.win0 + QP.maxRows < view.total) {
+        chev(QP.listX + QP.listW - 10, QP.listY + view.rows.length * QP.rowH - 2, false);
+      }
+    }
 
-    G.UI.text(x, { x: P.x + 260, y: ry }, '提示', 11, G.UI.C.gold);
-    G.UI.text(x, { x: P.x + 260, y: ry + 18 }, '点地面行走，点人与门交互。', 10, G.UI.C.textDim);
-    G.UI.text(x, { x: P.x + 260, y: ry + 34 }, '境界满可突破；秘境在底栏「角色」', 10, G.UI.C.textDim);
-    G.UI.text(x, { x: P.x + 260, y: ry + 50 }, '左侧面板里看属性与功法。', 10, G.UI.C.textDim);
+    /* ---- 右栏：详情 ---- */
+    var dx = QP.detX, dy = QP.detY;
+    G.UI.text(x, { x: dx, y: dy - 16 }, selSide ? '支线' : '主线', 10, G.UI.C.gold);
+    G.UI.text(x, { x: dx, y: dy + 2 }, selSide ? selSide.t : sel.t, 13.5, G.UI.C.goldHi);
+    var dl = G.UI.wrap(x, selSide ? selSide.d : sel.d, 11, QP.detW);
+    dl.slice(0, 3).forEach(function (l, i) {
+      G.UI.text(x, { x: dx, y: dy + 22 + i * 15 }, l, 11, G.UI.C.text);
+    });
+    var by = dy + 22 + Math.min(dl.length, 3) * 15 + 8;
+
+    if (selSide) {
+      var ok = sideDone(save, selSide);
+      G.UI.text(x, { x: dx, y: by }, ok ? '已完成' : '进行中', 11,
+        ok ? G.UI.C.jadeHi : G.UI.C.gold);
+      G.UI.text(x, { x: dx, y: by + 18 }, '提示', 10, G.UI.C.gold);
+      G.UI.wrap(x, selSide.hint, 10, QP.detW).slice(0, 2).forEach(function (l, i) {
+        G.UI.text(x, { x: dx, y: by + 32 + i * 13 }, l, 10, G.UI.C.textDim);
+      });
+      return;
+    }
+
+    /* 主线详情：子任务（有 f 的按旗标判完成）+ 本步状态。
+       ⚠️ 纵向预算只有 SP.h - 64 = 168px，而"目标 2 行 + 子任务 2 条 + 状态 + 提示"
+       很容易超 —— 所以**去掉单独的「前往」行**（路引已经指了），提示只留一行。 */
+    var subs = sel.subs || [];
+    if (subs.length) {
+      G.UI.text(x, { x: dx, y: by }, '子任务', 10, G.UI.C.gold);
+      subs.slice(0, 2).forEach(function (sb, i) {
+        var d2 = !!(sb.f && q.flags && q.flags[sb.f]);
+        mark(x, dx + 2, by + 18 + i * 15, d2 ? 'done' : 'todo');
+        G.UI.text(x, { x: dx + 14, y: by + 14 + i * 15 }, sb.t, 10,
+          d2 ? G.UI.C.jadeHi : G.UI.C.text);
+      });
+      by += 18 + Math.min(subs.length, 2) * 15 + 6;
+    }
+    var isCur = (view.rows.some(function (r) { return r.id === selId && r.gi === idx; }));
+    G.UI.text(x, { x: dx, y: by }, isCur ? '当前进行中'
+      : (selGi >= 0 && selGi < idx ? '已完成' : '未开始'),
+      10, isCur ? G.UI.C.gold : G.UI.C.textDim);
+    G.UI.text(x, { x: dx, y: by + 20 }, '点左侧任一条可查看详情。', 10, G.UI.C.textDim);
+  }
+
+  function buildQuest(btns, scene) {
+    var save = G.game.save;
+    var q = save.quest || { step: 'free', flags: {} };
+    var tab = scene.questTab || 'main';
+    var selId = scene.questSel || (tab === 'main' ? q.step : SIDE[0].id);
+
+    /* 页签：主线 / 支线 */
+    [{ id: 'main', n: '主线' }, { id: 'side', n: '支线' }].forEach(function (t, i) {
+      btns.push(new G.UI.Btn({
+        x: QP.listX + i * (QP.tabW + QP.tabGap), y: QP.tabY, w: QP.tabW, h: QP.tabH,
+        small: true, variant: 'subtab', active: tab === t.id, label: t.n,
+        onClick: function () {
+          scene.questTab = t.id;
+          scene.questSel = (t.id === 'main') ? q.step : SIDE[0].id;
+          G.Overlays.openPanel(scene, 'quest', true);
+        }
+      }));
+    });
+
+    /* 列表行：**真按钮**（自己画左对齐标签）。
+       不能用"面板自绘文字 + plain 命中框" —— 两者的矩形必然重叠，
+       `panels.bounds.contract` 直接判"文字压在按钮上"。 */
+    questRows(save, scene).rows.forEach(function (r, i) {
+      var on = (r.id === selId);
+      var done = r.side ? sideDone(save, r.side) : (r.gi < idxOf(q.step));
+      btns.push(new G.UI.Btn({
+        x: QP.listX, y: QP.listY + i * QP.rowH - 5, w: QP.listW, h: QP.rowH - 1,
+        small: true, fs: 10.5, lalign: true,
+        variant: on ? 'gold' : 'ghost',
+        label: r.side ? r.side.t : r.s.t,
+        onClick: function () {
+          scene.questSel = r.id;
+          G.Overlays.openPanel(scene, 'quest', true);
+        }
+      }));
+    });
+  }
+  function idxOf(step) {
+    var i = QUEST_ORDER.indexOf(step);
+    return i < 0 ? QUEST_ORDER.length - 1 : i;
   }
 
   /* ============================================================
@@ -718,20 +872,25 @@
       Object.keys(save.items || {}).forEach(function (k) {
         if (!(save.items[k] > 0)) return;
         out.push({ n: k, c: '×' + save.items[k], d: ITEM_D[k] || '—',
-          use: ITEM_USE[k] ? k : null });
+          use: ITEM_USE[k] ? k : null, icon: ITEM_ICON_ID[k] || null });
       });
     } else if (tab === 'skill') {
       skillIdsSorted(save).forEach(function (id) {
         var sd = G.Data.skills[id] || { n: id, tier: '凡', kind: '仙术', elem: '无' };
+        /* 宗门与散修互斥：不可用的**保留显示**（玩家要看得见"我曾经会"），
+           但数量位改成原因、说明里前置【】标注。 */
+        var why = G.Player.skillBlockReason ? G.Player.skillBlockReason(save, id) : null;
         out.push({
-          n: sd.n, c: 'Lv' + save.skills[id].lv,
-          d: (sd.tier || '凡') + '阶 · ' + sd.kind + ' · 属性 ' + (sd.elem || '无')
+          n: sd.n, c: why ? '不可用' : ('Lv' + save.skills[id].lv),
+          blocked: !!why,
+          d: (why ? '【' + why + '】' : '')
+            + (sd.tier || '凡') + '阶 · ' + sd.kind + ' · 属性 ' + (sd.elem || '无')
             + '。精进在底栏「功法」页。'
         });
       });
     } else if (tab === 'stone') {
       out.push({
-        n: '灵石', c: save.stone || 0,
+        n: '灵石', c: save.stone || 0, icon: 'stone',
         d: '下品灵石，通用通货。杂货铺买丹药、妖丹回收、秘境与任务奖励都用它。'
       });
     } else if (tab === 'secret') {
@@ -772,7 +931,7 @@
         variant: usable ? 'battle' : 'default',
         /* 可用 → 点即使用；不可用 → passive（外观正常但点不动） */
         passive: !usable, disabled: !usable,
-        label: c.n, sub: c.c,
+        label: c.n, sub: c.c, icon: c.icon,
         onClick: function () { if (usable) useItem(scene, c.use); }
       }));
     });
@@ -976,48 +1135,366 @@
   }
 
   /* ============================================================
+     宗门（《宗门与散修体系设计 v1.0》）
+     ------------------------------------------------------------
+     · 展示当前阵营 / 宗门 / 位阶 / 贡献（散修时为声望，同一字段两用）
+     · 列出本门功法池（已学 / 未学）
+     · 拜师（散修 → 宗门）：列出**当前界**的宗门，点一个即入
+     · 退门（宗门 → 散修）
+     · **每世只有一次**转阵营机会；转阵营把原阵营功法**全部废功**
+       （保留条目、不可用，`voided`），并自动卸下已装备的废功功法
+     ⚠️ S1 只做"入/退"骨架，入门试炼与贡献任务属 S2（设计 §9）。
+     ============================================================ */
+  var RANK_N = { outer: '外门', inner: '内门', core: '真传' };
+  /* 宗门面板版式（内容区 P 为 y 26..238，底栏从 244 起）：
+     · 散修态：说明在 y+138，拜师按钮**两行 × 三列**（y+160 / y+188，22 高 → 236 收住）
+     · 宗门态：功法池 4 行（y+108 起、行距 15），底部说明 y+172，退门按钮一行 y+184
+     ⚠️ 两态行数不同，所以按钮的 y 也分两套 —— 一套到底会让第二排穿进底栏。 */
+  var SEC = {
+    freeNoteY: P.y + 138,
+    rowY: P.y + 160, row2Y: P.y + 188,
+    rowW: 124, rowH: 22, rowGap: 6,
+    listY: P.y + 108,
+    sectNoteY: P.y + 172
+  };
+  function sectOf(save) {
+    if (!G.Data.sects || !save.sectId) return null;
+    return G.Data.sects.byId(save.sectId);
+  }
+  /* 转阵营：两道功法互废。**返回被废的条数**，供提示文案用。 */
+  function doSwitchCult(save, toSect, sectId) {
+    var n = 0;
+    Object.keys(save.skills || {}).forEach(function (id) {
+      var sk = G.Data.skills[id];
+      if (!sk || !save.skills[id]) return;
+      if (sk.src !== 'free' && sk.src !== 'sect') return;      /* common 两道通用，不动 */
+      if (toSect && sk.src === 'free') { save.skills[id].voided = true; n++; }
+      if (!toSect && sk.src === 'sect') { save.skills[id].voided = true; n++; }
+    });
+    /* 先切阵营再过滤装备 —— canUseSkill 读的是切完之后的 save */
+    save.cult = toSect ? 'sect' : 'free';
+    save.sectId = toSect ? sectId : null;
+    save.sectRep = 0;                                          /* 贡献/声望清零，重新积攒 */
+    save.sectRank = 'outer';
+    save.cultSwitchUsed = true;
+    save.skillEquip = (save.skillEquip || []).filter(function (id) {
+      return G.Player.canUseSkill(save, id);
+    });
+    return n;
+  }
+
+  function drawSect(x, scene) {
+    var save = G.game.save || {};
+    shell(x, '宗门', '第 ' + (save.life || 1) + ' 世');
+    var s = sectOf(save);
+    var isSect = (save.cult === 'sect');
+
+    G.UI.text(x, { x: P.x + 14, y: P.y + 32 },
+      '当前阵营：' + (isSect ? ((s && s.n) || '宗门弟子') : '散修'), 12, G.UI.C.goldHi);
+    G.UI.text(x, { x: P.x + 14, y: P.y + 50 },
+      isSect ? ('位阶 ' + RANK_N[save.sectRank || 'outer'] + '　贡献 ' + (save.sectRep || 0))
+             : ('散修声望 ' + (save.sectRep || 0)), 11, G.UI.C.textDim);
+    G.UI.text(x, { x: P.x + 14, y: P.y + 70 },
+      isSect ? '宗门功法与散修功法互不相通；本门弟子以贡献兑换本门功法。'
+             : '散修功法靠副本与野怪自寻；宗门功法与你无缘。', 10, G.UI.C.textDim);
+
+    /* 功法池：宗门态看"本门"（4 行）；散修态底部让给拜师按钮，不铺功法表 */
+    if (isSect) {
+      G.UI.text(x, { x: P.x + 14, y: P.y + 92 }, '本门功法', 11, G.UI.C.gold);
+      var pool = (s && s.skills) || [];
+      pool.slice(0, 4).forEach(function (id, i) {
+        var sk = G.Data.skills[id];
+        if (!sk) return;
+        var own = save.skills && save.skills[id];
+        var col = own ? (own.voided ? 'rgba(180,120,120,0.9)' : G.UI.C.jadeHi) : G.UI.C.textDim;
+        G.UI.text(x, { x: P.x + 22, y: SEC.listY + i * 15 },
+          sk.n + '　' + (own ? (own.voided ? '已废功' : 'Lv' + own.lv) : '未习'), 10, col);
+      });
+      G.UI.text(x, { x: P.x + 14, y: SEC.sectNoteY },
+        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
+                            : '可递退门帖，转为散修（宗门功法将废功）。', 10, G.UI.C.textDim);
+    } else {
+      G.UI.text(x, { x: P.x + 14, y: SEC.freeNoteY },
+        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
+                            : '拜入本界任一宗门（散修功法将废功）。', 10, G.UI.C.textDim);
+    }
+  }
+
+  function buildSect(btns, scene) {
+    var save = G.game.save;
+    var isSect = (save.cult === 'sect');
+
+    if (save.cultSwitchUsed) return;          /* 每世一次：用过了就不给任何转换按钮 */
+
+    if (!isSect) {
+      /* 拜师：列出**当前界**的宗门，大宗门优先；两行 × 三列 = 6 个槽位 */
+      var wid = G.Player.activeWorldId(G.game.meta);
+      var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
+      list.sort(function (a, b) {
+        var ab = a.size === 'big' ? 0 : 1, bb = b.size === 'big' ? 0 : 1;
+        return ab - bb;
+      });
+      list.slice(0, 6).forEach(function (s, i) {
+        var col = i % 3, row = Math.floor(i / 3);
+        btns.push(new G.UI.Btn({
+          x: P.x + 14 + col * (SEC.rowW + SEC.rowGap),
+          y: (row === 0 ? SEC.rowY : SEC.row2Y),
+          w: SEC.rowW, h: SEC.rowH, small: true, fs: 11,
+          variant: 'default', label: '拜入 ' + s.n,
+          onClick: function () {
+            var n = doSwitchCult(save, true, s.id);
+            G.Storage.saveCurrent(save);
+            G.game.toast('拜入' + s.n + '　散修功法废功 ×' + n);
+            G.Overlays.openPanel(scene, 'sect');
+          }
+        }));
+      });
+    } else {
+      btns.push(new G.UI.Btn({
+        x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'danger',
+        label: '递退门帖 · 转散修',
+        onClick: function () {
+          var n = doSwitchCult(save, false, null);
+          G.Storage.saveCurrent(save);
+          G.game.toast('退出门墙　宗门功法废功 ×' + n);
+          G.Overlays.openPanel(scene, 'sect');
+        }
+      }));
+    }
+  }
+
+  /* ============================================================
      地图（v0.15.0 新增）：四界区域导航。
      一屏列全 28 区（4 栏 × 最多 9 行）—— 比"翻页列表"更接近半开放世界的地图观感，
      也不依赖素材。当前所在区域高亮；已到过的区域亮，未至的压暗。
      ============================================================ */
+  /* ============================================================
+     地图（v0.18.0 改「真地图」）：四界各一张**程序化全貌图**。
+     ------------------------------------------------------------
+     旧版是"四栏区域列表"（用户口径："现在的地图就是列表，不是真的地图"）。
+     新版按《烟雨江湖》的观感做：地形走势（山脉 / 河流 / 林地）+ 区域节点 +
+     界门标记，一界一屏。
+     ⚠️ 底图**必须预渲染缓存**（每界一张）：上百个山脊 / 河流笔触每帧重画会直接掉帧。
+     ⚠️ 地形噪点用**固定种子**（由界 id 派生）—— 用全局 `G.rng` 会每帧都变（画面在闪）。
+     ============================================================ */
   var MP = {
-    /* ⚠️ 9 行 × 行距必须给底部提示留出 20px：行距 18 + 起点 58 时第 8 行会压上提示。 */
-    colW: 96, colGap: 3, headY: P.y + 38, rowY: P.y + 50, rowH: 15
+    tabY: P.y + 32, tabH: 20, tabW: 64, tabGap: 6,
+    vx: P.x + 14, vy: P.y + 58, vw: P.w - 28, vh: P.h - 80
   };
   var WORLD_ORDER = ['fan', 'ling', 'xian', 'dao'];
+  /* 每界的地形配色与密度 —— 决定"这一界长什么样"（用户口径：按地图特色出图，
+     冰谷 / 岩石地各有各的样）。程序化版先用配色 + 密度区分；出图后整张替换。 */
+  var WORLD_TERRAIN = {
+    fan: { land: '#39461f', land2: '#2b3617', ridge: '#55663a', ridgeHi: '#6d7f4a',
+      water: '#3f6274', trees: 22, peaks: 26, snow: 0 },
+    ling: { land: '#16303a', land2: '#0f232c', ridge: '#2c5060', ridgeHi: '#3f6b7e',
+      water: '#2f7d9c', trees: 12, peaks: 30, snow: 0.5 },
+    xian: { land: '#2c2846', land2: '#201d36', ridge: '#544c74', ridgeHi: '#7a6fa0',
+      water: '#4a6a8a', trees: 6, peaks: 34, snow: 0.7 },
+    dao: { land: '#1c1234', land2: '#120b24', ridge: '#3a2a5c', ridgeHi: '#5a4488',
+      water: '#2a2050', trees: 3, peaks: 20, snow: 0.2 }
+  };
+
+  /* 世界地图底图（预渲染缓存，键带界 id 与像素尺寸） */
+  var mapBg = {};
+  function worldMapBg(w, wpx, hpx) {
+    var key = w + '|' + wpx + 'x' + hpx;
+    if (mapBg[key]) return mapBg[key];
+    var T = WORLD_TERRAIN[w] || WORLD_TERRAIN.fan;
+    var o = G.Art.cv(wpx, hpx), x = o.x;
+    /* 固定种子：同一界每次生成完全一样 */
+    var rnd = G.Art.rnd(w.charCodeAt(0) * 7919 + w.length * 131);
+
+    /* ① 底：三段渐变（上远山、中平原、下近地） */
+    var g = x.createLinearGradient(0, 0, 0, hpx);
+    g.addColorStop(0, T.land2);
+    g.addColorStop(0.42, T.land);
+    g.addColorStop(1, T.land2);
+    x.fillStyle = g; x.fillRect(0, 0, wpx, hpx);
+
+    /* ② 山脉：成组的小三角脊（一组 3~5 座，看起来像山系而不是散点） */
+    var groups = Math.max(3, Math.round(T.peaks / 4));
+    for (var gi = 0; gi < groups; gi++) {
+      var gx = rnd() * wpx, gy = hpx * (0.12 + rnd() * 0.72);
+      var cnt = 3 + Math.floor(rnd() * 3);
+      for (var k = 0; k < cnt; k++) {
+        var mw = 9 + rnd() * 22, mh = 6 + rnd() * 15;
+        var mx0 = gx + (k - cnt / 2) * (mw * 0.85) + (rnd() - 0.5) * 8;
+        var my0 = gy + (rnd() - 0.5) * 10;
+        /* 山脊透明度压一档：地名要能压得住地形，否则整张图像花花绿绿的一团 */
+        x.globalAlpha = 0.34 + rnd() * 0.26;
+        x.fillStyle = T.ridge;
+        x.beginPath();
+        x.moveTo(mx0 - mw, my0 + mh); x.lineTo(mx0, my0); x.lineTo(mx0 + mw, my0 + mh);
+        x.closePath(); x.fill();
+        /* 受光面 */
+        x.globalAlpha = 0.20 + rnd() * 0.18;
+        x.fillStyle = T.ridgeHi;
+        x.beginPath();
+        x.moveTo(mx0, my0); x.lineTo(mx0 + mw * 0.55, my0 + mh * 0.72);
+        x.lineTo(mx0, my0 + mh * 0.9);
+        x.closePath(); x.fill();
+        /* 雪线（灵 / 仙 / 道界的山要"冷"） */
+        if (T.snow > 0 && rnd() < T.snow) {
+          x.globalAlpha = 0.55;
+          x.fillStyle = 'rgba(226,238,255,0.85)';
+          x.beginPath();
+          x.moveTo(mx0, my0); x.lineTo(mx0 + mw * 0.22, my0 + mh * 0.34);
+          x.lineTo(mx0 - mw * 0.22, my0 + mh * 0.34);
+          x.closePath(); x.fill();
+        }
+      }
+    }
+    x.globalAlpha = 1;
+
+    /* ③ 河流：两条横贯的曲线（两端出画，像真的从山里流出去） */
+    x.strokeStyle = T.water;
+    x.lineCap = 'round';
+    x.globalAlpha = 0.85;
+    for (var r2 = 0; r2 < 2; r2++) {
+      var ry0 = hpx * (0.34 + r2 * 0.30) + (rnd() - 0.5) * 12;
+      x.lineWidth = 3.6 - r2 * 0.8;
+      x.beginPath();
+      x.moveTo(-8, ry0);
+      for (var sx0 = -8; sx0 <= wpx + 8; sx0 += 56) {
+        x.quadraticCurveTo(sx0 + 28, ry0 + (rnd() - 0.5) * 40, sx0 + 56, ry0 + (rnd() - 0.5) * 26);
+      }
+      x.stroke();
+    }
+    x.globalAlpha = 1;
+
+    /* ④ 林地：小圆簇 */
+    for (var t = 0; t < T.trees * 3; t++) {
+      var tx0 = rnd() * wpx;
+      var ty0 = hpx * (0.28 + rnd() * 0.68);
+      x.globalAlpha = 0.20 + rnd() * 0.24;
+      x.fillStyle = T.ridgeHi;
+      x.beginPath(); x.arc(tx0, ty0, 1.6 + rnd() * 2.6, 0, 6.2832); x.fill();
+    }
+    x.globalAlpha = 1;
+
+    /* ⑤ 暗角：四边压暗，把视线收进画面中间 */
+    var vg = x.createRadialGradient(wpx / 2, hpx / 2, Math.min(wpx, hpx) * 0.35,
+      wpx / 2, hpx / 2, Math.max(wpx, hpx) * 0.72);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+    x.fillStyle = vg; x.fillRect(0, 0, wpx, hpx);
+
+    mapBg[key] = o.c;
+    return o.c;
+  }
+
+  /* 界的可见性 / 可点性（v0.18.0，用户口径）：
+     · 凡界：永远可点；
+     · 灵界：**可见但未飞升就置灰**（"表示灵界地图置灰无法点击"）；
+     · 仙界：**到过灵界才出现**（没到过则整栏隐藏）；
+     · 道界：**地狱难度通关仙界才出现**。
+     ⚠️ "隐藏"与"置灰"是两件事：隐藏 = 玩家不知道它存在（仙界 / 道界）；
+     置灰 = 知道但去不了（灵界）。两套判据分开写，别合成一个 ——
+     合成之后"该藏起来的界"会以灰按钮的形式提前泄底。 */
+  function worldGate(meta, w) {
+    var p = (meta && meta.progress) || {};
+    var ws = p.worlds || {};
+    var hell = (meta && meta.hellCleared) || {};
+    if (w === 'fan') return { show: true, ok: true };
+    if (w === 'ling') return { show: true, ok: !!ws.ling };
+    if (w === 'xian') return { show: !!ws.ling, ok: !!ws.xian };
+    if (w === 'dao') return { show: !!(ws.xian && (p.daoKey || hell.xian)), ok: !!ws.dao };
+    return { show: false, ok: false };
+  }
+
+  /* 当前该看哪一界：选了看不了的界就退回凡界（别让"隐藏"的界被选中） */
+  function mapWorldOf(scene, meta) {
+    var w = scene.mapWorld || G.Player.activeWorldId(meta);
+    var g = worldGate(meta, w);
+    if (!g.show || !g.ok) w = 'fan';
+    scene.mapWorld = w;
+    return w;
+  }
 
   function drawMap(x, scene) {
     var save = G.game.save, meta = G.game.meta || {};
     var Rg = G.Data.regions;
     var cur = Rg.regionIdOf ? Rg.regionIdOf(save.map) : null;
     var visited = save.visited || {};
-    var unlocked = (meta.progress && meta.progress.worlds) || {};
-    shell(x, '地图', Rg.worldNames[Rg.worldNames ? G.Player.activeWorldId(meta) : 'fan'] || '');
+    var w = mapWorldOf(scene, meta);
+    var list = Rg.of(w) || [];
+    shell(x, '地图', Rg.worldNames[w] || '');
 
-    WORLD_ORDER.forEach(function (w, ci) {
-      var cx0 = P.x + 14 + ci * (MP.colW + MP.colGap);
-      G.UI.text(x, { x: cx0, y: MP.headY }, Rg.worldNames[w] || w, 11.5,
-        unlocked[w] ? G.UI.C.goldHi : G.UI.C.textDim);
-      var list = Rg.of(w) || [];
-      list.forEach(function (r, ri) {
-        var ry = MP.rowY + ri * MP.rowH;
-        if (ry + 12 > P.y + P.h - 18) return;        /* 超出内容区（含底部提示带）就不画 */
-        var isCur = r.id === cur;
-        var seen = isCur || !!visited[r.id];
-        if (isCur) {
-          G.UI.panel(x, { x: cx0 - 3, y: ry - 1, w: MP.colW - 2, h: 15 },
-            'rgba(216,183,104,0.20)', G.UI.C.ruleHi, 3, { tex: false, shadow: false });
-        }
-        G.UI.text(x, { x: cx0, y: ry }, (r.gate ? '界 ' : '') + r.n, 10.5,
-          isCur ? G.UI.C.goldHi : (seen ? G.UI.C.text : 'rgba(120,132,152,0.75)'));
-      });
+    /* 视口 */
+    var V = MP;
+    x.drawImage(worldMapBg(w, Math.round(V.vw), Math.round(V.vh)),
+      V.vx, V.vy, V.vw, V.vh);
+    G.UI.rr(x, { x: V.vx + 0.5, y: V.vy + 0.5, w: V.vw - 1, h: V.vh - 1 }, 4);
+    x.strokeStyle = 'rgba(158,206,246,0.42)';
+    x.lineWidth = 1; x.stroke();
+
+    /* 区域节点 */
+    list.forEach(function (r) {
+      var nx = V.vx + r.mx * V.vw, ny = V.vy + r.my * V.vh;
+      var isCur = r.id === cur;
+      var seen = isCur || !!visited[r.id];
+      if (isCur) {
+        x.strokeStyle = 'rgba(245,227,168,0.85)';
+        x.lineWidth = 1.4;
+        x.beginPath(); x.arc(nx, ny, 7, 0, 6.2832); x.stroke();
+        x.fillStyle = '#f5e3a8';
+        x.beginPath(); x.arc(nx, ny, 3.4, 0, 6.2832); x.fill();
+      } else if (seen) {
+        x.fillStyle = 'rgba(226,236,252,0.92)';
+        x.beginPath(); x.arc(nx, ny, 2.6, 0, 6.2832); x.fill();
+      } else {
+        x.strokeStyle = 'rgba(150,168,196,0.7)';
+        x.lineWidth = 1;
+        x.beginPath(); x.arc(nx, ny, 2.6, 0, 6.2832); x.stroke();
+      }
+      /* 界门标记：节点上方一个菱形（与"区域"本身区分开） */
+      if (r.gate) {
+        x.fillStyle = '#8fd8f0';
+        x.beginPath();
+        x.moveTo(nx, ny - 12); x.lineTo(nx + 3.6, ny - 8.2);
+        x.lineTo(nx, ny - 4.4); x.lineTo(nx - 3.6, ny - 8.2);
+        x.closePath(); x.fill();
+      }
+      /* 名字：节点下方居中，两端夹住视口（贴边会被裁掉） */
+      var fs = isCur ? 10.5 : 9.5;
+      x.font = G.UI.F(fs);
+      var tw = x.measureText(r.n).width;
+      var lx = Math.max(V.vx + tw / 2 + 1, Math.min(V.vx + V.vw - tw / 2 - 1, nx));
+      G.UI.textOut(x, { x: lx, y: ny + 5 }, r.n, fs,
+        isCur ? G.UI.C.goldHi : (seen ? 'rgba(228,236,248,0.95)' : 'rgba(140,152,176,0.9)'),
+        'center', 'rgba(6,10,20,0.9)', 2.2);
     });
-    G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 },
-      '当前所在已高亮；「界」= 该界界门所在区。', 10, G.UI.C.textDim);
+
+    /* 图例 + "还没现世"的界提示 */
+    var hint = '金环 = 当前所在　菱形 = 界门';
+    if (!worldGate(meta, 'xian').show) hint += '　仙界未现';
+    else if (!worldGate(meta, 'dao').show) hint += '　道界未现';
+    G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 }, hint, 10, G.UI.C.textDim);
   }
 
-  function buildMap(btns, scene) { /* 纯展示页，无可点元素（点击不改状态就不会有假按钮） */ }
-
+  function buildMap(btns, scene) {
+    var meta = G.game.meta || {};
+    var Rg = G.Data.regions;
+    var cur = mapWorldOf(scene, meta);
+    /* 只给**可见**的界建按钮（隐藏 = 玩家不知道它存在，不该以灰按钮的形式泄底） */
+    var show = WORLD_ORDER.filter(function (w) { return worldGate(meta, w).show; });
+    var total = show.length * MP.tabW + (show.length - 1) * MP.tabGap;
+    var x0 = P.x + (P.w - total) / 2;
+    show.forEach(function (w, i) {
+      var gt = worldGate(meta, w);
+      btns.push(new G.UI.Btn({
+        x: Math.round(x0 + i * (MP.tabW + MP.tabGap)), y: MP.tabY,
+        w: MP.tabW, h: MP.tabH, small: true,
+        variant: 'subtab', active: cur === w, disabled: !gt.ok,
+        label: Rg.worldNames[w],
+        onClick: function () {
+          scene.mapWorld = w;
+          G.Overlays.openPanel(scene, 'map');
+        }
+      }));
+    });
+  }
   var DRAW = {
     /* 角色面板要读 scene.charTab（子页签），所以把 scene 透传下去 */
     char: function (x, scene) { G.Overlays.renderChar(x, scene); },
@@ -1026,6 +1503,7 @@
     quest: drawQuest,
     bag: drawBag,
     cave: drawCave,
+    sect: drawSect,
     map: drawMap
   };
 
@@ -1074,6 +1552,9 @@
   G.Overlays.drawAchieve = drawAchieve;
   G.Overlays.CAVE_ARTS = ARTS;
   G.Overlays.MAP_WORLDS = WORLD_ORDER;
+  /* 导出给契约：分界的可见性/可点性判据（用户口径的"隐藏 vs 置灰"） */
+  G.Overlays.worldGate = worldGate;
+  G.Overlays.worldMapBg = worldMapBg;
   G.Overlays.barBtns = barBtns;
   G.Overlays.renderBar = renderBar;
   G.Overlays.openPanel = openPanel;

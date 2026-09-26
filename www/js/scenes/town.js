@@ -315,6 +315,17 @@
     var save = G.game.save;
     if (!save || !save.quest) return;
     var q = save.quest;
+
+    /* 旧档自救（v0.18.1）：早先版本的"抉择 1"只写了 flags.probe、**没有推进任务步**，
+       于是玩家永久卡在 m1-2 —— 追踪栏一直显示「✓ 处置探子」、行脚商一直站在镇上、
+       反复点他也只会得到一句"客官，看看山货？"（因为 talkProbe 要求 step==='m1-2'
+       才开打，而抉择又因为 !flags.probe 不成立而不再弹）。玩家感受就是"任务一直重复"。
+       这里按旗标补一次推进，**修的是玩家手里的档**，不是新档。 */
+    if (q.step === 'm1-2' && q.flags.probe) {
+      q.step = 'm1-3';
+      G.Storage.saveCurrent(save);
+    }
+
     if (q.step === 'm1-2' && q.flags.probeWin && !q.flags.probe) openChoice1(scene);
   };
 

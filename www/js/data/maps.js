@@ -25,7 +25,10 @@
         path('v', 18, 11, 12),
         path('h', 6, 11, 13),
         path('h', 18, 12, 11),
-        path('h', 28, 12, -9)
+        path('h', 28, 12, -9),
+        /* 东出落霞镇的路（v0.19.0）：y=20 是唯一一条从 x=18 到东缘不压任何
+           建筑/NPC/水井的横线（well 在 y=16、浣衣妇在 (22,18)）。 */
+        path('h', 18, 20, 18)
       ],
       fences: [
         fence(2, 4, 10, 4, { x: 6, y: 4 }),
@@ -54,7 +57,12 @@
         { id: 'probe', kind: 'cultist', name: '行脚商', portrait: 'cultist',
           x: 25, y: 15, act: 'probe', condStep: 'm1-2' }
       ],
-      exits: [ { x0: 17, x1: 19, y: 23, to: 'field', spawn: { x: 24, y: 37 }, label: '翠微山' } ]
+      exits: [
+        { x0: 17, x1: 19, y: 23, to: 'field', spawn: { x: 24, y: 37 }, label: '翠微山' },
+        /* 东出落霞镇（凡界 F4）：25 个生成型区域全靠这一条链才走得到 ——
+           没有它，fan4–fan9 就是**孤岛**（地图生成得出来、玩家永远到不了）。 */
+        { x0: 35, x1: 35, y: 20, to: 'fan4', spawn: { x: 1, y: 14 }, label: '落霞镇' }
+      ]
     },
 
     field: {
@@ -79,14 +87,18 @@
           closedText: '落石封路，需炼气三段以上修为。'
         })
       ],
-      paths: [ path('v', 24, 4, 35) ],
+      paths: [ path('v', 24, 4, 35), path('h', 24, 20, 26) ],
       fences: [],
       scatter: { trees: 46, rocks: 22 },
       special: [
         { id: 'chest1', kind: 'chest', x: 10, y: 20, loot: { stone: 100 } },
         { id: 'chest2', kind: 'chest', x: 38, y: 8, loot: { items: { '解封符': 2 } } }
       ],
-      exits: [ { x0: 23, x1: 26, y: 39, to: 'town', spawn: { x: 18, y: 20 }, label: '青溪镇' } ]
+      exits: [
+        { x0: 23, x1: 26, y: 39, to: 'town', spawn: { x: 18, y: 20 }, label: '青溪镇' },
+        /* 东出落霞镇（凡界 F4）：翠微山不再只是"回镇 / 进洞"的死胡同。 */
+        { x0: 49, x1: 49, y: 20, to: 'fan4', spawn: { x: 1, y: 14 }, label: '落霞镇' }
+      ]
     },
 
     cave: {

@@ -177,6 +177,9 @@
       }
 
       this.time += dt;
+      /* 濒死红屏画在**场景之后、一切浮层之前** —— 它是背景级的警示，
+         压在战利品/ toast 下面（那些是信息，不能被红雾糊掉）。 */
+      this._renderDanger(x);
       this._renderWhisper(x);
 
       /* Toast 覆盖层 */
@@ -230,6 +233,49 @@
       if (!text) return;
       this.lootFeed.push({ text: text, t: LOOT_T, special: !!special });
       if (this.lootFeed.length > 5) this.lootFeed.shift();
+    },
+
+    /* 濒死警告（v0.18.0）：气血低于 25% 时**全屏泛红 + 呼吸**。
+       用户口径："主角濒死时，全屏显红警告玩家"。
+       画在 game.js 的最外层（场景之后、toast 之前）—— 放场景里的话，
+       战斗 / 探索 / 对话三套渲染各要写一遍，必然漏一处。
+       ⚠️ 血量上限走 `computeStats`，每帧算一次太贵 → 按"影响上限的三个量"缓存
+       （境界 / 功法本数 / 仙躯灌注）。 */
+    _renderDanger: function (x) {
+      var s = this.save;
+      if (!s || !(s.hp > 0)) return;
+      var mh = this._hpMaxCache(s);
+      if (!mh) return;
+      var pct = s.hp / mh;
+      if (pct > 0.25) return;
+      var k = 1 - pct / 0.25;                       /* 越接近 0 越红 */
+      var pulse = 0.55 + 0.45 * Math.sin(this.time * 5.5);
+      var a = (0.10 + 0.26 * k) * pulse;
+      var g = x.createRadialGradient(this.W / 2, this.H / 2, this.H * 0.20,
+        this.W / 2, this.H / 2, this.H * 0.80);
+      g.addColorStop(0, 'rgba(180,20,20,0)');
+      g.addColorStop(1, 'rgba(196,18,18,' + a.toFixed(3) + ')');
+      x.fillStyle = g;
+      x.fillRect(0, 0, this.W, this.H);
+      /* 真·濒死（≤15%）才出字 —— 平时只泛红，别一直吵玩家 */
+      if (pct <= 0.15) {
+        x.globalAlpha = 0.62 + 0.38 * pulse;
+        G.UI.textOut(x, { x: this.W / 2, y: 54 }, '气 血 垂 危', 15, '#ff6a58',
+          'center', 'rgba(24,0,0,0.9)', 3);
+        x.globalAlpha = 1;
+      }
+    },
+
+    _hpMaxCache: function (s) {
+      var meta = this.meta || {};
+      var k = (s.globalLevel || 1) + '|' + Object.keys(s.skills || {}).length + '|'
+        + ((meta.perfusion && meta.perfusion.body) || 0);
+      if (this._hpKey !== k) {
+        this._hpKey = k;
+        try { this._hpMax = G.Player.computeStats(s, meta).maxhp; }
+        catch (e) { this._hpMax = 0; }
+      }
+      return this._hpMax;
     },
 
     _renderLoot: function (x) {

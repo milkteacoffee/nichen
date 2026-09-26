@@ -872,6 +872,15 @@
     this.sub = o.sub;
     this.subFs = o.subFs;
     this.subColor = o.subColor;
+    /* icon（v0.19.0）：格子上方的道具图标，值是 `item.<id>` 的逻辑名（见 art.js: A.itemIcon）。
+       ⚠️ 与上面四个一样**必须显式拷贝** —— 漏拷不报错，只会静默不画图标。 */
+    this.icon = o.icon || null;
+    /* lalign（v0.20.0）：标签**左对齐**（默认居中）。给"列表行"这类按钮用 ——
+       任务列表整列左对齐才读得成清单，居中会让每一行的起点参差不齐。
+       ⚠️ 为什么列表行必须是**真按钮**而不是"面板自绘文字 + plain 命中框"：
+          `panels.bounds.contract` 会判"面板自绘的文字压在按钮上"，
+          而列表行的文字与命中框必然重叠 —— 只能让按钮自己画标签。 */
+    this.lalign = !!o.lalign;
     this._p = 0;
   }
   Btn.prototype.hit = function (p) {
@@ -937,20 +946,36 @@
 
     x.font = F(this.fs || (this.small ? 12 : 14));
     x.fillStyle = col;
-    x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.textAlign = this.lalign ? 'left' : 'center';
+    x.textBaseline = 'middle';
+    /* 左对齐时文字起点；居中时是中心点 */
+    var tx0 = this.lalign ? this.x + 8 : this.x + w / 2;
     /* 副行（sub）：格子类按钮要在一格里同时放"名称 + 数量/等级"。
        为什么不让面板体自己画这两行：`panels.bounds.contract` 会判"文字压在按钮上"，
        而格子**必须**是可点的按钮（点格子即用）—— 面板体再往上画字就必然报。
        让按钮自己画（按钮的 label 不经过 textSpy，见 renderPanel 不渲染 buttons）即可。 */
     var cy = this.y + h / 2 + 1 + dy;
     if (this.sub) cy -= 5.5;
+    /* 图标（v0.19.0）：有 icon 时图标占上半格、文字整体下移，避免和图标叠在一起。
+       图标走 art.js: A.itemIcon（素材优先 `item.<id>`，缺图程序化兜底）。 */
+    if (this.icon && G.Art && G.Art.itemIcon) {
+      var isz = 15;
+      var io = G.Art.itemIcon(this.icon, isz);
+      if (io && io.c) {
+        x.save();
+        x.globalAlpha = (this.disabled && !this.passive) ? 0.45 : 1;
+        x.drawImage(io.c, this.x + (w - isz) / 2 + io.ox, this.y + 3 + io.oy, io.w, io.h);
+        x.restore();
+      }
+      cy = this.y + 27 + dy;
+    }
     /* 只有"格子类按钮"（带 sub）才自动缩放 / 截断名称；普通按钮的 label 宽度是设计好的 */
     x.fillText(this.sub ? fitCell(x, this.label, this.fs || (this.small ? 12 : 14), w - 7)
-      : this.label, this.x + w / 2, cy);
+      : this.label, tx0, cy);
     if (this.sub) {
       x.font = F(this.subFs || 9.5);
       x.fillStyle = (this.disabled && !this.passive) ? '#5c6072' : (this.subColor || C.textDim);
-      x.fillText(this.sub, this.x + w / 2, cy + 12.5);
+      x.fillText(this.sub, tx0, cy + (this.icon ? 11 : 12.5));
     }
   };
 

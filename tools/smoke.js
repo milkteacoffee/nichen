@@ -59,6 +59,24 @@ function textSpy() {
   return c;
 }
 
+/* 可达性：从 from 出发能走到的格子集合（不含 solid 格）。 */
+function bfsReach(mp, from) {
+  const seen = {}, q = [[from.x, from.y]];
+  seen[from.x + ',' + from.y] = true;
+  while (q.length) {
+    const c = q.shift();
+    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+      const nx = c[0] + d[0], ny = c[1] + d[1];
+      if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
+      if (mp.solid[ny][nx]) return;
+      const k = nx + ',' + ny;
+      if (seen[k]) return;
+      seen[k] = true; q.push([nx, ny]);
+    });
+  }
+  return seen;
+}
+
 /* 绘制探针：记录每次 drawImage 的目标矩形。
    桩 canvas 没有像素，但"有没有在正确的格子发起绘制"是查得到的 ——
    这正是"物件登记了却忘了画"这类**静默**问题的抓法（它不报错、只是什么都不显示）。
@@ -159,8 +177,7 @@ function boxSpy() {
   return { hits: hits, restore: function () { G.UI.rr = real; } };
 }
 
-function makeCanvas(w, h) {
-  const c = {
+function makeCanvas(w, h) {  const c = {
     width: w || 300, height: h || 150,
     style: {},
     getContext() { if (!c._ctx) { c._ctx = makeCtx(); c._ctx.canvas = c; } return c._ctx; },
@@ -225,7 +242,10 @@ const errors = [];
    notes 只打印 —— 用来记"待办但已知"，免得把 TODO 混进红色报错里，看久了就没人看报错了。 */
 const notes = [];
 /* 有意走程序化兜底的素材键（详见 npc.portrait.assets 契约里的注释） */
-const PROC_FALLBACK_OK = new Set(['char.npc.cultist', 'portrait.cultist']);
+/* 有意走程序化兜底的角色键（新角色先接线、美术后补）。
+   ⚠️ **出图之后必须从这张表里删掉** —— 留着会让"图丢了"变成静默通过。
+   2026-09-26：char.npc.cultist / portrait.cultist 已出图（血煞探子·行脚商），故清空。 */
+const PROC_FALLBACK_OK = new Set([]);
 for (const rel of srcs) {
   const p = path.join(WWW, rel);
   if (!fs.existsSync(p)) { errors.push(`缺失脚本：${rel}`); continue; }
@@ -535,6 +555,33 @@ const INDOOR = ['town_home', 'town_shop', 'town_market', 'field_temple'];
     }, 'indoor:' + m);
   }
 });
+
+/* 3a-1b) 地图出入口可达性契约：
+   每张图的**每个出口格**、以及每个 gate 结构（洞口/关隘）的门格，都必须从该图出生点走得到。
+   这条挡的是最恼人的一类问题 —— "地图上明明有个门，就是走不到 / 点了没反应"，
+   而它既不会抛异常、也不会被渲染契约发现（门画得好好的，就是过不去）。 */
+step(function () {
+  Object.keys(G.Data.maps).forEach(function (m) {
+    const md = G.Data.maps[m];
+    if (!md || !md.w || !md.h) return;
+    const mp = G.MapGen.buildMap(save, m);
+    const spawn = md.spawn || { x: 1, y: 1 };
+    if (mp.solid[spawn.y][spawn.x]) { errors.push(`${m}: 出生点落在实心格`); return; }
+    const seen = bfsReach(mp, spawn);
+    (md.exits || []).forEach(function (e) {
+      for (let x = e.x0; x <= e.x1; x++) {
+        if (!seen[x + ',' + e.y]) errors.push(`${m}: 出口 (${x},${e.y}) → ${e.to} 从出生点走不到`);
+      }
+    });
+    (md.structures || []).forEach(function (s) {
+      if (s.kind !== 'gate') return;
+      const dx = s.x + Math.floor(s.w / 2), dy = s.y + s.h;
+      if (!seen[dx + ',' + dy]) {
+        errors.push(`${m}: 门 (${dx},${dy})「${s.label || s.id}」从出生点走不到`);
+      }
+    });
+  });
+}, 'maps.reach.contract');
 
 /* 3a-2) 站桩 NPC 契约：占格实心、本格登记 npc 交互点、不站路上（单宽路会被堵死）、
    从出生点可达（走不到就等于没有），且交互后确实开出对话覆盖层。 */
@@ -1877,6 +1924,49 @@ step(function () {
   console.log(`  · 区域 ${regionN} 个 / 建筑 ${buildingN} 栋 / 内部 ${interiorN} 间`);
 }, 'regions.contract');
 
+/* ---------- 区域连通性契约 ----------
+   每个界的区域必须**从该界首区全部可达**。挡的是"地图生成得出来、玩家永远走不到"的孤岛 ——
+   区域层与手写地图没接上时就是这样（fan4–fan9 曾经完全走不到）。
+   界与界之间靠**界门**连通，不走地图出口，所以按界分别做 BFS。 */
+step(function () {
+  const R = G.Data.regions;
+  const adj = {};
+  R.all().forEach(function (r) { adj[r.id] = []; });
+  function link(a, b) {
+    /* **有向**：玩家只能顺着出口走过去，反向走不通。
+       按双向算会掩盖"只有回程、没有去程"的断头路 ——
+       曾经就是这样漏掉了 fan4–fan9 的孤岛（fan4 有出口回 fan1，于是被误判为连通）。 */
+    if (!a || !b || a === b) return;
+    if (adj[a].indexOf(b) < 0) adj[a].push(b);
+  }
+  R.all().forEach(function (r) {
+    const mapId = r.map || r.id;
+    G.RegionGen.ensure(save, r.id);
+    const md = G.Data.maps[mapId];
+    if (!md) return;
+    (md.exits || []).forEach(function (e) { link(r.id, R.regionIdOf(e.to)); });
+    (md.structures || []).forEach(function (s) {
+      if (s.kind === 'gate' && s.to) link(r.id, R.regionIdOf(s.to));
+    });
+  });
+
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (wid) {
+    const list = R.of(wid);
+    if (!list.length) return;
+    const start = list[0].id;
+    const seen = {}, q = [start];
+    seen[start] = true;
+    while (q.length) {
+      const c = q.shift();
+      (adj[c] || []).forEach(function (n) { if (!seen[n]) { seen[n] = true; q.push(n); } });
+    }
+    const bad = list.filter(function (r) { return !seen[r.id]; }).map(function (r) { return r.id; });
+    if (bad.length) {
+      errors.push(`${wid}: ${bad.length} 个区域从首区 ${start} 走不到（孤岛）：${bad.join(' / ')}`);
+    }
+  });
+}, 'regions.connect.contract');
+
 /* ---------- 副本入口天道随机落位契约（《四界区域与副本落位设计 v1.0》§2.2 / §6.1） ----------
    抽 5 个入口必须满足：落在**主界**区域内、区域不重复、原型不重复、
    恰 2 大 3 小、**第 5 个必大**、槽位编号与下标一致。跑 30 轮覆盖随机性。 */
@@ -2168,6 +2258,254 @@ step(function () {
     errors.push('overlay=worldgate 没有渲染出界门面板（路由漏了）');
   }
 }, 'worldgate.contract');
+
+/* ---------- 主线任务链契约 ----------
+   ① 14 步主线每一步都要能取到追踪数据、下标与顺序一致、文案齐全
+     （缺一步 = 面板步数错位、"主线 8/14" 与实际不符）
+   ② **m1-2「外堂探子」的抉择必须真的把任务推进到 m1-3** ——
+     这是玩家最容易感知到的一环：旗标置了但步数不动，任务就"卡在原地反复"。 */
+step(function () {
+  const ORDER = ['m0-1', 'm0-2', 'm0-3', 'm0-4', 'm0-5', 'free',
+    'm1-1', 'm1-2', 'm1-3', 'm1-4', 'm1-5', 'm1-6', 'm1-7', 'm1done'];
+  const s0 = JSON.parse(JSON.stringify(save));
+  ORDER.forEach(function (id, i) {
+    s0.quest = { step: id, flags: {} };
+    const tk = G.Overlays.trackInfo(s0);
+    if (!tk) { errors.push(`主线步骤 ${id} 取不到追踪数据`); return; }
+    if (tk.idx !== i) errors.push(`主线步骤 ${id} 下标应为 ${i}，实际 ${tk.idx}`);
+    if (tk.total !== ORDER.length) errors.push(`主线总步数应为 ${ORDER.length}，实际 ${tk.total}`);
+    if (!tk.s || !tk.s.t) errors.push(`主线步骤 ${id} 缺标题文案`);
+    if (!tk.s || !tk.s.d) errors.push(`主线步骤 ${id} 缺目标文案`);
+  });
+
+  /* m1-2：打赢探子回镇 → 弹抉择 → 选任一项 → 必须推进到 m1-3 */
+  s0.quest = { step: 'm1-2', flags: { probeWin: true } };
+  s0.pos = null;
+  G.game.save = s0;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  if (sc.overlay !== 'choice1') {
+    errors.push(`m1-2 打赢探子后回镇没有弹出抉择（overlay=${sc.overlay}）`);
+    return;
+  }
+  sc.buttons[0].onClick();
+  if (s0.quest.step !== 'm1-3') {
+    errors.push(`m1-2 抉择后任务未推进到 m1-3（仍为 ${s0.quest.step}）—— 会表现为"任务卡住反复"`);
+  }
+  if (!s0.quest.flags.probe) errors.push('m1-2 抉择后未记录 probe 旗标（追踪栏会一直显示未完成）');
+
+  /* ③ 旧档自救：早期版本只写 flags.probe、没推进步数 → 玩家永久卡在 m1-2
+        （追踪栏显示「✓ 处置探子」却一直停在这一步，反复点行脚商也没用）。
+        进镇时必须按旗标补推进。 */
+  s0.quest = { step: 'm1-2', flags: { probe: 'spare', probeWin: true } };
+  s0.pos = null;
+  G.game.save = s0;
+  G.game.changeScene('town', { toSpawn: true });
+  if (s0.quest.step !== 'm1-3') {
+    errors.push(`旧档自救失败：probe 已置位但步数仍为 ${s0.quest.step}（会永久卡在「外堂探子」）`);
+  }
+  if (G.game.scene.overlay === 'choice1') errors.push('旧档自救后不该再弹抉择（旗标已置位）');
+}, 'quest.chain.contract');
+
+/* ---------- 道具图标契约 ----------
+   ① 每个已映射的道具都要能取到图标（素材或程序化兜底都不能返回空）
+   ② 素材必须**真的接上**（不是走兜底）—— 兜底能画不代表图到了
+   ③ 储物格子的按钮必须带上 icon —— 漏传是**静默不画图标**，肉眼很难归因 */
+step(function () {
+  const ids = ['pill_huichun', 'pill_dahuan', 'pill_juqi', 'pill_xingshen', 'pill_jiedu',
+    'pill_ganlin', 'pill_shujin', 'pill_cuiti', 'pill_zhuji', 'talisman_jiefeng',
+    'talisman_huicheng', 'mat_yaodan', 'shard_fan', 'shard_ling', 'shard_bao', 'stone'];
+  ids.forEach(function (id) {
+    const io = G.Art.itemIcon(id, 15);
+    if (!io || !io.c) errors.push(`道具图标 ${id} 取不到（素材与程序化兜底都失败）`);
+    else if (!(io.w > 0 && io.h > 0)) errors.push(`道具图标 ${id} 尺寸非法`);
+  });
+  /* 素材必须**真的接上**。⚠️ 无头环境里 `G.Assets.img()` 恒返回 null
+     （`images` 表靠真实解码填充，桩 Image 不会填），所以不能拿它判"图到了没" ——
+     与素材契约一样**直接读盘上的 manifest.json**。 */
+  const mf = JSON.parse(fs.readFileSync(path.join(WWW, 'assets', 'manifest.json'), 'utf8'));
+  const missing = ids.filter(function (id) { return !mf['item.' + id]; });
+  if (missing.length) errors.push(`道具图标素材缺失（会走程序化兜底）：${missing.join(' / ')}`);
+
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.items = { '回春丹': 2, '解封符': 1, '妖丹': 3, '凡品功法碎片': 4 };
+  s2.stone = 100;
+  s2.pos = null;
+  G.game.save = s2;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  G.Overlays.openPanel(sc, 'bag');
+  const cells = (sc.buttons || []).filter(function (b) { return b.sub != null && b.label; });
+  if (!cells.length) errors.push('储物面板没有生成格子按钮');
+  const noIcon = cells.filter(function (b) { return !b.icon; });
+  if (noIcon.length) errors.push(`${noIcon.length} 个储物格子没带 icon（会静默不画图标）`);
+}, 'item.icon.contract');
+
+/* ---------- 问道契约（v0.20.0） ----------
+   用户口径：「天道赐福属于问道其中的一种；每个大境界可以问道一次；
+   突破之后，问道可能是奖励也可能是惩罚，扣除灵石、灵力、灵气之类的」。
+   ① 每个「境」只问一次（再问返回 null）
+   ② 赏罚都有：跑 200 次，good 与 bad 都必须出现过
+   ③ 赐福真的写进 meta.blessing（进破境公式的 +1~5%）
+   ④ 扣减有下限：灵石/灵气/灵力 不会被扣成负数 */
+step(function () {
+  const mk = function () {
+    return { save: { globalLevel: 40, stone: 1000, qi: 5000, po: 100, skills: {}, askedRealms: {} },
+             meta: { blessing: 0 } };
+  };
+  const a = mk();
+  const r1 = G.Player.askDao(a.save, a.meta);
+  if (!r1) { errors.push('问道第一次应返回结果'); return; }
+  if (!a.save.askedRealms[r1.realm]) errors.push('问道未记录 askedRealms');
+  if (G.Player.askDao(a.save, a.meta)) errors.push('同一境不应能问第二次');
+
+  let good = 0, bad = 0, neg = 0;
+  for (let i = 0; i < 200; i++) {
+    const m = mk();
+    m.save.globalLevel = 10 + i;
+    const r = G.Player.askDao(m.save, m.meta);
+    if (!r) continue;
+    if (r.k === 'good') good++;
+    if (r.k === 'bad') bad++;
+    if (m.save.stone < 0 || m.save.qi < 0 || m.save.po < 0) neg++;
+  }
+  if (!good) errors.push('问道 200 次里一次赏都没出（权重表坏了？）');
+  if (!bad) errors.push('问道 200 次里一次罚都没出（权重表坏了？）');
+  if (neg) errors.push('问道把资源扣成了负数（' + neg + ' 次）');
+
+  let blessed = false;
+  for (let i = 0; i < 300 && !blessed; i++) {
+    const m = mk();
+    m.save.globalLevel = 10 + (i % 150);
+    const r = G.Player.askDao(m.save, m.meta);
+    if (r && r.id === 'bless') {
+      blessed = true;
+      if (!(m.meta.blessing >= 1 && m.meta.blessing <= 5)) {
+        errors.push('赐福应写 1~5 的 meta.blessing，实际 ' + m.meta.blessing);
+      }
+    }
+  }
+  if (!blessed) errors.push('问道 300 次没抽到过赐福（权重表坏了？）');
+}, 'askdao.contract');
+
+/* ---------- 宗门与散修契约（《宗门与散修体系设计 v1.0》） ----------
+   ① 宗门数据完整：凡 9 / 灵 7 / 仙 5 / 道 0，且 region / 功法池都指向真实存在的东西
+   ② 功法归属：每本功法都有 src；src='sect' 的必须带 sect 且该宗门存在
+   ③ 互斥：散修不能用宗门功法；宗门弟子不能用散修功法；common 两道通用
+   ④ 废功：voided 后一律不可用
+   ⑤ 转阵营：每世一次；原阵营功法全部废功、已装备的自动卸下
+   ⑥ 底栏 6 项且含「宗门」 */
+step(function () {
+  const S = G.Data.sects;
+  if (!S) { errors.push('G.Data.sects 缺失'); return; }
+
+  /* ① 数量与引用 */
+  const cnt = { fan: S.ofWorld('fan').length, ling: S.ofWorld('ling').length,
+    xian: S.ofWorld('xian').length, dao: S.ofWorld('dao').length };
+  if (cnt.fan !== 9) errors.push(`凡界宗门应为 9（5 小 + 4 大），实际 ${cnt.fan}`);
+  if (cnt.ling !== 7) errors.push(`灵界宗门应为 7，实际 ${cnt.ling}`);
+  if (cnt.xian !== 5) errors.push(`仙界宗门应为 5，实际 ${cnt.xian}`);
+  if (cnt.dao !== 0) errors.push(`道界不应有宗门，实际 ${cnt.dao}`);
+  S.list.forEach(function (s) {
+    if (!G.Data.regions.byId(s.region)) errors.push(`宗门 ${s.id} 指向不存在的区域 ${s.region}`);
+    if (!s.skills || !s.skills.length) errors.push(`宗门 ${s.id} 没有功法池`);
+    (s.skills || []).forEach(function (id) {
+      const sk = G.Data.skills[id];
+      if (!sk) { errors.push(`宗门 ${s.id} 的功法 ${id} 不存在`); return; }
+      if (sk.src !== 'sect') errors.push(`宗门功法 ${id} 的 src 应为 sect，实际 ${sk.src}`);
+      if (sk.sect !== S.rootOf(s.id)) {
+        errors.push(`宗门功法 ${id} 的 sect(${sk.sect}) 应等于根宗门 ${S.rootOf(s.id)}`);
+      }
+    });
+    if (s.parent && !S.byId(s.parent)) errors.push(`宗门 ${s.id} 的 parent ${s.parent} 不存在`);
+  });
+
+  /* ② 每本功法都要有 src */
+  Object.keys(G.Data.skills).forEach(function (id) {
+    const src = G.Data.skills[id].src;
+    if (src !== 'common' && src !== 'free' && src !== 'sect') {
+      errors.push(`功法 ${id} 的 src 非法：${src}`);
+    }
+  });
+
+  /* ③④ 互斥与废功 */
+  const mk = (cult, sectId) => ({ cult: cult, sectId: sectId || null, skills: {}, skillEquip: [] });
+  const freeSkill = Object.keys(G.Data.skills).filter(function (i) { return G.Data.skills[i].src === 'free'; })[0];
+  const sectSkill = '青溪剑诀';
+  const commonSkill = '吐纳术';
+  if (!freeSkill) errors.push('找不到任何散修功法（src=free）');
+  const mFree = mk('free');
+  const mSect = mk('sect', 'qxj');
+  if (!G.Player.canUseSkill(mFree, freeSkill)) errors.push('散修应能用散修功法');
+  if (G.Player.canUseSkill(mFree, sectSkill)) errors.push('散修不应能用宗门功法');
+  if (!G.Player.canUseSkill(mSect, sectSkill)) errors.push('本门弟子应能用本门功法');
+  if (G.Player.canUseSkill(mSect, freeSkill)) errors.push('宗门弟子不应能用散修功法');
+  if (!G.Player.canUseSkill(mFree, commonSkill)) errors.push('common 功法散修也该能用');
+  if (!G.Player.canUseSkill(mSect, commonSkill)) errors.push('common 功法宗门弟子也该能用');
+  /* 跨宗门：玄天阵宗的弟子不能用青溪剑馆的功法 */
+  if (G.Player.canUseSkill(mk('sect', 'xtzz'), sectSkill)) errors.push('外门弟子不应能用别家的宗门功法');
+  /* 同根分部：太虚剑宗山门弟子应能用本门功法（山门/总部/道场同根） */
+  if (!G.Player.canUseSkill(mk('sect', 'txjz_ling'), '太虚剑意')) errors.push('同根分部应能用本门功法');
+  /* 废功 */
+  const mV = mk('free'); mV.skills[freeSkill] = { lv: 3, voided: true };
+  if (G.Player.canUseSkill(mV, freeSkill)) errors.push('已废功的功法不应可用');
+
+  /* ⑤ 转阵营（用面板暴露的同一条逻辑：走 openPanel + 按钮点击，不重写一份） */
+  const s0 = JSON.parse(JSON.stringify(save));
+  s0.cult = 'free'; s0.sectId = null; s0.sectRep = 0; s0.cultSwitchUsed = false;
+  s0.skills = {}; s0.skills[freeSkill] = { lv: 2, voided: false };
+  s0.skills[commonSkill] = { lv: 1, voided: false };
+  s0.skillEquip = [freeSkill, commonSkill];
+  s0.pos = null;
+  G.game.save = s0;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  G.Overlays.openPanel(sc, 'sect');
+  if (sc.overlay !== 'sect') { errors.push('宗门面板打不开'); return; }
+  const joinBtn = (sc.buttons || []).filter(function (b) { return /拜入/.test(b.label || ''); })[0];
+  if (!joinBtn) { errors.push('宗门面板没有「拜入」按钮（散修态）'); return; }
+  joinBtn.onClick();
+  if (s0.cult !== 'sect' || !s0.sectId) errors.push('拜师后阵营/宗门未写入');
+  if (!s0.skills[freeSkill].voided) errors.push('拜师后散修功法应被废功');
+  if (s0.skills[commonSkill].voided) errors.push('common 功法不该被废功');
+  if (s0.skillEquip.indexOf(freeSkill) >= 0) errors.push('已废功的功法应自动卸下');
+  if (!s0.cultSwitchUsed) errors.push('转阵营后应置 cultSwitchUsed');
+  /* 每世一次：再开面板不应有拜入/退门按钮 */
+  G.Overlays.openPanel(sc, 'sect');
+  const again = (sc.buttons || []).filter(function (b) { return /拜入|退门帖/.test(b.label || ''); });
+  if (again.length) errors.push('本世已转过阵营，不应再出现拜入/退门按钮');
+
+  /* ⑥ 底栏 */
+  const bar = (sc.buttons || []).filter(function (b) { return b.variant === 'tab'; });
+  if (bar.length !== 6) errors.push(`底栏应为 6 项，实际 ${bar.length}`);
+  if (!bar.some(function (b) { return b.label === '宗门'; })) errors.push('底栏没有「宗门」项');
+
+  /* ⑦ 宗门功法**不得进散修掉落途径**（碎片参悟池 / 副本池 / 沈伯池）。
+     漏一条，"两道互斥"就被绕过去了 —— 而且症状很隐蔽：散修莫名其妙会了一本宗门功法。
+     实际踩过：`shardPool` 是**按品阶现算**的，加宗门功法后它们自动进了池子，
+     顺带改变了 RNG 消耗序列，把 `playthrough` 搞成了偶发失败。 */
+  ['凡', '灵', '宝'].forEach(function (tier) {
+    (G.Data.shardPool(tier) || []).forEach(function (id) {
+      if (G.Data.skills[id].src === 'sect') errors.push(`碎片池(${tier})混进了宗门功法：${id}`);
+    });
+  });
+  ['skillDropPool', 'skillDropPoolLing', 'shenBoPool'].forEach(function (k) {
+    (G.Data[k] || []).forEach(function (id) {
+      if (G.Data.skills[id] && G.Data.skills[id].src === 'sect') {
+        errors.push(`${k} 混进了宗门功法：${id}`);
+      }
+    });
+  });
+
+  /* 渲染：新增面板最容易漏的是 DRAW 注册 —— 漏了就是"点了没反应"、且不报错。
+     所以用文本探针确认面板文案真的画出来了（只断言"不抛异常"是空的）。 */
+  G.Overlays.openPanel(sc, 'sect');
+  const cs = textSpy();
+  sc.render(cs);
+  if (!cs.__seen.some(function (t) { return t.indexOf('阵营') >= 0; })) {
+    errors.push('宗门面板没有渲染出内容（DRAW 注册漏了？）');
+  }
+}, 'sect.contract');
 
 /* ---------- 区域可见性契约（缺口 G19） ----------
    裂隙（entrance）与界门（worldgate）是"这片区域里有秘境 / 能去别的界"的唯一线索。
@@ -4580,7 +4918,8 @@ step(function () {
      那样断言恒真（G36 同族）。⚠️ 角色面板的带子在**另一个位置**（它用 CHAR_PANEL），
      所以矩形必须按面板取，不能一律用五面板那条。 */
   const bandOf = function (id) {
-    return id === 'char' ? G.Overlays.CHAR_BAND : G.Overlays.PANEL_BAND;
+    /* 角色组（角色/功法/秘术）都用 CHAR_BAND —— 与 panels.js 的 shell 同源。 */
+    return G.Overlays.isCharGroup(id) ? G.Overlays.CHAR_BAND : G.Overlays.PANEL_BAND;
   };
   if (!G.Overlays.PANEL_BAND || !(G.Overlays.PANEL_BAND.w > 0)) {
     errors.push('未导出 PANEL_BAND（五面板的左缘竖排标题带）');
@@ -4634,7 +4973,8 @@ step(function () {
       return;
     }
     const b = cb[0];
-    const R = (id === 'char') ? G.Overlays.CHAR_PANEL : G.Overlays.PANEL_RECT;
+    /* 角色组（角色/功法/秘术）共用 CHAR_PANEL —— 与 panels.js 的 SP 同源。 */
+    const R = G.Overlays.isCharGroup(id) ? G.Overlays.CHAR_PANEL : G.Overlays.PANEL_RECT;
     if (!(b.x >= R.x && b.x + b.w <= R.x + R.w && b.y >= R.y && b.y + b.h <= R.y + R.h)) {
       errors.push('面板 ' + id + ' 的关闭钮跑到面板外（x=' + b.x + ' y=' + b.y
         + ' w=' + b.w + ' h=' + b.h + '，面板 ' + R.x + ',' + R.y + ' '
@@ -4845,8 +5185,8 @@ step(function () {
     errors.push('角色面板子页签应为 6 个（总览/灵根/属性/境界/功法/秘术），实际 ' + charTabIds.length);
   }
   [
-    { id: 'skills', R: G.Overlays.PANEL_RECT },
-    { id: 'secrets', R: G.Overlays.PANEL_RECT },
+    { id: 'skills', R: G.Overlays.CHAR_PANEL },
+    { id: 'secrets', R: G.Overlays.CHAR_PANEL },
     { id: 'quest', R: G.Overlays.PANEL_RECT },
     { id: 'bag', R: G.Overlays.PANEL_RECT },
     { id: 'cave', R: G.Overlays.PANEL_RECT },
@@ -5522,6 +5862,290 @@ step(function () {
   console.log('  ✓ 门口必有路：' + total + ' 栋建筑的门口都是 path');
 }, 'door.path.contract');
 pump(6, 'door.path.leave');
+
+/* ---------- 真地图（v0.18.0）----------
+   用户口径：①「现在的地图就是列表，不是真的地图」，要参考《烟雨江湖》看山脉河流走势、
+   标宗门与界门；②「点击凡界展示凡界全貌……没有飞升过灵界，灵界地图置灰无法点击，
+   仙界、道界隐藏，只有到灵界才能看到仙界，仙界通过地狱难度才能看到道界」。
+   本契约钉四件事：
+     ① **解锁门槛**（`worldGate`）：凡界永远可点；灵界**可见但置灰**；
+        仙界**未到灵界则隐藏**；道界需"仙界 + （三碎片齐 或 地狱通关仙界）"；
+     ② **28 个区域都有世界地图坐标**且在界内、同界内不贴太近（贴太近名字会糊成一团）；
+     ③ **真地图**：`drawMap` 必须画底图（源码闸），且**不能再出现按列分栏的列表布局**；
+     ④ 底图**预渲染缓存** + 地形噪点走**固定种子**（用 `G.rng` 会每帧都变，画面在闪）。 */
+step(function () {
+  const errors = [];
+  const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  /* ① 解锁门槛：**隐藏 vs 置灰**是两套判据，逐个场景钉死 */
+  const wg = G.Overlays.worldGate;
+  if (typeof wg !== 'function') bail('真地图契约：未导出 worldGate');
+  const CASES = [
+    [{}, 'fan', true, true, '凡界永远可点'],
+    [{}, 'ling', true, false, '灵界可见但未飞升置灰'],
+    [{}, 'xian', false, false, '仙界未到灵界应隐藏'],
+    [{}, 'dao', false, false, '道界未到仙界应隐藏'],
+    [{ progress: { worlds: { ling: true } } }, 'ling', true, true, '飞升灵界后可点'],
+    [{ progress: { worlds: { ling: true } } }, 'xian', true, false, '到灵界才看得见仙界（但还不能点）'],
+    [{ progress: { worlds: { ling: true, xian: true } } }, 'xian', true, true, '飞升仙界后可点'],
+    [{ progress: { worlds: { ling: true, xian: true } } }, 'dao', false, false, '只到仙界还不够，道界仍隐藏'],
+    [{ progress: { worlds: { ling: true, xian: true }, daoKey: true } }, 'dao', true, false, '三碎片齐 → 道界现世'],
+    [{ progress: { worlds: { ling: true, xian: true } }, hellCleared: { xian: true } }, 'dao', true, false, '地狱通关仙界 → 道界现世']
+  ];
+  CASES.forEach(function (c) {
+    const r = wg(c[0], c[1]);
+    if (r.show !== c[2]) errors.push(c[4] + '：show 应为 ' + c[2] + '，实为 ' + r.show);
+    if (r.ok !== c[3]) errors.push(c[4] + '：ok 应为 ' + c[3] + '，实为 ' + r.ok);
+  });
+
+  /* ② 地图坐标：28 个区域齐全、在界内、同界内不贴太近 */
+  const Rg = G.Data.regions;
+  let n = 0;
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+    const list = Rg.of(w) || [];
+    list.forEach(function (r) {
+      n++;
+      if (typeof r.mx !== 'number' || typeof r.my !== 'number') {
+        errors.push('区域 ' + r.id + ' 缺世界地图坐标 mx/my');
+        return;
+      }
+      if (r.mx < 0.02 || r.mx > 0.98 || r.my < 0.04 || r.my > 0.96) {
+        errors.push('区域 ' + r.id + ' 的地图坐标越界（' + r.mx + ',' + r.my + '）');
+      }
+    });
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const dx = list[i].mx - list[j].mx, dy = list[i].my - list[j].my;
+        if (Math.sqrt(dx * dx + dy * dy) < 0.11) {
+          errors.push(w + ' 界内 ' + list[i].id + ' 与 ' + list[j].id
+            + ' 的地图坐标太近（名字会糊成一团）');
+        }
+      }
+    }
+  });
+  if (n !== 28) errors.push('区域总数应为 28，实为 ' + n);
+
+  /* ③④ 源码闸：真地图 + 缓存 + 固定种子 */
+  const ps = stripC(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
+  const i0 = ps.indexOf('function drawMap');
+  const i1 = ps.indexOf('function buildMap');
+  if (i0 < 0 || i1 < 0 || i1 < i0) bail('真地图契约：panels.js 里找不到 drawMap/buildMap');
+  const body = ps.slice(i0, i1);
+  if (body.indexOf('worldMapBg(') < 0) {
+    errors.push('drawMap 没有画世界地图底图（还是列表？）');
+  }
+  if (body.indexOf('colW') >= 0) {
+    errors.push('drawMap 里仍有按列分栏的列表布局（用户口径：不是真的地图）');
+  }
+  const i2 = ps.indexOf('function worldMapBg');
+  if (i2 < 0) errors.push('缺 worldMapBg（世界地图底图）');
+  else {
+    const tb = ps.slice(i2, i0);
+    if (tb.indexOf('G.Art.rnd(') < 0) {
+      errors.push('世界地图地形未用固定种子（G.Art.rnd）—— 用 G.rng 会每帧都变');
+    }
+    if (/\bG\.rng\b/.test(tb)) {
+      errors.push('世界地图地形不得用全局 G.rng（时间播种，画面会闪）');
+    }
+    if (tb.indexOf('mapBg[key]') < 0) {
+      errors.push('世界地图底图没有预渲染缓存（每帧重画上百个笔触会掉帧）');
+    }
+  }
+
+  /* 真跑一遍：四界各渲染一次，路径不得抛 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  G.game.meta = G.game.meta || {};
+  G.game.meta.progress = G.game.meta.progress || {};
+  G.game.meta.progress.worlds = { fan: true, ling: true, xian: true, dao: true };
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+    sc.mapWorld = w;
+    G.Overlays.openPanel(sc, 'map');
+    const cx = textSpyXY();
+    try { G.Overlays.renderPanel(cx, sc); } catch (e) {
+      errors.push('渲染 ' + w + ' 界地图时抛异常：' + e.message);
+    }
+  });
+  G.game.changeScene('title');
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('真地图契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 真地图：28 区坐标齐全 / 四界解锁门槛（隐藏 vs 置灰）/ 底图缓存 + 固定种子');
+}, 'map.world.contract');
+pump(6, 'map.world.leave');
+
+/* ---------- 破境成功率（v0.18.0）----------
+   用户口径：「大道五十，天衍四九，人遁其一」——
+     成功率 = **基础 + 失败累计道基 + 破境丹 + 天道赐福**；
+     其中前三项**封顶 95%**，天道赐福**额外**再加 1%~5%。
+   三条规则：① 基础与道基**随境界提升而降低**；
+   ② 破境丹下品固定 +10%、每品级额外 +2%、**最高道级也只 +30%**；
+   ③ **所有大境界破境都需要破境丹**（现有规则，写进公式）。
+   本契约钉：丹药品级加成表 / 95% 封顶 / 赐福额外叠加 / 基础随境界单调不增 /
+   道基"筑基前为 0、筑基后按失败次数累积" / 真驱动"必失败扣丹 + 道基 +1"与"必成功清零"。 */
+step(function () {
+  const errors = [];
+  const P = G.Player;
+
+  /* ① 破境丹加成表：下品 10、每级 +2、道级封顶 30 */
+  const Q = P.PILL_QUALITY;
+  if (!Array.isArray(Q) || Q.length !== 12) bail('破境契约：PILL_QUALITY 应为 12 档');
+  if (Q[0].n !== '下品' || Q[0].add !== 10) errors.push('下品破境丹应固定 +10%');
+  if (Q[11].n !== '道级' || Q[11].add !== 30) errors.push('道级破境丹应封顶 +30%');
+  for (let i = 1; i < 12; i++) {
+    if (Q[i].add < Q[i - 1].add) errors.push('破境丹加成必须单调不降（' + Q[i].n + ' 低于前一档）');
+    if (Q[i].add > 30) errors.push('破境丹加成不得超过 30%（' + Q[i].n + ' 为 ' + Q[i].add + '）');
+  }
+
+  /* ② 丹药品级随境界单调不降 */
+  let prev = 0;
+  [1, 9, 19, 40, 70, 100, 145, 171].forEach(function (gl) {
+    const q = P.pillQualityIdx(gl);
+    if (q < prev) errors.push('破境丹品级随境界倒退（gl ' + gl + ' → ' + q + '）');
+    if (q < 1 || q > 12) errors.push('破境丹品级越界（gl ' + gl + ' → ' + q + '）');
+    prev = q;
+  });
+
+  /* ③ 基础概率随境界单调不增 + 封顶 95% */
+  const mk = function (gl, fails, blessing) {
+    const o = JSON.parse(JSON.stringify(save));
+    o.globalLevel = gl; o.qi = 999999;
+    o.items = o.items || {};
+    o.breakFails = fails || 0;
+    const meta = { blessing: blessing || 0 };
+    o.items[P.breakPill(gl)] = 3;
+    return { save: o, meta: meta, ch: P.breakChance(o, meta) };
+  };
+  let pb = 999;
+  [1, 19, 50, 100, 145, 171].forEach(function (gl) {
+    const ch = mk(gl, 0, 0).ch;
+    if (ch.base > pb) errors.push('基础破境概率应随境界下降（gl ' + gl + ' 反而更高）');
+    pb = ch.base;
+    if (ch.base < 20 || ch.base > 95) errors.push('基础破境概率越界（gl ' + gl + ' → ' + ch.base + '）');
+  });
+  /* 前三项封顶 95：淬体（基础 90 + 丹 10）已经超了，必须被夹到 95 */
+  const c1 = mk(1, 0, 0).ch;
+  if (c1.core !== 95) errors.push('前三项应封顶 95%（实为 ' + c1.core + '）');
+  if (c1.total !== 95) errors.push('无赐福时总成功率应等于 core（实为 ' + c1.total + '）');
+
+  /* ④ 天道赐福：**额外**叠加（不受 95% 封顶约束），且被夹在 1%~5% */
+  const c2 = mk(1, 0, 5).ch;
+  if (c2.bless !== 5) errors.push('天道赐福 5 应原样返回，实为 ' + c2.bless);
+  if (c2.total !== 100) errors.push('95% + 赐福 5% 应到 100%（实为 ' + c2.total + '）');
+  if (mk(1, 0, 99).ch.bless !== 5) errors.push('天道赐福应封顶 5%');
+  if (mk(1, 0, -3).ch.bless !== 0) errors.push('无赐福时应为 0（不是负数）');
+
+  /* ⑤ 道基：**筑基之前为 0**，筑基之后按失败次数累积、封顶 20 */
+  if (mk(9, 5, 0).ch.dao !== 0) errors.push('淬体期不该有"失败累计道基"（用户口径：筑基之后才有）');
+  if (mk(19, 1, 0).ch.dao !== 6) errors.push('筑基后 1 次失败应累计 6%，实为 ' + mk(19, 1, 0).ch.dao);
+  if (mk(19, 99, 0).ch.dao !== 20) errors.push('失败累计道基应封顶 20%');
+
+  /* ⑥ 真驱动：必失败 → 扣丹 + 道基 +1；必成功 → 清零 */
+  const A = mk(9, 0, 0);
+  const pillA = P.breakPill(9);
+  const beforeA = A.save.items[pillA];
+  const rf = P.startBigBreak(A.save, A.meta, 0.999);
+  if (rf.ok || !rf.failed) errors.push('掷 0.999 应破境失败');
+  if (A.save.items[pillA] !== beforeA - 1) errors.push('破境失败应照扣破境丹（大道五十，试错有代价）');
+  if (A.save.breakFails !== 1) errors.push('破境失败应把 breakFails 记 1，实为 ' + A.save.breakFails);
+
+  const B = mk(9, 3, 0);
+  const pillB = P.breakPill(9);
+  const beforeB = B.save.items[pillB];
+  const rs = P.startBigBreak(B.save, B.meta, 0);
+  if (!rs.ok) errors.push('掷 0 应破境成功，实为 ' + rs.reason);
+  if (B.save.items[pillB] !== beforeB - 1) errors.push('破境成功也应扣丹（丹是"门票"）');
+  if (B.save.breakFails !== 0) errors.push('破境成功后应清零 breakFails，实为 ' + B.save.breakFails);
+
+  /* ⑦ 源码闸：不得用全局 G.rng 掷（那会消耗全局序列、带歪回归基线） */
+  const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const ps = stripC(fs.readFileSync(path.join(WWW, 'js/core/player.js'), 'utf8'));
+  const i0 = ps.indexOf('startBigBreak: function');
+  const i1 = ps.indexOf('/* ===== 打坐', i0);
+  if (i0 < 0) bail('破境契约：找不到 startBigBreak');
+  const body = ps.slice(i0, i1 > 0 ? i1 : i0 + 1600);
+  if (/\bG\.rng\b/.test(body)) errors.push('破境掷点不得用全局 G.rng（会消耗全局序列）');
+  if (body.indexOf('breakFails') < 0) errors.push('startBigBreak 未记录失败累计道基');
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('破境契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 破境成功率：丹 10~30% / 前三项封顶 95% / 赐福额外 +1~5% / 道基筑基后累计');
+}, 'break.chance.contract');
+pump(4, 'break.chance.leave');
+
+/* ---------- 濒死红屏 + 受击红帧（v0.18.0）----------
+   用户口径：「主角濒死时，全屏显红警告玩家」+「战斗界面主角应该是红色受击的动画帧」。
+   本契约钉：① 阈值 25%（满血**不画**、濒死才画 —— 用 fillRect 计数验，不是"看代码有这段"）；
+   ② 主角受击走**红色剪影**（敌我共用一段闪光代码，直接加色得到的是白的）；
+   ③ 血量上限缓存可用（每帧现算 computeStats 太贵）。 */
+step(function () {
+  const errors = [];
+  const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  /* ① 源码闸 */
+  const gs = stripC(fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8'));
+  const i0 = gs.indexOf('_renderDanger: function');
+  if (i0 < 0) bail('濒死契约：game.js 里没有 _renderDanger');
+  const i1 = gs.indexOf('_renderLoot: function');
+  const body = gs.slice(i0, i1 > i0 ? i1 : i0 + 1400);
+  if (body.indexOf('0.25') < 0) errors.push('濒死阈值应为 25%');
+  if (!/pct > 0\.25\) return;/.test(body)) errors.push('满血时 _renderDanger 必须提前返回（不能一直泛红）');
+  if (gs.indexOf('this._renderDanger(x)') < 0) errors.push('_renderDanger 没有被主循环调用');
+
+  const bs = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+  if (bs.indexOf('function hitSilhouette') < 0) errors.push('缺 hitSilhouette（主角受击红剪影）');
+  /* ⚠️ 判据必须收在**闪光那一块**里：`key === 'P'` 在整个 battle.js 里出现几十次，
+     全局 indexOf 恒真 —— 反例验证时正是这条漏了（G43 同型）。 */
+  /* ⚠️ 找**调用点**而不是函数名：`hitSilhouette(spr)` 在定义处也出现一次，
+     用 indexOf 会命中定义（在文件更前面），窗口取错位置 → 恒报假红。 */
+  const hi = bs.indexOf('drawImage(hitSilhouette(spr)');
+  if (hi < 0) {
+    errors.push('受击红剪影只是定义了、没被用上');
+  } else if (!/key === 'P'/.test(bs.slice(Math.max(0, hi - 420), hi + 220))) {
+    errors.push('受击闪光未按"主角走红剪影"分支');
+  }
+  if (bs.indexOf('#ff4a3a') < 0) errors.push('主角受击剪影色缺失');
+
+  /* ② 运行时：满血不画、濒死才画（用 fillRect 计数，不看代码"有没有这段"） */
+  const realSave = G.game.save;
+  const realMeta = G.game.meta;
+  G.game.meta = G.game.meta || {};
+  const mkSave = function (hp) {
+    return { hp: hp, globalLevel: 1, skills: {}, quest: { step: 'free', flags: {} } };
+  };
+  const count = function (sv) {
+    G.game.save = sv;
+    G.game._hpKey = null;                      /* 强制重算缓存 */
+    const c = makeCtx();
+    let n = 0;
+    c.fillRect = function () { n++; };
+    try { G.game._renderDanger(c); } catch (e) { errors.push('_renderDanger 抛异常：' + e.message); }
+    return n;
+  };
+  const mh = G.game._hpMaxCache(mkSave(1));
+  if (!(mh > 0)) errors.push('_hpMaxCache 没算出气血上限（濒死判定会失效）');
+  const full = count(mkSave(mh));
+  const low = count(mkSave(Math.max(1, Math.round(mh * 0.10))));
+  if (full !== 0) errors.push('满血时 _renderDanger 不该画任何东西（实画 ' + full + ' 个矩形）');
+  if (low < 1) errors.push('濒死时 _renderDanger 必须画出红色警示（实画 ' + low + ' 个矩形）');
+  G.game.save = realSave;
+  G.game.meta = realMeta;
+  G.game._hpKey = null;
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('濒死契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 濒死红屏：满血不画 / ≤25% 泛红 / ≤15% 出字；主角受击走红剪影');
+}, 'danger.warn.contract');
+pump(4, 'danger.warn.leave');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

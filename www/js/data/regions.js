@@ -17,41 +17,41 @@
 
   /* ===== 凡界 9 区（gl 1–63）===== */
   var fan = [
-    R({ id: 'fan1', n: '青溪镇', map: 'town', theme: '起点市镇', gate: false, exits: [], b: [] }),
-    R({ id: 'fan2', n: '翠微山', map: 'field', theme: '城郊山野', gate: false, exits: [], b: [] }),
-    R({ id: 'fan3', n: '赤牙洞', map: 'cave', theme: '山腹洞窟', gate: false, exits: [], b: [] }),
+    R({ id: 'fan1', mx: 0.16, my: 0.70, n: '青溪镇', map: 'town', theme: '起点市镇', gate: false, exits: [], b: [] }),
+    R({ id: 'fan2', mx: 0.28, my: 0.52, n: '翠微山', map: 'field', theme: '城郊山野', gate: false, exits: [], b: [] }),
+    R({ id: 'fan3', mx: 0.40, my: 0.36, n: '赤牙洞', map: 'cave', theme: '山腹洞窟', gate: false, exits: [], b: [] }),
 
     /* 凡界的界门放在**落霞镇**（商旅重镇 = 交通枢纽），而不是青溪镇 ——
        青溪镇是复用现有手写地图（`town`），往里塞界门对象会动到 M0 教学链与既有测试契约。 */
-    R({ id: 'fan4', n: '落霞镇', theme: '商旅重镇', w: 44, h: 28, ground: 'town', safe: true, gate: true,
+    R({ id: 'fan4', mx: 0.46, my: 0.64, n: '落霞镇', theme: '商旅重镇', w: 44, h: 28, ground: 'town', safe: true, gate: true,
         exits: [{ to: 'fan1', side: 'south' }, { to: 'fan5', side: 'east' }, { to: 'fan7', side: 'north' }, { to: 'fan8', side: 'west' }],
         b: [B('shop', '坊市', 6, 3), B('smithy', '铁匠铺', 5, 3), B('alchemy', '丹房', 5, 3),
             B('temple', '当铺', 5, 3), B('inn', '悦来客栈', 7, 4), B('inn', '同福客栈', 7, 4),
             B('house', '民居', 4, 3, 4)] }),
 
-    R({ id: 'fan5', n: '黑风岭', theme: '匪寨山地', w: 42, h: 30, ground: 'grass', gate: false,
+    R({ id: 'fan5', mx: 0.26, my: 0.84, n: '黑风岭', theme: '匪寨山地', w: 42, h: 30, ground: 'grass', gate: false,
         exits: [{ to: 'fan4', side: 'west' }, { to: 'fan6', side: 'east' }, { to: 'fan9', side: 'north' }],
         zones: [{ id: 'low', y0: 20, y1: 29, enc: { min: 10, max: 14 }, pair: 20 },
                 { id: 'high', y0: 0, y1: 19, enc: { min: 14, max: 20 }, pair: 30 }],
         b: [B('gate', '寨门楼', 6, 3), B('tower', '哨塔', 2, 3, 2),
             B('hall', '聚义厅', 8, 5), B('house', '匪舍', 4, 3, 3)] }),
 
-    R({ id: 'fan6', n: '幽篁谷', theme: '竹谷药圃', w: 40, h: 30, ground: 'grass', gate: false,
+    R({ id: 'fan6', mx: 0.60, my: 0.30, n: '幽篁谷', theme: '竹谷药圃', w: 40, h: 30, ground: 'grass', gate: false,
         exits: [{ to: 'fan5', side: 'west' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 18, max: 30 }, pair: 25 }],
         b: [B('apothecary', '药圃茅庐', 5, 3), B('house', '采药人屋', 4, 3, 2), B('temple', '竹亭', 4, 3)] }),
 
-    R({ id: 'fan7', n: '乱葬岗', theme: '荒坟鬼冢', w: 40, h: 30, ground: 'cave', gate: false,
+    R({ id: 'fan7', mx: 0.70, my: 0.48, n: '乱葬岗', theme: '荒坟鬼冢', w: 40, h: 30, ground: 'cave', gate: false,
         exits: [{ to: 'fan4', side: 'south' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 28, max: 40 }, pair: 30 }],
         b: [B('temple', '义庄', 7, 4), B('house', '守墓屋', 4, 3), B('tower', '破棺洞', 3, 3)] }),
 
-    R({ id: 'fan8', n: '落霞灵矿', theme: '废弃灵矿', w: 42, h: 28, ground: 'cave', gate: false,
+    R({ id: 'fan8', mx: 0.58, my: 0.78, n: '落霞灵矿', theme: '废弃灵矿', w: 42, h: 28, ground: 'cave', gate: false,
         exits: [{ to: 'fan4', side: 'east' }],
         zones: [{ id: 'all', y0: 0, y1: 27, enc: { min: 38, max: 50 }, pair: 25 }],
         b: [B('house', '矿工棚', 4, 3, 2), B('hall', '矿主宅', 7, 4), B('gate', '矿洞入口', 6, 3)] }),
 
-    R({ id: 'fan9', n: '火云谷', theme: '地火熔岩谷', w: 42, h: 30, ground: 'cave', gate: false,
+    R({ id: 'fan9', mx: 0.82, my: 0.62, n: '火云谷', theme: '地火熔岩谷', w: 42, h: 30, ground: 'cave', gate: false,
         exits: [{ to: 'fan5', side: 'south' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 48, max: 63 }, pair: 30 }],
         b: [B('alchemy', '炼丹废庐', 5, 3), B('house', '火工屋', 4, 3, 2)] })
@@ -59,29 +59,29 @@
 
   /* ===== 灵界 5 区（gl 64–90）===== */
   var ling = [
-    R({ id: 'ling1', n: '雷泽荒原', theme: '雷雨沼泽', w: 46, h: 32, ground: 'grass', gate: true,
+    R({ id: 'ling1', mx: 0.20, my: 0.44, n: '雷泽荒原', theme: '雷雨沼泽', w: 46, h: 32, ground: 'grass', gate: true,
         exits: [{ to: 'ling2', side: 'north' }, { to: 'ling3', side: 'east' }],
         zones: [{ id: 'low', y0: 18, y1: 31, enc: { min: 64, max: 68 }, pair: 20 },
                 { id: 'high', y0: 0, y1: 17, enc: { min: 68, max: 70 }, pair: 30 }],
         b: [B('tower', '观雷台', 4, 4), B('hall', '雷池守卫所', 8, 5), B('gate', '界门', 6, 4)] }),
 
-    R({ id: 'ling2', n: '寒渊水府', theme: '深水宫阙', w: 44, h: 30, ground: 'cave', gate: false,
+    R({ id: 'ling2', mx: 0.36, my: 0.72, n: '寒渊水府', theme: '深水宫阙', w: 44, h: 30, ground: 'cave', gate: false,
         exits: [{ to: 'ling1', side: 'south' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 68, max: 76 }, pair: 25 }],
         b: [B('hall', '水府正殿', 9, 5), B('house', '鲛人厢房', 4, 3, 2), B('tower', '藏珍阁', 4, 4)] }),
 
-    R({ id: 'ling3', n: '血煞总坛', theme: '邪教总坛', w: 46, h: 30, ground: 'town', gate: false,
+    R({ id: 'ling3', mx: 0.50, my: 0.34, n: '血煞总坛', theme: '邪教总坛', w: 46, h: 30, ground: 'town', gate: false,
         exits: [{ to: 'ling1', side: 'west' }, { to: 'ling4', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 74, max: 82 }, pair: 30 }],
         b: [B('hall', '血煞大殿', 9, 5), B('temple', '祭坛', 6, 4), B('gate', '刑牢', 6, 3),
             B('house', '执事房', 4, 3, 2)] }),
 
-    R({ id: 'ling4', n: '黄沙古堡', theme: '荒漠遗迹', w: 46, h: 32, ground: 'grass', gate: false,
+    R({ id: 'ling4', mx: 0.64, my: 0.66, n: '黄沙古堡', theme: '荒漠遗迹', w: 46, h: 32, ground: 'grass', gate: false,
         exits: [{ to: 'ling3', side: 'south' }, { to: 'ling5', side: 'east' }],
         zones: [{ id: 'all', y0: 0, y1: 31, enc: { min: 80, max: 86 }, pair: 30 }],
         b: [B('hall', '古堡主楼', 9, 5), B('tower', '风蚀哨塔', 3, 4, 2), B('inn', '商队客栈', 7, 4)] }),
 
-    R({ id: 'ling5', n: '云海剑冢', theme: '剑修遗迹', w: 44, h: 30, ground: 'grass', gate: false,
+    R({ id: 'ling5', mx: 0.82, my: 0.40, n: '云海剑冢', theme: '剑修遗迹', w: 44, h: 30, ground: 'grass', gate: false,
         exits: [{ to: 'ling4', side: 'west' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 85, max: 90 }, pair: 35 }],
         b: [B('tower', '剑阁', 5, 5), B('house', '守冢庐', 4, 3), B('tower', '藏剑楼', 5, 5)] })
@@ -89,7 +89,7 @@
 
   /* ===== 仙界 9 区（gl 91–144）===== */
   var xian = [
-    R({ id: 'xian1', n: '南天门', theme: '天宫门户', w: 46, h: 30, ground: 'town', safe: true, gate: true,
+    R({ id: 'xian1', mx: 0.50, my: 0.20, n: '南天门', theme: '天宫门户', w: 46, h: 30, ground: 'town', safe: true, gate: true,
         exits: [{ to: 'xian2', side: 'north' }],
         b: [B('hall', '镇门殿', 9, 5), B('house', '天兵营', 5, 3, 2), B('gate', '界门', 6, 4)] }),
 
@@ -99,42 +99,42 @@
        玩家飞升仙界后无处刷灵气（`zone-curve.js` 的覆盖检查会报出来）。
        仙池园囿本就有仙鹤与守园灵兽，与 G12「兜率天宫/蟠桃园/天枢阁 改非安全区」同理。
        首区 xian1 南天门保留 safe（飞升落点的门阙不该一落地就挨打）。 */
-    R({ id: 'xian2', n: '瑶池仙境', theme: '仙池园囿', w: 46, h: 32, ground: 'grass', gate: false,
+    R({ id: 'xian2', mx: 0.24, my: 0.38, n: '瑶池仙境', theme: '仙池园囿', w: 46, h: 32, ground: 'grass', gate: false,
         exits: [{ to: 'xian1', side: 'south' }, { to: 'xian3', side: 'east' }],
         zones: [{ id: 'all', y0: 0, y1: 31, enc: { min: 91, max: 105 }, pair: 25 }],
         b: [B('temple', '瑶池亭', 6, 4), B('tower', '仙鹤苑', 4, 4), B('house', '侍女所', 4, 3, 2)] }),
 
-    R({ id: 'xian3', n: '兜率天宫', theme: '丹炉道宫', w: 46, h: 30, ground: 'town', gate: false,
+    R({ id: 'xian3', mx: 0.72, my: 0.32, n: '兜率天宫', theme: '丹炉道宫', w: 46, h: 30, ground: 'town', gate: false,
         exits: [{ to: 'xian2', side: 'west' }, { to: 'xian4', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 106, max: 116 }, pair: 30 }],
         b: [B('alchemy', '丹房', 6, 4), B('hall', '炉鼎殿', 9, 5), B('tower', '藏丹阁', 5, 5)] }),
 
-    R({ id: 'xian4', n: '星河渡', theme: '星海渡口', w: 46, h: 32, ground: 'grass', gate: false,
+    R({ id: 'xian4', mx: 0.38, my: 0.56, n: '星河渡', theme: '星海渡口', w: 46, h: 32, ground: 'grass', gate: false,
         exits: [{ to: 'xian3', side: 'south' }, { to: 'xian5', side: 'east' }],
         zones: [{ id: 'all', y0: 0, y1: 31, enc: { min: 114, max: 124 }, pair: 30 }],
         b: [B('inn', '渡口栈', 7, 4), B('tower', '观星台', 5, 5), B('gate', '星舟坞', 6, 3)] }),
 
-    R({ id: 'xian5', n: '蟠桃园', theme: '仙果园囿', w: 46, h: 32, ground: 'grass', gate: false,
+    R({ id: 'xian5', mx: 0.18, my: 0.66, n: '蟠桃园', theme: '仙果园囿', w: 46, h: 32, ground: 'grass', gate: false,
         exits: [{ to: 'xian4', side: 'west' }, { to: 'xian6', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 31, enc: { min: 120, max: 130 }, pair: 30 }],
         b: [B('gate', '园门楼', 6, 3), B('house', '看守所', 4, 3, 2), B('tower', '果窖', 4, 4)] }),
 
-    R({ id: 'xian6', n: '斩仙台', theme: '天宫刑台', w: 44, h: 30, ground: 'town', gate: false,
+    R({ id: 'xian6', mx: 0.62, my: 0.54, n: '斩仙台', theme: '天宫刑台', w: 44, h: 30, ground: 'town', gate: false,
         exits: [{ to: 'xian5', side: 'south' }, { to: 'xian7', side: 'east' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 126, max: 134 }, pair: 35 }],
         b: [B('hall', '刑台殿', 9, 5), B('tower', '锁仙柱廊', 5, 5), B('gate', '监牢', 6, 3)] }),
 
-    R({ id: 'xian7', n: '广寒宫', theme: '月宫寒阙', w: 44, h: 30, ground: 'cave', gate: false,
+    R({ id: 'xian7', mx: 0.84, my: 0.62, n: '广寒宫', theme: '月宫寒阙', w: 44, h: 30, ground: 'cave', gate: false,
         exits: [{ to: 'xian6', side: 'west' }, { to: 'xian8', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 132, max: 138 }, pair: 30 }],
         b: [B('hall', '月殿', 9, 5), B('temple', '桂树苑', 6, 4), B('tower', '寒窟', 4, 4)] }),
 
-    R({ id: 'xian8', n: '天枢阁', theme: '天规藏经', w: 44, h: 30, ground: 'town', gate: false,
+    R({ id: 'xian8', mx: 0.32, my: 0.84, n: '天枢阁', theme: '天规藏经', w: 44, h: 30, ground: 'town', gate: false,
         exits: [{ to: 'xian7', side: 'south' }, { to: 'xian9', side: 'east' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 136, max: 141 }, pair: 30 }],
         b: [B('tower', '经阁', 5, 5), B('temple', '天规碑亭', 5, 4), B('tower', '书楼', 5, 5)] }),
 
-    R({ id: 'xian9', n: '九霄云台', theme: '雷部演武', w: 44, h: 30, ground: 'grass', gate: false,
+    R({ id: 'xian9', mx: 0.66, my: 0.80, n: '九霄云台', theme: '雷部演武', w: 44, h: 30, ground: 'grass', gate: false,
         exits: [{ to: 'xian8', side: 'west' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 140, max: 144 }, pair: 35 }],
         b: [B('hall', '演武场', 9, 5), B('tower', '雷台', 5, 5), B('gate', '云梯楼', 6, 4)] })
@@ -142,26 +142,26 @@
 
   /* ===== 道界 5 区（gl 145–171；固定试炼，不走随机池）===== */
   var dao = [
-    R({ id: 'dao1', n: '道则回廊', theme: '回廊入口', w: 44, h: 30, ground: 'town', safe: true, gate: true,
+    R({ id: 'dao1', mx: 0.20, my: 0.50, n: '道则回廊', theme: '回廊入口', w: 44, h: 30, ground: 'town', safe: true, gate: true,
         exits: [{ to: 'dao2', side: 'north' }],
         b: [B('temple', '道碑亭', 6, 4), B('house', '守关庐', 4, 3), B('gate', '界门', 6, 4)] }),
 
-    R({ id: 'dao2', n: '斩尸崖', theme: '斩三尸', w: 42, h: 30, ground: 'cave', gate: false,
+    R({ id: 'dao2', mx: 0.38, my: 0.28, n: '斩尸崖', theme: '斩三尸', w: 42, h: 30, ground: 'cave', gate: false,
         exits: [{ to: 'dao1', side: 'south' }, { to: 'dao3', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 150, max: 155 }, pair: 35 }],
         b: [B('temple', '斩尸台', 7, 4), B('house', '静室', 4, 3, 2)] }),
 
-    R({ id: 'dao3', n: '功德海', theme: '功德道相', w: 44, h: 30, ground: 'grass', gate: false,
+    R({ id: 'dao3', mx: 0.52, my: 0.70, n: '功德海', theme: '功德道相', w: 44, h: 30, ground: 'grass', gate: false,
         exits: [{ to: 'dao2', side: 'south' }, { to: 'dao4', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 155, max: 162 }, pair: 35 }],
         b: [B('temple', '功德莲台', 7, 4), B('tower', '功德碑廊', 5, 5)] }),
 
-    R({ id: 'dao4', n: '混沌渊', theme: '大道化身', w: 42, h: 30, ground: 'cave', gate: false,
+    R({ id: 'dao4', mx: 0.68, my: 0.38, n: '混沌渊', theme: '大道化身', w: 42, h: 30, ground: 'cave', gate: false,
         exits: [{ to: 'dao3', side: 'south' }, { to: 'dao5', side: 'north' }],
         zones: [{ id: 'all', y0: 0, y1: 29, enc: { min: 162, max: 168 }, pair: 35 }],
         b: [B('temple', '混沌窟', 7, 4), B('tower', '道则傀儡台', 5, 5)] }),
 
-    R({ id: 'dao5', n: '合道台', theme: '合道终点', w: 42, h: 30, ground: 'town', safe: true, gate: false,
+    R({ id: 'dao5', mx: 0.84, my: 0.58, n: '合道台', theme: '合道终点', w: 42, h: 30, ground: 'town', safe: true, gate: false,
         exits: [{ to: 'dao4', side: 'south' }],
         b: [B('hall', '合道台', 9, 5), B('gate', '大道之门', 6, 4)] })
   ];

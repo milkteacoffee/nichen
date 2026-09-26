@@ -78,13 +78,108 @@
   function shardPool(tier) {
     var t = tier;
     for (var guard = 0; guard < 4; guard++) {
-      var ids = Object.keys(S).filter(function (id) { return S[id].tier === t; });
+      var ids = Object.keys(S).filter(function (id) {
+        /* ⚠️ 宗门功法**不进碎片池**：否则散修能用碎片「参悟」出宗门功法，
+           "两道互斥"就被整条绕过去了（宗门功法只走宗门途径，见宗门 v1.0 §4）。 */
+        return S[id].tier === t && S[id].src !== 'sect';
+      });
       if (ids.length) return ids;
       if (!TIER_FALLBACK[t]) break;
       t = TIER_FALLBACK[t];
     }
     return [];
   }
+
+  /* ============================================================
+     宗门功法（《宗门与散修体系设计 v1.0》§4）
+     ------------------------------------------------------------
+     · src='sect'，sect = **根宗门 id**（分部/总部/道场共用同一本，靠 sects.rootOf 判授权）
+     · 强度与同阶散修功法**同档**，差异在获取路径与手感：
+       宗门偏"稳"（防御 / 续航 / 群体），散修偏"险"（爆发 / 吸血 / 单点）
+     · 品阶：首版全部凡阶（山门可授）；灵阶/仙阶待灵界、仙界总部开工后补
+     ============================================================ */
+  function sectAtk(id, n, elem, mult, sectId, extra) {
+    var s = { id: id, n: n, kind: '攻击', tier: '凡', elem: elem, mult: mult,
+      cd: 0, hit: 100, target: '前排', src: 'sect', sect: sectId };
+    if (extra) Object.keys(extra).forEach(function (k) { s[k] = extra[k]; });
+    return s;
+  }
+  function sectPass(id, n, kind, elem, sectId, extra) {
+    var s = { id: id, n: n, kind: kind, tier: '凡', elem: elem, passive: true,
+      src: 'sect', sect: sectId };
+    if (extra) Object.keys(extra).forEach(function (k) { s[k] = extra[k]; });
+    return s;
+  }
+  function sectActive(id, n, elem, sectId, act) {
+    return { id: id, n: n, kind: '仙术', tier: '凡', elem: elem, passive: true,
+      src: 'sect', sect: sectId, active: act };
+  }
+
+  /* 青溪剑馆（剑·金） */
+  S.青溪剑诀 = sectAtk('青溪剑诀', '青溪剑诀', '金', 1.25, 'qxj');
+  S.流云三叠 = sectAtk('流云三叠', '流云三叠', '风', 0.80, 'qxj', { hits: 3 });
+  /* 落霞镖局（体·土） */
+  S.铁镖护体 = sectPass('铁镖护体', '铁镖护体', '防御', '土', 'lxb');
+  S.镖行千里 = sectPass('镖行千里', '镖行千里', '仙术', '土', 'lxb');
+  /* 幽篁药庐（丹·木） */
+  S.百草回春 = sectPass('百草回春', '百草回春', '仙术', '木', 'yhy');
+  S.药王真解 = sectActive('药王真解', '药王真解', '木', 'yhy',
+    { n: '药王真解', heal: 1.8, cd: 3, hit: 100, target: '自身' });
+  /* 火云观（火） */
+  S.火云咒 = sectAtk('火云咒', '火云咒', '火', 1.30, 'hyg', { status: { t: '烧', chance: .22 } });
+  S.焚天诀 = sectAtk('焚天诀', '焚天诀', '火', 1.50, 'hyg', { cd: 2, status: { t: '烧', chance: .30 } });
+  /* 翠微猎户盟（御兽·木/土） */
+  S.猎兽诀 = sectAtk('猎兽诀', '猎兽诀', '木', 1.30, 'cwl');
+  S.御兽同心 = sectPass('御兽同心', '御兽同心', '仙术', '土', 'cwl');
+  /* 太虚剑宗（剑·金） */
+  S.太虚剑意 = sectAtk('太虚剑意', '太虚剑意', '金', 1.35, 'txjz');
+  S.万剑归宗 = sectActive('万剑归宗', '万剑归宗', '金', 'txjz',
+    { n: '万剑归宗', mult: 1.20, cd: 3, hit: 100, target: '全体' });
+  /* 丹霞谷（丹·火） */
+  S.丹霞吐纳 = sectPass('丹霞吐纳', '丹霞吐纳', '仙术', '火', 'dxg');
+  S.九转丹经 = sectActive('九转丹经', '九转丹经', '火', 'dxg',
+    { n: '九转丹经', heal: 2.0, cd: 4, hit: 100, target: '自身' });
+  /* 玄天阵宗（阵·土） */
+  S.小周天阵 = sectPass('小周天阵', '小周天阵', '防御', '土', 'xtzz');
+  S.玄天困阵 = sectActive('玄天困阵', '玄天困阵', '土', 'xtzz',
+    { n: '玄天困阵', mult: 0.9, cd: 3, hit: 100, target: '前排', status: { t: '封', chance: .45 } });
+  /* 万兽山庄（御兽·土） */
+  S.兽血诀 = sectAtk('兽血诀', '兽血诀', '土', 1.35, 'wssz');
+  S.万兽朝宗 = sectActive('万兽朝宗', '万兽朝宗', '土', 'wssz',
+    { n: '万兽朝宗', mult: 1.15, cd: 3, hit: 100, target: '全体' });
+  /* 雷泽散人盟（水） */
+  S.雷泽引气 = sectPass('雷泽引气', '雷泽引气', '仙术', '水', 'lzm');
+  S.雷泽怒涛 = sectAtk('雷泽怒涛', '雷泽怒涛', '水', 1.30, 'lzm', { status: { t: '麻', chance: .28 } });
+  /* 云海剑冢守冢一脉（剑·金） */
+  S.守冢剑式 = sectPass('守冢剑式', '守冢剑式', '防御', '金', 'yhjz');
+  S.冢中枯骨 = sectAtk('冢中枯骨', '冢中枯骨', '金', 1.40, 'yhjz', { pierce: .20 });
+  /* 寒渊水府鲛族（水） */
+  S.鲛绡歌 = sectActive('鲛绡歌', '鲛绡歌', '水', 'hysf',
+    { n: '鲛绡歌', mult: 0, cd: 3, hit: 80, target: '前排', status: { t: '睡', chance: .55 } });
+  S.寒渊怒啸 = sectAtk('寒渊怒啸', '寒渊怒啸', '水', 1.35, 'hysf', { status: { t: '麻', chance: .25 } });
+  /* 南天门天兵营（光） */
+  S.天兵列阵 = sectPass('天兵列阵', '天兵列阵', '防御', '光', 'tmty');
+  S.天门敕令 = sectActive('天门敕令', '天门敕令', '光', 'tmty',
+    { n: '天门敕令', mult: 1.25, cd: 4, hit: 100, target: '全体' });
+
+  /* ============================================================
+     功法归属（src）—— 宗门与散修互斥的落地依据
+     ------------------------------------------------------------
+     · 'common' 开局三本（灵根功 + 铁布衫 + 吐纳术）：**两道都能用**
+     · 'free'   其余全部既有功法 = 散修功法（江湖上流通的）
+     · 'sect'   上面新加的宗门功法
+     新增功法**必须**显式给 src，否则这里兜底成 'free'（散修侧），
+     会让宗门功法误落到散修池里 —— 所以 `sect.*` 契约会逐条校验。
+     ============================================================ */
+  var COMMON_IDS = ['铁布衫', '吐纳术'];
+  /* ⚠️ `startByElem` 是**对象**（属性 → 功法 id），不是数组 —— 别对它用 indexOf，
+     那会让整个 skills.js 加载失败，连锁炸掉几十条契约（踩过）。 */
+  var START_IDS = {};
+  Object.keys(startByElem).forEach(function (k) { START_IDS[startByElem[k]] = 1; });
+  Object.keys(S).forEach(function (id) {
+    if (S[id].src) return;                      /* 宗门功法已显式声明 */
+    S[id].src = (COMMON_IDS.indexOf(id) >= 0 || START_IDS[id]) ? 'common' : 'free';
+  });
 
   G.Data = G.Data || {};
   G.Data.skills = S;

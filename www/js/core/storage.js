@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 5;
+  var VERSION = 6;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -144,6 +144,26 @@
           data.daoCleared = data.daoCleared || [];
         }
         data.version = 5;
+      }
+
+      /* v5 → v6：宗门与散修体系（《宗门与散修体系设计 v1.0》§7.2）
+         save 侧加 cult（阵营）/ sectId / sectRep（贡献或散修声望）/ sectRank /
+         cultSwitchUsed（每世一次转阵营）/ quest.line（主线分叉），
+         并给已有功法补 voided=false（旧档功法一律视为未废功）。 */
+      if (data.version < 6) {
+        if (!this._isMeta(data)) {
+          data.cult = data.cult || 'free';
+          data.sectId = data.sectId || null;
+          data.sectRep = data.sectRep || 0;
+          data.sectRank = data.sectRank || 'outer';
+          data.cultSwitchUsed = !!data.cultSwitchUsed;
+          if (data.quest) data.quest.line = data.quest.line || 'free';
+          data.askedRealms = data.askedRealms || {};   /* 问道：本世每个境问过一次 */
+          Object.keys(data.skills || {}).forEach(function (k) {
+            if (data.skills[k] && data.skills[k].voided == null) data.skills[k].voided = false;
+          });
+        }
+        data.version = 6;
       }
       return data;
     },

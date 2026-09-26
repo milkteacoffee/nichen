@@ -248,7 +248,10 @@
         /* 直接 16 岁入世：幼年阶段（1-15 岁事件卡）已整体删除 */
         globalLevel: startGL, age: 16,
         watch: 0, whispers: 0, escapeLeft: 3 + addRescue,
-        quest: { step: 'm0-1', flags: {} },
+        quest: { step: 'm0-1', flags: {}, line: 'free' },
+        /* 宗门与散修（《宗门与散修体系设计 v1.0》§7.2）：入世默认散修 */
+        cult: 'free', sectId: null, sectRep: 0, sectRank: 'outer', cultSwitchUsed: false,
+        askedRealms: {},
         scene: 'town', map: 'town',
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,

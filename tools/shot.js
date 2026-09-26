@@ -847,6 +847,20 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
 shot('33_panel_bag', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'cave'); }, 'panel.cave');
 shot('35_panel_cave', 6);
+/* 宗门面板（《宗门与散修体系设计 v1.0》）：散修态应看到「拜入 XX」按钮 */
+step(() => {
+  const s = G.game.save;
+  s.cult = 'free'; s.sectId = null; s.sectRep = 0; s.cultSwitchUsed = false;
+  G.Overlays.openPanel(G.game.scene, 'sect');
+}, 'panel.sect');
+shot('34_panel_sect', 6);
+step(() => {
+  const s = G.game.save;
+  s.cult = 'sect'; s.sectId = 'qxj'; s.sectRep = 120; s.sectRank = 'inner';
+  s.cultSwitchUsed = true;
+  G.Overlays.openPanel(G.game.scene, 'sect');
+}, 'panel.sect.joined');
+shot('34b_panel_sect_joined', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'map'); }, 'panel.map');
 shot('36_panel_map', 6);
 /* 储物格子的悬浮说明（鼠标落在第一个格子里：BG.x0=26, BG.y0=84, cell=46） */

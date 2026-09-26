@@ -242,11 +242,15 @@
        `back` = 结算后回到哪个面板：不传就**收起覆盖层回地图** ——
        以前写死回 'skills'，那是"功法页曾经有突破按钮"时代的产物；
        现在突破按钮在角色面板「境界」子页，回 'skills' 就跳错地方了。 */
-    doBreak: function (scene, back) {
+    /* back = 突破后回到哪个面板；keepTab = 是否保留该面板的子页签。
+       ⚠️ **必须能保留子页签**：境界页点「突破」→ 突破完 → openPanel('char') 会把
+       charTab 重置成 'overview'，玩家正看着境界却被弹回总览（截图反馈就是这个）。
+       openPanel 的第三参本来就是干这个的，这里只是把它透传出去。 */
+    doBreak: function (scene, back, keepTab) {
       var save = G.game.save;
       var mapId = G.game.sceneName;
       var ret = function () {
-        if (back) this.openPanel(scene, back);
+        if (back) this.openPanel(scene, back, keepTab);
         else scene.clearOverlay();
       }.bind(this);
       var r = G.Player.breakthrough(save);

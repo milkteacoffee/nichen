@@ -36,6 +36,20 @@
   var MAX_FLEE = 3;
 
   /* 思考倒计时（v0.11.2）：玩家每个回合 30s 不点动作 → 自动「攻击」打前排。 */
+  /* 受击红色剪影（v0.18.0）：把立绘烘成整块红的剪影，主角挨打时叠上去。
+     按 sprite **缓存** —— 每帧现烘一次全尺寸画布会直接掉帧。 */
+  var _hitSil = null, _hitSilSrc = null;
+  function hitSilhouette(spr) {
+    if (_hitSilSrc === spr && _hitSil) return _hitSil;
+    var o = G.Art.cv(spr.width, spr.height), cx = o.x;
+    cx.drawImage(spr, 0, 0);
+    cx.globalCompositeOperation = 'source-in';
+    cx.fillStyle = '#ff4a3a';
+    cx.fillRect(0, 0, spr.width, spr.height);
+    _hitSilSrc = spr; _hitSil = o.c;
+    return o.c;
+  }
+
   /* 思考倒计时（v0.11.2 建；v0.17.0 由 30s 收到 15s —— 用户口径「缩短到 15 秒」）。
      到点自动替玩家出手（攻击前排），见 _tickCmd。 */
   var CMD_TIMER = 15;
@@ -355,6 +369,9 @@
       Object.keys(save.skills || {}).forEach(function (id) {
         var sd = G.Data.skills[id];
         if (!sd) return;
+        /* 宗门与散修互斥（《宗门与散修体系设计 v1.0》§2.2）：不可用的功法
+           **不进技能栏** —— 只靠面板置灰是拦不住的，战斗里照样能点。 */
+        if (G.Player.canUseSkill && !G.Player.canUseSkill(save, id)) return;
         /* 法力消耗随**功法等级**涨（v0.14.0）：装配时算一次挂在技能条目上，
            结算与按钮禁用读同一个数 —— 每处各算一遍必然漂。 */
         var lv = (save.skills[id] && save.skills[id].lv) || 1;
@@ -1397,6 +1414,10 @@
         save.qi += 300;                       /* 突破成功即奖励（经济表 §4 心魔行） */
         this.keepHp = true;                   /* 突破已回满气血，勿被战斗残血覆盖 */
         G.Player.chronicle(save, 'heartDemon', '问心破魔，入' + info.n);
+        /* 问道（v0.20.0）：破**大境**成功后自动问一次 —— 每个境一次，可赏可罚。
+           用户口径：「天道赐福属于问道其中的一种……突破之后可能是奖励也可能是惩罚」。 */
+        var ask = G.Player.askDao(save, G.game.meta);
+        if (ask) this._loot('问道 · ' + ask.text, ask.k === 'good');
         /* 任务步按破境来源分派：M1 筑基 → m1-7 离乡；M0 炼气 → m0-5 赤牙洞。 */
         if (save.quest.step === 'm1-6') {
           save.quest.flags.based = true;
@@ -1829,14 +1850,24 @@
       /* 单位 */
       x.drawImage(spr, Math.round(cx - s / 2), Math.round(by - s), s, s);
 
-      /* 命中闪白 */
+      /* 命中闪光（v0.18.0 起**主角走红色**）。
+         用户口径："战斗界面主角应该是红色受击的动画帧"。
+         ⚠️ 不能靠 `globalCompositeOperation='lighter'` 直接加色 —— 那是**提亮**，
+         出来的是白色；敌我共用同一段代码，主角挨打也会变白。
+         改用"把立绘烘成整块红的剪影再叠上去"；剪影按 sprite **缓存**（每帧现烘会掉帧）。 */
       var fl = this.flash[key] || 0;
       if (fl > 0.02) {
-        x.globalAlpha = fl * 0.75;
-        x.globalCompositeOperation = 'lighter';
-        x.drawImage(spr, Math.round(cx - s / 2), Math.round(by - s), s, s);
-        x.globalCompositeOperation = 'source-over';
-        x.globalAlpha = 1;
+        if (key === 'P') {
+          x.globalAlpha = Math.min(1, fl * 0.9);
+          x.drawImage(hitSilhouette(spr), Math.round(cx - s / 2), Math.round(by - s), s, s);
+          x.globalAlpha = 1;
+        } else {
+          x.globalAlpha = fl * 0.75;
+          x.globalCompositeOperation = 'lighter';
+          x.drawImage(spr, Math.round(cx - s / 2), Math.round(by - s), s, s);
+          x.globalCompositeOperation = 'source-over';
+          x.globalAlpha = 1;
+        }
       }
 
       /* 状态角标：放在脚下而不是头顶——头顶那一段被名牌血条面板压住，

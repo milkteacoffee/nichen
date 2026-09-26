@@ -85,8 +85,7 @@ SIZES = {
     'char.npc.elder': (168, 252),
     'char.npc.keeper': (168, 252),
     'char.npc.villager': (168, 252),
-    #   cultist = 血煞教探子（M1 §4 m1-2，化名"行脚商"）—— ⏳ 待出图，
-    #   先在这里预登记逻辑名，否则图放进去会被静默忽略（缺键 → 退回程序化兜底）
+    #   cultist = 血煞教探子（M1 §4 m1-2，化名"行脚商"）—— ✅ 已出图（2026-09-26）
     'char.npc.cultist': (168, 252),
     # 对话立绘（逻辑框 74×74，见 art.js PORTRAIT_LW/LH）
     #   74×4 倍超采样 = 296 是"不被放大"的下限，这里给到 512 留足余量、避免 K=4 时发虚
@@ -97,14 +96,43 @@ SIZES = {
     'portrait.killer': (512, 512),
     'portrait.demon': (512, 512),
     'portrait.aran': (512, 512),
-    #   cultist = 血煞教探子（M1 §4）—— ⏳ 待出图，同上先预登记逻辑名
+    #   cultist = 血煞教探子（M1 §4）—— ✅ 已出图（2026-09-26）
     'portrait.cultist': (512, 512),
+    # ===== 道具图标 =====
+    #   储物面板格子逻辑 44px，K=4 → 176 设备像素；给到 256 留余量。
+    #   取图逻辑名 = `item.<id>`，中文道具名 → id 的映射见 panels.js: ITEM_ICON_ID。
+    #   ⏳ 逻辑名先预登记，图未到之前引擎走程序化兜底（art.js: A.itemIcon）。
+    'item.pill_huichun': (256, 256),     # 回春丹
+    'item.pill_dahuan': (256, 256),      # 大还丹
+    'item.pill_juqi': (256, 256),        # 聚气散
+    'item.pill_xingshen': (256, 256),    # 醒神散
+    'item.pill_jiedu': (256, 256),       # 解毒丹
+    'item.pill_ganlin': (256, 256),      # 甘霖丹
+    'item.pill_shujin': (256, 256),      # 舒筋丹
+    'item.pill_cuiti': (256, 256),       # 淬体突破丹
+    'item.pill_zhuji': (256, 256),       # 筑基丹
+    'item.talisman_jiefeng': (256, 256), # 解封符
+    'item.talisman_huicheng': (256, 256),# 回城符
+    'item.mat_yaodan': (256, 256),       # 妖丹
+    'item.shard_fan': (256, 256),        # 凡品功法碎片
+    'item.shard_ling': (256, 256),       # 灵品功法碎片
+    'item.shard_bao': (256, 256),        # 宝品功法碎片
+    'item.stone': (256, 256),            # 灵石
     # 主角陆尘：**正面**全身立绘（角色面板用）。
     #   原来角色面板取 battle.hero（战斗侧身站姿），玩家看到的是"侧脸背影"。
     'portrait.luchen': (512, 512),
     # 主角头像：**正面**胸像，专供 HUD 左上角圆形头像。
     #   拿全身立绘裁头要放大 4 倍，圆里糊成一团；胸像的面部像素密度够。
     'avatar.luchen': (512, 512),
+    # ===== 地面纹理（v0.20.0 文生图）=====
+    #   引擎取图逻辑名 = ground.<kind>（art.js: A.groundTex），命中就整张替换程序化纹理。
+    #   ⚠️ 尺寸必须 ≥ GTS(224) 且是 16 的整数倍（按格取子矩形）；这里给 448 = 224×2。
+    #   ⚠️ **必须四方无缝** —— 平铺按世界坐标取子块，有缝就会看到规则网格线。
+    #      出图后走 tools/ 的镜像拼贴（2×2 镜像 → 四边必然对接），实测接缝差 0.00。
+    'ground.grass': (448, 448),
+    'ground.cave': (448, 448),
+    'ground.town': (448, 448),
+    'ground.bloodcave': (448, 448),
     # ===== 背景图（v0.12.0）=====
     #   逻辑尺寸 480×272，引擎里按 K=2 超采样绘制 → 出图给 960×544（2 倍）。
     #   ⚠️ 背景走 cover（等比放大铺满 + 居中裁切），**不走 fit 的"裁 alpha 外接框"** ——
@@ -135,7 +163,9 @@ SIZES = {
 }
 
 # 背景类逻辑名：走 cover 而不是 fit（见 SIZES 里的说明）
-BG_KEYS = set(k for k in SIZES if k.startswith('bg.'))
+#   ⚠️ ground.* 同理：地面纹理是**整幅平铺**的材质，走 fit 会把四边裁出透明带，
+#      铺到地图上就是一条条黑缝（实测踩过：alpha min=0 → 场景里出现黑色十字带）。
+BG_KEYS = set(k for k in SIZES if k.startswith('bg.') or k.startswith('ground.'))
 # 地图角色的三帧：同一张图登记三次，动感由引擎的上下浮动提供
 HERO_DIRS = ['down', 'up', 'left', 'right']
 PAD = 0.04          # 外接框四周留白比例（防止描边贴边被切）
@@ -162,10 +192,14 @@ def fit(im, tw, th):
 
 
 def cover(im, tw, th):
-    """等比放大到**铺满** (tw, th)，居中裁切多余部分。背景专用。
+    """等比放大到**铺满** (tw, th)，居中裁切多余部分。背景 / 地面纹理专用。
 
     为什么背景不能用 fit：fit 会先裁到 alpha 外接框、再按 PAD 留白，
     产出的图四周有透明边 —— 背景是要铺满整屏的，透明边会露出引擎底色。
+
+    ⚠️ 整幅平铺类（bg.* / ground.*）**一律不允许透明**：末尾把 alpha 拉满。
+       地面纹理走的是"整张周期平铺"，只要有一个透明像素，地图上就会出现黑缝
+       （实测踩过：alpha min=0 → 场景里出现黑色十字带，且不报任何错）。
     """
     im = im.convert('RGBA')
     k = max(tw / im.width, th / im.height)
@@ -174,7 +208,10 @@ def cover(im, tw, th):
     im = im.resize((nw, nh), Image.LANCZOS)
     left = (nw - tw) // 2
     top = (nh - th) // 2
-    return im.crop((left, top, left + tw, top + th)), None
+    out = im.crop((left, top, left + tw, top + th))
+    r, g, b, _a = out.split()
+    out = Image.merge('RGBA', (r, g, b, Image.new('L', out.size, 255)))
+    return out, None
 
 
 def main():
