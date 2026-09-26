@@ -1008,6 +1008,21 @@
         var bx = px + art.ox, by = py + art.oy;
         var pivX = bx + art.w / 2, pivY = by + art.h;
 
+        /* ===== 接触阴影（v0.26.0）=====
+           用户口径：「是我们的视角有问题吗？烟雨江湖怎么看起来好像更加立体」。
+           立体感**不来自透视计算**（2D 没有真透视），而来自"高度"的视觉线索；
+           其中**接触阴影最便宜、最有效** —— 阴影是大脑判断"这东西是浮在地上还是贴在地上"的第一线索。
+           以前只有主角有影子、装饰物一个都没有 → 一眼就是"贴纸"。
+           ⚠️ 阴影按**物件底部**（`by + art.h`）画，不是顶部 —— 画在顶部就读不出"立在地上"。
+           ⚠️ 用**椭圆**不是圆：俯视下的落地影一定是压扁的。 */
+        x.save();
+        x.fillStyle = 'rgba(0,0,0,0.24)';
+        x.beginPath();
+        x.ellipse(bx + art.w / 2, by + art.h - art.h * 0.06,
+          art.w * 0.30, art.h * 0.085, 0, 0, 6.2832);
+        x.fill();
+        x.restore();
+
         x.save();
         if (sway) { x.translate(pivX, pivY); x.rotate(sway); x.translate(-pivX, -pivY); }
         if ((h1 >> 10) & 1) {
