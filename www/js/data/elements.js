@@ -52,8 +52,16 @@
   };
 
   G.Data = G.Data || {};
+  /* 属性 → 图标逻辑名后缀（v0.40.0）。
+     ⚠️ **唯一口径**：`skill.<拼音>`（功法属性徽记）与 `root.<拼音>`（灵根灵珠）共用它。
+        以前面板里各写一份 `ELEM_PINYIN`，加一个属性就要改好几处（漏一处就静默不画图标）。 */
+  var PINYIN = {
+    '金': 'jin', '木': 'mu', '水': 'shui', '火': 'huo', '土': 'tu',
+    '光': 'guang', '雷': 'lei', '风': 'feng', '暗': 'an', '无': 'wu'
+  };
+
   G.Data.elem = {
-    coef: coef, label: label, color: COLOR,
+    coef: coef, label: label, color: COLOR, pinyin: PINYIN,
     WX: WX, SX: SX, isWX: isWX, isSX: isSX
   };
 })();

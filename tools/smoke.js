@@ -2817,6 +2817,47 @@ step(function () {
   if (s4.bounty) errors.push('领赏后应清空在身悬赏');
 }, 'sect.found.contract');
 
+/* ---------- 灵根 / 材料图标接线契约（v0.40.0） ----------
+   ① 属性 → 拼音是**唯一口径**：10 个属性（9 + 无）都要有映射
+      —— 少一个就是"那张图标静默不出现"（不报错，最难查）
+   ② `root.*` / `mat.*` 素材**真的在盘上**（⚠️ 无头环境 `G.Assets.img` 恒为 null，
+      所以与素材契约一样**直接读 manifest**，不能拿 img() 判"图到了没"）
+   ③ 灵根页渲染不抛异常 */
+step(function () {
+  const PY = G.Data.elem.pinyin;
+  if (!PY) { errors.push('G.Data.elem.pinyin 缺失（图标取不到逻辑名）'); return; }
+  const ELEMS = ['金', '木', '水', '火', '土', '光', '雷', '风', '暗', '无'];
+  ELEMS.forEach(function (e) {
+    if (!PY[e]) errors.push('属性 ' + e + ' 缺拼音映射（图标会静默不出现）');
+  });
+  const mf = JSON.parse(fs.readFileSync(path.join(WWW, 'assets', 'manifest.json'), 'utf8'));
+  /* ⚠️ 灵根只有**九种**（金木水火土光雷风暗）—— "无" 不是灵根，是功法属性的兜底档。
+     所以 `root.*` 查 9 个、`skill.*` 查 10 个，别用同一个列表（会把 root.wu 当成缺图）。 */
+  ELEMS.filter(function (e) { return e !== '无'; }).forEach(function (e) {
+    if (!mf['root.' + PY[e]]) errors.push('缺灵根图标素材：root.' + PY[e]);
+  });
+  ELEMS.forEach(function (e) {
+    if (!mf['skill.' + PY[e]]) errors.push('缺功法属性图标素材：skill.' + PY[e]);
+  });
+  ['xuecao', 'lingzhi', 'xuantie', 'chitan', 'shoupi', 'lingye'].forEach(function (k) {
+    if (k === 'chitan') return;      /* 名字以 chitong 为准，下面单独查 */
+    if (!mf['mat.' + k]) errors.push('缺材料图标素材：mat.' + k);
+  });
+  if (!mf['mat.chitong']) errors.push('缺材料图标素材：mat.chitong');
+
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.pos = null;
+  s2.linggen = { kind: '五行', elems: ['木', '火', '土'], coef: { '木': 1.6 }, stoneBonus: 0 };
+  G.game.save = s2;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.charTab = 'linggen';
+  G.Overlays.openPanel(sc, 'char', true);
+  try { const c = drawSpy(); sc.render(c); } catch (e) {
+    errors.push('灵根页渲染抛异常：' + e.message);
+  }
+}, 'icon.root.contract');
+
 /* ---------- 开局功法来源契约（v0.25.0） ----------
    用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得，
    不是每次都随机三个功法」。

@@ -929,6 +929,14 @@ step(() => {
 shot('34c_panel_sect_shop', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'map'); }, 'panel.map');
 shot('36_panel_map', 6);
+/* 灵根页（v0.40.0）：九宫格改用**文生图灵珠**，未激活的压暗 */
+step(() => {
+  const s = G.game.save;
+  s.linggen = { kind: '五行', elems: ['木', '火', '土'], coef: { '木': 1.6, '火': 1.1, '土': 1.1 }, stoneBonus: 0 };
+  s.charTab = 'linggen';
+  G.Overlays.openPanel(G.game.scene, 'char', true);
+}, 'panel.linggen');
+shot('29b_panel_linggen', 6);
 /* 储物格子的悬浮说明（鼠标落在第一个格子里：BG.x0=26, BG.y0=84, cell=46） */
 step(() => { G.Input.mouse = { x: 49, y: 107 }; }, 'bag.tip');
 shot('33b_bag_tip', 2);

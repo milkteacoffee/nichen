@@ -605,9 +605,21 @@
         x.lineWidth = 1;
         x.strokeStyle = on ? 'rgba(216,183,104,0.65)' : 'rgba(216,183,104,0.18)';
         x.stroke();
-        G.UI.text(x, { x: cx + CW / 2, y: cy + 5 }, e, 14,
-          on ? (COL[e] || G.UI.C.text) : G.UI.C.textDim, 'center');
-        G.UI.textOut(x, { x: cx + CW / 2, y: cy + 23 }, v ? ('×' + v) : '—', 9.5,
+        /* 灵根图标（v0.40.0）：九宫格里画**先天灵珠**，不再是干巴巴一个字。
+           ⚠️ 取不到图就退回原来的文字 —— 素材没到也不能留白。 */
+        var rp = (G.Data.elem.pinyin || {})[e];
+        var ric = rp && G.Art.itemIcon ? G.Art.itemIcon('root.' + rp, 26) : null;
+        if (ric && ric.c) {
+          x.save();
+          x.globalAlpha = on ? 1 : 0.35;      /* 未激活的灵根压暗，一眼看出点亮了哪几个 */
+          x.drawImage(ric.c, Math.round(cx + (CW - 26) / 2 + ric.ox),
+            Math.round(cy + 3 + ric.oy), ric.w, ric.h);
+          x.restore();
+        } else {
+          G.UI.text(x, { x: cx + CW / 2, y: cy + 5 }, e, 14,
+            on ? (COL[e] || G.UI.C.text) : G.UI.C.textDim, 'center');
+        }
+        G.UI.textOut(x, { x: cx + CW / 2, y: cy + 27 }, v ? ('×' + v) : '—', 9.5,
           on ? G.UI.C.goldHi : G.UI.C.textDim, 'center');
         /* 比例条：槽 + 填充（长度 = 系数 / 上界） */
         var bx = cx + 5, bw = CW - 10, by = cy + CW - 8;
