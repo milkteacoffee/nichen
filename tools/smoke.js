@@ -2809,6 +2809,215 @@ step(function () {
   if (i2 < 0 || i1 < 0 || i2 > i1) errors.push('前世经历应按时间倒序（最新在前）');
 }, 'device.contract');
 
+/* ---------- 野怪收益曲线契约（缺口 U5，2026-09-26 校准） ----------
+   ① **覆盖**：gl 2–144（三界，有破境需求）每一级都必须有野外遭遇带。
+      道界（gl ≥ 145）**不要求** —— 道界无破境之说，进境与道晶都来自「道则回廊」。
+      校准前 91–105（人仙一重～地仙六重，15 级）在仙界是空洞。
+   ② **境界系数归一**：淬体 / 炼气必须**恰好 = 1** —— 这是"M0 教学链与既有回归基线
+      （playthrough / rebirth）不变"的前提；且随 gl 单调不减。
+   ③ **场次曲线拉平**：逐境算"刷满一个境界（9 段 + 1 次大突破）要多少场"，
+      必须落在 [10, 120]，且**最高/最低 ≤ 8 倍**。
+      校准前是大罗金仙 60,895 场 vs 炼气 24 场（≈2,500 倍）——高界野外形同虚设。
+   ④ **寿元可行**：场次折算的年岁（每 10 场 +1 岁 + 9 次突破 ×2 岁）必须小于该境寿元预算。 */
+step(function () {
+  const P2 = G.Player;
+  const bands = [];
+  ['town', 'field', 'cave'].forEach(function (mid) {
+    const md = G.Data.maps[mid];
+    if (md && md.zones) md.zones.forEach(function (z) { bands.push(z); });
+  });
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (wid) {
+    G.Data.regions.of(wid).forEach(function (r) {
+      (r.zones || []).forEach(function (z) { bands.push(z); });
+    });
+  });
+  if (bands.length < 20) errors.push('遭遇带过少（' + bands.length + '），收集逻辑可能漏了生成型区域');
+
+  /* ① 覆盖 gl 2–144 */
+  const cov = {};
+  bands.forEach(function (b) {
+    for (let gl = b.enc.min; gl <= b.enc.max; gl++) cov[gl] = true;
+  });
+  const miss = [];
+  for (let gl = 2; gl <= 144; gl++) if (!cov[gl]) miss.push(gl);
+  if (miss.length) {
+    errors.push('gl ' + miss[0] + '–' + miss[miss.length - 1] + ' 等 ' + miss.length
+      + ' 级没有野外遭遇带（三界内不得有空洞；U5 修过一次 91–105）');
+  }
+
+  /* ② 境界系数归一 + 单调 */
+  if (P2.realmQiCoef(1) !== 1) {
+    errors.push('淬体境界系数应为 1（否则 M0 教学链数值会变），实为 ' + P2.realmQiCoef(1));
+  }
+  if (P2.realmQiCoef(10) !== 1) {
+    errors.push('炼气境界系数应为 1（否则 playthrough/rebirth 基线会漂），实为 ' + P2.realmQiCoef(10));
+  }
+  let prevC = 1;
+  for (let gl = 1; gl <= P2.MAX_GL; gl++) {
+    const c = P2.realmQiCoef(gl);
+    if (!(c >= prevC)) { errors.push('境界系数必须随 gl 单调不减（gl ' + gl + ' 掉头了）'); break; }
+    prevC = c;
+  }
+
+  /* ③④ 逐境场次 + 寿元 */
+  const base = {
+    globalLevel: 1, qi: 0, po: 0, stone: 0,
+    linggen: { kind: '五行三', elems: ['木'], coef: { 木: 1.0 }, stoneBonus: 0 },
+    talents: [], originFx: {}, bonus: {}, items: {}, world: { traits: [] }
+  };
+  const rq = P2.rates(base).qi || 0;
+  const qPer = function (z) {
+    const L = (z.enc.min + z.enc.max) / 2;
+    return 80 * L * 1 * (1 + rq) * (1 + (z.pair || 0) / 100) * P2.realmQiCoef(L);
+  };
+  const ns = [];
+  P2.REALMS.forEach(function (t, i) {
+    if (P2.isDaoRealm(t.y0)) return;                 /* 道界无破境，不参与场次验算 */
+    let need = 0;
+    for (let s = 1; s <= 9; s++) need += P2.needQi(base, t.y0 + s - 1);
+    let best = 0;
+    bands.forEach(function (z) {
+      if (z.enc.max < t.y0 || z.enc.min > t.y1) return;
+      best = Math.max(best, qPer(z));
+    });
+    if (!best) { errors.push(t.n + ' 境界没有任何可用遭遇带'); return; }
+    const n = need / best;
+    const prev = P2.REALMS[i - 1];
+    const budget = P2.lifespanOf(t.y0) - (prev ? P2.lifespanOf(prev.y0) : 16);
+    const years = n / P2.AGE_PER_BATTLE + 9 * P2.AGE_PER_BREAK;
+    ns.push(n);
+    if (n < 10 || n > 120) {
+      errors.push(t.n + ' 刷满一境需 ' + Math.round(n) + ' 场，超出合理区间 [10, 120]');
+    }
+    if (years > budget) {
+      errors.push(t.n + ' 刷满需 ' + Math.round(years) + ' 岁 > 寿元预算 ' + budget + ' 岁');
+    }
+  });
+  if (ns.length > 2) {
+    const ratio = Math.max.apply(null, ns) / Math.min.apply(null, ns);
+    if (ratio > 8) {
+      errors.push('各境界场次差距 ' + ratio.toFixed(1) + ' 倍（>8），收益曲线又失衡了');
+    }
+  }
+}, 'zone.curve.contract');
+
+/* ---------- 野怪收益曲线**差分探针** ----------
+   ⚠️ G19 的教训：只断言"函数存在 / 数值自洽"抓不到**"登记了但没接线"** ——
+   把 `battle.js` 里的 `* G.Player.realmQiCoef(L)` 摘掉，上面那条契约**照样全绿**。
+   所以这里必须**真的打一场 L=144 的野外战**，逐项复算期望值再比对；
+   并反向确认收益**显著高于**"不带境界系数"的值，否则说明系数根本没生效。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(G.game.save));
+  s.globalLevel = 144; s.qi = 0; s.po = 0; s.stone = 0;
+  s.linggen = { elems: ['木'], coef: { 木: 1.0 }, kind: '单灵根', stoneBonus: 0 };
+  s.talents = []; s.originFx = {}; s.bonus = {}; s.world = { traits: [] };
+  s.dungeonRun = null;
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 144, '青纹蛇'), mapId: 'field' });
+}, 'zone.curve.probe.enter');
+pump(10, 'zone.curve.probe.enter');
+step(function () {
+  const b = G.game.scene, s = G.game.save;
+  if (!b || !b.es || !b.es.length) { errors.push('差分探针：未能进入战斗'); return; }
+  b.es.forEach(function (e) { e.hp = 0; });
+  const before = s.qi || 0;
+  b._victory();
+  const got = (s.qi || 0) - before;
+  const lg = s.linggen || { elems: ['无'], coef: {} };
+  const lgc = (lg.coef && lg.coef[(lg.elems && lg.elems[0]) || '无']) || 1;
+  const rq2 = G.Player.rates(s).qi || 0;
+  let exp = 0, noCoef = 0;
+  b.es.forEach(function (e) {
+    const L = e.level;
+    const gap = ((s.globalLevel || 1) - L) > 5 ? 0.5 : 1;
+    noCoef += Math.round(80 * L * lgc * (1 + rq2) * gap);
+    exp += Math.round(80 * L * lgc * (1 + rq2) * gap * G.Player.realmQiCoef(L));
+  });
+  if (got !== exp) {
+    errors.push('差分探针：野外灵气收益 ' + got + ' ≠ 期望 ' + exp
+      + '（battle.js 可能没接 realmQiCoef —— 见 G19 教训）');
+  }
+  if (!(exp > noCoef * 10)) {
+    errors.push('差分探针：L=144 的境界系数没起作用（' + exp + ' vs 无系数 ' + noCoef + '）');
+  }
+}, 'zone.curve.probe');
+
+/* 副本侧的差分探针：`dungeon.js` 有 **4 处**灵气奖励（小Boss/通关 × 首杀/重刷），
+   同样必须真的接上境界系数。这里直接驱动 `_rewardMid`（首杀分支）逐项复算。 */
+step(function () {
+  const D2 = G.Data.dungeons;
+  const sc = G.scenes.dungeon;
+  if (!sc || typeof sc._rewardMid !== 'function') { errors.push('差分探针：dungeon 场景未就绪'); return; }
+  const meta = G.game.meta;
+  meta.progress = meta.progress || {};
+  meta.progress.activeWorld = 'xian';
+  meta.progress.worldDiff = meta.progress.worldDiff || {};
+  meta.progress.worldDiff.xian = 'normal';
+
+  const s = JSON.parse(JSON.stringify(G.game.save));
+  s.dungeonSet = D2.rollSet(7);
+  s.qi = 0; s.stone = 0; s.items = {};
+  s.dungeonPity = { mid: 0, clear: 0 }; s.secrets = {};
+  G.game.save = s;
+
+  const slot = 4;                                   /* 仙界第 5 槽 = 锚 gl 144 */
+  const arch = D2.archById(s.dungeonSet[slot]);
+  if (!arch) { errors.push('差分探针：拿不到副本原型'); return; }
+  const before = s.qi;
+  sc._rewardMid(arch, {}, false);                   /* farm=false → 首杀分支 */
+  const got = s.qi - before;
+  const L = D2.anchorGL('xian', slot) - 2;          /* 小Boss = 锚 − 2 */
+  const rf = D2.DIFF.normal.res;
+  const plain = Math.round(160 * L * rf);
+  const exp = Math.round(160 * L * rf * G.Player.realmQiCoef(L));
+  if (got !== exp) {
+    errors.push('差分探针：副本小Boss灵气 ' + got + ' ≠ 期望 ' + exp
+      + '（dungeon.js 可能没接 realmQiCoef —— 见 G19 教训）');
+  }
+  if (!(exp > plain * 10)) {
+    errors.push('差分探针：副本小Boss的境界系数没起作用（' + exp + ' vs 无系数 ' + plain + '）');
+  }
+
+  /* 通关（大Boss/头领）首杀分支：L = 锚 gl（不减 2），灵气 320×L×res */
+  const q0 = s.qi;
+  sc._rewardClear(arch, {}, false);
+  const got2 = s.qi - q0;
+  const L2 = D2.anchorGL('xian', slot);
+  const plain2 = Math.round(320 * L2 * rf);
+  const exp2 = Math.round(320 * L2 * rf * G.Player.realmQiCoef(L2));
+  if (got2 !== exp2) {
+    errors.push('差分探针：副本通关灵气 ' + got2 + ' ≠ 期望 ' + exp2
+      + '（dungeon.js 的 _rewardClear 可能没接 realmQiCoef）');
+  }
+  if (!(exp2 > plain2 * 10)) {
+    errors.push('差分探针：副本通关的境界系数没起作用（' + exp2 + ' vs 无系数 ' + plain2 + '）');
+  }
+}, 'zone.curve.probe.dungeon');
+
+/* 源码级：**所有**灵气奖励表达式都必须带境界系数。
+   上面两条运行时探针只走了"首杀"两条路径，重刷分支（`farm=true`）带随机与保底、
+   驱动成本高；而漏接线最容易发生在"只接了 4 处里的 3 处"（本轮就真发生过一次）。
+   所以再加一道静态闸：扫源码里所有灵气奖励表达式，逐个要求带 `realmQiCoef`。
+   比数次数更稳 —— 以后新增奖励点会自动纳入检查。 */
+step(function () {
+  const FILES = ['js/scenes/battle.js', 'js/scenes/dungeon.js'];
+  /* 灵气变量只有 qi / dqi / q2 / q3 四个名字；**不含** dpo/dst（灵力/灵石不参与境界缩放） */
+  const RE = /(?:\bqi\b|\bdqi\b|\bq2\b|\bq3\b)\s*\+?=\s*Math\.round\(/;
+  let seen = 0;
+  FILES.forEach(function (rel) {
+    const src = fs.readFileSync(path.join(WWW, rel), 'utf8');
+    src.split('\n').forEach(function (line, i) {
+      if (!RE.test(line)) return;
+      seen += 1;
+      if (line.indexOf('realmQiCoef') < 0) {
+        errors.push('源码闸：' + rel + ':' + (i + 1) + ' 的灵气奖励没带 realmQiCoef —— '
+          + line.trim());
+      }
+    });
+  });
+  if (seen < 6) errors.push('源码闸：只扫到 ' + seen + ' 处灵气奖励（应 ≥6），正则可能过时了');
+}, 'zone.curve.source.contract');
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n=== 冒烟测试发现问题 (' + errors.length + ') ===');

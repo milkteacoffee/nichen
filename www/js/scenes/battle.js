@@ -1046,7 +1046,7 @@
             var L = e.level;
             var gap = ((save.globalLevel || 1) - L) > 5 ? .5 : 1;
             if (gap < 1) dcut = true;
-            dqi += Math.round(80 * L * dlgCoef * (1 + (dr.qi || 0)) * gap);
+            dqi += Math.round(80 * L * dlgCoef * (1 + (dr.qi || 0)) * gap * G.Player.realmQiCoef(L));
             dpo += Math.round(8 * L * (1 + (dr.po || 0)) * gap);
             dst += Math.round(6 * L * (1 + (dr.st || 0)) * gap);
           });
@@ -1061,7 +1061,7 @@
       }
 
       /* 普通遭遇（经济表 v0.2 §4）：逐只结算再合计
-         灵气 80×L×灵根系数×(1+灵气加成) / 灵力 8×L×(1+灵力加成)
+         灵气 80×L×灵根系数×(1+灵气加成)×境界系数（缺口 U5）/ 灵力 8×L×(1+灵力加成)
          灵石 6×L×(1+灵石加成)；主角境界 − L > 5 → 该只 ×0.5
          **道界例外**（境界 v3.2 §10.3）：道界不流通灵石，野外所得折算为**道晶**。 */
       var r = G.Player.rates(save);
@@ -1072,7 +1072,7 @@
         var L = e.level;
         var gap = ((save.globalLevel || 1) - L) > 5 ? 0.5 : 1;
         if (gap < 1) cut = true;
-        qi += Math.round(80 * L * lgCoef * (1 + (r.qi || 0)) * gap);
+        qi += Math.round(80 * L * lgCoef * (1 + (r.qi || 0)) * gap * G.Player.realmQiCoef(L));
         po += Math.round(8 * L * (1 + (r.po || 0)) * gap);
         st += Math.round(6 * L * (1 + (r.st || 0)) * gap);
       });

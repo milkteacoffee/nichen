@@ -93,8 +93,15 @@
         exits: [{ to: 'xian2', side: 'north' }],
         b: [B('hall', '镇门殿', 9, 5), B('house', '天兵营', 5, 3, 2), B('gate', '界门', 6, 4)] }),
 
-    R({ id: 'xian2', n: '瑶池仙境', theme: '仙池园囿', w: 46, h: 32, ground: 'grass', safe: true, gate: false,
+    /* ⚠️ 瑶池仙境**不是安全区**（缺口 U5，2026-09-26 修）：
+       原先 xian1/xian2 都是 safe，而 xian3 的带从 106 起 ——
+       于是 **gl 91–105（人仙一重～地仙六重，整整 15 级）在仙界没有任何野外遭遇带**，
+       玩家飞升仙界后无处刷灵气（`zone-curve.js` 的覆盖检查会报出来）。
+       仙池园囿本就有仙鹤与守园灵兽，与 G12「兜率天宫/蟠桃园/天枢阁 改非安全区」同理。
+       首区 xian1 南天门保留 safe（飞升落点的门阙不该一落地就挨打）。 */
+    R({ id: 'xian2', n: '瑶池仙境', theme: '仙池园囿', w: 46, h: 32, ground: 'grass', gate: false,
         exits: [{ to: 'xian1', side: 'south' }, { to: 'xian3', side: 'east' }],
+        zones: [{ id: 'all', y0: 0, y1: 31, enc: { min: 91, max: 105 }, pair: 25 }],
         b: [B('temple', '瑶池亭', 6, 4), B('tower', '仙鹤苑', 4, 4), B('house', '侍女所', 4, 3, 2)] }),
 
     R({ id: 'xian3', n: '兜率天宫', theme: '丹炉道宫', w: 46, h: 30, ground: 'town', gate: false,

@@ -444,7 +444,7 @@
       save.dungeonPity = save.dungeonPity || { mid: 0, clear: 0 };
 
       if (!farm) {
-        var stone = Math.round(12 * L * rf), qi = Math.round(160 * L * rf);
+        var stone = Math.round(12 * L * rf), qi = Math.round(160 * L * rf * G.Player.realmQiCoef(L));
         save.stone += stone; save.qi += qi;
         this._addDan(1);
         lines.push('灵石 +' + stone + '　灵气 +' + qi + '　妖丹 ×1');
@@ -462,7 +462,7 @@
         save.dungeonPity.mid = 0;
         lines.push('寻得尚缺秘术：' + D().SECRETS[id]);
       } else {
-        var st2 = Math.round(8 * L * rf), q2 = Math.round(100 * L * rf);
+        var st2 = Math.round(8 * L * rf), q2 = Math.round(100 * L * rf * G.Player.realmQiCoef(L));
         save.stone += st2; save.qi += q2;
         lines.push('灵石 +' + st2 + '　灵气 +' + q2);
       }
@@ -484,7 +484,7 @@
       }
 
       if (!farm) {
-        var stone = Math.round(25 * L * rf), qi = Math.round(320 * L * rf);
+        var stone = Math.round(25 * L * rf), qi = Math.round(320 * L * rf * G.Player.realmQiCoef(L));
         save.stone += stone; save.qi += qi;
         this._addDan(2);
         lines.push('灵石 +' + stone + '　灵气 +' + qi + '　妖丹 ×2');
@@ -510,7 +510,7 @@
         save.dungeonPity.clear = 0;
         lines.push('寻得尚缺秘术：' + D().SECRETS[id2]);
       } else if (roll < 0.75 || !missing.length) {
-        var s3 = Math.round(15 * L * rf), q3 = Math.round(200 * L * rf);
+        var s3 = Math.round(15 * L * rf), q3 = Math.round(200 * L * rf * G.Player.realmQiCoef(L));
         save.stone += s3; save.qi += q3; this._addDan(1);
         lines.push('灵石 +' + s3 + '　灵气 +' + q3 + '　妖丹 ×1');
       } else {
