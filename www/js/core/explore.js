@@ -885,6 +885,34 @@
             : s.kind === 'gate' ? G.Art.gate(s, pal) : null;
         if (!art) return;
         G.Art.blit(x, art, px, py);
+        this._drawPlaque(x, s, px + (art.ox || 0), py + (art.oy || 0));
+      },
+
+      /* 建筑匾额（v0.16.0）：**建筑上写它当前的名字**（用户口径）。
+         ⚠️ 名字一律**矢量程序化绘制**，绝不烘进素材图 —— 两个硬理由：
+           ① 文生图 / 像素图里的中文必然是乱码；
+           ② 同一张建筑图要复用到不同建筑（药铺 / 刘家小院…），名字得跟着数据走。
+         位置取"屋顶上方"而不是贴在墙上：屋墙从上到下被屋檐、两扇窗、门占满，
+         没有能放下 4 个字的空档（4 行高的房子只有 8px 可用）。
+         顶到屏幕上沿时改为压进屋顶内侧，避免被裁掉。 */
+      _drawPlaque: function (x, s, bx0, by0) {
+        var label = s.label;
+        if (!label) return;
+        var W = s.w * 16;
+        var fs = 9.5;
+        x.font = G.UI.F(fs);
+        var tw = x.measureText(label).width;
+        var pw = Math.ceil(tw + 10), ph = 13;
+        var px0 = Math.round(bx0 + (W - pw) / 2);
+        var py0 = Math.round(by0 - ph - 2);
+        if (py0 < 2) py0 = Math.round(by0 + 3);       /* 顶到上沿 → 压进屋顶 */
+        G.UI.rr(x, { x: px0, y: py0, w: pw, h: ph }, 3);
+        x.fillStyle = 'rgba(10,14,24,0.82)';
+        x.fill();
+        x.strokeStyle = 'rgba(216,183,104,0.55)';
+        x.lineWidth = 0.9;
+        x.stroke();
+        G.UI.text(x, { x: px0 + pw / 2, y: py0 + 2 }, label, fs, G.UI.C.goldHi, 'center');
       },
 
       _drawDecor: function (x, o, camX, camY) {

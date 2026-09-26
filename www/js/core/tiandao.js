@@ -590,10 +590,13 @@
         G.UI.text(x, { x: P.x + 20, y: 180 }, '密　钥', 11, G.UI.C.textDim);
         G.UI.text(x, { x: P.x + 20, y: 200 }, '自检', 11.5, G.UI.C.gold);
 
-        G.UI.text(x, { x: P.x + 20, y: 40 }, cfg.mode === 'remote'
+        /* ⚠️ 状态文字**放右上角**（原来在 y=40 左对齐，底边被 y=48 的按钮压掉 2.5px）。
+           为什么不干脆上移：y=35 那条分隔线横贯整幅，上移会压到线上；
+           放右侧则同时避开居中的标题、分隔线与左侧的按钮组。 */
+        G.UI.textOut(x, { x: P.x + P.w - 20, y: 36 }, cfg.mode === 'remote'
           ? '当前：由模型应答（问卦 / 低语 / 拦魂）'
-          : '当前：关闭，使用预置谶语', 10.5,
-          cfg.mode === 'remote' ? G.UI.C.jadeHi : G.UI.C.textDim);
+          : '当前：关闭，使用预置谶语', 10,
+          cfg.mode === 'remote' ? G.UI.C.jadeHi : G.UI.C.textDim, 'right');
 
         /* 自检结果：模型应答=金，兜底=灰（并带上失败原因，便于排查密钥/地址） */
         G.UI.text(x, { x: 140, y: 201 }, this.testStatus || '未问卦', 10.5,

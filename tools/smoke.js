@@ -91,6 +91,57 @@ function textSpyXY() {
   return c;
 }
 
+/* 有序层探针：记录 `G.UI.text` / `G.UI.textOut`（文字）与 `G.UI.rr` / `G.UI.panel`（框），
+   **带先后序号**。
+   为什么必须带序号：只有"**后画的框盖住了先画的字**"才是 bug ——
+   先画框、再往框里写字是正常顺序（所有卡片都这样）。
+   ⚠️ 为什么挂 `G.UI.*` 而不是"某个 ctx 的 fillText"：契约传进来的 ctx 是它自己造的，
+   而探针若另造一个 ctx 去 patch `fillText`，**一条文字都收不到**（本轮就踩了：
+   打印出来是「文字 0 框 6」，框能收到是因为 `G.UI.rr` 是全局函数、与 ctx 无关）。
+   规矩：**探针挂在逻辑入口上，别挂在物理出口上。** */
+function layerSpy() {
+  const ev = [];
+  const est = function (s, size) {
+    let w = 0;
+    for (let i = 0; i < s.length; i++) w += s.charCodeAt(i) > 0x2e80 ? size : size * 0.55;
+    return w;
+  };
+  const rec = function (str, s, size, align) {
+    const w = est(String(str), size);
+    const al = align || 'left';
+    const x0 = al === 'right' ? s.x - w : (al === 'center' ? s.x - w / 2 : s.x);
+    ev.push({ k: 't', s: String(str), x0: x0, y0: s.y, x1: x0 + w, y1: s.y + size, align: al });
+  };
+  const rText = G.UI.text, rOut = G.UI.textOut, rRr = G.UI.rr, rPanel = G.UI.panel;
+  G.UI.text = function (x, s, str, size, color, align, pixel) {
+    rec(str, s, size, align);
+    return rText.apply(this, arguments);
+  };
+  G.UI.textOut = function (x, s, str, size, color, align) {
+    rec(str, s, size, align);
+    return rOut.apply(this, arguments);
+  };
+  G.UI.rr = function (x, s) {
+    if (s && typeof s.x === 'number' && typeof s.w === 'number') {
+      ev.push({ k: 'b', x0: s.x, y0: s.y, x1: s.x + s.w, y1: s.y + s.h });
+    }
+    return rRr.apply(this, arguments);
+  };
+  /* 卡片背板 / 列表衬底走 `G.UI.panel`（预渲染缓存 + drawImage），**不经过 `rr`** ——
+     只 patch `rr` 的话"副标题被卡片压住"完全抓不到。 */
+  G.UI.panel = function (x, s) {
+    if (s && typeof s.x === 'number' && typeof s.w === 'number') {
+      ev.push({ k: 'b', x0: s.x, y0: s.y, x1: s.x + s.w, y1: s.y + s.h });
+    }
+    return rPanel.apply(this, arguments);
+  };
+  return {
+    ev: ev,
+    restore: function () {
+      G.UI.text = rText; G.UI.textOut = rOut; G.UI.rr = rRr; G.UI.panel = rPanel;
+    }
+  };
+}
 /* 框探针：记录这一帧所有 `G.UI.rr()` 的矩形（圆角矩形路径 = 一切"框"的公共入口：
    属性卡、列表背板、按钮底、进度条…）。
    为什么必须单独有它：越界契约原先只判**文字**，而"框跑出去、文字还在框里居中"是静默的 ——
@@ -4686,6 +4737,34 @@ step(function () {
     });
   };
 
+  /* 文字被**后画的框**压住（v0.16.0 补）。
+     ⚠️ 与"文字压在按钮上"是两条判据，缺一不可：按钮是 `Btn`（自己画底），
+     而卡片背板 / 列表衬底走的是 `G.UI.panel` / `G.UI.rr` —— 后者原先**没有任何判据**。
+     洞府页的副标题被第一排卡片压住、末行说明被「坐化」按钮压住，就是这么漏出去的。 */
+  const checkCovered = function (id, ev) {
+    for (let i = 0; i < ev.length; i++) {
+      const t = ev[i];
+      if (t.k !== 't') continue;
+      for (let j = i + 1; j < ev.length; j++) {
+        const b = ev[j];
+        if (b.k !== 'b') continue;
+        /* 阈值与「文字压在按钮上」对齐：**最多 1.5px**（绝对值），不用比例 ——
+           11px 的字按 35% 算是 3.85px，而"被压掉 3px"在视觉上已经断字了。 */
+        const oy = Math.min(t.y1, b.y1) - Math.max(t.y0, b.y0);
+        const ox = Math.min(t.x1, b.x1) - Math.max(t.x0, b.x0);
+        if (ox > 1 && oy > Math.min(1.5, (t.y1 - t.y0) * 0.35)) {
+          errors.push('面板 ' + id + ' 文字被后画的框压住：' + JSON.stringify(t.s)
+            + '（字 ' + t.x0.toFixed(0) + ',' + t.y0.toFixed(0)
+            + '..' + t.x1.toFixed(0) + ',' + t.y1.toFixed(0)
+            + ' × 框 ' + b.x0.toFixed(0) + ',' + b.y0.toFixed(0)
+            + '..' + b.x1.toFixed(0) + ',' + b.y1.toFixed(0)
+            + '，纵向重叠 ' + oy.toFixed(1) + 'px）');
+          break;
+        }
+      }
+    }
+  };
+
   const checkTexts = function (id, R, body, btns) {
     if (!body.length) { errors.push('面板 ' + id + ' 一个字都没画'); return; }
     body.forEach(function (t) {
@@ -4733,7 +4812,10 @@ step(function () {
         const b = box(t);
         const oy = Math.min(b.y1, btn.y + btn.h) - Math.max(b.y0, btn.y);
         const ox = Math.min(b.x1, btn.x + btn.w) - Math.max(b.x0, btn.x);
-        if (ox > 2 && oy > (b.y1 - b.y0) * 0.4) {
+        /* 阈值从「字高的 40%」收到「最多 2.5px」（v0.16.0）：
+           40% 对 10px 的字是 4px —— 只压掉底边 2px 的字读起来已经断了，却判不出来
+           （洞府页的末行说明被「坐化」按钮压住就是这么漏的）。 */
+        if (ox > 2 && oy > Math.min(1.5, (b.y1 - b.y0) * 0.4)) {
           errors.push('面板 ' + id + ' 文字压在按钮上：' + JSON.stringify(t.s)
             + ' × 「' + (btn.label || btn.glyph || '?') + '」');
         }
@@ -4769,12 +4851,15 @@ step(function () {
     if (sc.overlay !== item.id) { errors.push('openPanel(' + item.id + ') 失败'); return; }
     const cx = textSpyXY();
     const sp = boxSpy();
+    const lp = layerSpy();
     let okRender = false;
-    try { okRender = G.Overlays.renderPanel(cx, sc); } finally { sp.restore(); }
+    /* ⚠️ 还原顺序必须**反着来**：三个探针都 patch 了 `G.UI.rr`，后 patch 的先还原。 */
+    try { okRender = G.Overlays.renderPanel(cx, sc); } finally { lp.restore(); sp.restore(); }
     if (!okRender) { errors.push('renderPanel(' + item.id + ') 返回 false'); return; }
     const tag = item.id + (item.tab ? '/' + item.tab : '');
     checkTexts(tag, item.R, cx.__seenXY.filter(inBand), sc.buttons);
     checkBoxes(tag, item.R, sp.hits);
+    checkCovered(tag, lp.ev);
   });
 
   /* ② 成就页（v0.15.0 移到**开局界面**）——

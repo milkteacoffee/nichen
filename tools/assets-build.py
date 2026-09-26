@@ -112,6 +112,17 @@ SIZES = {
     #   引擎取图逻辑名 = 'bg.battle.<主题>'，主题由 battle.js: _bgKey() 决定
     #   （bloodcave→blood / cave→cave / floor→hall / town→town / 其余按界 fan·ling·xian·dao）。
     #   没有素材时全部走程序化主题背景（见 battle.js 的 BG_THEME / BG_FEAT），不会黑屏。
+    # 建筑（v0.16.0，文生图出图）：取图键 = `struct.<bk>`（药铺/铁匠铺/丹房…），
+    #   没有 bk 时退回 `struct.<kind>`（house / ruin / gate）。
+    #   引擎侧按**等比内含 + 底部居中**绘制（art.js: A.house），不拉伸 ——
+    #   建筑尺寸从 3×5 到 6×5 都有，拉伸会让门窗比例各不相同。
+    #   ⚠️ 建筑名字一律**矢量叠加**（explore.js: _drawPlaque），**不要烘进图里**：
+    #      生图里的中文必然是乱码，而且同一张图要复用到不同建筑。
+    'struct.house': (256, 192),
+    'struct.apothecary': (256, 192),
+    'struct.shop': (256, 192),
+    'struct.ruin': (256, 192),
+    'struct.gate': (256, 192),
     'bg.title': (960, 544),
     'bg.battle.night': (960, 544),
     'bg.battle.town': (960, 544),

@@ -1038,8 +1038,21 @@
 
   A.house = function (s, pal) {
     var W = s.w * 16, H = s.h * 16;
-    var im = G.Assets.img('struct.house');
-    if (im) return { c: im, ox: 0, oy: 0, w: W, h: H };
+    /* 素材取图键：`struct.<bk>` 优先（药铺 / 铁匠铺 / 丹房…），
+       没有 `bk` 才退回 `struct.<kind>`（house / ruin / gate）。
+       ⚠️ `kind` 是"画法大类"，`bk` 才是"这是哪家店" —— 只用 kind 的话
+       药铺和民居会共用同一张图，玩家分不出哪栋是店。 */
+    var im = G.Assets.img('struct.' + (s.bk || s.kind || 'house'))
+      || G.Assets.img('struct.house');
+    if (im) {
+      /* **等比内含 + 底部居中**，不拉伸：
+         建筑尺寸从 3×5（48×80）到 6×5（96×80）都有，拉成同一个框会让
+         门宽/窗位/屋檐比例各不相同 —— 一眼就是"贴图贴歪了"。
+         底部锚定 = 建筑落地线对齐（`py + H` 是地面）。 */
+      var k = Math.min(W / im.width, H / im.height);
+      var dw = im.width * k, dh = im.height * k;
+      return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
+    }
     var ox = -12, oy = -8;
     var key = 'h|' + W + '|' + H + '|' + s.roof;
     var o = cached(key, W + 24, H + 16, function (x) {

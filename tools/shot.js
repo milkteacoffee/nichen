@@ -218,6 +218,16 @@ step(() => { save.hp = 200; }, 'hud.restore');
 [['05_town', 'town'], ['07_field', 'field'], ['09_cave', 'cave']].forEach(function (m) {
   step(() => { save.pos = null; G.game.changeScene(m[1], { toSpawn: true }); }, 'scene:' + m[1]);
   shot(m[0], 24);
+  /* 建筑特写（v0.16.0）：把相机推到镇北的建筑群 —— 出生点在镇南，
+     建筑全被顶栏挡住，验收时看不到"建筑换图 + 匾额"的实际效果。
+     ⚠️ 必须**先设 pos 再进场景**（`toSpawn` 会把它覆盖回出生点）。 */
+  if (m[1] === 'town') {
+    /* ⚠️ save.pos 是**格坐标**不是像素（explore._px() 才乘 16）—— 写像素的话
+       会被当成格坐标，角色直接跑到地图外，相机就贴着上沿不走了。 */
+    step(() => { save.pos = { x: 18, y: 11 }; G.game.changeScene('town'); }, 'town.houses');
+    shot('05a_town_houses', 40);
+    step(() => { save.pos = null; G.game.changeScene('town', { toSpawn: true }); }, 'town.back');
+  }
   const sc = G.game.scene;
   if (m[1] !== 'cave') {
     step(() => G.Overlays.openChar(sc), 'overlay:' + m[1]);

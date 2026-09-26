@@ -905,11 +905,15 @@
      ⚠️ 本版只落地"入口 + 规则说明 + 主动轮回"：四大技艺的**配方与产出**要等
      玩法方向（半开放世界 vs 固定剧情）定稿后再做，避免先写一套再推翻。
      ============================================================ */
+  /* ⚠️ 版位算式（改任何一项都要重算整列）：
+     副标题 32..43 → 卡片行1 44..90 → 行2 98..144 → 说明 152..162 / 166..176 → 按钮 184..206。
+     内容区底 = P.y + P.h - 10 = 228（按钮底 206，留 22px）。
+     原来 cardH=54 / y0=40 时副标题被卡片压住、说明被按钮压住 —— 契约两条判据都报过。 */
   var CV = {
-    cardW: 191, cardH: 54, gapX: 12, gapY: 10,
-    x0: P.x + 14, y0: P.y + 40,
-    noteY: P.y + 164,
-    btn: { x: P.x + 14, y: P.y + 186, w: 176, h: 22 }
+    cardW: 191, cardH: 46, gapX: 12, gapY: 8,
+    x0: P.x + 14, y0: P.y + 44,
+    noteY: P.y + 152,
+    btn: { x: P.x + 14, y: P.y + 184, w: 176, h: 22 }
   };
   /* 四大技艺：id / 名 / 载体 / 一句话规则 */
   var ARTS = [
@@ -922,7 +926,7 @@
   function drawCave(x, scene) {
     var save = G.game.save, meta = G.game.meta || {};
     shell(x, '洞府', '第 ' + (save.life || 1) + ' 世');
-    G.UI.text(x, { x: P.x + 14, y: P.y + 34 },
+    G.UI.text(x, { x: P.x + 14, y: P.y + 32 },
       '丹房 · 器坊 · 阵台 · 兽栏', 11, G.UI.C.textDim);
     ARTS.forEach(function (a, i) {
       var col = i % 2, row = Math.floor(i / 2);

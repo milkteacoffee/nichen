@@ -14,9 +14,12 @@
       id: 'town', w: 36, h: 24, safe: true, ground: 'town',
       spawn: { x: 18, y: 21 },
       structures: [
-        S('home', 'house', 3, 5, 6, 5, { label: '沈家小院', roof: '#6b5a4a' }),
-        S('shop', 'house', 14, 6, 6, 5, { label: '药铺', roof: '#5a6478' }),
-        S('market', 'house', 26, 7, 5, 4, { label: '刘记杂货', roof: '#78624a' })
+        /* `bk`（建筑类型）= **素材取图的键**（v0.16.0）：`struct.<bk>` 优先，
+           没有则退回 `struct.<kind>`。不写 `bk` 的话，药铺和民居会共用同一张图。
+           ⚠️ `kind` 只管"画法大类"（house/ruin/gate），`bk` 才是"这是哪家店"。 */
+        S('home', 'house', 3, 5, 6, 5, { label: '沈家小院', bk: 'house', roof: '#6b5a4a' }),
+        S('shop', 'house', 14, 6, 6, 5, { label: '药铺', bk: 'apothecary', roof: '#5a6478' }),
+        S('market', 'house', 26, 7, 5, 4, { label: '刘记杂货', bk: 'shop', roof: '#78624a' })
       ],
       paths: [
         path('v', 18, 11, 12),

@@ -53,5 +53,10 @@
   "portrait.killer": "assets/img/portrait.killer.png",
   "portrait.luchen": "assets/img/portrait.luchen.png",
   "portrait.shenbo": "assets/img/portrait.shenbo.png",
-  "portrait.villager": "assets/img/portrait.villager.png"
+  "portrait.villager": "assets/img/portrait.villager.png",
+  "struct.apothecary": "assets/img/struct.apothecary.png",
+  "struct.gate": "assets/img/struct.gate.png",
+  "struct.house": "assets/img/struct.house.png",
+  "struct.ruin": "assets/img/struct.ruin.png",
+  "struct.shop": "assets/img/struct.shop.png"
 }
