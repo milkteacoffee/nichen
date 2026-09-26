@@ -3433,6 +3433,268 @@ step(function () {
 }, 'ui.batch2.contract');
 pump(6, 'ui.batch2.leave');
 
+/* ---------- 界面批三（v0.12.0）：水墨主界面 + 战斗背景图 + 追踪栏左缘收缩 ---------- */
+step(function () {
+  const errors = [];
+  const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+  /* 源码闸通用前置：**先剥注释**（G36 —— 注释里常提到被闸的符号名，indexOf 会恒真） */
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  /* ========== ① 标题：宣纸水墨主题 ========== */
+  const ti = stripC(read('www/js/scenes/title.js'));
+  const tbi = ti.indexOf('_buildBackground: function');
+  const tui = ti.indexOf('update: function');
+  if (tbi < 0 || tui < tbi) bail('title.js 找不到 _buildBackground / update（结构变了就更新锚点）');
+  const tb = ti.slice(tbi, tui);
+  /* ⚠️ 本轮最要紧的不变量：背景噪声必须用**固定种子** `G.Art.rnd`。
+     全局 `G.rng` 是时间播种的，在它上面多取几个随机数会推移整个序列，
+     把靠它跑出来的回归基线（playthrough / rebirth）一起带歪 ——
+     与 G26 / G31 同一类病：渲染或断言里出现"随机"，先问种子是谁给的。 */
+  if (tb.indexOf('G.rng') >= 0) {
+    errors.push('title 背景用了全局 G.rng —— 时间播种，会推移回归基线（必须 G.Art.rnd 固定种子）');
+  }
+  if (tb.indexOf('G.Art.rnd(') < 0) errors.push('title 背景没有固定种子随机源 G.Art.rnd');
+
+  /* 竖排标题：两个字必须**分别**绘制（连写的 '逆 尘' 是旧版横排写法） */
+  const tr = ti.slice(ti.indexOf('render: function'), ti.indexOf('_renderAbout: function'));
+  if (tr.indexOf("'逆 尘'") >= 0) {
+    errors.push('标题仍是横排连写 —— 水墨版是右侧竖排，两个字要分开画');
+  }
+  if ((tr.match(/strokeText\('逆'/g) || []).length === 0
+    || (tr.match(/strokeText\('尘'/g) || []).length === 0) {
+    errors.push('标题竖排未按字绘制');
+  }
+
+  /* 运行时：底图尺寸 = 480×272 × K(2)（超采样出图，尺寸写错会糊） */
+  G.game.changeScene('title');
+  pump(3, 'batch3.title');
+  const ti2 = G.game.scene;
+  if (!ti2.bg) errors.push('title 没有底图');
+  else if (ti2.bg.width !== 960) {
+    errors.push('title 底图宽应为 960（480×K2），实为 ' + ti2.bg.width);
+  }
+
+  /* 三个新变体都要能画出来（ink / inkGold / plain） */
+  ['ink', 'inkGold', 'plain'].forEach((v) => {
+    const b = new G.UI.Btn({ x: 0, y: 0, w: 40, h: 20, small: true, variant: v, label: '试' });
+    try { b.render(G.game.ctx); } catch (e) {
+      errors.push('Btn 变体 ' + v + ' 渲染抛异常：' + e.message);
+    }
+  });
+
+  /* ========== ② 战斗背景图：主题表 + 缓存键 ========== */
+  const ba = stripC(read('www/js/scenes/battle.js'));
+  if (ba.indexOf('_bgFor') < 0) {
+    errors.push('battle._bg 没有按主题区分缓存 —— 战斗是单例，只判 this.bg 会"换了战场还是上一张"');
+  }
+  /* 素材优先路径：`_bg` 函数体必须**尝试**取 `bg.battle.<key>`。
+     无头 smoke 是桩 img（恒 null）→ 跑不到这条路径，所以只能源码闸钉住：
+     少了它，出了图也永远用不上，且**完全静默**（画面照旧，只是永远程序化）。 */
+  {
+    const bga = ba.indexOf('_bg: function');
+    const bgb = ba.indexOf('_drawUnit: function');
+    const bgBody = (bga >= 0 && bgb > bga) ? ba.slice(bga, bgb) : '';
+    if (bgBody.indexOf('bg.battle.') < 0) {
+      errors.push('battle._bg 没有素材优先路径（bg.battle.<key>）—— 出了图也永远不会用上');
+    }
+  }
+  const bt = G.scenes.battle.BG_THEME, bf = G.scenes.battle.BG_FEAT;
+  if (!bt || !bf) bail('battle 未导出 BG_THEME / BG_FEAT（契约与渲染必须读同一份）');
+  const tks = Object.keys(bt);
+  if (tks.length < 8) errors.push('战斗背景主题不足 8 套，实为 ' + tks.length);
+  tks.forEach((k) => {
+    const T = bt[k];
+    ['sky', 'ground', 'feat'].forEach((f) => {
+      if (!T[f] || !T[f].length) errors.push('背景主题 ' + k + ' 缺 ' + f);
+    });
+    (T.feat || []).forEach((f) => {
+      if (typeof bf[f] !== 'function') {
+        errors.push('背景主题 ' + k + ' 引用了不存在的绘制件 ' + f + '（只有该主题被用到时才抛）');
+      }
+    });
+  });
+
+  /* 运行时：逐个主题真画一遍（写错的键名一次抓全） */
+  G.game.save = JSON.parse(JSON.stringify(save));
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('血蝠', 14, '血蝠'), mapId: 'cave' });
+  pump(2, 'batch3.battle');
+  const bx = G.game.scene;
+  tks.forEach((k) => {
+    bx.params.bg = k;
+    bx.bg = null; bx._bgFor = null;
+    try {
+      if (!bx._bg()) errors.push('背景主题 ' + k + ' 画不出画布');
+    } catch (e) { errors.push('背景主题 ' + k + ' 渲染抛异常：' + e.message); }
+  });
+
+  /* 缓存键：同主题两次必须取到**同一对象**（否则每帧重画，白烧 CPU）；
+     换主题必须换对象（否则"换了战场还是上一张"）。 */
+  bx.params.bg = 'cave';
+  bx.bg = null; bx._bgFor = null;
+  const b1 = bx._bg(), b2 = bx._bg();
+  if (b1 !== b2) errors.push('同一主题两次取背景不是同一对象 —— 缓存没生效，每帧重画');
+  bx.params.bg = 'xian';
+  const b3 = bx._bg();
+  if (b3 === b1) errors.push('换主题后背景没重建 —— 缓存键没带主题');
+  delete bx.params.bg;
+
+  /* 主题选取：按来源地图的地面类型 */
+  bx.mapId = 'bloodhall';
+  if (bx._bgKey() !== 'blood') errors.push('bloodhall 的背景主题应为 blood，实为 ' + bx._bgKey());
+  bx.mapId = 'cave';
+  if (bx._bgKey() !== 'cave') errors.push('cave 的背景主题应为 cave，实为 ' + bx._bgKey());
+  bx.mapId = 'town';
+  if (bx._bgKey() !== 'town') errors.push('town 的背景主题应为 town，实为 ' + bx._bgKey());
+
+  /* ========== ③ 追踪栏：左缘收缩 ========== */
+  const ex = stripC(read('www/js/core/explore.js'));
+  if (ex.indexOf('_drawTrackTab: function') < 0) errors.push('explore.js 缺 _drawTrackTab（左缘竖标）');
+  if (ex.indexOf("variant: 'plain'") < 0) {
+    errors.push('追踪竖标未用 plain 变体 —— Btn 会横排画 label，20px 竖条必被撑破');
+  }
+  /* 源码闸：竖标与面板的**绘制函数体**不得登记按钮（登记了就吞地图点击）。
+     ex 已 stripC 剥注释 —— 注释里提「按钮」是允许的，不会误报。
+     切片覆盖 _drawTrackTab 与 _drawTracker 两个函数（到下一个函数 _ellip 为止）。 */
+  {
+    const a = ex.indexOf('_drawTrackTab: function');
+    const b = ex.indexOf('_ellip: function');
+    const body = (a >= 0 && b > a) ? ex.slice(a, b) : '';
+    if (body.indexOf('buttons.push') >= 0 || body.indexOf('new G.UI.Btn') >= 0) {
+      errors.push('追踪栏绘制函数登记了按钮 —— 会吞掉地图点击');
+    }
+  }
+  G.game.save = JSON.parse(JSON.stringify(save));
+  G.game.changeScene('town', { toSpawn: true });
+  pump(2, 'batch3.track');
+  const sc = G.game.scene;
+  const tab = sc.buttons.filter((b) => b.variant === 'plain')[0];
+  if (!tab) errors.push('左缘没有追踪竖标按钮');
+  else {
+    if (tab.x > 24) errors.push('追踪竖标没贴左缘（x=' + tab.x + '）');
+    if (tab.w > 24) errors.push('追踪竖标过宽（w=' + tab.w + '）');
+    if (tab.h < 48) errors.push('追踪竖标过矮（h=' + tab.h + '），竖排四字放不下');
+  }
+  /* 收起 / 展开两态的按钮数必须**一致** —— 面板本体不登记按钮，
+     所以"展开"不会多出任何可点区，地图永远点得动（本轮核心约束）。 */
+  sc.trackOpen = true; sc._padButtons();
+  const nOpen = sc.buttons.length;
+  sc.trackOpen = false; sc._padButtons();
+  const nClosed = sc.buttons.length;
+  if (nOpen !== nClosed) {
+    errors.push('追踪栏展开后多出 ' + (nOpen - nClosed) + ' 个按钮 —— 面板本体登记按钮会吞地图点击');
+  }
+  /* ⚠️ 只比"两态按钮数"抓不到**渲染路径偷偷登记**的按钮：
+     _padButtons 之后不渲染，绘制函数根本没跑，push 自然不发生。
+     这里再走一帧，要求"渲染前后按钮数不变"（G34 同族：取值必须晚于被测代码执行）。 */
+  sc.trackOpen = true; sc._padButtons();
+  const nBefore = sc.buttons.length;
+  pump(1, 'batch3.track.render');
+  if (sc.buttons.length !== nBefore) {
+    errors.push('渲染一帧后按钮多了 ' + (sc.buttons.length - nBefore)
+      + ' 个 —— 绘制路径不得登记按钮（会吞地图点击）');
+  }
+  sc.trackOpen = true; sc._padButtons();
+
+  G.game.changeScene('title');
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('界面批三契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 界面批三：水墨主界面（固定种子）+ 战斗八主题背景 + 追踪栏左缘收缩');
+}, 'ui.batch3.contract');
+pump(6, 'ui.batch3.leave');
+
+/* ---------- 游戏内版本号必须与 HANDOVER 同步（v0.12.0）----------
+   `G.VERSION` 从 v0.0.2 起就再没同步过，一直显示成初始占位 —— 标题「关于」与关于页
+   都拿它当版本号，玩家看到的是两年前的数。这类"两处各写一遍、谁也不会同时改"的常量
+   是静默腐坏的典型：没有契约的话，下次还是只有人工想起来才会对。
+   判据：`ns.js` 的 `G.VERSION` == HANDOVER 头部「代码版本 **vX.Y.Z**」。 */
+step(function () {
+  const errors = [];
+  const ns = fs.readFileSync(path.join(WWW, 'js/core/ns.js'), 'utf8');
+  const m = ns.match(/G\.VERSION\s*=\s*'([^']+)'/);
+  if (!m) { errors.push('ns.js 找不到 G.VERSION'); }
+  else {
+    if (/^v0\.0\./.test(m[1])) {
+      errors.push('G.VERSION 仍是初始占位 ' + m[1] + '（忘了同步）');
+    }
+    const ho = fs.readFileSync(path.join(__dirname, '..', 'HANDOVER.md'), 'utf8');
+    const hm = ho.match(/代码版本\s*\*\*(v[0-9]+\.[0-9]+\.[0-9]+)/);
+    if (!hm) errors.push('HANDOVER 头部找不到「代码版本 **vX.Y.Z**」');
+    else if (hm[1] !== m[1]) {
+      errors.push('版本号不同步：ns.js=' + m[1] + ' vs HANDOVER=' + hm[1]);
+    }
+  }
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('版本号契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 版本号：G.VERSION 与 HANDOVER 一致（' + m[1] + '）');
+}, 'version.contract');
+
+/* ---------- 关于页正文不得溢出 / 压到关闭按钮（v0.12.0）----------
+   「排版问题全是静默的」：关于页正文是 `G.UI.text` 直接画的，既不受按钮越界契约管，
+   也不会报错 —— 文案一长就横向穿出面板、行数一多就压住关闭按钮（v0.12.0 实测
+   31 字那条把"本"字画到边框外）。
+   这里用**源码闸 + 字宽估算**复刻 `G.UI.wrap` 的折行，算总行数与末行底边。
+   为什么不能运行时驱动：无头 smoke 的桩 canvas `measureText` 返回"长度 × 7"，
+   对中文**严重低估** → 真机上会折的行在桩里不折 → 断言恒真（G35 同族陷阱）。 */
+step(function () {
+  const errors = [];
+  const tt = fs.readFileSync(path.join(WWW, 'js/scenes/title.js'), 'utf8');
+  const at = tt.indexOf('_renderAbout: function');
+  if (at < 0) { errors.push('title.js 缺 _renderAbout'); }
+  else {
+    const body = tt.slice(at, at + 2600);
+    if (body.indexOf('G.UI.wrap') < 0) {
+      errors.push('关于页正文没走 G.UI.wrap —— 文案一长就静默横向溢出面板');
+    }
+    /* 面板矩形 + 起点偏移 + 行距：抓不到就报"契约过时"（防正则腐烂） */
+    const rect = body.match(/var r = \{ x: (\d+), y: (\d+), w: (\d+), h: (\d+) \}/);
+    const ly0 = body.match(/ly = r\.y \+ (\d+)/);
+    const stepY = body.match(/ly \+= ([\d.]+)/);
+    if (!rect || !ly0 || !stepY) {
+      errors.push('关于页版式常量抓不到（契约的正则过时了，需同步 _renderAbout）');
+    } else {
+      const RX = +rect[1], RY = +rect[2], RW = +rect[3];
+      const Y0 = RY + +ly0[1], DY = +stepY[1];
+      const BTN_TOP = 206;                    /* _openAbout 里关闭按钮的 y */
+      const FS = 12, TW = RW - 48;            /* 左右各 24 边距 */
+      /* 抓 lines 数组里的单引号字面量（`+ G.VERSION` 的拼接按 8 字符补足） */
+      const li = body.indexOf('var lines = [');
+      const lj = body.indexOf('];', li);
+      if (li < 0 || lj < 0) { errors.push('关于页 lines 数组抓不到'); }
+      else {
+        const seg = body.slice(li, lj);
+        const strs = [];
+        seg.replace(/'([^']*)'/g, (m2, s) => { strs.push(s); return m2; });
+        if (seg.indexOf('G.VERSION') >= 0) strs[0] += 'v0.12.0';  /* 拼接口按最长版本号算 */
+        /* 字宽估算：CJK/全角按字号，ASCII 按 0.55（与 panels.bounds 同一套） */
+        const wid = (s) => {
+          let w = 0;
+          for (let i = 0; i < s.length; i++) w += s.charCodeAt(i) > 0x2e80 ? FS : FS * 0.55;
+          return w;
+        };
+        let rows = 0;
+        strs.forEach((s) => { rows += Math.max(1, Math.ceil(wid(s) / TW)); });
+        const lastBottom = Y0 + (rows - 1) * DY + FS;
+        if (rows > 7) {
+          errors.push('关于页正文折行后 ' + rows + ' 行（预算 7）—— 会压到关闭按钮');
+        }
+        if (lastBottom > BTN_TOP) {
+          errors.push('关于页正文末行底 ' + lastBottom.toFixed(0)
+            + ' 越过了关闭按钮顶 ' + BTN_TOP);
+        }
+      }
+    }
+  }
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('关于页版式契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 关于页版式：正文走 wrap，折行预算内且不压关闭按钮');
+}, 'about.layout.contract');
+
 /* ---------- 地面类型不得归一化（v0.11.4）----------
    `_baseType()` 是 `groundTex()` 的**取纹理口**，必须返回**真实地面类型**。
    把 bloodcave 归回 'cave' 会让暗红地面**静默渲染成普通洞窟** —— 不报错、只是颜色不对，

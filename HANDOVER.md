@@ -1,20 +1,21 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-09-26 · 代码版本 **v0.11.5（M1 §11 第 3 步：血夜 · 据点连战 · 抉择 2 · 沈伯之死）** · 前一里程碑 v0.11.4
-> 本次增量（详见 §8 顶部）：
-> ①**M1 血夜主线 m1-5 → m1-7 全链打通**（`doc/《逆尘》M1剧情与内容设计 v1.0.md` §5–§6）：
->   · **新地图 `bloodhall`**（血煞外堂据点，30×24，`ground: 'bloodcave'`、`safe`、一次性剧情图）：
->     3 个 **`scriptBattle` 触发格**（走到即开战，暗关无暗雷）+ 堂中 Boss「血面」。
->   · **新场景 `js/scenes/bloodhall.js`**：连战节点 / 抉择 2 / 遗言演出 / 阿七还命（抉择 1 = spare 的回响）。
->   · **新机制件**：`mapgen` 的 **`scriptBattle`**（走到即开战 + `onlyFlag`/`skipFlag` 条件节点）、
->     `battle` 的 **`kind: 'ally'` 阶段**（沈伯燃命：重创血面但**不打死**，留主角补刀）、
->     `explore` 的 **`startNight` 血夜红雾**（1.2s 压暗演出后自动切图，期间冻结操作）。
->   · **m1-6 筑基心魔劫**（强化版 `makeHeartDemon2`：开局召心魔残影）与 **m1-7 离乡**（赠灵石/回城符 + 解锁 M2）。
-> ②**顺手修掉两个"真机才会炸"的隐患**：`_transition` 缺 `spawn` 时直接解引用 → 未捕获异常打断渲染循环
->   （血夜红雾淡完那一刻必踩）；`G.UI.Btn` 的 `sub` 字段漏拷（v0.11.4 遗留）。
-> ③契约 **25 → 26 条**（新增 `m1.bloodnight.contract`，**真驱动**整条血夜链 + 显式驱动只在剧情里跑的分支）。
+> 最后更新：2026-09-26 · 代码版本 **v0.12.0（界面批三：水墨主界面 + 战斗背景八主题 + 追踪栏左缘收缩）** · 前一里程碑 v0.11.5
+> 本次增量（详见 §8 顶部）—— **纯表现层，不碰逻辑与 `G.rng`**：
+> ①**主界面改宣纸水墨**（`title.js`）：底图重绘为**宣纸 + 淡墨远山 + 朱印**（噪点用
+>   **固定种子 `G.Art.rnd`**，不用时间播种的全局 `G.rng` —— 否则会推移 playthrough / rebirth 基线）；
+>   标题改**右侧竖排**（两个字分别绘制）；菜单改**纸面牌匾**（新变体 `ink`，浅底深字）。
+> ②**战斗背景八主题**（`battle.js`）：`BG_THEME` 8 套（night / cave / town / hall / blood / ling / xian / dao），
+>   由 `_bgKey()` 按「显式 `params.bg` → 来源地图 `ground` → 所在界」选取；`BG_FEAT` 数据驱动绘制件；
+>   **缓存键带主题**（战斗是单例，只判 `this.bg` 会"换了战场还是上一张"）；
+>   并新增**素材优先路径** `bg.battle.<key>`（出了图整张铺上，地面与台座仍程序化 —— 台座依赖本场敌人槽位）。
+> ③**任务追踪栏改左缘收缩**（`explore.js`）：收起 = 屏幕左缘一条 20px 竖标（`variant:'plain'`，
+>   外观由 `_drawTrackTab` 自绘），点它展开；**面板本体不登记任何按钮** → 展开不吞地图点击。
+> ④契约 **26 → 29 条**（新增 `ui.batch3` / `version` / `about.layout`），**反例验证 14 组全部命中**。
+> ⑤**顺手修掉一个静默已久的真问题**：`G.VERSION` 还停在占位值 `v0.0.2`（标题页"关于"就显示它），
+>   改为 `v0.12.0` 并加契约从 HANDOVER 头部取版本比对 —— 以后升版本忘了改会直接报错。
 > **下一步见 §8 顶部「下一步」。**
-> v0.11.4（界面批二）与更早版本见 §8 下方小节。
+> v0.11.5（M1 血夜）与更早版本见 §8 下方小节。
 > **设计基线：GDD v3.3（2026-09-25，全案文档版本统一）** —— 全部文档清单、状态与权威顺序见
 > `doc/《逆尘》设计文档总索引与版本基线 v3.2.md`（文件名保留 v3.2，内容已 v3.3）；单份文档不再单独代表“最新”。
 > 用途：换电脑继续开发时的**唯一入口**。仓库里其它文档的分工见 §2.3。
@@ -34,7 +35,7 @@
 | **线上试玩** | **https://milkteacoffee.github.io/nichen/** （GitHub Pages，Actions 部署，部署前会卡一道冒烟测试；见 §1.5） |
 | 代码量 | `www/js` ≈ 15.6k 行（37 个文件）；`tools/` ≈ 7.4k 行（无头测试与审查工具） |
 | 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识 + 道界道则回廊九关固定试炼（斩三尸→证道→合道）+ 道晶经济 + 秘术飞升升品 + 降世按界起始境界与首区落点** + **野怪收益曲线已校准（各境界刷满 12–42 场，原大罗 60,895 场）** + **区域美术换皮（28 区 28 套配色与装饰物配方，U7 闭合）** + **底栏六面板主动关闭钮** + **角色面板四子页（总览/灵根/属性/境界）** + **M1 数据层（血煞教四敌 + 5 本灵阶功法 + 多段攻击 + 3 张程序化立绘）** + **M1 任务链 m1-1..m1-4（辨丹 / 探子战+抉择 1 / 赠功法 / 筑基丹两途径）** + **四项界面可用性修复（点地不被 HUD 吞 / NPC 不抖 / 四向头线对齐 / 战斗倒计时+下拉）** + **界面批二 8 项（HUD 四格+悬浮说明 / 功法下拉降序 / 境界突破入口 / 灵根九维方块图 / 储物五分类+悬浮 / 左侧任务追踪栏+路引 / 出口云雾传送阵 / 矮墙）** + **Boss 机制与天道心魔对战设计稿 v1.0（只出设计，未改数值）** + **M1 血夜 m1-5..m1-7（血煞据点 bloodhall 连战 / 抉择 2 护镇·护沈伯 / 沈伯燃命·遗言 / 筑基心魔·离乡与 M2 解锁）** |
-| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** · **zone-curve（野怪收益曲线验算）** 全过；smoke 共 **26 条契约**（v0.11.5 新增 `m1.bloodnight` 一条；v0.11.4 新增 `ui.batch2` + `ground.type` 两条；v0.11.3 新增 `m1.quest` 一条；v0.11.2 新增 `ui.fix` + `ui.fix.runtime` 两条；v0.11.1 新增 `m1.data` 一条 + 修掉 `zone.weights` 的时间播种假红；v0.11.0 新增 `region.tint` 一条 + `panels`/`panels.bounds` 两条增强；v0.10.0 批 `zone.curve` / `zone.curve.source` 两条 + 两条运行时差分探针；v0.9.0 批 `dao.trials` / `descend.world` 两条；v0.8.0 批四条同） |
+| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** · **zone-curve（野怪收益曲线验算）** 全过；smoke 共 **29 条契约**（v0.12.0 新增 `ui.batch3` / `version` / `about.layout` 三条；v0.11.5 新增 `m1.bloodnight` 一条；v0.11.4 新增 `ui.batch2` + `ground.type` 两条；v0.11.3 新增 `m1.quest` 一条；v0.11.2 新增 `ui.fix` + `ui.fix.runtime` 两条；v0.11.1 新增 `m1.data` 一条 + 修掉 `zone.weights` 的时间播种假红；v0.11.0 新增 `region.tint` 一条 + `panels`/`panels.bounds` 两条增强；v0.10.0 批 `zone.curve` / `zone.curve.source` 两条 + 两条运行时差分探针；v0.9.0 批 `dao.trials` / `descend.world` 两条；v0.8.0 批四条同） |
 
 **最重要的一句话**：这个项目**没有构建步骤**。改完 `www/js/*.js` 直接刷新浏览器就能看到效果；
 `tools/` 下的 node 脚本是**测试与审查**用的，不参与运行。
@@ -214,7 +215,7 @@ nichen/
 
 | 工具 | 行数 | 用途 |
 |---|---|---|
-| `smoke.js` | 4532 | **冒烟测试**：加载全部脚本、走遍所有场景、**26 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / **`region.tint.contract` 区域换皮（数据/运行时/源码闸三层）** / **`m1.data.contract` M1 数据层（灵阶功法 / 血煞教四敌 / 程序化立绘）** / **`m1.quest.contract` M1 任务链 m1-1..m1-4（真驱动整条链）** / **`ui.fix.contract` + `ui.fix.runtime.contract` 四项界面可用性修复** / **`ui.batch2.contract` 界面批二（HUD 四格+悬浮说明 / 功法下拉降序 / 境界突破入口 / 灵根九维 / 储物五分类 / 追踪栏+路引 / 出口传送阵 / 矮墙）** / **`ground.type.contract` 地面类型不得归一化（cave 与 bloodcave 纹理必须可区分）** / **`m1.bloodnight.contract` M1 血夜 m1-5..m1-7（血煞据点连战 + 抉择 2 + 沈伯之死 + 筑基心魔 + 离乡）** / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能、关闭钮、角色子页与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点** / **`zone.curve.contract` 野怪收益曲线** + **`zone.curve.source.contract` 源码闸**）。改任何东西后第一件事 |
+| `smoke.js` | 4794 | **冒烟测试**：加载全部脚本、走遍所有场景、**29 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / **`region.tint.contract` 区域换皮（数据/运行时/源码闸三层）** / **`m1.data.contract` M1 数据层（灵阶功法 / 血煞教四敌 / 程序化立绘）** / **`m1.quest.contract` M1 任务链 m1-1..m1-4（真驱动整条链）** / **`ui.fix.contract` + `ui.fix.runtime.contract` 四项界面可用性修复** / **`ui.batch2.contract` 界面批二（HUD 四格+悬浮说明 / 功法下拉降序 / 境界突破入口 / 灵根九维 / 储物五分类 / 追踪栏+路引 / 出口传送阵 / 矮墙）** / **`ground.type.contract` 地面类型不得归一化（cave 与 bloodcave 纹理必须可区分）** / **`m1.bloodnight.contract` M1 血夜 m1-5..m1-7（血煞据点连战 + 抉择 2 + 沈伯之死 + 筑基心魔 + 离乡）** / **`ui.batch3.contract` 界面批三（水墨主界面固定种子 / 战斗背景八主题+缓存键+素材优先 / 追踪栏左缘收缩）** / **`version.contract` 游戏内版本号必须与 HANDOVER 同步** / **`about.layout.contract` 关于页正文折行预算（源码闸+字宽估算）** / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能、关闭钮、角色子页与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点** / **`zone.curve.contract` 野怪收益曲线** + **`zone.curve.source.contract` 源码闸**）。改任何东西后第一件事 |
 | `zone-curve.js` | 285 | **野怪收益曲线验算**（缺口 U5）：逐区列出遭遇带与灵气/场、**覆盖缺口**（gl 1–171 逐级）、**逐境刷满场次与寿元年岁**，并给出告警。`--json` 出结构化结果。**改 `zones.enc` / `needQi` / 灵气奖励公式后必跑** |
 | `playthrough.js` | 392 | **M0 通关模拟**：新档 → m0-1..m0-5 → 赤炎狼王，打印每步数值 |
 | `rebirth.js` | 578 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强"。**开头把 `Date.now` 钉成常量**（§5.9）——不钉的话第 2 世种子随时间变、基线不可复现 |
@@ -222,13 +223,13 @@ nichen/
 | `secret-test.js` | 221 | **秘术效果测试**：品阶/圣术面板/神术被动/仙术主动施放断言 |
 | `browser-probe.js` | 679 | **真实浏览器探针**（CDP 驱动本机 Chrome/Edge），唯一能验证素材是否生效的工具。`PROBE_URL` 可指向**线上构建** |
 | `api-probe.js` | ~150 | **天道三协议真机探测**：用游戏自己的 `buildRequest`/`extractText` 打真实端点（`NICHEN_TEST_KEY` / `NICHEN_TEST_ENDPOINT` / `NICHEN_TEST_MODEL`）。契约只钉形状，端到端只认它 |
-| `shot.js` | 904 | 83 张场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
+| `shot.js` | 941 | 93 张场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
 | `zoom.js` | 182 | 单场景局部放大审查（看精灵清晰度） |
 | `portrait-sheet.js` | 126 | 立绘总览 + ASCII 缩略图（图片直读会间歇失败，文本化更可靠） |
 | `sprite-sheet.js` | 105 | 战斗立绘高倍导出 |
 | `bench-frame.js` | 113 | 帧耗基准（S=4 最小帧耗） |
 | `bench-ground.js` | 50 | 地面纹理烘焙耗时基准 |
-| `assets-build.py` | 255 | 切图 + 生成/校验 manifest（`--check` 模式） |
+| `assets-build.py` | 290 | 切图 + 生成/校验 manifest（`--check` 模式） |
 
 ---
 
@@ -688,6 +689,65 @@ node_modules/
 ---
 
 ## 8. 最近一次改了什么
+
+### v0.12.0：界面批三 —— 水墨主界面 / 战斗背景八主题 / 追踪栏左缘收缩（2026-09-26）
+
+**背景**：鑫总发来 15 张《烟雨江湖》真机截图 + 4 条要求 —— 追踪栏改左缘收缩、战斗界面加背景图、
+主界面与游戏界面整体重做。本批是**纯表现层**：不动逻辑、不动 `G.rng`、不动数值。
+
+**① 主界面改宣纸水墨** —— `scenes/title.js`
+- 底图从"夜空星月"重绘为**宣纸底 + 淡墨远山 + 朱印**（`_buildBackground`）。
+- ⚠️ 噪点必须用**固定种子** `G.Art.rnd(20260926)`：全局 `G.rng` 是**时间播种**的，
+  在它上面多取几个随机数会推移整个序列，把 playthrough / rebirth 的基线一起带歪
+  （与 G26 / G31 同类病 —— 渲染或断言里出现"随机"，先问种子是谁给的）。契约有源码闸钉它。
+- 标题改**右侧竖排**（"逆""尘"两字**分别**绘制，横排连写的旧写法会被契约拦下）。
+- 菜单改**纸面牌匾**：新变体 `ink`（米色纸底 + 深褐细边 + **内圈发丝线** + 左缘朱线，浅底深字）。
+  **内圈发丝线是"纸牌"质感的关键** —— 只有一圈外框会读成"白方块"。
+
+**② 战斗背景八主题** —— `scenes/battle.js`
+- `BG_THEME` **8 套**：`night` / `cave` / `town` / `hall` / `blood` / `ling` / `xian` / `dao`
+  （每套 = `sky` 渐变 + `ridge` 远山 + `ground` 地面 + `feat` 绘制件列表）。
+- `BG_FEAT` **数据驱动**：主题表里写绘制件**键名**，渲染时查表调用。
+  ⚠️ 键名拼错只有"该主题被用到时"才抛 —— 契约**逐个主题真画一遍**（写错的键名一次抓全）。
+- `_bgKey()` 取值优先级：**显式 `params.bg` → 来源地图 `ground` → 所在界**（`bloodcave → blood`）。
+- **缓存键必须带主题名**（`_bgFor`）：战斗场景是**单例**，只判 `if (this.bg)` 会出现
+  "换了个战场、背景还是上一张"。
+- **素材优先路径** `bg.battle.<key>`：有图就整张铺上、程序化件全跳过；
+  **但地面与台座照旧程序化**（台座位置依赖本场敌人槽位，素材里不可能预烘焙）。
+  无头 smoke 是桩 `img`（恒 null）→ 跑不到这条路径，所以只能**源码闸**钉住（少了它完全静默）。
+- 顺带把 `bg.title` 也登记进 `assets-build.py`，并新增 `BG_KEYS` —— 背景图按**整张铺满**处理，
+  不走其它素材的"等比缩放 + 底部对齐"（背景裁掉一块就是穿帮）。
+
+**③ 任务追踪栏改左缘收缩** —— `core/explore.js`
+- 收起 = 屏幕左缘一条 **20px 竖标**（`variant:'plain'` —— 该变体**不画任何像素**，
+  外观由 `_drawTrackTab` 自绘成竖排四字；用 `default` 的话 Btn 会横排一行字，20px 竖条必被撑破）。
+- 点竖标展开 / 收起；**面板本体不登记任何按钮** → 展开不会多出可点区，**地图永远点得动**
+  （这是本批的核心约束：追踪栏不能影响地图场景操作）。
+- 契约三层：源码闸（`_drawTrackTab` / `_drawTracker` 函数体不得出现 `buttons.push` / `new G.UI.Btn`）
+  + 两态按钮数一致 + **渲染前后按钮数不变**。
+
+**④ 契约 26 → 29 条**：新增 `ui.batch3.contract`（源码闸 + 运行时双轨）、
+`version.contract`（`G.VERSION` 必须与 HANDOVER 头部版本一致）、
+`about.layout.contract`（关于页正文折行预算 —— 桩 `measureText` 严重低估中文，只能源码闸 + 字宽估算）。
+**反例验证 14 组全部命中**。过程中三条反例**初版没命中**，逼出三条纪律：
+- 反例串用了**多行**（`variant: 'plain',\n            label: ...`）→ `rep.js` 没匹配上，
+  于是"改坏"根本没发生、契约当然不报。**反例串必须与实现逐字一致，优先用单行。**
+- "追踪栏绘制函数登记按钮"原本抓不到：契约在 `_padButtons()` 之后**立刻**数按钮数，
+  那时**还没渲染**、绘制函数根本没跑。补"渲染一帧前后按钮数不变"才命中
+  （G34 同族：**取值必须晚于被测代码执行**）。
+- `about.layout` 契约**自己先造了一条假红**：我同时写了"末行越界"与"单条文案过宽"两条判据，
+  而后者对"本来就该折 2 行"的文案恒真。**同一件事只留一条判据** —— 重复判据 = 假红。
+
+**⑤ 顺手修掉一个静默已久的真问题**：`ns.js` 的 `G.VERSION` 还停在 **`v0.0.2`**（占位值，
+从没随版本升过），而标题页"关于"里就显示它 —— 玩家看到的是"关于 · v0.0.2"。
+改为 `v0.12.0` 并加 `version.contract`：**从 HANDOVER 头部正则取版本号比对**，
+以后升版本忘了改 `ns.js` 会直接报错（这类"文档与代码各说各话"是静默的）。
+同时关于页正文改**自动折行 + 收紧行距**（原写死 6 行 × 21，改文案就会静默压到关闭按钮上）。
+
+**⑥ 素材预登记**：`assets-build.py` 新增 `bg.title` + `bg.battle.*`（8 个）共 9 个逻辑名，
+尺寸 **960×544**（= 480×272 × 超采样 2）。缺图一律走程序化兜底（静默），出了图放对名字即可。
+
+**⑦ 截图**：新增战斗背景 8 帧（`17bg_*`）+ 追踪栏开合 2 帧（`05m` / `05n`）。
 
 ### v0.11.5：M1 §11 第 3 步 —— 血夜 / 据点连战 / 抉择 2 / 沈伯之死（2026-09-26）
 

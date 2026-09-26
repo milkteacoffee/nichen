@@ -6,8 +6,15 @@
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
 
-  /* 左侧任务追踪栏（v0.11.4）。起点在场景铭牌之下（铭牌 y = HUD_H+5、高 19）。 */
-  var TR_X = 6, TR_Y = 78, TR_W = 118, TR_TOG_H = 16;
+  /* 左侧任务追踪栏（v0.11.4 起；v0.12.0 改**左缘收缩**，参考《烟雨江湖》）。
+     收起 = 只在屏幕左缘留一条竖标（点它展开）；展开 = 竖标右侧弹出面板。
+     竖标是**整个追踪栏唯一的按钮**（variant:'plain'，外观由 _drawTrackTab 自己画）；
+     面板本体只画、不登记按钮 —— 登记了就会吞掉地图点击（G19 同族：登记了却没人画 / 画了却没人管）。
+     高度 = 顶距 8 + 4 个竖排字 × 12 + 8 + 折角 14 + 底距 6。 */
+  var TR_TAB_X = 0, TR_TAB_W = 20, TR_TAB_H = 76;
+  /* 起点在场景铭牌之下（铭牌 y = HUD_H + 5、高 19） */
+  var TR_Y = 78;
+  var TR_W = 118, TR_PANEL_X = TR_TAB_W + 3;
 
   /* 血夜红雾时长（秒，M1 §6.3）。红雾是"入夜"压暗演出，淡完即切图。
      ⚠️ 引用它的地方在 _drawBloodVeil 里 —— 这个常量**曾经漏定义**，
@@ -99,13 +106,15 @@
         if (G.Overlays && G.Overlays.barBtns) {
           G.Overlays.barBtns(self, null).forEach(function (b) { self.buttons.push(b); });
         }
-        /* 任务追踪栏的收起/展开钮 —— **整个追踪栏唯一的按钮**。
+        /* 任务追踪栏的收起/展开钮 —— **整个追踪栏唯一的按钮**，落在屏幕左缘的竖标上。
+           variant:'plain' 不画任何像素（竖标由 _drawTrackTab 画成竖向；
+           Btn 只会横排一行字，塞进 20px 宽的竖条必然溢出）。
            面板本体（见 _drawTracker）只画不登记按钮，所以点面板上的文字
            走的仍是 onTap 的"点地面走过去"，不会出现"面板一盖地图就点不动"。 */
         if (G.Overlays && G.Overlays.trackInfo) {
           this.buttons.push(new G.UI.Btn({
-            x: TR_X, y: TR_Y, w: TR_W, h: TR_TOG_H, small: true, variant: 'ghost',
-            label: this.trackOpen === false ? '任务追踪' : '收起追踪',
+            x: TR_TAB_X, y: TR_Y, w: TR_TAB_W, h: TR_TAB_H, small: true, variant: 'plain',
+            label: '任务追踪',
             onClick: function () {
               self.trackOpen = (self.trackOpen === false);
               self._padButtons();
@@ -1202,6 +1211,53 @@
         G.UI.textOut(x, { x: px + 18, y: py + 3.5 }, sname, 13, G.UI.C.goldHi);
       },
 
+      /* ===== 左缘竖标（v0.12.0）=====
+         屏幕左缘一条常驻竖标，是整个追踪栏唯一的可点区域（按钮在 _padButtons 注册，
+         variant:'plain' 不画像素，外观全在这里）。竖排四字 + 底部折角指示开合方向。
+         **竖排而不是旋转**：ctx.rotate 后字体基线与对齐都要重算，竖排逐字画更稳，
+         而且中文竖排本来就是这个读法（《烟雨江湖》的侧边栏也是竖排字）。
+         折角**矢量画**，不用 '‹' '›' 字符（无 @font-face，缺字会变豆腐块）。 */
+      _drawTrackTab: function (x, tk, open) {
+        var C = G.UI.C;
+        var h = TR_TAB_H, by = TR_Y;
+        /* 左边两个圆角落在屏外（x = -4）→ 视觉上就是"贴住屏幕左缘的一条" */
+        G.UI.panel(x, { x: -4, y: by, w: TR_TAB_W + 4, h: h },
+          'rgba(6,9,16,0.86)', 'rgba(216,183,104,0.42)', 4,
+          { paper: false, shadow: false });
+        /* 右缘亮线：开合状态用**亮度**区分（展开时更亮），比换色更不吵 */
+        x.fillStyle = open ? 'rgba(245,227,168,0.75)' : 'rgba(216,183,104,0.42)';
+        x.fillRect(TR_TAB_W - 1.4, by + 6, 1.4, h - 12);
+
+        /* 竖排「任务追踪」：4 字 × 12px，起点 by + 8 */
+        var ty = by + 8;
+        for (var i = 0; i < 4; i++) {
+          G.UI.textOut(x, { x: TR_TAB_W / 2 - 1, y: ty }, '任务追踪'.charAt(i), 11,
+            i === 0 ? C.goldHi : 'rgba(206,196,172,0.88)', 'center');
+          ty += 12;
+        }
+
+        /* 底部折角：收起时指右（点它展开），展开时指左（点它收起） */
+        var ax = TR_TAB_W / 2 - 1, ay = by + h - 13;
+        x.save();
+        x.strokeStyle = open ? C.goldHi : 'rgba(216,183,104,0.72)';
+        x.lineWidth = 1.6; x.lineCap = 'round'; x.lineJoin = 'round';
+        x.beginPath();
+        if (open) { x.moveTo(ax + 3, ay - 3); x.lineTo(ax - 1.5, ay); x.lineTo(ax + 3, ay + 3); }
+        else { x.moveTo(ax - 3, ay - 3); x.lineTo(ax + 1.5, ay); x.lineTo(ax - 3, ay + 3); }
+        x.stroke();
+        x.restore();
+
+        /* 有路引时在竖标顶端点一颗呼吸金点：收起状态下也能看出"任务有方向可走" */
+        if (tk && tk.guide) {
+          var p = 0.5 + 0.5 * Math.sin(performance.now() / 420);
+          x.save();
+          x.globalAlpha = 0.35 + 0.5 * p;
+          x.fillStyle = C.goldHi;
+          x.beginPath(); x.arc(TR_TAB_W / 2 - 1, by + 4, 2.1, 0, 6.2832); x.fill();
+          x.restore();
+        }
+      },
+
       /* ===== 左侧任务追踪栏（v0.11.4）=====
          参考《烟雨江湖》：左侧常驻一条，展示**当前主任务 + 子任务 + 路引**
          （路引 = 指向任务目的地的箭头 + 方位 + 距离）。
@@ -1215,9 +1271,14 @@
          ⑤ 面板打开时整条不画 —— 面板自带暗罩，追踪栏浮在暗罩上会显得脏。 */
       _drawTracker: function (x) {
         if (this.overlay) return;
-        if (this.trackOpen === false) return;
         var tk = G.Overlays.trackInfo ? G.Overlays.trackInfo(G.game.save) : null;
         if (!tk || !tk.s) return;
+        var open = this.trackOpen !== false;
+
+        /* 左缘竖标**常驻**（收起时它是唯一入口，展开时它是收起钮） */
+        this._drawTrackTab(x, tk, open);
+        if (!open) return;
+
         var s = tk.s, C = G.UI.C;
 
         /* 目标文案：折行最多 2 行（面板只有 118 宽，第 3 行就顶到面板底了） */
@@ -1228,7 +1289,7 @@
         var route = guide ? this._routeTo(guide.map) : null;
 
         var H = 9 + 12 + 14 + dl.length * 11 + subs.length * 11 + (guide ? 27 : 0) + 9;
-        var bx = TR_X, by = TR_Y + TR_TOG_H + 3, bw = TR_W;
+        var bx = TR_PANEL_X, by = TR_Y, bw = TR_W;
         G.UI.panel(x, { x: bx, y: by, w: bw, h: H }, 'rgba(6,9,16,0.80)',
           'rgba(216,183,104,0.34)', 4, { paper: false, shadow: false });
         x.fillStyle = 'rgba(216,183,104,0.55)';

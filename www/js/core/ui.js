@@ -595,8 +595,15 @@
       x.translate(pad, pad);
       var s = { x: 0, y: 0, w: w, h: h };
 
-      /* 落影（default 变体保留；battle/ghost/tab/subtab 不想要投影，画面会变铁丝网） */
-      if (variant !== 'battle' && variant !== 'ghost' && variant !== 'tab' && variant !== 'subtab') {
+      /* plain：**只提供命中区、不画任何像素**。
+         用途是"外观我自己画、点击我要接"的控件（目前只有任务追踪栏的左缘竖标）——
+         竖标是竖向文字，而 Btn 只会横排一行字，塞进 20px 宽的竖条必然溢出。
+         ⚠️ 必须在**落影之前**返回：落影是画给 default 的，plain 连它都不能有。 */
+      if (variant === 'plain') return;
+
+      /* 落影（default 变体保留；battle/ghost/tab/subtab/ink/inkGold 不想要投影，画面会变铁丝网） */
+      if (variant !== 'battle' && variant !== 'ghost' && variant !== 'tab'
+        && variant !== 'subtab' && variant !== 'ink' && variant !== 'inkGold') {
         x.save();
         x.shadowColor = 'rgba(0,0,0,0.45)';
         x.shadowBlur = 3;
@@ -690,6 +697,43 @@
           x.fillStyle = 'rgba(255,255,255,0.08)';
           x.fillRect(3, 1.4, w - 6, 0.9);
         }
+      } else if (variant === 'ink' || variant === 'inkGold') {
+        /* 宣纸牌匾（v0.12.0）：参考《烟雨江湖》的浅色题牌 —— 米色纸底 + 深褐细边 + 内圈发丝线。
+           与 default（墨玉深底）是两个体系：**浅底深字**，用于"宣纸背景"上的菜单，
+           例如标题主界面。内圈发丝线是"纸牌"质感的关键 —— 只有一圈外框会读成"白方块"。
+           `inkGold` = 同一块牌换金边金线，做纸面上的**主操作**（次要动作用 `ink`）——
+           纸面上不该出现 default 那种亮金渐变块，它与宣纸是两个材质。 */
+        var gold = variant === 'inkGold';
+        rr(x, s, r);
+        var ig = x.createLinearGradient(0, 0, 0, h);
+        if (pressed) {
+          ig.addColorStop(0, gold ? 'rgba(214,192,146,0.98)' : 'rgba(206,190,156,0.97)');
+          ig.addColorStop(1, gold ? 'rgba(190,166,116,0.98)' : 'rgba(184,167,132,0.97)');
+        } else {
+          ig.addColorStop(0, gold ? 'rgba(248,239,210,0.96)' : 'rgba(241,232,209,0.95)');
+          ig.addColorStop(1, gold ? 'rgba(230,212,168,0.96)' : 'rgba(219,206,175,0.95)');
+        }
+        x.fillStyle = ig; x.fill();
+        /* 外框：深褐，比纯黑柔和（纯黑会把整块牌读成"贴上去的"）；主操作换金 */
+        rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
+        x.strokeStyle = gold
+          ? (pressed ? 'rgba(146,110,40,0.90)' : 'rgba(172,136,60,0.82)')
+          : (pressed ? 'rgba(46,36,22,0.82)' : 'rgba(64,50,32,0.66)');
+        x.lineWidth = gold ? 1.3 : 1; x.stroke();
+        /* 内圈发丝线 */
+        rr(x, { x: 2.5, y: 2.5, w: w - 5, h: h - 5 }, Math.max(1, r - 1));
+        x.strokeStyle = gold ? 'rgba(178,142,64,0.42)' : 'rgba(120,100,70,0.34)';
+        x.lineWidth = 0.7; x.stroke();
+        /* 左缘一道竖线：次要牌用朱线（呼应标题的朱印），主操作牌用金线 */
+        x.fillStyle = gold
+          ? (pressed ? 'rgba(172,132,50,0.92)' : 'rgba(196,158,74,0.88)')
+          : (pressed ? 'rgba(140,52,44,0.75)' : 'rgba(156,58,50,0.62)');
+        x.fillRect(gold ? 3 : 3.5, 5, gold ? 2.4 : 1.6, h - 10);
+        if (!pressed) {
+          x.fillStyle = 'rgba(255,255,255,0.42)';
+          x.fillRect(4, 1.6, w - 8, 1);
+        }
+
       } else {  /* default：墨玉 */
         var g2 = x.createLinearGradient(0, 0, 0, h);
         if (pressed) {
@@ -741,6 +785,13 @@
     var dy = down ? 1 : 0;
     var w = this.w, h = this.h;
 
+    /* plain：**只登记命中、不画任何像素**（v0.11.6）。
+       用途是"外观由场景自绘、但需要接点击"的控件 —— 目前只有探索场景左缘的
+       任务追踪竖标：它是一根 20×76 的竖条，字是**竖排**的，而 Btn 只会横排一行
+       label 并居中。若只让 btnCanvas 早退、不在这里也早退，label 仍会横着画出来，
+       直接把竖条撑破。 */
+    if (this.variant === 'plain') return;
+
     /* passive：**不可点但正常外观**。用于"储物格子"这类——
        格子要能承接悬浮说明、也要看起来是正常内容，但点下去没有动作。
        直接 disabled 会把整页格子压成灰块（像坏了），所以单独一个开关。 */
@@ -767,6 +818,8 @@
     else if (this.variant === 'ghost') col = C.goldHi;
     else if (this.variant === 'tab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.82)';
     else if (this.variant === 'subtab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.78)';
+    /* 宣纸牌匾：**深褐字**（浅底必须配深字，否则整块牌读不出字） */
+    else if (this.variant === 'ink' || this.variant === 'inkGold') col = down ? '#140f08' : '#2a2116';
     else if (this.variant === 'danger') col = '#ffe4dc';
     else { col = C.text; if (this.tier === '仙') col = C.goldHi; }
 

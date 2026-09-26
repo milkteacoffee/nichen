@@ -43,6 +43,253 @@
   var BATTLE_LINE = 'rgba(168,180,210,0.32)';
   var BATTLE_LINE_HI = 'rgba(216,183,104,0.55)';
 
+  /* ============================================================
+     战斗背景主题表（v0.12.0）
+     ------------------------------------------------------------
+     背景按**战场所属地形/界域**选主题，而不是一张通用夜景。
+     取值优先级（见 _bgKey）：
+       ① params.bg（显式指定，剧情战可用）
+       ② 来源地图 md.ground（cave / bloodcave / floor / town / 其它）
+       ③ 所在界（fan / ling / xian / dao）
+     每个主题有两个来源，**素材优先**：
+       · G.Assets.img('bg.battle.<key>') —— 逻辑名见 assets-build.py 的 SIZES
+       · 没有素材就走下面这张表程序化生成（缺图不会变成黑屏）
+     feat 是绘制件清单，按顺序叠加。新增主题 = 加一行表 + 在 _bgFeature 里加分支。
+     ⚠️ 背景是**缓存**的（this.bg），缓存键必须带上主题名 ——
+        战斗场景是单例，不换键就会出现"换了个战场还是上一张背景"。
+     ============================================================ */
+  var BG_THEME = {
+    /* 野外月夜（默认）：青蓝夜空 + 两层远山 + 月 */
+    night: { sky: ['#0a0e1e', '#161d34', '#242b44'], ridge: ['#131a2c', '#0c1220'],
+      ground: ['#22283c', '#0d1018'], edge: 'rgba(216,183,104,0.16)',
+      feat: ['stars', 'moon', 'ridge'] },
+    /* 镇内：屋脊剪影 + 暖灯 */
+    town: { sky: ['#080b16', '#131a30', '#232c4a', '#333d60'], ridge: ['#1a2036', '#111726'],
+      ground: ['#2c2d3a', '#12141c'], edge: 'rgba(216,183,104,0.20)',
+      feat: ['stars', 'moon', 'roof'] },
+    /* 洞窟：岩壁 + 钟乳 + 冷色矿光 */
+    cave: { sky: ['#0b0d11', '#15181e', '#1e2128', '#262a32'], ridge: ['#20232a', '#171a20'],
+      ground: ['#2b2d35', '#121316'], edge: 'rgba(143,214,232,0.18)',
+      feat: ['stalactite', 'torch'] },
+    /* 血煞据点：暗红洞窟 + 血色雾 */
+    blood: { sky: ['#150508', '#24070a', '#330b0c', '#401312'], ridge: ['#2c0b0d', '#1a0506'],
+      ground: ['#351110', '#160505'], edge: 'rgba(232,132,106,0.26)',
+      feat: ['stalactite', 'torch'] },
+    /* 石殿（道则回廊 / 室内秘境）：列柱 + 火盆 */
+    hall: { sky: ['#0c0e16', '#171b28', '#232a3a', '#30374b'], ridge: ['#242a3a', '#171c28'],
+      ground: ['#2f3342', '#14161e'], edge: 'rgba(216,183,104,0.24)',
+      feat: ['pillar', 'torch'] },
+    /* 灵界：青碧灵光 + 浮云 */
+    ling: { sky: ['#05131b', '#0b2532', '#154351', '#1f5f6a'], ridge: ['#123a44', '#0a262e'],
+      ground: ['#1c4a52', '#0a1e24'], edge: 'rgba(143,240,216,0.22)',
+      feat: ['stars', 'cloud', 'ridge'] },
+    /* 仙界：金霞云海 */
+    xian: { sky: ['#1b1307', '#302309', '#4d390d', '#6f5113'], ridge: ['#3b2d11', '#251d09'],
+      ground: ['#4b3b15', '#1f1708'], edge: 'rgba(255,217,138,0.30)',
+      feat: ['cloud', 'ridge'] },
+    /* 道界：虚空星河 */
+    dao: { sky: ['#060612', '#0d0d24', '#16163a', '#212150'], ridge: ['#181840', '#0e0e28'],
+      ground: ['#22224a', '#0c0c20'], edge: 'rgba(200,184,255,0.28)',
+      feat: ['stars', 'cloud', 'void'] }
+  };
+
+  /* ============================================================
+     背景绘制件（v0.12.0）
+     ------------------------------------------------------------
+     签名统一 (x, T, rnd)：x = 逻辑坐标 2D 上下文（480×272 已 scale(K)），
+     T = 当前主题，rnd = 确定性随机源（由 _bg 按主题名播种）。
+     ⚠️ 全部必须**确定性**：用传入的 rnd 而不是 Math.random / 时间。
+        否则每次进战斗背景都在变，玩家读成"闪屏"（G26 同族：随机要问种子是谁给的）。
+     新增件 = 在这里加一个键 + 在 BG_THEME 的 feat 里引用。
+     ============================================================ */
+  var BG_FEAT = {
+    /* 星点 */
+    stars: function (x, T, rnd) {
+      for (var i = 0; i < 90; i++) {
+        var sx = rnd() * 480, sy = rnd() * 170;
+        var big = rnd() < 0.14;
+        x.globalAlpha = 0.18 + rnd() * 0.68;
+        x.fillStyle = '#dfe6fa';
+        x.fillRect(sx, sy, big ? 1.6 : 0.9, big ? 1.6 : 0.9);
+      }
+      x.globalAlpha = 1;
+    },
+
+    /* 月（含柔光） */
+    moon: function (x, T, rnd) {
+      var mx = 392, my = 52, mr = 28;
+      var mg = x.createRadialGradient(mx, my, 4, mx, my, mr * 1.9);
+      mg.addColorStop(0, 'rgba(246,238,214,0.28)');
+      mg.addColorStop(1, 'rgba(246,238,214,0)');
+      x.fillStyle = mg;
+      x.beginPath(); x.arc(mx, my, mr * 1.9, 0, 6.2832); x.fill();
+      x.fillStyle = '#f0e6c8';
+      x.beginPath(); x.arc(mx, my, 15, 0, 6.2832); x.fill();
+      x.fillStyle = 'rgba(0,0,0,0.07)';
+      x.beginPath(); x.arc(mx - 5, my - 5, 3.4, 0, 6.2832); x.fill();
+      x.beginPath(); x.arc(mx + 5, my + 5, 2.4, 0, 6.2832); x.fill();
+    },
+
+    /* 两层远山 */
+    ridge: function (x, T, rnd) {
+      function layer(baseY, amp, col, phase) {
+        var rr = G.Art.rnd(Math.round(baseY * 31 + phase * 977));
+        x.fillStyle = col;
+        x.beginPath();
+        x.moveTo(0, 272);
+        var pts = [];
+        for (var px = 0; px <= 480; px += 24) {
+          pts.push({
+            x: px,
+            y: baseY + Math.sin(px * 0.014 + phase) * amp + (rr() - 0.5) * amp * 1.2
+          });
+        }
+        x.lineTo(pts[0].x, pts[0].y);
+        for (var i = 0; i < pts.length - 1; i++) {
+          var mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+          x.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+        }
+        x.lineTo(480, 272); x.closePath(); x.fill();
+      }
+      layer(150, 16, T.ridge[0], 0.6);
+      layer(172, 20, T.ridge[1], 2.4);
+    },
+
+    /* 镇内屋脊剪影：一排高低错落的屋顶 + 暖窗 */
+    roof: function (x, T, rnd) {
+      var hx = -10;
+      while (hx < 490) {
+        var w = 34 + rnd() * 26;
+        var top = 138 + rnd() * 20;
+        x.fillStyle = T.ridge[0];
+        x.beginPath();
+        x.moveTo(hx, 178);
+        x.lineTo(hx, top + 8);
+        x.lineTo(hx + w * 0.5, top);          /* 屋脊尖 */
+        x.lineTo(hx + w, top + 8);
+        x.lineTo(hx + w, 178);
+        x.closePath(); x.fill();
+        /* 檐口暗线 */
+        x.fillStyle = 'rgba(0,0,0,0.30)';
+        x.fillRect(hx, top + 7, w, 1.4);
+        /* 暖窗（两盏） */
+        if (rnd() < 0.55) {
+          x.fillStyle = 'rgba(232,192,122,0.55)';
+          x.fillRect(hx + w * 0.30, top + 20, 4, 5);
+        }
+        if (rnd() < 0.35) {
+          x.fillStyle = 'rgba(232,192,122,0.40)';
+          x.fillRect(hx + w * 0.62, top + 30, 4, 5);
+        }
+        hx += w + 2 + rnd() * 5;
+      }
+      x.fillStyle = T.ridge[1];
+      x.fillRect(0, 168, 480, 10);
+    },
+
+    /* 洞窟：顶部垂石 + 两侧岩柱 */
+    stalactite: function (x, T, rnd) {
+      x.fillStyle = T.ridge[0];
+      for (var i = 0; i < 26; i++) {
+        var sx = rnd() * 480, w = 8 + rnd() * 20, h = 16 + rnd() * 46;
+        x.beginPath();
+        x.moveTo(sx - w / 2, 0);
+        x.lineTo(sx + w / 2, 0);
+        x.lineTo(sx, h);
+        x.closePath(); x.fill();
+      }
+      /* 两侧岩壁 */
+      [0, 1].forEach(function (side) {
+        var bx = side ? 480 : 0;
+        x.fillStyle = T.ridge[1];
+        x.beginPath();
+        x.moveTo(bx, 0);
+        var px = bx;
+        for (var y = 0; y <= 178; y += 22) {
+          px += (rnd() - 0.5) * 12;
+          x.lineTo(px, y);
+        }
+        x.lineTo(bx, 178);
+        x.closePath(); x.fill();
+      });
+    },
+
+    /* 火把（左右各一）：暖光 + 跳动的焰 */
+    torch: function (x, T, rnd) {
+      [86, 394].forEach(function (tx) {
+        var ty = 128;
+        var g = x.createRadialGradient(tx, ty, 2, tx, ty, 62);
+        g.addColorStop(0, 'rgba(255,176,92,0.34)');
+        g.addColorStop(0.5, 'rgba(226,120,60,0.13)');
+        g.addColorStop(1, 'rgba(226,120,60,0)');
+        x.fillStyle = g;
+        x.beginPath(); x.arc(tx, ty, 62, 0, 6.2832); x.fill();
+        /* 木柄 */
+        x.fillStyle = '#3a2c1e';
+        x.fillRect(tx - 1.4, ty, 2.8, 44);
+        /* 焰：外焰 + 内焰 */
+        x.fillStyle = 'rgba(240,140,60,0.92)';
+        x.beginPath();
+        x.moveTo(tx - 4.2, ty);
+        x.quadraticCurveTo(tx, ty - 16, tx + 4.2, ty);
+        x.closePath(); x.fill();
+        x.fillStyle = 'rgba(255,232,170,0.95)';
+        x.beginPath();
+        x.moveTo(tx - 2, ty - 1);
+        x.quadraticCurveTo(tx, ty - 9, tx + 2, ty - 1);
+        x.closePath(); x.fill();
+      });
+    },
+
+    /* 石殿列柱 */
+    pillar: function (x, T, rnd) {
+      for (var i = 0; i < 4; i++) {
+        var px = 34 + i * 138;
+        var g = x.createLinearGradient(px, 0, px + 26, 0);
+        g.addColorStop(0, T.ridge[1]);
+        g.addColorStop(0.45, T.ridge[0]);
+        g.addColorStop(1, T.ridge[1]);
+        x.fillStyle = g;
+        x.fillRect(px, 16, 26, 162);
+        /* 柱头 / 柱础 */
+        x.fillStyle = T.ridge[0];
+        x.fillRect(px - 5, 12, 36, 7);
+        x.fillRect(px - 5, 170, 36, 8);
+      }
+      /* 地面反光 */
+      x.fillStyle = 'rgba(216,183,104,0.05)';
+      x.fillRect(0, 150, 480, 28);
+    },
+
+    /* 云带（灵/仙/道） */
+    cloud: function (x, T, rnd) {
+      for (var i = 0; i < 5; i++) {
+        var cy = 120 + i * 14 + rnd() * 8;
+        var cw = 140 + rnd() * 180, ch = 8 + rnd() * 10;
+        var cx0 = rnd() * 480;
+        var g = x.createRadialGradient(cx0, cy, 1, cx0, cy, cw / 2);
+        g.addColorStop(0, 'rgba(255,255,255,0.09)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        x.fillStyle = g;
+        x.beginPath(); x.ellipse(cx0, cy, cw / 2, ch, 0, 0, 6.2832); x.fill();
+      }
+    },
+
+    /* 虚空涟漪（道界） */
+    void: function (x, T, rnd) {
+      x.save();
+      x.strokeStyle = T.edge;
+      x.lineWidth = 1.1;
+      for (var i = 0; i < 4; i++) {
+        x.globalAlpha = 0.5 - i * 0.1;
+        x.beginPath();
+        x.ellipse(240, 120, 70 + i * 46, 26 + i * 17, 0, 0, 6.2832);
+        x.stroke();
+      }
+      x.restore();
+    }
+  };
+
   /* 消耗品（丹药治疗 = 目标最大 HP × 百分比） */
   var CONSUM = {
     '回春丹': { heal: 0.40, d: '回复四成气血' },
@@ -61,6 +308,7 @@
       this.params = params || {};
       this.mapId = this.params.mapId || 'field';
       this.bg = null;
+      this._bgFor = null;              /* 背景主题缓存键（见 _bg：不带键会沿用上一张） */
       this.round = 1;
       this.cue = []; this.cueDone = null;
       this.floaters = [];
@@ -1395,60 +1643,63 @@
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
     },
 
+    /* 本场战斗的背景主题名（表见 BG_THEME）。
+       取值优先级：显式 params.bg → 来源地图的地面类型 → 所在界。 */
+    _bgKey: function () {
+      var p = this.params || {};
+      if (p.bg && BG_THEME[p.bg]) return p.bg;
+      var md = (G.Data.maps && G.Data.maps[this.mapId]) || {};
+      var g = md.ground;
+      if (g === 'bloodcave') return 'blood';
+      if (g === 'cave') return 'cave';
+      if (g === 'floor') return 'hall';
+      if (g === 'town') return 'town';
+      var wid = 'fan';
+      try { wid = G.Player.activeWorldId(G.game.meta) || 'fan'; } catch (e) { wid = 'fan'; }
+      if (wid === 'ling') return 'ling';
+      if (wid === 'xian') return 'xian';
+      if (wid === 'dao') return 'dao';
+      return 'night';
+    },
+
     _bg: function () {
-      if (this.bg) return this.bg;
-      var o = G.Art.cv(480, 272);
-      var x = o.x;
+      var key = this._bgKey();
+      /* ⚠️ 缓存键必须带上主题名：战斗场景是**单例**，只判 `if (this.bg)`
+         会出现"换了个战场、背景还是上一张"。 */
+      if (this.bg && this._bgFor === key) return this.bg;
 
-      /* 夜空 */
-      var g = x.createLinearGradient(0, 0, 0, 200);
-      g.addColorStop(0, '#0a0e1e');
-      g.addColorStop(0.5, '#161d34');
-      g.addColorStop(1, '#242b44');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 272);
+      var T = BG_THEME[key] || BG_THEME.night;
+      var K = 2, W = 480 * K, H = 272 * K;
+      var c = G.Assets.makeCanvas(W, H), x = c.getContext('2d');
+      x.scale(K, K);
 
-      /* 月 */
-      var mg = x.createRadialGradient(400, 46, 4, 400, 46, 40);
-      mg.addColorStop(0, 'rgba(246,238,214,0.30)');
-      mg.addColorStop(1, 'rgba(246,238,214,0)');
-      x.fillStyle = mg;
-      x.beginPath(); x.arc(400, 46, 40, 0, 6.2832); x.fill();
-      x.fillStyle = '#f0e6c8';
-      x.beginPath(); x.arc(400, 46, 15, 0, 6.2832); x.fill();
-      x.fillStyle = 'rgba(0,0,0,0.07)';
-      x.beginPath(); x.arc(395, 41, 3.4, 0, 6.2832); x.fill();
-      x.beginPath(); x.arc(405, 51, 2.4, 0, 6.2832); x.fill();
+      /* ① 素材优先（逻辑名 bg.battle.<key>，尺寸登记见 assets-build.py）。
+            有图就整张铺上，程序化件全部跳过 —— 但**地面与台座照旧程序化**，
+            因为台座位置依赖本场敌人槽位，素材里不可能预烘焙。 */
+      var im = G.Assets.img('bg.battle.' + key);
+      var rnd = G.Art.rnd(key.charCodeAt(0) * 7919 + key.length * 131);
 
-      /* 远山两层 */
-      function ridge(baseY, amp, col, phase) {
-        var rr = G.Art.rnd(Math.round(baseY * 31 + phase * 977));
-        x.fillStyle = col;
-        x.beginPath();
-        x.moveTo(0, 272);
-        var pts = [];
-        for (var px = 0; px <= 480; px += 24) {
-          pts.push({
-            x: px,
-            y: baseY + Math.sin(px * 0.014 + phase) * amp + (rr() - 0.5) * amp * 1.2
-          });
-        }
-        x.lineTo(pts[0].x, pts[0].y);
-        for (var i = 0; i < pts.length - 1; i++) {
-          var mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
-          x.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-        }
-        x.lineTo(480, 272); x.closePath(); x.fill();
+      if (im) {
+        x.drawImage(im, 0, 0, 480, 272);
+      } else {
+        /* 天幕：把主题的色标均分到 0..210 */
+        var sky = x.createLinearGradient(0, 0, 0, 210);
+        T.sky.forEach(function (col, i) {
+          sky.addColorStop(i / Math.max(1, T.sky.length - 1), col);
+        });
+        x.fillStyle = sky; x.fillRect(0, 0, 480, 272);
+
+        T.feat.forEach(function (f) { BG_FEAT[f](x, T, rnd); });
+
+        /* 地面：所有主题共用同一套"地平线在 178"的版式，
+           保证立绘脚底 / 台座 / 日志面板的位置在任何战场都一致。 */
+        var gg = x.createLinearGradient(0, 178, 0, 272);
+        gg.addColorStop(0, T.ground[0]);
+        gg.addColorStop(1, T.ground[1]);
+        x.fillStyle = gg; x.fillRect(0, 178, 480, 94);
+        x.fillStyle = T.edge;
+        x.fillRect(0, 177.4, 480, 0.8);
       }
-      ridge(150, 16, '#131a2c', 0.6);
-      ridge(172, 20, '#0c1220', 2.4);
-
-      /* 地面 */
-      var gg = x.createLinearGradient(0, 178, 0, 272);
-      gg.addColorStop(0, '#22283c');
-      gg.addColorStop(1, '#0d1018');
-      x.fillStyle = gg; x.fillRect(0, 178, 480, 94);
-      x.fillStyle = 'rgba(216,183,104,0.16)';
-      x.fillRect(0, 177.4, 480, 0.8);
 
       /* 台座：主角 1 个，敌方按槽位各 1 个 */
       x.drawImage(G.Art.arena(150, 44), 122 - 75, 148, 150, 44);
@@ -1462,8 +1713,9 @@
         x.drawImage(G.Art.arena(w, 44), p.x - w / 2, p.y - 10, w, 44);
       });
 
-      this.bg = o.c;
-      return o.c;
+      this.bg = c;
+      this._bgFor = key;
+      return c;
     },
 
     _drawUnit: function (x, key) {
@@ -1671,4 +1923,11 @@
   };
 
   G.scenes.battle = scene;
+
+  /* 背景主题表挂场景导出（与 `ASC_PANELS` 同一套约定：**渲染与契约读同一份**）。
+     契约要遍历全部主题验证"每个 feat 名都在 BG_FEAT 里有实现" ——
+     这类"表里写了个不存在的键名"的错，只在**那个主题真被用到**时才抛，
+     不遍历就等于没验。 */
+  scene.BG_THEME = BG_THEME;
+  scene.BG_FEAT = BG_FEAT;
 })();

@@ -225,14 +225,35 @@ step(() => { save.hp = 200; }, 'hud.restore');
     step(() => sc.clearOverlay(), 'overlay.close');
   }
   step(() => {
+    /* ⚠️ `_heldDir` 是场景**自身属性**（不是原型方法），覆写后会一直留在场景上 ——
+       本意只是"驱动一次走路"，但收尾不还原的话，之后每次进这张图角色都自己往下走。
+       镇南出口离出生点只有两格 → 拍别的帧时会拍到"人已经走到翠微山了"。
+       所以这里用完**立刻还原**（场景是单例，跨帧复用）。 */
+    const orig = sc._heldDir;
     sc._heldDir = () => 'down';
     for (let i = 0; i < 40; i++) sc.update(0.05);
     sc.onTap({ x: 240, y: 140 });
     for (let i = 0; i < 60; i++) sc.update(0.05);
     sc._interact();
+    sc._heldDir = orig;
   }, 'walk:' + m[1]);
   shot(m[0] + '_walk', 10);
 });
+
+/* 4a) 追踪栏开合两态（v0.12.0 改左缘收缩，参考《烟雨江湖》）。
+   收起态只有一条 20px 竖标贴左缘 —— 顺便当"收起后地图依然完整可见"的存档。 */
+step(() => {
+  save.pos = null;
+  G.game.changeScene('town', { toSpawn: true });
+  G.game.scene.trackOpen = true;
+}, 'track.open');
+shot('05m_track_open', 20);
+step(() => {
+  G.game.scene.trackOpen = false;
+  G.game.scene._padButtons();
+}, 'track.closed');
+shot('05n_track_closed', 20);
+step(() => { G.game.scene.trackOpen = true; G.game.scene._padButtons(); }, 'track.restore');
 
 /* 4b) 四向精灵对照（v0.11.2 修「侧身比前后高一头」）：
    场景里四向不会同框，所以直接铺一张对照图 —— 四向 × 三帧并排，画头线与脚底线。
@@ -476,6 +497,22 @@ shot('18c_battle_summon', 20);
   }, 'battle.' + it[0]);
   shot(it[1], 30);
 });
+
+/* 5f) 战斗背景主题巡览（v0.12.0）：八张主题各拍一张。
+   背景按战场地形/界域自动选主题（battle.js: _bgKey），这里用 params.bg 强制指定，
+   一张一张肉眼比对 —— 光跑契约看不出"两个主题长得一样"或"某主题糊成一片"。
+   ⚠️ 背景是缓存 + 缓存键带主题名，所以换主题必须**重新 changeScene**（走 enter 清缓存），
+      不能只改 params.bg 后 pump —— 那样拍到的还是上一张。 */
+['night', 'town', 'cave', 'blood', 'hall', 'ling', 'xian', 'dao'].forEach((bg) => {
+  step(() => {
+    G.game.save = JSON.parse(JSON.stringify(save));
+    G.game.changeScene('battle', {
+      enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field', bg: bg
+    });
+  }, 'bgtheme.' + bg);
+  shot('17bg_' + bg, 14);
+});
+step(() => { G.game.save = JSON.parse(JSON.stringify(save)); }, 'bgtheme.restore');
 step(() => {
   G.game.save = JSON.parse(JSON.stringify(save));
   G.game.changeScene('battle', { enemy: G.Data.makeXuemian(), mapId: 'cave' });

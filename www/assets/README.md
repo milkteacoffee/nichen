@@ -293,11 +293,27 @@ v0.11.0 起，四界 **28 个区域各有自己的一套程序化外观**（缺�
 ### 7. 场景背景（480×272 逻辑，建议 1920×1088）
 | 逻辑名 | 说明 | 绘制点 |
 |---|---|---|
-| `bg.title` | 标题画面背景（缺省为程序化月夜远山） | ✅ `scenes/title.js` |
+| `bg.title` | 标题画面背景（缺省为程序化**宣纸水墨**） | ✅ `scenes/title.js` |
 | `bg.death` | 死亡结算背景（缺省为暗夜余烬） | ✅ `scenes/death.js` |
 | `bg.hall` | 轮回殿背景（缺省为幽蓝殿宇） | ✅ `scenes/reincarnation-hall.js` |
-| `bg.battle` | 战斗背景 | ❌ 尚未接线 |
+| `bg.battle.night` | 战斗背景 · 夜色山野 | ✅ `scenes/battle.js` |
+| `bg.battle.cave` | 战斗背景 · 洞窟 | ✅ `scenes/battle.js` |
+| `bg.battle.town` | 战斗背景 · 镇内 | ✅ `scenes/battle.js` |
+| `bg.battle.hall` | 战斗背景 · 殿宇 | ✅ `scenes/battle.js` |
+| `bg.battle.blood` | 战斗背景 · 血煞据点（暗红洞窟） | ✅ `scenes/battle.js` |
+| `bg.battle.ling` | 战斗背景 · 灵界 | ✅ `scenes/battle.js` |
+| `bg.battle.xian` | 战斗背景 · 仙界 | ✅ `scenes/battle.js` |
+| `bg.battle.dao` | 战斗背景 · 道界（虚空星河） | ✅ `scenes/battle.js` |
 | `bg.cave` | 洞窟氛围底图 | ❌ 尚未接线 |
+
+> **战斗背景（v0.12.0 新增，8 个逻辑名）**：尺寸 **960×544**（= 480×272 × 超采样 2），
+> 按**整张铺满**处理 —— **不走**其它素材的"等比缩放 + 底部对齐"（背景裁掉一块就是穿帮）。
+> 主题由 `_bgKey()` 选：显式 `params.bg` → 来源地图 `ground` → 所在界（`bloodcave → blood`）。
+> ⚠️ **有图就整张铺上，程序化件全跳过；但地面与台座照旧程序化** ——
+> 台座位置依赖本场敌人的槽位，素材里不可能预烘焙。
+> ⚠️ 无头 smoke 是桩 `img`（恒 `null`）→ **跑不到这条素材路径**，
+> 所以"素材优先"这件事由 `ui.batch3.contract` 的**源码闸**钉住（少了它完全静默）。
+> 想给某张图单独换背景，不必出全 8 张：缺的自动退回程序化。
 
 ### 8. 人物立绘（逻辑 74×74，**出图 512×512 方图**）
 | 逻辑名 | 说明 | 素材 | 绘制点 |

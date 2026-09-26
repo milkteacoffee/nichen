@@ -105,7 +105,26 @@ SIZES = {
     # 主角头像：**正面**胸像，专供 HUD 左上角圆形头像。
     #   拿全身立绘裁头要放大 4 倍，圆里糊成一团；胸像的面部像素密度够。
     'avatar.luchen': (512, 512),
+    # ===== 背景图（v0.12.0）=====
+    #   逻辑尺寸 480×272，引擎里按 K=2 超采样绘制 → 出图给 960×544（2 倍）。
+    #   ⚠️ 背景走 cover（等比放大铺满 + 居中裁切），**不走 fit 的"裁 alpha 外接框"** ——
+    #      背景是要铺满整屏的，裁外接框会让画面里出现透明边。
+    #   引擎取图逻辑名 = 'bg.battle.<主题>'，主题由 battle.js: _bgKey() 决定
+    #   （bloodcave→blood / cave→cave / floor→hall / town→town / 其余按界 fan·ling·xian·dao）。
+    #   没有素材时全部走程序化主题背景（见 battle.js 的 BG_THEME / BG_FEAT），不会黑屏。
+    'bg.title': (960, 544),
+    'bg.battle.night': (960, 544),
+    'bg.battle.town': (960, 544),
+    'bg.battle.cave': (960, 544),
+    'bg.battle.blood': (960, 544),
+    'bg.battle.hall': (960, 544),
+    'bg.battle.ling': (960, 544),
+    'bg.battle.xian': (960, 544),
+    'bg.battle.dao': (960, 544),
 }
+
+# 背景类逻辑名：走 cover 而不是 fit（见 SIZES 里的说明）
+BG_KEYS = set(k for k in SIZES if k.startswith('bg.'))
 # 地图角色的三帧：同一张图登记三次，动感由引擎的上下浮动提供
 HERO_DIRS = ['down', 'up', 'left', 'right']
 PAD = 0.04          # 外接框四周留白比例（防止描边贴边被切）
@@ -129,6 +148,22 @@ def fit(im, tw, th):
     # 底边对齐：角色脚底贴住画布下沿，和程序化精灵的锚点一致
     canvas.paste(im, ((tw - nw) // 2, th - nh - int(th * PAD)), im)
     return canvas, None
+
+
+def cover(im, tw, th):
+    """等比放大到**铺满** (tw, th)，居中裁切多余部分。背景专用。
+
+    为什么背景不能用 fit：fit 会先裁到 alpha 外接框、再按 PAD 留白，
+    产出的图四周有透明边 —— 背景是要铺满整屏的，透明边会露出引擎底色。
+    """
+    im = im.convert('RGBA')
+    k = max(tw / im.width, th / im.height)
+    nw = max(1, int(round(im.width * k)))
+    nh = max(1, int(round(im.height * k)))
+    im = im.resize((nw, nh), Image.LANCZOS)
+    left = (nw - tw) // 2
+    top = (nh - th) // 2
+    return im.crop((left, top, left + tw, top + th)), None
 
 
 def main():
@@ -189,7 +224,7 @@ def main():
             continue
         tw, th = SIZES[key]
         with Image.open(os.path.join(SRC, fn)) as im:
-            out, err = fit(im, tw, th)
+            out, err = (cover if key in BG_KEYS else fit)(im, tw, th)
         if err:
             problems.append('%s：%s' % (key, err))
             continue
