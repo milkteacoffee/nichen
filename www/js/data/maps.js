@@ -17,7 +17,7 @@
         /* `bk`（建筑类型）= **素材取图的键**（v0.16.0）：`struct.<bk>` 优先，
            没有则退回 `struct.<kind>`。不写 `bk` 的话，药铺和民居会共用同一张图。
            ⚠️ `kind` 只管"画法大类"（house/ruin/gate），`bk` 才是"这是哪家店"。 */
-        S('home', 'house', 3, 5, 6, 5, { label: '沈家小院', bk: 'house', roof: '#6b5a4a' }),
+        S('home', 'house', 3, 5, 6, 5, { label: '洞府', bk: 'house', roof: '#6b5a4a' }),
         S('shop', 'house', 14, 6, 6, 5, { label: '药铺', bk: 'apothecary', roof: '#5a6478' }),
         S('market', 'house', 26, 7, 5, 4, { label: '刘记杂货', bk: 'shop', roof: '#78624a' })
       ],
@@ -150,7 +150,7 @@
 
     town_home: {
       id: 'town_home', w: 30, h: 17, indoor: true, ground: 'floor', safe: true,
-      label: '沈家小院', spawn: { x: 15, y: 14 },
+      label: '洞府', spawn: { x: 15, y: 14 },
       /* 家具从 y=3 起摆：房间正好一屏（17 格），顶部 0—2 行会被 HUD 盖住 */
       furn: [
         { id: 'bed', kind: 'bed', x: 3, y: 3, w: 3, h: 2, act: 'rest', label: '床' },

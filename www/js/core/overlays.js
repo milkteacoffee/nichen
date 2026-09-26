@@ -30,6 +30,9 @@
     { id: 'linggen', n: '灵根', panel: 'char' },
     { id: 'attr', n: '属性', panel: 'char' },
     { id: 'realm', n: '境界', panel: 'char' },
+    /* 法宝独立子页（v0.29.0）：用户口径「总览只能查看，在角色界面新增法宝子界面，
+       可以装备已有的法宝……总览不需要法宝操作」。 */
+    { id: 'equip', n: '法宝', panel: 'char' },
     { id: 'skills', n: '功法', panel: 'skills' },
     { id: 'secrets', n: '秘术', panel: 'secrets' }
   ];
@@ -412,6 +415,7 @@
       if (tab === 'linggen') { this.charLinggen(x, save); return; }
       if (tab === 'attr') { this.charAttr(x, save); return; }
       if (tab === 'realm') { this.charRealm(x, save); return; }
+      if (tab === 'equip') { this.charEquip(x, save); return; }
       this.charOverview(x, save);
     },
 
@@ -499,29 +503,9 @@
           9.5, G.UI.C.textDim, 'right');
       }
 
-      /* ===== 法宝三槽（v0.25.0）=====
-         用户口径：「这个人物少了三个法宝格子，武器、防具、饰品」。
-         ⚠️ 格子的**内容由按钮自己画**（label+sub），这里只画「法宝」二字 ——
-            面板自绘文字压到按钮上会被 `panels.bounds.contract` 判违规。 */
-      var EQD = G.Data.equips;
-      if (EQD) {
-        var EQY = P.y + P.h - 72;
-        G.UI.text(x, { x: RX, y: EQY - 14 }, '法宝', 11, G.UI.C.textDim);
-        if (save.equip && EQD.sum(save.equip).a + EQD.sum(save.equip).f > 0) {
-          /* 已穿法宝时给一句加成摘要，让"换装备有没有变强"看得见 */
-          var sfx = EQD.sum(save.equip);
-          var parts = [];
-          if (sfx.a) parts.push('攻+' + Math.round(sfx.a * 100) + '%');
-          if (sfx.f) parts.push('防+' + Math.round(sfx.f * 100) + '%');
-          if (sfx.h) parts.push('血+' + Math.round(sfx.h * 100) + '%');
-          if (sfx.s) parts.push('速+' + Math.round(sfx.s * 100) + '%');
-          if (sfx.c) parts.push('暴+' + Math.round(sfx.c * 100) + '%');
-          if (parts.length) {
-            G.UI.textOut(x, { x: RX + RW, y: EQY - 14 }, parts.join('　'), 9.5,
-              G.UI.C.jadeHi, 'right');
-          }
-        }
-      }
+      /* ⚠️ 法宝**不在总览页操作**（v0.29.0）—— 用户口径：
+         「总览只能查看，在角色界面新增法宝子界面……总览不需要法宝操作」。
+         总览只保留"看"：立绘 / 境界 / 属性 / 功法 / 称号。 */
 
       /* 称号：地狱难度通关该界所得（破狱·凡尘 / 灵渊 / 仙穹），**跨世保留**。
          以前只有 meta.titles 记着、界面上没有任何展示位，玩家"拿了但看不见"（缺口 G15）。
@@ -541,6 +525,49 @@
       if (tstr !== raw) tstr = tstr.slice(0, -1) + '…';
       G.UI.textOut(x, { x: RX + RW, y: ty - 0.5 }, tstr, 11,
         titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
+    },
+
+    /* ---- 法宝子页（v0.29.0）----
+       用户口径：「在角色界面新增法宝子界面，可以装备已有的法宝……总览不需要法宝操作」。
+       版式：左栏三槽（大格，看得出穿了什么）+ 右栏"已拥有法宝"列表（点一件即穿）。
+       ⚠️ 格子与列表**都用真按钮**（label+sub+icon）—— 面板自绘文字压到按钮上会被
+          `panels.bounds.contract` 判违规（这条在法宝三槽第一版上踩过）。 */
+    charEquip: function (x, save) {
+      var P = CHAR_BODY;
+      var EQ = G.Data.equips;
+      var LX = P.x + 18, RX = P.x + 206;
+      var LW = 168, RW = P.x + P.w - 18 - RX;
+      G.UI.text(x, { x: LX, y: P.y + 38 }, '法 宝', 12, G.UI.C.gold);
+      G.UI.divider(x, LX + LW / 2, P.y + 50, LW, 'rgba(216,183,104,0.22)');
+      G.UI.text(x, { x: LX, y: P.y + 60 }, '三槽：武器 / 防具 / 饰品', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: LX, y: P.y + 76 }, '来自炼器 · 任务', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: LX, y: P.y + 90 }, '刷怪 · 首领掉落', 10, G.UI.C.textDim);
+      var fx = EQ ? EQ.sum(save.equip) : null;
+      if (fx) {
+        var parts = [];
+        if (fx.a) parts.push('攻+' + Math.round(fx.a * 100) + '%');
+        if (fx.f) parts.push('防+' + Math.round(fx.f * 100) + '%');
+        if (fx.h) parts.push('血+' + Math.round(fx.h * 100) + '%');
+        if (fx.s) parts.push('速+' + Math.round(fx.s * 100) + '%');
+        if (fx.c) parts.push('暴+' + Math.round(fx.c * 100) + '%');
+        if (fx.cd) parts.push('暴伤+' + Math.round(fx.cd * 100) + '%');
+        G.UI.text(x, { x: LX, y: P.y + 100 }, parts.length ? ('合计 ' + parts.join('　')) : '未佩法宝',
+          10.5, parts.length ? G.UI.C.jadeHi : G.UI.C.textDim);
+      }
+
+      G.UI.text(x, { x: RX, y: P.y + 38 }, '已 有 法 宝', 12, G.UI.C.gold);
+      G.UI.divider(x, RX + RW / 2, P.y + 50, RW, 'rgba(216,183,104,0.22)');
+      var owned = (EQ ? EQ.list : []).filter(function (e) {
+        return ((save.items || {})[e.id] || 0) > 0;
+      });
+      if (!owned.length) {
+        G.UI.text(x, { x: RX, y: P.y + 60 }, '尚无法宝。', 10.5, G.UI.C.textDim);
+        G.UI.text(x, { x: RX, y: P.y + 78 }, '炼器 · 任务 · 刷怪', 10, G.UI.C.textDim);
+        G.UI.text(x, { x: RX, y: P.y + 92 }, '首领掉落 皆可得。', 10, G.UI.C.textDim);
+      } else {
+        G.UI.text(x, { x: RX, y: P.y + 60 }, '共 ' + owned.length + ' 件，点一件即佩。',
+          10, G.UI.C.textDim);
+      }
     },
 
     /* ---- ② 灵根（v0.11.4 改成「九维方块图」）----

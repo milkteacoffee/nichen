@@ -409,7 +409,10 @@
     if (q.step === 'm1-2' && q.flags.probeWin && !q.flags.probe) openChoice1(scene);
   };
 
-  /* ===== 沈家小院 ===== */
+  /* ===== 洞府（v0.29.0 改名）=====
+     用户口径：「沈家小院不应该是主角的屋檐，主角是孤儿，每一世都不一样，
+     修仙的人都是与天斗、逆天而为，而且修仙路都是孤独的，只有**洞府**的概念」。
+     所以这处居所不叫"某家小院"，就叫**洞府** —— 主角自己开凿、自己住的地方。 */
   /* 打坐（蒲团）：灵气 + 年龄推进（轮回 v0.4 §3.2） */
   function restOnBed(scene) {
     var save = G.game.save, st = G.Player.computeStats(save);

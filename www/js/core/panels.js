@@ -91,7 +91,7 @@
     'm0-2': { t: '雪夜山神庙', d: '入翠微山破庙，取回那件东西', f: 'templeDone', fd: '已得逆命珠',
       g: { map: 'field_temple', x: 15, y: 6, who: '山神庙 · 神台' } },
     'm0-3': { t: '珠内点化', d: '入逆命珠内空间打坐，消化机缘', f: 'dream', fd: '已受点化',
-      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（沈家小院）' } },
+      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（洞府）' } },
     'm0-4': { t: '破境备丹', d: '修至淬体九段，回镇向沈伯取淬体突破丹', f: 'gotBreakPill', fd: '已得丹',
       g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' },
       subs: [{ t: '修至淬体九段' }, { t: '取淬体突破丹', f: 'gotBreakPill' }] },
@@ -115,7 +115,7 @@
       g2: { map: 'bloodhall', x: 15, y: 6, who: '血煞外堂 · 血面' },
       subs: [{ t: '入夜 · 血煞外堂' }, { t: '斩执事血面', f: 'bloodNight' }] },
     'm1-6': { t: '筑基心魔劫', d: '血夜后回小院，在逆命珠前服丹筑基', f: 'based', fd: '已筑基',
-      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（沈家小院）' } },
+      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（洞府）' } },
     'm1-7': { t: '离乡', d: '与刘掌柜道别，往云州城去', f: 'leaveTown', fd: '已辞乡',
       g: { map: 'town_market', x: 8, y: 5, who: '刘掌柜（刘记杂货）' } },
     'm1done': { t: '云州在望', d: 'M1 已了，可继续历练、刷秘境、寻界门飞升', f: null, fd: '', g: null }
@@ -183,79 +183,65 @@
 
   /* 角色面板的子页签（总览 / 灵根 / 属性 / 境界）——排在标题带右侧，
      给右上角的关闭钮留出位置（几何来自 overlays.js，单一真相源）。 */
-  /* ===== 法宝三槽（v0.25.0）=====
-     点格子 → 列出该槽**已拥有**的法宝（`save.items[id] > 0`）→ 选一件穿上；也可卸下。
-     格子与候选都用**真按钮**（label+sub），面板只画标题 —— 见 overlays 的说明。 */
+  /* ===== 法宝子页（v0.29.0）=====
+     用户口径：「在角色界面新增法宝子界面，可以装备已有的法宝……总览不需要法宝操作」。
+     左栏三槽（大格，看得出穿了什么）+ 右栏"已拥有法宝"列表（点一件即穿到它自己的槽）。
+     ⚠️ 格子与列表**都用真按钮**（label+sub+icon）—— 面板自绘文字压到按钮上会被
+        `panels.bounds.contract` 判违规。
+     ⚠️ 该槽一件都没有时**什么都不画** —— 曾经在这里写 `G.UI.text(null, ...)` 当占位，
+        点击时抛异常 → 整个界面卡死（见 `click.noThrow.contract`）。 */
   function buildEquipSlots(btns, scene) {
     var EQ = G.Data.equips;
     if (!EQ) return;
     var save = G.game.save;
     var P2 = G.Overlays.CHAR_BODY;
-    var RX2 = P2.x + 206;
-    var RW2 = P2.x + P2.w - 18 - RX2;
-    var EQY = P2.y + P2.h - 72;
+    var LX2 = P2.x + 18, RX2 = P2.x + 206;
+    var LW2 = 168, RW2 = P2.x + P2.w - 18 - RX2;
 
-    if (scene.equipPick) {
-      /* 换装子视图：该槽可穿的（已拥有）+ 卸下 */
-      var slot = scene.equipPick;
-      var owned = EQ.ofSlot(slot).filter(function (e) {
-        return ((save.items || {})[e.id] || 0) > 0;
-      });
-      var cur = (save.equip || {})[slot];
-      owned.slice(0, 3).forEach(function (e, i) {
-        btns.push(new G.UI.Btn({
-          x: RX2, y: EQY - 4 + i * 22, w: RW2, h: 20, small: true, fs: 10, lalign: true,
-          variant: e.id === cur ? 'gold' : 'default',
-          label: e.n + '　' + e.d,
-          onClick: function () {
-            G.Player.setEquip(save, slot, e.id);
-            scene.equipPick = null;
-            G.game.toast('已佩' + e.n);
-            G.Overlays.openPanel(scene, 'char', true);
-          }
-        }));
-      });
-      /* ⚠️ 这里**不能**写"占位绘制"。
-         曾经写过 `G.UI.text(null, ...)` —— 传 null 当 ctx 会在点击时抛异常，
-         而异常发生在按钮的 onClick 里 → 面板再也打不开，玩家看到的就是**整个界面卡死**
-         （用户口径：「点击法宝这里会卡死机，界面无法点击了」）。
-         该槽一件法宝都没有时，**什么都不画**就够了。 */
-      btns.push(new G.UI.Btn({
-        x: RX2, y: EQY + 68, w: (RW2 - 6) / 2, h: 20, small: true, fs: 10,
-        variant: 'ghost', label: '卸　下',
-        onClick: function () {
-          G.Player.setEquip(save, slot, null);
-          scene.equipPick = null;
-          G.Overlays.openPanel(scene, 'char', true);
-        }
-      }));
-      btns.push(new G.UI.Btn({
-        x: RX2 + (RW2 - 6) / 2 + 6, y: EQY + 68, w: (RW2 - 6) / 2, h: 20,
-        small: true, fs: 10, variant: 'ghost', label: '返　回',
-        onClick: function () {
-          scene.equipPick = null;
-          G.Overlays.openPanel(scene, 'char', true);
-        }
-      }));
-      return;
-    }
-
-    var sw = Math.floor((RW2 - 12) / 3);
+    /* 左栏：三槽（竖排） */
     EQ.SLOTS.forEach(function (sl, i) {
       var eid = (save.equip || {})[sl];
       var e = eid ? EQ.byId(eid) : null;
       btns.push(new G.UI.Btn({
-        x: RX2 + i * (sw + 6), y: EQY, w: sw, h: 38, small: true, fs: 10,
+        x: LX2, y: P2.y + 118 + i * 34, w: LW2, h: 30, small: true, fs: 10, lalign: true,
         variant: e ? 'gold' : 'ghost',
-        label: e ? e.n : '未装备', sub: EQ.SLOT_N[sl],
-        /* 法宝图标：`equip.<id>`（文生图 16 件）——见 art.js: A.itemIcon 的三套逻辑名 */
+        label: (e ? e.n : '未装备') + '　· ' + EQ.SLOT_N[sl],
+        sub: e ? (e.d.length > 14 ? e.d.slice(0, 13) + '…' : e.d) : '　',
         icon: e ? e.id : null,
         onClick: function () {
-          scene.equipPick = sl;
+          if (!eid) { G.game.toast('该槽还空着 —— 去炼器、做任务、刷怪或打首领'); return; }
+          var r = G.Player.setEquip(save, sl, null);
+          G.game.toast(r.ok ? ('已卸下' + e.n) : ('无法卸下：' + r.reason));
           G.Overlays.openPanel(scene, 'char', true);
         }
       }));
     });
+
+    /* 右栏：已拥有法宝（点一件即穿） */
+    var owned = EQ.list.filter(function (e) {
+      return ((save.items || {})[e.id] || 0) > 0;
+    });
+    owned.slice(0, 6).forEach(function (e, i) {
+      var on = (save.equip || {})[e.slot] === e.id;
+      btns.push(new G.UI.Btn({
+        x: RX2, y: P2.y + 76 + i * 24, w: RW2, h: 21, small: true, fs: 10, lalign: true,
+        variant: on ? 'gold' : 'default',
+        label: e.n + '　' + EQ.SLOT_N[e.slot] + (on ? '（已佩）' : ''),
+        icon: e.id,
+        onClick: function () {
+          var r = G.Player.setEquip(save, e.slot, e.id);
+          G.game.toast(r.ok ? ('已佩' + e.n) : ('无法装备：' + r.reason));
+          G.Overlays.openPanel(scene, 'char', true);
+        }
+      }));
+    });
+    if (owned.length > 6) {
+      btns.push(new G.UI.Btn({
+        x: RX2, y: P2.y + 76 + 6 * 24, w: RW2, h: 20, small: true, fs: 9.5, lalign: true,
+        variant: 'ghost', label: '另有 ' + (owned.length - 6) + ' 件（储物页可见）',
+        onClick: function () { G.game.toast('储物页可查看全部法宝'); }
+      }));
+    }
   }
 
   function buildCharTabs(btns, scene, frame, reserve) {
@@ -321,8 +307,8 @@
     if (G.Overlays.isCharGroup(id)) {
       buildCharTabs(btns, scene, G.Overlays.CHAR_PANEL, G.Overlays.TAB_RESERVE);
     }
-    /* 法宝三槽只在「总览」子页出现（其余子页没有它的位置） */
-    if (id === 'char' && (scene.charTab || 'overview') === 'overview') {
+    /* 法宝只在**自己的子页**出现（v0.29.0）：总览只查看，不做法宝操作 */
+    if (id === 'char' && (scene.charTab || 'overview') === 'equip') {
       buildEquipSlots(btns, scene);
     }
     /* 底栏高亮：功法/秘术属角色组，高亮落在「角色」上（否则进了这两页底栏一个都不亮） */

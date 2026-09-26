@@ -2717,12 +2717,15 @@ step(function () {
   G.game.save = s2;
   G.game.changeScene('town', { toSpawn: true });
   const sc = G.game.scene;
-  sc.charTab = 'overview'; sc.equipPick = null;
-  G.Overlays.openPanel(sc, 'char');
+  /* 法宝槽在**自己的子页**（v0.29.0）——总览页没有它了 */
+  sc.charTab = 'equip'; sc.equipPick = null;
+  G.Overlays.openPanel(sc, 'char', true);
+  /* 槽位按钮的 label 形如「未装备　· 武器」/「青锋剑　· 武器」——
+     判据用 label（v0.29.0 起槽位换到法宝子页，且 sub 改成了法宝说明） */
   const slotBtns = (sc.buttons || []).filter(function (b) {
-    return b.sub && /武器|防具|饰品/.test(b.sub);
+    return /武器|防具|饰品/.test(b.label || '');
   });
-  if (!slotBtns.length) { errors.push('角色总览页没有法宝槽按钮'); return; }
+  if (!slotBtns.length) { errors.push('角色法宝页没有三槽按钮'); return; }
   slotBtns.forEach(function (b, i) {
     try { b.onClick(); } catch (e) {
       errors.push('点法宝槽 #' + i + ' 抛异常（界面会卡死）：' + e.message);
@@ -5481,7 +5484,7 @@ step(function () {
      ③ 从别的面板切进来要回到「总览」（不能停在上一页）。 */
   {
     const tabs = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-    if (tabs.length !== 6) errors.push('角色面板应有 6 个子页签（总览/灵根/属性/境界/功法/秘术），实际 ' + tabs.length);
+    if (tabs.length !== 7) errors.push('角色面板应有 7 个子页签（总览/灵根/属性/境界/法宝/功法/秘术），实际 ' + tabs.length);
     G.Overlays.openPanel(sc, 'char');
     const subs = sc.buttons.filter(function (b) { return b.variant === 'subtab'; });
     if (subs.length !== tabs.length) {
@@ -5672,8 +5675,8 @@ step(function () {
      ⚠️ 角色面板有四个子页签（v0.11.0），**每一页都要过同一套断言** ——
      只跑默认的「总览」会漏掉灵根/属性/境界三页的越界（越界是静默的）。 */
   const charTabIds = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-  if (charTabIds.length !== 6) {
-    errors.push('角色面板子页签应为 6 个（总览/灵根/属性/境界/功法/秘术），实际 ' + charTabIds.length);
+  if (charTabIds.length !== 7) {
+    errors.push('角色面板子页签应为 7 个（总览/灵根/属性/境界/法宝/功法/秘术），实际 ' + charTabIds.length);
   }
   [
     { id: 'skills', R: G.Overlays.CHAR_PANEL },

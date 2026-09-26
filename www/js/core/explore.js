@@ -1398,7 +1398,7 @@
         x.restore();
       },
 
-      /* 当前场景名：室内图取地图自带 label（沈家小院/药铺/…），
+      /* 当前场景名：室内图取地图自带 label（洞府/药铺/…），
          室外图按 mapId 取世界随机名（青溪镇/翠微山/赤牙洞）。 */
       _sceneName: function () {
         var md = this.map.md;
@@ -1731,7 +1731,7 @@
           if (r && r.n) nm = r.n;
         }
         if (!nm) {
-          nm = { town: '青溪镇', field: '翠微山', cave: '赤牙洞', town_home: '沈家小院',
+          nm = { town: '青溪镇', field: '翠微山', cave: '赤牙洞', town_home: '洞府',
             town_shop: '药铺', town_market: '刘记杂货', field_temple: '山神庙' }[id] || id;
         }
         NAME_CACHE[id] = nm;
