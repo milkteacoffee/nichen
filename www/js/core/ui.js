@@ -621,6 +621,19 @@
         tg.addColorStop(1, pressed ? 'rgba(28,34,52,0.95)' : 'rgba(14,18,28,0.95)');
         x.fillStyle = tg; x.fill();
 
+      } else if (variant === 'subtab') {
+        /* 面板**内部**的子页签（角色面板的 总览/灵根/属性/境界）。
+           与底栏 tab 分开一个变体，两个理由：
+             ① 视觉层级不同 —— 它在面板里，要有细描边才看得出是"页签"而不是底栏；
+             ② panels.contract 用 `variant === 'tab'` 认底栏页签，
+                子页签若也叫 tab，会把"再点当前页签应收起"那条断言带歪。 */
+        rr(x, s, r);
+        x.fillStyle = pressed ? 'rgba(34,41,60,0.95)' : 'rgba(18,22,34,0.88)';
+        x.fill();
+        rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
+        x.strokeStyle = 'rgba(216,183,104,0.26)';
+        x.lineWidth = 0.9; x.stroke();
+
       } else if (variant === 'danger') {
         var dg = x.createLinearGradient(0, 0, 0, h);
         dg.addColorStop(0, pressed ? '#8f2f2c' : '#b8443f');
@@ -659,6 +672,10 @@
     this.variant = o.variant || 'default';
     this.tier = o.tier;
     this.active = !!o.active;      /* 底栏页签的选中态 */
+    /* glyph：用**矢量**画的图标钮（目前只有 'close'）。
+       ⚠️ 不要改成画 '×' / '✕' 字符：工程没有 @font-face，字体是系统回退，
+       缺字会渲染成空心方框（豆腐块）且换机器表现不一致 —— 同 panels.js 的 mark()。 */
+    this.glyph = o.glyph || null;
     this._p = 0;
   }
   Btn.prototype.hit = function (p) {
@@ -680,8 +697,8 @@
     } else {
       var c = btnCanvas(w, h, this.variant, down, 3);
       x.drawImage(c, Math.round(this.x) - 3, Math.round(this.y + dy) - 3, w + 6, h + 6);
-      /* 页签选中：底部一条亮线（不用描边框，省得底栏变重） */
-      if (this.variant === 'tab' && this.active) {
+      /* 页签选中：底部一条亮线（不用描边框，省得底栏变重）；子页签同款 */
+      if ((this.variant === 'tab' || this.variant === 'subtab') && this.active) {
         x.fillStyle = C.goldHi;
         x.fillRect(this.x + 6, this.y + h - 2, w - 12, 1.5);
       }
@@ -692,8 +709,22 @@
     else if (this.variant === 'gold') col = down ? '#f6ecd8' : '#241a06';
     else if (this.variant === 'ghost') col = C.goldHi;
     else if (this.variant === 'tab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.82)';
+    else if (this.variant === 'subtab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.78)';
     else if (this.variant === 'danger') col = '#ffe4dc';
     else { col = C.text; if (this.tier === '仙') col = C.goldHi; }
+
+    if (this.glyph === 'close') {
+      var gcx = this.x + w / 2, gcy = this.y + h / 2 + dy;
+      var gs = Math.min(w, h) * 0.24;
+      x.save();
+      x.strokeStyle = col; x.lineWidth = 1.7; x.lineCap = 'round';
+      x.beginPath();
+      x.moveTo(gcx - gs, gcy - gs); x.lineTo(gcx + gs, gcy + gs);
+      x.moveTo(gcx + gs, gcy - gs); x.lineTo(gcx - gs, gcy + gs);
+      x.stroke();
+      x.restore();
+      return;
+    }
 
     x.font = F(this.small ? 12 : 14);
     x.fillStyle = col;

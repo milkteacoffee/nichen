@@ -2093,6 +2093,139 @@ step(function () {
   }
 }, 'region.visual.contract');
 
+/* ---------- 区域美术换皮契约（缺口 U7） ----------
+   问题：28 个区域原先共用 `save.world.pal`（**每个世界一份**）——
+   「赤牙洞」与「广寒宫」除了 ground 是 grass/cave/town 之一外配色完全一样，
+   进哪一区只能靠场景名牌分辨。
+   三条断言（缺一条都会让"换皮"静默失效）：
+     ① **数据**：每个区域都有预设、预设字段齐全合法、**同一界内不得两区同色**；
+     ② **运行时**：真生成两张地图 → `md.pal` / `md.scatter` 不同，
+        且预烘地面层的缓存键不同（键里带 pal.ground|pal.rock = 画的确实是两张图）；
+     ③ **源码闸**：explore 的绘制路径不得直接读 `world.pal`（只允许 `_pal()` 里那一处兜底）——
+        漏一处就是"那个物件没换皮"，完全静默。 */
+step(function () {
+  const REG = G.Data.regions;
+  const TINT = REG.TINT, PAL = REG.PAL;
+  if (!TINT || !PAL) { errors.push('未导出 TINT / PAL（区域美术换皮）'); return; }
+  const NEED = ['ground', 'dark', 'grass', 'rock'];
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const palKeyOf = function (r) {
+    const p = PAL[TINT[r.id]];
+    return p ? [p.ground, p.dark, p.grass, p.rock].join('|') : null;
+  };
+
+  /* ① 数据：全覆盖 + 字段齐全合法 + 装饰物配方 */
+  REG.all().forEach(function (r) {
+    const name = TINT[r.id];
+    if (!name) { errors.push('区域 ' + r.id + '（' + r.n + '）没有美术预设'); return; }
+    const p = PAL[name];
+    if (!p) { errors.push('区域 ' + r.id + ' 指向不存在的预设 ' + name); return; }
+    NEED.forEach(function (k) {
+      if (typeof p[k] !== 'string' || !HEX.test(p[k])) {
+        errors.push('预设 ' + name + ' 的 ' + k + ' 不是合法颜色：' + p[k]);
+      }
+    });
+    if (!p.scatter) errors.push('预设 ' + name + ' 缺 scatter（装饰物配方）');
+  });
+
+  /* ①b 同界内不得两区同色 —— 否则"进哪一区都一样"原地复发 */
+  ['fan', 'ling', 'xian', 'dao'].forEach(function (wid) {
+    const seen = {};
+    REG.of(wid).forEach(function (r) {
+      const k = palKeyOf(r);
+      if (!k) return;
+      if (seen[k]) {
+        errors.push(wid + ' 界内 ' + seen[k] + ' 与 ' + r.id
+          + ' 用了同一套配色（预设 ' + TINT[r.id] + '）');
+      }
+      seen[k] = r.id;
+    });
+  });
+
+  /* ② 运行时：真生成两张图，调色板 / 装饰物 / 预烘键都必须不同 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.world = s.world || {};
+  s.world.pal = s.world.pal || {
+    ground: '#4a6b42', dark: '#3a5735', grass: '#5fbf5f', water: '#5a9fd6', rock: '#7a7f8a'
+  };
+  G.game.save = s;
+  /* ⚠️ 必须挑**生成型**区域：凡界 F1–F3（town/field/cave）是复用现有手写地图，
+     它们的 md 由 mapgen 产出、**没有 pal 字段**，拿它们做探针会直接抛异常。
+     这里挑两张 ground 都是 cave 的图（乱葬岗 / 火云谷）——
+     基础类型相同、只有调色板不同，是对"换皮真的生效"最强的检验。 */
+  const RA = 'fan7' /* 乱葬岗 · grave */, RB = 'fan9' /* 火云谷 · lava */;
+  const mdA = G.RegionGen.ensure(s, RA), mdB = G.RegionGen.ensure(s, RB);
+  if (!mdA || !mdB) { errors.push('区域生成失败：' + RA + ' / ' + RB); return; }
+  /* 所有**生成型**区域都必须带 pal / scatter（复用型地图不在其列） */
+  REG.all().forEach(function (r) {
+    if (r.map) return;
+    const md = G.RegionGen.ensure(s, r.id);
+    if (!md) { errors.push('区域 ' + r.id + ' 生成失败'); return; }
+    if (!md.pal) errors.push('区域 ' + r.id + ' 的地图没有 pal 字段（regiongen 没落区域调色板）');
+    if (!md.scatter) errors.push('区域 ' + r.id + ' 的地图没有 scatter 字段');
+  });
+  if (!mdA.pal || !mdB.pal) {
+    errors.push('生成的地图没有 pal 字段（regiongen 没落区域调色板）');
+  } else {
+    if (mdA.pal.ground === mdB.pal.ground) {
+      errors.push('两个不同区域的调色板一样（' + mdA.pal.ground + '）—— 换皮没生效');
+    }
+    if (mdA.pal.ground === s.world.pal.ground) {
+      errors.push('区域调色板与世界调色板相同（' + mdA.pal.ground + '）—— 预设没盖上去');
+    }
+    /* 世界调色板的其它字段必须**透传**（water / robe / 以后新增的） */
+    if (mdA.pal.water !== s.world.pal.water) {
+      errors.push('区域调色板丢了世界调色板的 water 字段（应透传，否则以后加字段会静默丢失）');
+    }
+  }
+  if (JSON.stringify(mdA.scatter) === JSON.stringify(mdB.scatter)) {
+    errors.push('两个不同区域的装饰物配方一样 —— scatter 没接线');
+  }
+  /* 预烘地面层的缓存键：键里带 pal.ground|pal.rock，
+     键不同才说明"真的画了两张不同的地面"（这是换皮最终落地的地方）。 */
+  const scA = G.RegionGen.sceneFor(RA), scB = G.RegionGen.sceneFor(RB);
+  if (scA && scB) {
+    scA.enter(); scA._ensureGround();
+    scB.enter(); scB._ensureGround();
+    if (scA._groundKey && scA._groundKey === scB._groundKey) {
+      errors.push('两个区域预烘出同一个地面层缓存键 —— 换皮没传到绘制层');
+    }
+  }
+
+  /* ③ 源码闸：绘制路径不得直接读 world.pal（`_pal()` 的兜底那一处除外）。
+     先剥掉块注释与行注释，否则注释里提到这个表达式就会误报。 */
+  const exLines = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8').split('\n');
+  let inBlock = false, hits = 0;
+  exLines.forEach(function (line, i) {
+    let code = line;
+    if (inBlock) {
+      const e = code.indexOf('*/');
+      if (e < 0) return;
+      code = code.slice(e + 2); inBlock = false;
+    }
+    const st = code.indexOf('/*');
+    if (st >= 0) {
+      const e2 = code.indexOf('*/', st);
+      if (e2 < 0) { inBlock = true; code = code.slice(0, st); }
+      else code = code.slice(0, st) + code.slice(e2 + 2);
+    }
+    const lc = code.indexOf('//');
+    if (lc >= 0) code = code.slice(0, lc);
+    if (code.indexOf('G.game.save.world.pal') < 0) return;
+    if (code.indexOf('_pal:') >= 0 || code.indexOf('return (this.map.md') >= 0) return;
+    hits++;
+    errors.push('源码闸：explore.js:' + (i + 1)
+      + ' 直接读了 world.pal —— 绘制路径应走 this._pal()（漏一处就是那个物件没换皮）');
+  });
+  if (hits === 0) {
+    const n = (fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8')
+      .match(/this\._pal\(\)/g) || []).length;
+    if (n < 6) {
+      errors.push('源码闸：explore.js 只用了 ' + n + ' 处 this._pal()（应 ≥6），可能被改回直读 world.pal');
+    }
+  }
+}, 'region.tint.contract');
+
 /* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------
    裂隙点了必须开**那一处**秘境的面板（此前一律跳通用枢纽）；
    并且裂隙的槽位副本要与秘境枢纽的序列**逐槽一致** ——
@@ -2472,6 +2605,63 @@ step(function () {
   curTab.onClick();
   if (sc.overlay) errors.push('再点当前页签应收起面板，实际 overlay=' + sc.overlay);
 
+  /* ---------- 主动关闭钮（v0.11.0）----------
+     缺口：面板只能"再点一次当前页签"收起，**没有可见的关闭入口** ——
+     玩家在面板里找不到出口（截图反馈）。
+     这里用 glyph 认（矢量叉），不用 label 认（关闭钮的 label 是空串）。
+     三条断言：① 有且只有一个；② 落在面板矩形内；③ 点下去**真的**关掉面板。 */
+  const CLOSE_IDS = ['char', 'skills', 'secrets', 'quest', 'bag', 'achieve'];
+  CLOSE_IDS.forEach(function (id) {
+    G.Overlays.openPanel(sc, id);
+    if (sc.overlay !== id) { errors.push('openPanel(' + id + ') 失败'); return; }
+    const cb = sc.buttons.filter(function (b) { return b.glyph === 'close'; });
+    if (cb.length !== 1) {
+      errors.push('面板 ' + id + ' 的关闭钮应为 1 个，实际 ' + cb.length);
+      return;
+    }
+    const b = cb[0];
+    const R = (id === 'char') ? G.Overlays.CHAR_PANEL : G.Overlays.PANEL_RECT;
+    if (!(b.x >= R.x && b.x + b.w <= R.x + R.w && b.y >= R.y && b.y + b.h <= R.y + R.h)) {
+      errors.push('面板 ' + id + ' 的关闭钮跑到面板外（x=' + b.x + ' y=' + b.y
+        + ' w=' + b.w + ' h=' + b.h + '，面板 ' + R.x + ',' + R.y + ' '
+        + R.w + '×' + R.h + '）');
+    }
+    b.onClick();
+    if (sc.overlay) errors.push('面板 ' + id + ' 的关闭钮没关掉面板（overlay=' + sc.overlay + '）');
+  });
+
+  /* ---------- 角色面板子页签（v0.11.0）----------
+     「角色」一页原先把灵根/属性/境界全挤在一起，细看不了。现在拆成四页。
+     断言：① 页签数与 CHAR_TABS 一致；② 点一下切页且**不关面板**；
+     ③ 从别的面板切进来要回到「总览」（不能停在上一页）。 */
+  {
+    const tabs = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
+    if (tabs.length !== 4) errors.push('角色面板应有 4 个子页签，实际 ' + tabs.length);
+    G.Overlays.openPanel(sc, 'char');
+    const subs = sc.buttons.filter(function (b) { return b.variant === 'subtab'; });
+    if (subs.length !== tabs.length) {
+      errors.push('角色面板子页签按钮应为 ' + tabs.length + ' 个，实际 ' + subs.length);
+    } else {
+      subs.forEach(function (b, i) {
+        b.onClick();
+        if (sc.overlay !== 'char') errors.push('点子页签不该关掉角色面板');
+        if (sc.charTab !== tabs[i]) {
+          errors.push('点子页签「' + b.label + '」后 charTab 应为 ' + tabs[i]
+            + '，实际 ' + sc.charTab);
+        }
+      });
+      G.Overlays.openPanel(sc, 'skills');
+      G.Overlays.openPanel(sc, 'char');
+      if (sc.charTab !== 'overview') {
+        errors.push('从别处切进角色面板应回到「总览」，实际 ' + sc.charTab);
+      }
+      G.Overlays.openPanel(sc, 'char');
+      if (sc.charTab !== 'overview') {
+        errors.push('面板内重复 openPanel 不应重置子页（实际 ' + sc.charTab + '）');
+      }
+    }
+  }
+
   /* 底栏区域不响应点地 */
   const p0 = JSON.stringify(s.pos);
   sc.onTap({ x: 240, y: 272 - 3 });
@@ -2526,9 +2716,15 @@ step(function () {
         errors.push('面板 ' + id + ' 文字纵向越界（' + JSON.stringify(t.s)
           + ' y=' + t.y + ' 字号=' + t.size + '，面板 ' + R.y + '..' + (R.y + R.h) + '）');
       }
-      if (t.x < R.x - 0.5 || t.x > R.x + R.w + 0.5) {
+      /* ⚠️ 横向要连**右端**一起判（v0.11.0 补）：
+         原先只看左端 t.x，于是一行写太长顶出面板右沿**抓不到** ——
+         `char/linggen` 底部那行四象说明就是这么漏出去的（截图才发现）。
+         用 bw() 的估算宽度（CJK 按字号、ASCII 按 0.55），对中文是准的。 */
+      const bx = box(t);
+      if (bx.x0 < R.x - 0.5 || bx.x1 > R.x + R.w + 0.5) {
         errors.push('面板 ' + id + ' 文字横向越界（' + JSON.stringify(t.s)
-          + ' x=' + t.x + '，面板 ' + R.x + '..' + (R.x + R.w) + '）');
+          + ' x=' + bx.x0.toFixed(1) + '..' + bx.x1.toFixed(1)
+          + '，面板 ' + R.x + '..' + (R.x + R.w) + '）');
       }
       for (let i = 0; i < t.s.length; i++) {
         if (BAD.indexOf(t.s[i]) >= 0) {
@@ -2562,7 +2758,7 @@ step(function () {
         const ox = Math.min(b.x1, btn.x + btn.w) - Math.max(b.x0, btn.x);
         if (ox > 2 && oy > (b.y1 - b.y0) * 0.4) {
           errors.push('面板 ' + id + ' 文字压在按钮上：' + JSON.stringify(t.s)
-            + ' × 「' + btn.label + '」');
+            + ' × 「' + (btn.label || btn.glyph || '?') + '」');
         }
       });
     });
@@ -2573,20 +2769,30 @@ step(function () {
   const inBand = function (t) { return t.y < BAR_Y; };
 
   /* ① 底栏六个面板。只跑 G.Overlays.renderPanel（= 面板体 + 底栏），**不跑整个场景** ——
-     否则 HUD 顶栏与场景名铭牌也会进探针，得靠坐标打补丁把它们挑出去。 */
+     否则 HUD 顶栏与场景名铭牌也会进探针，得靠坐标打补丁把它们挑出去。
+     ⚠️ 角色面板有四个子页签（v0.11.0），**每一页都要过同一套断言** ——
+     只跑默认的「总览」会漏掉灵根/属性/境界三页的越界（越界是静默的）。 */
+  const charTabIds = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
+  if (charTabIds.length !== 4) {
+    errors.push('角色面板子页签应为 4 个（总览/灵根/属性/境界），实际 ' + charTabIds.length);
+  }
   [
     { id: 'skills', R: G.Overlays.PANEL_RECT },
     { id: 'secrets', R: G.Overlays.PANEL_RECT },
     { id: 'quest', R: G.Overlays.PANEL_RECT },
     { id: 'bag', R: G.Overlays.PANEL_RECT },
-    { id: 'achieve', R: G.Overlays.PANEL_RECT },
-    { id: 'char', R: G.Overlays.CHAR_PANEL }
-  ].forEach(function (item) {
+    { id: 'achieve', R: G.Overlays.PANEL_RECT }
+  ].concat(charTabIds.map(function (tid) {
+    return { id: 'char', tab: tid, R: G.Overlays.CHAR_PANEL };
+  })).forEach(function (item) {
     G.Overlays.openPanel(sc, item.id);
+    /* openPanel 从别处切进来时会重置为「总览」，所以要在它**之后**指定子页 */
+    if (item.tab) sc.charTab = item.tab;
     if (sc.overlay !== item.id) { errors.push('openPanel(' + item.id + ') 失败'); return; }
     const cx = textSpyXY();
     if (!G.Overlays.renderPanel(cx, sc)) { errors.push('renderPanel(' + item.id + ') 返回 false'); return; }
-    checkTexts(item.id, item.R, cx.__seenXY.filter(inBand), sc.buttons);
+    checkTexts(item.id + (item.tab ? '/' + item.tab : ''), item.R,
+      cx.__seenXY.filter(inBand), sc.buttons);
   });
 
   /* ② 天道三页（设置 / 界域难度 / 关于）走同一套断言。 */

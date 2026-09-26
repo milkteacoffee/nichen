@@ -94,30 +94,70 @@
     });
   }
 
+  /* 角色面板的子页签（总览 / 灵根 / 属性 / 境界）——排在标题带右侧，
+     给右上角的关闭钮留出位置（几何来自 overlays.js，单一真相源）。 */
+  function buildCharTabs(btns, scene) {
+    var g = G.Overlays.CHAR_TAB_GEOM;
+    var cur = scene.charTab || 'overview';
+    G.Overlays.CHAR_TABS.forEach(function (t, i) {
+      btns.push(new G.UI.Btn({
+        x: g.x0 + i * (g.w + g.gap), y: g.y, w: g.w, h: g.h,
+        small: true, variant: 'subtab', active: cur === t.id, label: t.n,
+        onClick: function () {
+          scene.charTab = t.id;
+          G.Overlays.openPanel(scene, 'char');
+        }
+      }));
+    });
+  }
+
   function openPanel(scene, id) {
     if (!IDS[id]) return;
+    var prev = scene.overlay;
     scene.overlay = id;
+    /* 角色面板有子页签：**从别处切进来**时回到「总览」，
+       面板内点页签（prev 已是 char）则保留当前子页 —— 否则每次点页签都跳回总览。 */
+    if (id === 'char' && prev !== 'char') scene.charTab = 'overview';
     var btns = [];
     if (id === 'skills') buildSkills(btns, scene);
     if (id === 'bag') buildBag(btns, scene);
+    if (id === 'char') buildCharTabs(btns, scene);
     barBtns(scene, id).forEach(function (b) { btns.push(b); });
+    /* 关闭钮：六个面板统一加（含角色面板，它的面板矩形不同，故取各自的外框）。 */
+    btns.push(closeBtn(scene, id === 'char' ? G.Overlays.CHAR_PANEL : P));
     scene.buttons = btns;
   }
 
   /* ============================================================
      通用壳
      ============================================================ */
+  /* 关闭钮：面板右上角一个**矢量**叉（v0.11.0）。
+     以前只有"再点一次当前页签"这一种收起方式，等于没有可见的关闭入口 ——
+     玩家在面板里找不到出口（截图反馈）。底栏页签的"点自己收起"保留，两条路都能走。 */
+  var CLOSE = { w: 22, h: 20 };
+
+  function closeBtn(scene, R) {
+    return new G.UI.Btn({
+      x: R.x + R.w - 6 - CLOSE.w, y: R.y + 5, w: CLOSE.w, h: CLOSE.h,
+      small: true, variant: 'ghost', glyph: 'close',
+      onClick: function () { scene.clearOverlay(); }
+    });
+  }
+
   function shell(x, title, right) {
     G.Overlays.dim(x);
     G.UI.frame(x, P, null, { paper: true });
     G.UI.textOut(x, { x: P.x + 14, y: P.y + 6 }, title, 15, G.UI.C.goldHi);
-    if (right) G.UI.textOut(x, { x: P.x + P.w - 14, y: P.y + 9 }, right, 11, G.UI.C.textDim, 'right');
-    G.UI.divider(x, 240, P.y + 30, P.w - 28, 'rgba(216,183,104,0.18)');
+    /* 右栏数值**必须让开关闭钮**（钮占 P.x+P.w-28 .. P.x+P.w-6）——
+       原先右端贴到 P.x+P.w-14，正好压在钮上（panels.bounds.contract 会报"文字压在按钮上"）。 */
+    if (right) G.UI.textOut(x, { x: P.x + P.w - 38, y: P.y + 9 }, right, 11, G.UI.C.textDim, 'right');
+    G.UI.divider(x, 240, P.y + 30, P.w - 56, 'rgba(216,183,104,0.18)');
   }
 
-  /* 分节小标题 */
+  /* 分节小标题：**实现统一在 overlays.js**（`G.Overlays.sec`），这里只转发 ——
+     两处各写一份的话，改个颜色/字号就会漂。 */
   function sec(x, sx, sy, t) {
-    G.UI.text(x, { x: sx, y: sy }, t, 11.5, G.UI.C.gold);
+    G.Overlays.sec(x, sx, sy, t);
   }
 
   function empty(x, sx, sy, t) {
@@ -446,7 +486,8 @@
     G.UI.divider(x, 240, ty - 8, P.w - 28, 'rgba(216,183,104,0.18)');
     var titles = (m.titles && m.titles.length) ? m.titles.join(' · ') : '无';
     G.UI.text(x, { x: P.x + 14, y: ty }, '称号', 11, G.UI.C.textDim);
-    G.UI.textOut(x, { x: P.x + P.w - 14, y: ty - 0.5 }, titles, 11,
+    /* 右端让开右上角关闭钮（同 shell 的道理） */
+    G.UI.textOut(x, { x: P.x + P.w - 38, y: ty - 0.5 }, titles, 11,
       m.titles && m.titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
   }
 
@@ -454,7 +495,8 @@
      分发
      ============================================================ */
   var DRAW = {
-    char: function (x) { G.Overlays.renderChar(x); },
+    /* 角色面板要读 scene.charTab（子页签），所以把 scene 透传下去 */
+    char: function (x, scene) { G.Overlays.renderChar(x, scene); },
     skills: drawSkills,
     secrets: drawSecrets,
     quest: drawQuest,
@@ -465,7 +507,7 @@
   function renderPanel(x, scene) {
     var fn = DRAW[scene.overlay];
     if (!fn) return false;
-    fn(x);
+    fn(x, scene);
     renderBar(x, scene.overlay);
     return true;
   }

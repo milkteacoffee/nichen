@@ -172,11 +172,127 @@
     byWorld[wid].forEach(function (r) { r.world = wid; index[r.id] = r; });
   });
 
+  /* ============================================================
+     区域美术换皮（缺口 U7）
+     ============================================================
+     问题：28 个区域原先共用 `save.world.pal`（**每个世界一份**）——
+     于是「赤牙洞」和「广寒宫」除了 ground 是 grass/cave/town 三种之一外，
+     配色完全一样，玩家进了哪一区只能靠场景名牌分辨。
+
+     做法：给每个区域一个**调色板预设**。预设只覆盖 4 个字段
+     （ground / dark / grass / rock，这正是 art.js 真正读的那四个），
+     其余字段（water / robe / …）从世界调色板透传，避免以后加字段时这里漏掉。
+     装饰物数量（scatter）也按预设给 —— 荒漠多石、竹谷多树，比统一 14 树 6 石好认。
+
+     ⚠️ 这张表是**唯一真相源**：`regiongen.build` 落 `md.pal`，`explore._pal()` 读它。
+     不要在绘制路径里直接读 `G.game.save.world.pal`（smoke 的源码闸会报）。 */
+  var PAL = {
+    /* 凡界 */
+    town_start: { ground: '#4f5a52', dark: '#3c453f', grass: '#6a8a62', rock: '#828a84',
+      scatter: { trees: 7, rocks: 2 } },
+    town_trade: { ground: '#6a6055', dark: '#514a41', grass: '#8a7a5a', rock: '#9a9186',
+      scatter: { trees: 5, rocks: 3 } },
+    hill_green: { ground: '#4a6b42', dark: '#3a5735', grass: '#5fbf5f', rock: '#7a7f8a',
+      scatter: { trees: 16, rocks: 5 } },
+    cave_rock: { ground: '#4a4038', dark: '#38302a', grass: '#5a5a4a', rock: '#6f6a62',
+      scatter: { rocks: 12 } },
+    bandit_dry: { ground: '#6a6248', dark: '#524b36', grass: '#7a8a52', rock: '#8a8478',
+      scatter: { trees: 10, rocks: 9 } },
+    bamboo: { ground: '#47663f', dark: '#37502f', grass: '#8fd070', rock: '#7d8a7a',
+      scatter: { trees: 20, rocks: 3 } },
+    grave: { ground: '#3e3a44', dark: '#2e2b34', grass: '#5a5a60', rock: '#6a6470',
+      scatter: { trees: 4, rocks: 10 } },
+    mine: { ground: '#4a4640', dark: '#383530', grass: '#5a6058', rock: '#7a736a',
+      scatter: { rocks: 14 } },
+    lava: { ground: '#5a3428', dark: '#3e241c', grass: '#7a4030', rock: '#6a4a40',
+      scatter: { rocks: 13 } },
+
+    /* 灵界 */
+    swamp: { ground: '#46543e', dark: '#333f2d', grass: '#6f9a5a', rock: '#6f7a72',
+      scatter: { trees: 11, rocks: 7 } },
+    deepwater: { ground: '#2f4a5a', dark: '#22353f', grass: '#3f6a7a', rock: '#55707f',
+      scatter: { rocks: 10 } },
+    bloodsect: { ground: '#5a3238', dark: '#3f2328', grass: '#7a4048', rock: '#7a5a5e',
+      scatter: { trees: 6, rocks: 7 } },
+    desert: { ground: '#9a8452', dark: '#7a6740', grass: '#b0a06a', rock: '#a89a80',
+      scatter: { rocks: 11 } },
+    sword: { ground: '#556070', dark: '#3f4856', grass: '#7a8a96', rock: '#8f96a2',
+      scatter: { rocks: 9 } },
+
+    /* 仙界 */
+    celestial: { ground: '#8a8f9e', dark: '#6d7280', grass: '#a8b0bc', rock: '#b0b6c2',
+      scatter: { trees: 4, rocks: 4 } },
+    alchemy_hall: { ground: '#8a7f66', dark: '#6d6350', grass: '#b0a078', rock: '#a89c84',
+      scatter: { trees: 4, rocks: 6 } },
+    archive: { ground: '#5f6a86', dark: '#48506a', grass: '#8a94b0', rock: '#9aa2b8',
+      scatter: { trees: 6, rocks: 5 } },
+    jade_garden: { ground: '#5a8a6a', dark: '#446a50', grass: '#8fd0a0', rock: '#9aa8a0',
+      scatter: { trees: 18, rocks: 4 } },
+    peach_garden: { ground: '#6f8a58', dark: '#546a42', grass: '#a8d078', rock: '#a8a88c',
+      scatter: { trees: 22, rocks: 3 } },
+    star: { ground: '#3a4560', dark: '#2a3348', grass: '#5a6a90', rock: '#7a86a8',
+      scatter: { rocks: 8 } },
+    tribunal: { ground: '#6a5a56', dark: '#4f4340', grass: '#8a7068', rock: '#8f8680',
+      scatter: { rocks: 10 } },
+    moon: { ground: '#6a7488', dark: '#4f5868', grass: '#9aa8bc', rock: '#a8b0c0',
+      scatter: { trees: 3, rocks: 9 } },
+    thunder: { ground: '#4f4a6a', dark: '#3a3652', grass: '#7a70a8', rock: '#8a86a0',
+      scatter: { rocks: 9 } },
+
+    /* 道界 */
+    dao_hall: { ground: '#5a6a62', dark: '#434f49', grass: '#7a9a86', rock: '#96a09a',
+      scatter: { trees: 5, rocks: 5 } },
+    dao_altar: { ground: '#6a6a58', dark: '#4f4f42', grass: '#9a9a70', rock: '#a8a890',
+      scatter: { trees: 3, rocks: 7 } },
+    trial: { ground: '#4a4450', dark: '#363240', grass: '#6a6070', rock: '#7a7480',
+      scatter: { rocks: 12 } },
+    merit: { ground: '#5f7a5a', dark: '#475e43', grass: '#9ad06a', rock: '#a0a878',
+      scatter: { trees: 9, rocks: 6 } },
+    chaos: { ground: '#463a52', dark: '#332a3c', grass: '#6a4a7a', rock: '#6a5f76',
+      scatter: { rocks: 12 } }
+  };
+
+  /* 区域 → 预设。单独一张表：一眼看全"哪个区是什么风格"，
+     也便于契约检查"每个区域都有预设、且**同界内不重复**"。
+     28 个区域 → 28 个不同预设：同一界里两区同色，就等于"进哪一区都一样"没修好。 */
+  var TINT = {
+    fan1: 'town_start', fan2: 'hill_green', fan3: 'cave_rock',
+    fan4: 'town_trade', fan5: 'bandit_dry', fan6: 'bamboo',
+    fan7: 'grave', fan8: 'mine', fan9: 'lava',
+
+    ling1: 'swamp', ling2: 'deepwater', ling3: 'bloodsect',
+    ling4: 'desert', ling5: 'sword',
+
+    xian1: 'celestial', xian2: 'jade_garden', xian3: 'alchemy_hall',
+    xian4: 'star', xian5: 'peach_garden', xian6: 'tribunal',
+    xian7: 'moon', xian8: 'archive', xian9: 'thunder',
+
+    dao1: 'dao_hall', dao2: 'trial', dao3: 'merit',
+    dao4: 'chaos', dao5: 'dao_altar'
+  };
+
   G.Data = G.Data || {};
   G.Data.regions = {
     byWorld: byWorld,
     index: index,
     worldNames: { fan: '凡界', ling: '灵界', xian: '仙界', dao: '道界' },
+    PAL: PAL,
+    TINT: TINT,
+    /* 区域调色板：预设覆盖 ground/dark/grass/rock，其余字段从世界调色板透传。
+       没登记预设的区域原样返回世界调色板（复用型地图 / 未换皮的区域）。 */
+    palOf: function (regionId, worldPal) {
+      var p = PAL[TINT[regionId]];
+      if (!p || !worldPal) return worldPal;
+      var out = {}, k;
+      for (k in worldPal) if (Object.prototype.hasOwnProperty.call(worldPal, k)) out[k] = worldPal[k];
+      out.ground = p.ground; out.dark = p.dark; out.grass = p.grass; out.rock = p.rock;
+      return out;
+    },
+    /* 该区域的装饰物配方；没登记则返回 null（调用方走默认） */
+    scatterOf: function (regionId) {
+      var p = PAL[TINT[regionId]];
+      return (p && p.scatter) ? p.scatter : null;
+    },
     /* 该界的区域数组 */
     of: function (worldId) { return byWorld[worldId] || []; },
     /* 单个区域规格 */

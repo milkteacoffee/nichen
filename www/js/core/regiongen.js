@@ -238,12 +238,20 @@
       }
     }
 
+    /* 区域美术换皮（U7）：调色板取**区域预设**（`regions.palOf`），
+       装饰物配方也按区域给；两者都没登记才退回通用兜底。 */
+    var pal = G.Data.regions.palOf(regionId, save.world && save.world.pal);
+    var scatter = G.Data.regions.scatterOf(regionId)
+      || (r.safe ? { trees: 6, rocks: 2 }
+        : (r.ground === 'cave' ? { rocks: 12 } : { trees: 14, rocks: 6 }));
+
     var md = {
       id: regionId, regionId: regionId, n: r.n, label: r.n,
       w: w, h: h, ground: r.ground, safe: !!r.safe,
       zones: r.zones || [],
       structures: structures, paths: [], fences: [],
-      scatter: r.safe ? { trees: 6, rocks: 2 } : (r.ground === 'cave' ? { rocks: 12 } : { trees: 14, rocks: 6 }),
+      pal: pal,
+      scatter: scatter,
       special: special, npcs: npcs, exits: exits,
       spawn: { x: cx, y: cy }
     };

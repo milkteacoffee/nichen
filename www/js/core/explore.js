@@ -486,7 +486,7 @@
         this._drawGroundLayer(x, camX, camY);
 
         /* 整屏大尺度明暗（在铺地之上、建筑之下） */
-        this._drawShade(x, this._baseType(), G.game.save.world.pal, camX, camY);
+        this._drawShade(x, this._baseType(), this._pal(), camX, camY);
 
         /* 建筑（室内图没有 structures/special 字段，必须容错） */
         (this.map.md.structures || []).forEach(function (s) {
@@ -537,7 +537,7 @@
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
       },
 
-      /* 地面基础类型（决定瓦片与过渡） */
+      /* 区域基础类型（决定瓦片与过渡） */
       _baseType: function () {
         var g = this.map.md.ground;
         if (g === 'town') return 'town';
@@ -546,11 +546,19 @@
         return 'grass';
       },
 
+      /* 区域调色板（缺口 U7）：优先用地图自带的 `md.pal`（区域美术预设），
+         没有才退回世界调色板 —— 室内图、凡界复用型地图（town/field/cave）走退回这条路。
+         ⚠️ 绘制路径里**一律走这里**，不要再直接读 `G.game.save.world.pal`：
+         漏一处就是"那个物件没换皮"，而且完全静默（smoke 的源码闸会报）。 */
+      _pal: function () {
+        return (this.map.md && this.map.md.pal) || G.game.save.world.pal;
+      },
+
       _drawFurn: function (x, f, camX, camY) {
         var px = f.x * 16 - camX, py = f.y * 16 - camY;
         var w = (f.w || 1) * 16, h = (f.h || 1) * 16;
         if (px > 480 || px + w < 0 || py > 272 || py + h < 0) return;
-        var art = G.Art.furn(f.kind, G.game.save.world.pal);
+        var art = G.Art.furn(f.kind, this._pal());
         if (!art) return;
         x.drawImage(art.c, Math.round(px), Math.round(py), art.w, art.h);
       },
@@ -567,7 +575,7 @@
              与"逐格取 (tx*16)%TS 子块"逐像素等价，blit 次数从整图格数
              （field 有 2000 格）降到 6 次左右，只有路格与路缘才逐格补画。 */
       _ensureGround: function () {
-        var K = G.Art.K, pal = G.game.save.world.pal;
+        var K = G.Art.K, pal = this._pal();
         /* key 里带上 K 与调色板：窗口缩放改了倍率、或轮回换了世界，
            旧层必须作废，否则会残留错误倍率/配色的地面。 */
         var key = this.mapId + '|' + K + '|' + pal.ground + '|' + pal.rock;
@@ -613,7 +621,7 @@
       /* 单个路格：路面纹理块 + 与基础地面交界处的路缘镶边。
          只在预烘地面层时调用一次（路格是少数，基础地面走平铺）。 */
       _drawPathTile: function (x, tx, ty) {
-        var m = this.map, pal = G.game.save.world.pal;
+        var m = this.map, pal = this._pal();
         var px = tx * 16, py = ty * 16;
 
         /* 从 224×224 周期大纹理里按"世界坐标"取 16×16 子块 ——
@@ -648,7 +656,7 @@
       _drawStructure: function (x, s, camX, camY) {
         var px = s.x * 16 - camX, py = s.y * 16 - camY;
         if (px > 480 || px + s.w * 16 < 0 || py > 272 || py + s.h * 16 < 0) return;
-        var pal = G.game.save.world.pal;
+        var pal = this._pal();
         var art = s.kind === 'house' ? G.Art.house(s, pal)
           : s.kind === 'ruin' ? G.Art.ruin(s, pal)
             : s.kind === 'gate' ? G.Art.gate(s, pal) : null;
@@ -663,7 +671,7 @@
         /* 缩放走 3 档预烘（见 A.decorScaled）：同一变体在每个位置都一模一样，
            一眼就是复制粘贴，所以按位置给一点缩放与水平翻转 —— 但缩放必须是
            预烘好的整数尺寸，否则每帧一次滤波缩放既费帧又糊画面。 */
-        var art = G.Art.decorScaled(o.t, G.game.save.world.pal, v, h1 % 3);
+        var art = G.Art.decorScaled(o.t, this._pal(), v, h1 % 3);
         if (!art) return;
         if ((h1 >> 10) & 1) {
           var dx = Math.round(px + art.ox), dy = Math.round(py + art.oy);
@@ -686,7 +694,7 @@
 
       _drawBoss: function (x, sp, camX, camY) {
         var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
-        var art = G.Art.boss(G.game.save.world.pal);
+        var art = G.Art.boss(this._pal());
         G.Art.blit(x, art, px, py);
         /* 脉动血光 */
         var t = performance.now() / 700;

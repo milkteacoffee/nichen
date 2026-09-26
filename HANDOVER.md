@@ -1,21 +1,24 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-09-26 · 代码版本 **v0.10.0（野怪收益曲线校准 + 仙界覆盖缺口）** · 前一里程碑 v0.9.0
+> 最后更新：2026-09-26 · 代码版本 **v0.11.0（区域美术换皮 U7 闭合 + 面板关闭钮 + 角色子页）** · 前一里程碑 v0.10.0
 > 本次增量（详见 §8 顶部）：
-> ①**野怪收益曲线校准（缺口 U5）**：新增验算工具 **`tools/zone-curve.js`** ——
->   实测「刷满一个境界」所需场次从炼气 24 场一路涨到大罗金仙 **60,895 场**（≈2,500 倍）。
->   根因：破境需求 = `100 × 门槛系数 × 段数²`（门槛**每境 ×2**，共 2^18 倍），
->   而灵气产出（野外 / 副本 / 打坐 / 跨世灌注）**全是 `O(L)` 或固定值**。
->   修法：新增 **`Player.realmQiCoef(L)`** —— 灵气产出随**妖兽自身境界**缩放
->   （取门槛系数的 0.75 次幂；淬体/炼气归一为 1，故 **M0 教学链与既有基线完全不变**），
->   六处灵气奖励全部接线 → 各境界场次拉平到 **12–42 场**；
-> ②**补仙界 gl 91–105 覆盖缺口**（人仙一重～地仙六重，整整 15 级没有野外遭遇带）：
->   瑶池仙境改为非安全区并补带（与 G12「兜率天宫改非安全区」先例一致），
->   首区南天门保留安全区（飞升落点不该一落地就挨打）；
-> ③契约 **16 → 18 条**：新增 `zone.curve.contract`（覆盖 / 归一 / 场次区间 / 寿元）
->   + `zone.curve.source.contract`（**源码闸**：所有灵气奖励表达式必须带境界系数），
->   另加两条**运行时差分探针**（野外 + 副本，真的打一场 L=144 的战再逐项复算）。
-> v0.9.0 的增量（道界道则回廊 / 降世选界）与更早的 v0.8.x 见 §8 下方小节。
+> ①**区域美术换皮（缺口 U7，P5 最后一块）**：28 个区域此前共用同一套程序化外观。
+>   新增 **`regions.PAL`（28 区 28 套配色，键 `ground/dark/grass/rock/scatter`）+ `TINT` 映射**，
+>   经 `regions.palOf()` 覆盖世界调色板的 4 个颜色字段（**其余字段透传**，避免以后加字段静默丢失），
+>   由 `regiongen` 落到地图的 **`md.pal` / `md.scatter`**；`explore.js` 新增单一入口 **`_pal()`**，
+>   7 处绘制路径（阴影/家具/地面/路/建筑/装饰/Boss）**全部改走它** —— 绘制代码不再直读 `world.pal`。
+>   室内图与凡界 F1–F3 复用型地图的 `md` 无 `pal` 字段 → **天然退回世界调色板，行为零变化**。
+> ②**底栏六面板加「主动关闭钮」**：此前只有"再点一次当前页签收起"这一隐含出口。
+>   新增 `G.UI.Btn` 的 **`glyph:'close'`（矢量两笔画叉）**，六个面板统一挂右上角，
+>   `onClick = scene.clearOverlay()`；面板右栏数值统一让位到 `P.x+P.w-38`（否则压住关闭钮）。
+> ③**角色面板拆四子页**：`总览 / 灵根 / 属性 / 境界`（原先立绘+境界+灵根+属性+功法+称号挤一页）。
+>   子页签用**新变体 `variant:'subtab'`**（不能复用底栏 `'tab'`，`panels.contract` 靠它认底栏）；
+>   `scene.charTab` 由 `panels.openPanel` 维护（从别处切进来重置「总览」，面板内点页签保留）。
+> ④契约 **18 → 19 条**：新增 **`region.tint.contract`**（数据全覆盖 / 同界内不得两区同色 /
+>   运行时两区域 `md.pal`+`scatter`+`_groundKey` 必不同 / **源码闸**：`explore.js` 不得直读 `world.pal`）；
+>   `panels.contract` 追加关闭钮与子页签断言，`panels.bounds.contract` 改为**四子页全跑**
+>   并补上**横向右端越界**检查（原先只看左端 `t.x`，右端溢出是契约盲区，本版真的漏过一次）。
+> v0.10.0 的增量（野怪收益曲线 U5）与更早的 v0.9.x / v0.8.x 见 §8 下方小节。
 > **设计基线：GDD v3.3（2026-09-25，全案文档版本统一）** —— 全部文档清单、状态与权威顺序见
 > `doc/《逆尘》设计文档总索引与版本基线 v3.2.md`（文件名保留 v3.2，内容已 v3.3）；单份文档不再单独代表“最新”。
 > 用途：换电脑继续开发时的**唯一入口**。仓库里其它文档的分工见 §2.3。
@@ -33,9 +36,9 @@
 | 逻辑分辨率 | **480 × 272**，内部超采样倍率 `S ∈ [3,4]` 按窗口自适应 |
 | 打包 | Capacitor（`capacitor.config.json` 已配好，**但 `android/` 还没 init**） |
 | **线上试玩** | **https://milkteacoffee.github.io/nichen/** （GitHub Pages，Actions 部署，部署前会卡一道冒烟测试；见 §1.5） |
-| 代码量 | `www/js` ≈ 14.9k 行；`tools/` ≈ 6.8k 行（无头测试与审查工具） |
-| 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识 + 道界道则回廊九关固定试炼（斩三尸→证道→合道）+ 道晶经济 + 秘术飞升升品 + 降世按界起始境界与首区落点**，**野怪收益曲线已校准（各境界刷满 12–42 场，原大罗 60,895 场）** |
-| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** · **zone-curve（野怪收益曲线验算）** 全过；smoke 共 **18 条契约**（v0.10.0 新增 `zone.curve` / `zone.curve.source` 两条 + 两条运行时差分探针，均做反例验证；v0.9.0 批 `dao.trials` / `descend.world` 两条；v0.8.0 批四条同） |
+| 代码量 | `www/js` ≈ 15.3k 行（37 个文件）；`tools/` ≈ 7.3k 行（无头测试与审查工具） |
+| 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识 + 道界道则回廊九关固定试炼（斩三尸→证道→合道）+ 道晶经济 + 秘术飞升升品 + 降世按界起始境界与首区落点** + **野怪收益曲线已校准（各境界刷满 12–42 场，原大罗 60,895 场）** + **区域美术换皮（28 区 28 套配色与装饰物配方，U7 闭合）** + **底栏六面板主动关闭钮** + **角色面板四子页（总览/灵根/属性/境界）** |
+| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** · **zone-curve（野怪收益曲线验算）** 全过；smoke 共 **19 条契约**（v0.11.0 新增 `region.tint` 一条 + `panels`/`panels.bounds` 两条增强，均做反例验证；v0.10.0 批 `zone.curve` / `zone.curve.source` 两条 + 两条运行时差分探针；v0.9.0 批 `dao.trials` / `descend.world` 两条；v0.8.0 批四条同） |
 
 **最重要的一句话**：这个项目**没有构建步骤**。改完 `www/js/*.js` 直接刷新浏览器就能看到效果；
 `tools/` 下的 node 脚本是**测试与审查**用的，不参与运行。
@@ -149,7 +152,7 @@ nichen/
 │       ├── data/            纯数据表（无逻辑）
 │       └── scenes/          场景层
 ├── tools/                   无头测试与审查工具（不参与运行）
-├── doc/                     32 份设计规格 · 统一基线 GDD v3.3（见 §2.3）
+├── doc/                     34 份设计规格 · 统一基线 GDD v3.3（见 §2.3）
 ├── _gen/                    (gitignore) 切图中间产物
 └── _shots/                  (gitignore) 截图/审查输出
 ```
@@ -159,17 +162,17 @@ nichen/
 | 文件 | 行数 | 职责 |
 |---|---|---|
 | `art.js` | 2509 | **全部程序化美术**。地面纹理、建筑、家具、装饰、精灵、立绘、图标、**区域物件（秘境裂隙 / 界门）**；三级缓存（`cached` / `G.Sprites` / `G.UI`）都在这里定义。**头像走 `A.avatar`（专用胸像 `avatar.luchen`），取景表 `AVATAR_HEAD` 是显式的，不要写自动检测** |
-| `ui.js` | 720 | UI 套件：调色板 `C`、字体 `F`、`panel/frame/bar/seal/icon/avatar/divider/rr`、`Btn`（含底栏页签变体 `tab`）、打字机 `Typewriter` |
+| `ui.js` | 751 | UI 套件：调色板 `C`、字体 `F`、`panel/frame/bar/seal/icon/avatar/divider/rr`、`Btn`（底栏页签变体 `tab` / 面板子页签变体 `subtab` / **矢量图标钮 `glyph:'close'`**）、打字机 `Typewriter` |
 | `sprites.js` | 1091 | 主角四向行走帧 + NPC 精灵，程序化兜底 |
-| `explore.js` | 994 | **探索引擎**（镇/山/洞/室内/区域通用）：寻路、交互、遭遇、**HUD**、**区域物件绘制（宝箱 / Boss / 裂隙 / 界门）**；导出 `HUD_H`（顶栏 48）与 `BOT_H`（底栏 28），两段都靠它挡误触 |
-| `panels.js` | 483 | **常驻底栏 + 六个面板**（v0.8.0 新增）：角色/功法/秘术/任务/储物/成就。底栏页签 `barBtns`、面板矩形 `PANEL_RECT`、路由 `isPanel/renderPanel`、状态标记矢量绘制 `mark()`（**不要用 `✓`/`▶` 字符，缺字会变豆腐块**） |
+| `explore.js` | 1002 | **探索引擎**（镇/山/洞/室内/区域通用）：寻路、交互、遭遇、**HUD**、**区域物件绘制（宝箱 / Boss / 裂隙 / 界门）**；导出 `HUD_H`（顶栏 48）与 `BOT_H`（底栏 28），两段都靠它挡误触。**绘制路径的调色板一律走 `_pal()`**（区域预设 `md.pal` → 退世界调色板，缺口 U7） |
+| `panels.js` | 525 | **常驻底栏 + 六个面板**（v0.8.0 新增）：角色/功法/秘术/任务/储物/成就。底栏页签 `barBtns`、面板矩形 `PANEL_RECT`、路由 `isPanel/renderPanel`、状态标记矢量绘制 `mark()`（**不要用 `✓`/`▶` 字符，缺字会变豆腐块**）。**v0.11.0：六面板统一挂主动关闭钮 `closeBtn()`（`glyph:'close'`），角色面板另挂四子页签 `buildCharTabs()`** |
 | `player.js` | 619 | 数值中枢：19境/四界WORLDS/寿元/ascend飞升（**含秘术同步升品**）、`computeStats`（含圣术 `secretPct`）/ `breakState`（**道界 `daoRealm` 无破境**）/ `rates` / **`realmQiCoef`（灵气收益的境界系数，缺口 U5）** / `xianliOf`（成就 A1–A9）/ **`cycleWorldDiff`（界域难度轮换）** |
 | `game.js` | 219 | 主控：Canvas 适配、场景路由、主循环、`die()` / `checkAged()` / toast（toast 的 y 要让开底栏 `BOT_H`） |
 | `mapgen.js` | 186 | 地图生成：地面、路、建筑、家具、NPC 落位、可达性（**门格会被标成已占用**，防随机散布把门堵死） |
-| `regiongen.js` | 390 | **四界 28 区域生成**：由 `data/regions.js` 的紧凑规格确定性产出完整地图并注册进 `G.Data.maps`；场景工厂 + 建筑门路由 + **界门面板/传送（`openGate` / `travelTo`）** |
+| `regiongen.js` | 398 | **四界 28 区域生成**：由 `data/regions.js` 的紧凑规格确定性产出完整地图并注册进 `G.Data.maps`；场景工厂 + 建筑门路由 + **界门面板/传送（`openGate` / `travelTo`）**；**区域换皮落 `md.pal` / `md.scatter`（缺口 U7）** |
 | `interiorgen.js` | 230 | **建筑内部程序化生成**：9 类模板（民居/杂货/客栈/药铺/铁匠铺/丹房/神殿/大殿/楼阁/守卫所），`int.<regionId>.<buildingId>` 惰性生成 |
-| `overlays.js` | 222 | 覆盖层公共件：暗底、对话（立绘+台词）、**角色面板（含称号行）**、**统一路由 `route(x, scene)`**（面板 → 天道菜单页，五处场景共用这一个入口） |
-| `tiandao.js` | 592 | **天道意志**：配置/感应五阶段/世界状态包/**三协议调用（OpenAI `/chat/completions` · Claude `/messages` · 原生 `/responses`，见 `buildRequest` / `extractText`）**/JSON 校验/模板兜底/问卦/注视低语/DOM 输入框（密钥为密码态）/**设置面板（`SET_P`）·界域难度 · 关于**（`G.TianDao`，含 `isMenuOverlay` 路由白名单；**v0.8.0 起没有「菜单」这一页**） |
+| `overlays.js` | 471 | 覆盖层公共件：暗底、对话（立绘+台词）、**角色面板（v0.11.0 拆四子页 `总览/灵根/属性/境界`，几何常量 `CHAR_TABS` / `CHAR_TAB_GEOM`）**、分节小标题 `sec`（**唯一实现**，`panels.js` 转发）、**统一路由 `route(x, scene)`**（面板 → 天道菜单页，五处场景共用这一个入口） |
+| `tiandao.js` | 617 | **天道意志**：配置/感应五阶段/世界状态包/**三协议调用（OpenAI `/chat/completions` · Claude `/messages` · 原生 `/responses`，见 `buildRequest` / `extractText`）**/JSON 校验/模板兜底/问卦/注视低语/DOM 输入框（密钥为密码态）/**设置面板（`SET_P`）·界域难度 · 关于**（`G.TianDao`，含 `isMenuOverlay` 路由白名单；**v0.8.0 起没有「菜单」这一页**） |
 | `assets.js` | 107 | 素材登记/查询/加载（`G.Assets.img/register/load`） |
 | `storage.js` | 208 | localStorage 存档 **v5**（`nichen_meta` / `nichen_save`，各带 `_bak`；含历史迁移；v5 新增 `daoCrystal` / `daoCleared`）＋**设备/浏览器标识**（`deviceId` / `browserId` / `stampDevice`，纯本地不外发） |
 | `input.js` | 51 | 指针/键盘输入 → `onTap` / `onKey` |
@@ -215,7 +218,7 @@ nichen/
 
 | 工具 | 行数 | 用途 |
 |---|---|---|
-| `smoke.js` | 3028 | **冒烟测试**：加载全部脚本、走遍所有场景、**18 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点** / **`zone.curve.contract` 野怪收益曲线** + **`zone.curve.source.contract` 源码闸**）。改任何东西后第一件事 |
+| `smoke.js` | 3234 | **冒烟测试**：加载全部脚本、走遍所有场景、**19 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / **`region.tint.contract` 区域换皮（数据/运行时/源码闸三层）** / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能、关闭钮、角色子页与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点** / **`zone.curve.contract` 野怪收益曲线** + **`zone.curve.source.contract` 源码闸**）。改任何东西后第一件事 |
 | `zone-curve.js` | 285 | **野怪收益曲线验算**（缺口 U5）：逐区列出遭遇带与灵气/场、**覆盖缺口**（gl 1–171 逐级）、**逐境刷满场次与寿元年岁**，并给出告警。`--json` 出结构化结果。**改 `zones.enc` / `needQi` / 灵气奖励公式后必跑** |
 | `playthrough.js` | 392 | **M0 通关模拟**：新档 → m0-1..m0-5 → 赤炎狼王，打印每步数值 |
 | `rebirth.js` | 578 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强"。**开头把 `Date.now` 钉成常量**（§5.9）——不钉的话第 2 世种子随时间变、基线不可复现 |
@@ -223,7 +226,7 @@ nichen/
 | `secret-test.js` | 221 | **秘术效果测试**：品阶/圣术面板/神术被动/仙术主动施放断言 |
 | `browser-probe.js` | 679 | **真实浏览器探针**（CDP 驱动本机 Chrome/Edge），唯一能验证素材是否生效的工具。`PROBE_URL` 可指向**线上构建** |
 | `api-probe.js` | ~150 | **天道三协议真机探测**：用游戏自己的 `buildRequest`/`extractText` 打真实端点（`NICHEN_TEST_KEY` / `NICHEN_TEST_ENDPOINT` / `NICHEN_TEST_MODEL`）。契约只钉形状，端到端只认它 |
-| `shot.js` | 690 | 57 个场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
+| `shot.js` | 726 | 65 张场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
 | `zoom.js` | 182 | 单场景局部放大审查（看精灵清晰度） |
 | `portrait-sheet.js` | 126 | 立绘总览 + ASCII 缩略图（图片直读会间歇失败，文本化更可靠） |
 | `sprite-sheet.js` | 105 | 战斗立绘高倍导出 |
@@ -241,9 +244,9 @@ nichen/
 export NODE_PATH=./node_modules      # 只对 node 工具需要
 
 # —— 每次改完代码 ——
-node tools/smoke.js                       # 必须过（含 18 条契约）
+node tools/smoke.js                       # 必须过（含 19 条契约）
 node tools/shot.js 04_hud                 # 只落这一张（其它帧照常推进）
-node tools/shot.js                        # 全部 57 张
+node tools/shot.js                        # 全部 65 张
 node tools/playthrough.js                 # 数值回归
 node tools/rebirth.js                     # 轮回回归
 node tools/zone-curve.js                  # 野怪收益曲线（改 zones.enc / 灵气公式后必跑）
@@ -267,10 +270,11 @@ node tools/portrait-sheet.js              # 立绘审查
 
 ### 3.2 当前回归基线（**换机后拿这三个对表**）
 
-> ✅ 以下数字已于 **2026-09-26（v0.8.0）在本机实测复核**，并于 **v0.9.0 / v0.10.0 复跑确认无漂移**
-> （smoke **18 条契约**全过 / playthrough 13 步逐字吻合 / rebirth 仙力 +386、攻击 41→43 /
+> ✅ 以下数字已于 **2026-09-26（v0.8.0）在本机实测复核**，并于 **v0.9.0 / v0.10.0 / v0.11.0 复跑确认无漂移**
+> （smoke **19 条契约**全过 / playthrough 13 步逐字吻合 / rebirth 仙力 +386、攻击 41→43 /
 > dungeon-run 8·15 / secret-test 全过 / zone-curve **告警：无**）。新机上跑出来不一致，
 > 基本就是环境问题，别怀疑代码。
+> （v0.11.0 只改调色板与面板 UI，**不碰逻辑与 `G.rng`**，所以六项数字逐字未动。）
 > ⚠️ **「第 2 世变强」这行曾经不可复现（v0.9.0 已修，务必知悉）**：
 > 非锚世的世界种子取自 `Date.now()` —— `reincarnation.js: var seed = anchor ? 20260924 : (Date.now() & 0x7fffffff);`
 > 于是每次跑 `rebirth.js`，第 2 世的落位/调色板都不同。实测 30 次：**28 次「攻击 41→43」、2 次「41→46」**。
@@ -406,6 +410,12 @@ node tools/portrait-sheet.js              # 立绘审查
 - **数值绝不压在进度条上**。旧版把 `155 / 155` 画在血条正中，数字和条的高光叠一起，
   亮色地面背景直接糊成一片（用户明确报过"粗糙"）。一律排在条的**右侧**。
 - 室内地图的家具**不能摆进 `y < 5`**，NPC 同理 —— 会被顶栏压住。
+- **面板一律要有可见的关闭出口**（v0.11.0）：六个常驻面板都挂 `glyph:'close'` 的关闭钮
+  （`panels.js: closeBtn`），落在面板右上角 `R.x+R.w-28 .. R.x+R.w-6`；
+  **右栏数值必须让位到 `P.x+P.w-38`**，否则会压住关闭钮（`panels.bounds.contract` 的
+  "文字压在按钮上"检查会报）。
+- **面板内的子页签用 `variant:'subtab'`，不要复用底栏的 `'tab'`** ——
+  `panels.contract` 靠 `variant === 'tab'` 认底栏页签，复用会把"再点当前页签应收起"的断言带歪。
 - `G.UI.icon` / `G.UI.panel` 等带缓存的件要复用；**HUD 是常驻层，每帧重建的渐变/路径
   都要预烘**（见 §5.6）。
 
@@ -558,7 +568,7 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 | `portrait.luchen`（主角正面立绘）/ `avatar.luchen`（正面胸像） | **已出图并接线**（v0.8.0）：角色面板走 `A.portrait('luchen')`、HUD 圆头像走 `A.avatar('luchen')`；其余 7 张 `portrait.*`（沈伯/刘掌柜/村民/老者/阿阮/杀手/心魔）也已接线 |
 | `obj.rift` / `obj.worldgate` 区域物件素材 | 未出图，走程序化（`A.rift` / `A.worldgate`；登记素材键即自动优先） |
 | **道界内容（道则回廊九关试炼）** | **✅ 已接线**（v0.9.0，缺口 U4 闭合）：`dungeons.js` 新增 `DAO_TRIALS`（9 关固定序列）+ 道晶经济（总耗 3,900）+ `SLOT_GL.dao`；`dungeon.js` 新增「道则回廊」枢纽（线性解锁 / 一场定胜负 / 合道演出关）；飞升台道界行**已可选**；道界**无破境**、野外收益折算道晶。契约 `dao.trials.contract` + `descend.world.contract` |
-| 区域美术换皮（U7） | 28 区共用同一套程序化外观（主题地面/建筑外观未分化） |
+| **区域美术换皮（U7）** | **✅ 已闭合**（v0.11.0）：`regions.PAL` 28 区 28 套配色 + `TINT` 映射 + `scatter` 装饰物配方；`regiongen` 落 `md.pal`/`md.scatter`；`explore._pal()` 是绘制路径唯一入口（7 处）。室内与凡界复用型地图天然退回世界调色板。契约 `region.tint.contract`（数据/运行时/源码闸三层） |
 | **野怪收益曲线验算（U5）** | **✅ 已闭合**（v0.10.0）：新增 `tools/zone-curve.js` 逐区逐境验算；实测高界场次比凡界高 ≈2,500 倍（大罗 60,895 场），根因是"需求随境界指数增长、产出只有线性"；新增 `Player.realmQiCoef` 校准后拉平到 12–42 场；并补上仙界 gl 91–105 的覆盖空洞 |
 | **天道模型接入的真机实测** | **✅ 已做**（2026-09-26）：三协议（OpenAI / Claude / 原生 Response）在真实中转站上**全部打通**，见 §8「v0.8.1」。日常复测跑 `tools/api-probe.js` |
 | `android/` | Capacitor **未 init**，`npm run cap:sync` / `apk:debug` 现在会失败 |
@@ -575,12 +585,13 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 
 1. 先跑 §1.4 的三条自检，确认新环境与基线一致。
 2. 开 `npm run serve` 手玩一遍 M0 主线（新档 → 赤炎狼王），感受一下当前手感。
-3. **P4 / P5 的 U4 / U5 均已收口**（U1/U2/U3/U6 见 §8 v0.7.0；U4 道界见 §8 v0.9.0；U5 收益曲线见 §8 v0.10.0）。
-   剩余按 v3.3 基线推进：
+3. **P4 / P5 的 U1–U8 全部收口**（U1/U2/U3/U6 见 §8 v0.7.0；U4 道界见 §8 v0.9.0；
+   U5 收益曲线见 §8 v0.10.0；**U7 区域换皮见 §8 v0.11.0**）。**P5 已无剩余缺口。**
+   后续按 v3.3 基线推进：
    - ~~**道界道则回廊**（U4）~~ **✅ 已完成（v0.9.0）**；
    - ~~**野怪收益曲线验算**（U5）~~ **✅ 已完成（v0.10.0）**；
-   - **区域美术换皮**（U7）：28 区目前共用一套程序化外观，主题地面/建筑外观未分化 —— **P5 最后一块**；
-   - **M1 内容** / **补素材接线**（`bg.*`、`obj.rift` / `obj.worldgate`）。
+   - ~~**区域美术换皮**（U7）~~ **✅ 已完成（v0.11.0）**；
+   - **M1 内容**（`doc/《逆尘》M1剧情与内容设计 v1.0.md` 已就位，**未开工**）/ **补素材接线**（`bg.*`、`obj.rift` / `obj.worldgate`）/ **`android/` Capacitor init**。
 4. 工具层欠账（§6.3）优先级低，但 `browser-probe ablate` 的基准帧间隔建议顺手修掉。
 5. ~~**v0.8.0 遗留的小尾巴**：天道三协议没打过真实云端端点~~ **✅ 已于 v0.8.1 真机实测打通**（见 §8）。
 
@@ -639,6 +650,70 @@ node_modules/
 ---
 
 ## 8. 最近一次改了什么
+
+### v0.11.0：区域美术换皮（U7 闭合）+ 面板关闭钮 + 角色子页（2026-09-26）
+
+**背景**：v0.10.0 收口 U5 之后，P5 只剩 **U7（区域美术换皮）** —— 28 个区域共用同一套程序化外观。
+同时本轮收到两条 UI 反馈：①底栏六个常驻面板只有"再点一次当前页签"这一种**隐含**收起方式，
+玩家在面板里找不到可见出口；②角色面板把立绘/境界/灵根/属性/功法/称号全挤在一页，细看不了。
+
+**① 区域换皮（U7）**
+- 单一真相源 = `data/regions.js` 新增的 `PAL`（**28 区 28 套**，键 `ground`/`dark`/`grass`/`rock`/`scatter`）
+  与 `TINT`（区域 id → 预设名）。
+- `regions.palOf(regionId, worldPal)`：**只覆盖那 4 个颜色字段，其余字段从世界调色板透传**
+  —— 以后 `world.pal` 加字段不会静默丢失。
+- `regiongen` 把它落到地图对象的 `md.pal` / `md.scatter`。
+- `explore.js` 新增 **`_pal()`**（`(this.map.md && this.map.md.pal) || G.game.save.world.pal`），
+  **7 处绘制路径全部改走它**（`_drawShade` / `_drawFurn` / `_ensureGround` / `_drawPathTile` /
+  `_drawStructure` / `_drawDecor` / `_drawBoss`），绘制代码里不再出现 `G.game.save.world.pal`。
+- 室内图与凡界 F1–F3 **复用型地图**（`town`/`field`/`cave`）的 `md` 由 `mapgen` 产出、**没有 `pal` 字段**
+  → 天然退回世界调色板，**行为逐字不变**。
+- 装饰物配方（`scatter`）也按区域给：乱葬岗少树多石、火云谷几乎无树。
+- `_ensureGround` 的缓存键含 `pal.ground` / `pal.rock`，所以"两个区域的地面真的是两张不同的图"是**可判定**的。
+
+**② 面板主动关闭钮**
+- `ui.js: Btn` 新增 `glyph` 字段，`glyph:'close'` 用**两笔画叉矢量绘制**
+  （⚠️ 不要改画 `×` 字符：工程没有 `@font-face`，缺字会渲染成空心方框）。
+- `panels.js: closeBtn(scene, R)` 落在 `R.x+R.w-28 .. R.x+R.w-6`，`onClick = scene.clearOverlay()`；
+  六个面板统一挂载（角色面板用 `CHAR_PANEL` 矩形，其余用 `P`）。
+- 右栏数值统一让位到 `P.x+P.w-38`（原先贴 `-14`，**正好压在关闭钮上**）。
+
+**③ 角色面板四子页**
+- `overview`（原内容**逐像素不变**）/ `linggen`（元素卡 + 五行相克环矢量箭头 + 四象系数）/
+  `attr`（三卡 + 派生四项 + 六行"加成来源"现算分解）/ `realm`（灵气进度 + 四界十九境网格高亮当前境）。
+- 子页签按钮用**新变体 `variant:'subtab'`**：`panels.contract` 靠 `variant==='tab'` 认底栏页签，
+  复用 `tab` 会把"再点当前页签应收起"的断言带歪。
+- `scene.charTab` 由 `panels.openPanel` 维护：`prev !== 'char'` 时重置为 `overview`（从别处切进来回总览），
+  面板内点页签保留当前子页。
+- `Overlays.sec` 收成**分节小标题的唯一实现**（`panels.js: sec` 转发）。
+
+**契约（18 → 19 条）**
+- 新增 **`region.tint.contract`**，三层：
+  ① 数据：28 区全覆盖 / 四色合法 HEX / 有 `scatter` / **同界内不得两区同色**；
+  ② 运行时：真生成 `fan7` 与 `fan9` 两张图 → `md.pal` / `md.scatter` / `_groundKey` 必须不同；
+     `water` 字段必须从世界调色板透传；所有**生成型**区域必须带 `pal`；
+  ③ **源码闸**：剥注释后扫 `explore.js`，不得出现 `G.game.save.world.pal`（`_pal:` 自身豁免），
+     且 `this._pal()` 计数 ≥6。
+- `panels.contract` 追加：关闭钮（每面板恰 1 个 / 落在面板矩形内 / 点下去真的关掉）
+  + 子页签（4 个 / 点击切页且不关面板 / 从别处切进重置总览 / 面板内重复 `openPanel` 不重置）。
+- `panels.bounds.contract`：① 改为**四子页全跑**；② 横向越界**补右端检查**
+  （原先只看左端 `t.x`，**右端溢出是契约盲区** —— 本轮灵根页真的漏出去一次才发现）。
+
+**反例验证（10 组，全部命中）**
+摘关闭钮 → 6 条；境界页网格下移 → 2 条纵向越界；不重置子页 → 2 条；关闭钮移出面板 → 6 条；
+右栏贴回右端 → 5 条「文字压在按钮上 × close」；灵根页长行 → 1 条横向越界（`x=58.0..446.5`，面板 `44..436`）；
+摘 `md.pal` → 全生成型区域报错；`xian4` 改用 `moon` → 1 条同色；Boss 绕过 `_pal()` → 源码闸命中直读行；
+预设去 `scatter` → 1 条。
+
+**验收**：新增 8 张截图（`34b`–`34e` 角色四子页 + `40`–`43` 区域换皮，后者刻意挑
+"基础地面相同、只有配色不同"：40/41 都是 cave、42/43 都是 grass）。全量截图 57 → **65 张**。
+
+**回归**：六项零漂移（smoke 19 条全过 / playthrough `炼气三重 4013 696 1422 16 场 free` /
+rebirth `攻击 41→43` / dungeon-run `8 / 15` / secret-test 全过 / zone-curve `【告警】无`）。
+U7 只改调色板与 `scatter`，**不碰逻辑与 `G.rng`**。
+
+**踩到的一个坑（值得记）**：`tools/shot.js` 里 `charTab` 必须**先设、再 `openPanel`**
+（`openPanel` 按当前 `charTab` 建按钮），顺序写反 → 截图里页签高亮停在上一页。
 
 ### v0.10.0：野怪收益曲线校准（U5 闭合）+ 仙界覆盖缺口（2026-09-26）
 

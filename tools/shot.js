@@ -523,6 +523,26 @@ step(() => {
 }, 'worldgate');
 shot('26_worldgate', 14);
 
+/* 区域美术换皮（缺口 U7，v0.11.0）：四张图**刻意挑成"基础地面类型相同、只有调色板不同"** ——
+   40/41 都是 cave（乱葬岗 灰紫 vs 火云谷 赤红），42/43 都是 grass（黄沙古堡 沙黄 vs 蟠桃园 桃绿）。
+   这样截图能直接证明"换的是配色，不是地面种类"，也能看出装饰物配方（树/石数量）确实按区域走。 */
+[
+  { id: 'fan7', n: '乱葬岗', gl: 34, file: '40_region_grave' },
+  { id: 'fan9', n: '火云谷', gl: 50, file: '41_region_lava' },
+  { id: 'ling4', n: '黄沙古堡', gl: 82, file: '42_region_desert' },
+  { id: 'xian5', n: '蟠桃园', gl: 125, file: '43_region_peach' }
+].forEach((it) => {
+  step(() => {
+    const s = JSON.parse(JSON.stringify(save));
+    s.globalLevel = it.gl;
+    s.maxGlobalLevel = it.gl;
+    G.game.save = s;
+    G.RegionGen.sceneFor(it.id);
+    G.game.changeScene(it.id, { toSpawn: true });
+  }, 'region.tint.' + it.id);
+  shot(it.file, 12);
+});
+
 step(() => {
   const s = JSON.parse(JSON.stringify(save));
   G.game.save = s;
@@ -555,6 +575,9 @@ const richSave = () => {
   s.po = 260; s.stone = 1420; s.qi = 3200; s.hp = 92;
   s.quest = { step: 'm0-4', flags: { won1: true, templeDone: true, dream: true } };
   s.globalLevel = 8;
+  /* 三灵根（金·木·水）：角色面板「灵根」子页要看得出来系数与相克高亮 */
+  s.linggen = { kind: '五行', elems: ['金', '木', '水'], coef: { 金: 1.0, 木: 1.0, 水: 1.0 }, stoneBonus: 0.15 };
+  s.age = 18;
   s.pos = null;
   return s;
 };
@@ -598,6 +621,19 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
 shot('33_panel_bag', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'achieve'); }, 'panel.achieve');
 shot('34_panel_achieve', 6);
+
+/* 角色面板四个子页（v0.11.0）：**每页都要肉眼过一遍** ——
+   排版越界/叠字/压按钮全是静默的，只有截图能看出来。
+   ⚠️ 顺序：先设 charTab 再 openPanel —— openPanel 会按当前 charTab 重建按钮，
+   反过来写的话截图里的**页签高亮会停在上一个子页**（真实点击流程就是先设后建）。 */
+step(() => { const sc = G.game.scene; sc.charTab = 'overview'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.overview');
+shot('34b_char_overview', 6);
+step(() => { const sc = G.game.scene; sc.charTab = 'linggen'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.linggen');
+shot('34c_char_linggen', 6);
+step(() => { const sc = G.game.scene; sc.charTab = 'attr'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.attr');
+shot('34d_char_attr', 6);
+step(() => { const sc = G.game.scene; sc.charTab = 'realm'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.realm');
+shot('34e_char_realm', 6);
 
 step(() => {
   /* 打开设置页并把协议切到 Claude、填上地址与模型，看看"配云端"这条路的样子 */
