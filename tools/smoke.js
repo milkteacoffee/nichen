@@ -2702,6 +2702,40 @@ step(function () {
   if (eq3.atk !== base.atk || eq3.def !== base.def) errors.push('脱下法宝后加成应回落');
 }, 'equip.contract');
 
+/* ---------- 点击不崩契约（v0.28.0） ----------
+   用户口径：「点击法宝这里会卡死机，界面无法点击了」。
+   根因：`buildEquipSlots` 里写了 `G.UI.text(null, ...)` 当"占位绘制" ——
+   传 null 当 ctx 会在**按钮的 onClick 里**抛异常 → 面板再也打不开，
+   玩家看到的就是"整个界面卡死"。
+   ⚠️ 这类"点击即崩"**不会在加载期暴露**，只有真的点一次才知道 —— 所以必须点。
+   规则：**所有按钮的 onClick 都不允许抛异常**（这里覆盖法宝三槽与换装子视图）。 */
+step(function () {
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.items = {};                       /* 一件法宝都没有 —— 最容易被忽略的空态 */
+  s2.equip = { weapon: null, armor: null, accessory: null };
+  s2.pos = null;
+  G.game.save = s2;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.charTab = 'overview'; sc.equipPick = null;
+  G.Overlays.openPanel(sc, 'char');
+  const slotBtns = (sc.buttons || []).filter(function (b) {
+    return b.sub && /武器|防具|饰品/.test(b.sub);
+  });
+  if (!slotBtns.length) { errors.push('角色总览页没有法宝槽按钮'); return; }
+  slotBtns.forEach(function (b, i) {
+    try { b.onClick(); } catch (e) {
+      errors.push('点法宝槽 #' + i + ' 抛异常（界面会卡死）：' + e.message);
+    }
+  });
+  /* 换装子视图（空态）里的每个按钮也要点一遍 */
+  (sc.buttons || []).forEach(function (b, i) {
+    try { b.onClick(); } catch (e) {
+      errors.push('法宝换装子视图按钮 #' + i + '（' + (b.label || '?') + '）抛异常：' + e.message);
+    }
+  });
+}, 'click.noThrow.contract');
+
 /* ---------- 破境天劫契约（v0.26.0） ----------
    用户口径：「破境必须有天劫动画，天道必须用起来，主角和天道意志对话」。
    ① 天劫接管覆盖层，三拍依次推进：蓄势（无按钮）→ 落雷（白闪 + 震屏）→ 天道问话（出「承受」）

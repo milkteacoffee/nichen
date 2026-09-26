@@ -791,6 +791,13 @@ step(() => {
   sc.update(0.04);
 }, 'tribulation.ask');
 shot('06_tribulation', 4);
+/* 立体感 B+C：建筑基座/落地投影 + 树加高（把镜头挪到镇中，让建筑完整入画） */
+step(() => {
+  /* ⚠️ 不能带 toSpawn —— 它会用出生点覆盖 pos，镜头永远停在镇子最上沿 */
+  G.game.changeScene('town');
+  G.game.save.pos = { x: 18, y: 13 };
+}, 'solid.town');
+shot('06b_solid_town', 10);
 /* 每层三选一（v0.23.0）：Roguelite 的构筑环节 —— 通关一层后从 3 个临时增益里选 1 */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));

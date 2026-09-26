@@ -943,8 +943,36 @@
           : s.kind === 'ruin' ? G.Art.ruin(s, pal)
             : s.kind === 'gate' ? G.Art.gate(s, pal) : null;
         if (!art) return;
+        var bx0 = px + (art.ox || 0), by0 = py + (art.oy || 0);
+        var bw0 = art.w, bh0 = art.h;
+
+        /* ===== 立体感 C：建筑基座 + 落地投影（v0.28.0，零出图）=====
+           用户口径：「我们能不能做得比较有 3D 的感觉，2.5D 俯视角我们能用吗」。
+           建筑素材本身已经有"屋顶 + 正面墙 + 门窗"（`A.house` 程序化绘制），
+           缺的是**它与地面的接触关系** —— 没有基座、没有投影，建筑就像"贴在地上的一张图"。
+           补两层（都画在**建筑之前**，先影后物）：
+             ① 落地投影：底边往下 6px 的柔和暗影（越往下越淡）
+             ② 墙脚基座：底边往下 4px 的暗色带 + 上缘一线亮边（受光面）
+           ⚠️ 这两层会**越出建筑自己的格子** —— 那正是 2.5D 的观感来源
+              （建筑向观察者方向"长"出一截），不是越界 bug。 */
+        var inset = bw0 * 0.06;
+        var gx0 = bx0 + inset, gw = bw0 - inset * 2;
+        x.save();
+        var grd = x.createLinearGradient(0, by0 + bh0 - 2, 0, by0 + bh0 + 7);
+        grd.addColorStop(0, 'rgba(0,0,0,0.34)');
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        x.fillStyle = grd;
+        x.fillRect(gx0, by0 + bh0 - 2, gw, 9);
+        x.restore();
+        x.save();
+        x.fillStyle = 'rgba(24,20,18,0.55)';
+        x.fillRect(gx0, by0 + bh0 - 4, gw, 4);
+        x.fillStyle = 'rgba(255,246,214,0.16)';
+        x.fillRect(gx0, by0 + bh0 - 4, gw, 1);
+        x.restore();
+
         G.Art.blit(x, art, px, py);
-        this._drawPlaque(x, s, px + (art.ox || 0), py + (art.oy || 0));
+        this._drawPlaque(x, s, bx0, by0);
       },
 
       /* 建筑匾额（v0.16.0）：**建筑上写它当前的名字**（用户口径）。
@@ -1025,6 +1053,16 @@
 
         x.save();
         if (sway) { x.translate(pivX, pivY); x.rotate(sway); x.translate(-pivX, -pivY); }
+        /* ===== 立体感 B：高物件纵向拉伸（v0.28.0，零出图）=====
+           树的"高"在正俯视里读不出来（只有一个圆冠）。以**底部为锚**纵向拉高 14% ——
+           树冠因此往上长，树根仍钉在原地（拉锚在中心会变成"整棵树在飘"）。
+           ⚠️ 只对 `tree` 生效：石头/井/围栏拉高就变成"被扯长了"。 */
+        var stretch = (o.t === 'tree') ? 1.14 : 1;
+        if (stretch !== 1) {
+          x.translate(bx + art.w / 2, by + art.h);
+          x.scale(1, stretch);
+          x.translate(-(bx + art.w / 2), -(by + art.h));
+        }
         if ((h1 >> 10) & 1) {
           x.translate(bx + art.w, by);
           x.scale(-1, 1);
@@ -1234,9 +1272,11 @@
           bob = -Math.abs(Math.sin(step * Math.PI)) * 2.2;
           tilt = Math.sin(step * Math.PI) * (((this._stepN || 0) % 2) ? 0.035 : -0.035);
           sq = 1 + Math.sin(step * Math.PI * 2) * 0.03;
-        } else {
-          bob = -Math.sin((G.game.time || 0) * 1.3) * 0.6;
         }
+        /* ⚠️ **待机不做呼吸浮动**（用户口径：「人物在上下浮动，不像立体感，反而很怪」）——
+           站立时 0.6px 的上下浮动在像素游戏里读不出"呼吸"，只读得出"在抖/在飘"。
+           动效集中在**走路**上就够了：静止时人物就该是静止的。 */
+        
 
         /* 落地投影：跟着角色尺寸走，否则大角色会"浮"在影子上。
            走路时影子**随浮动反向缩放/变淡**（人抬高 → 影子变小）——

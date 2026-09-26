@@ -215,9 +215,11 @@
           }
         }));
       });
-      if (!owned.length) {
-        G.UI.text(null, { x: 0, y: 0 }, '', 1, '#000');
-      }
+      /* ⚠️ 这里**不能**写"占位绘制"。
+         曾经写过 `G.UI.text(null, ...)` —— 传 null 当 ctx 会在点击时抛异常，
+         而异常发生在按钮的 onClick 里 → 面板再也打不开，玩家看到的就是**整个界面卡死**
+         （用户口径：「点击法宝这里会卡死机，界面无法点击了」）。
+         该槽一件法宝都没有时，**什么都不画**就够了。 */
       btns.push(new G.UI.Btn({
         x: RX2, y: EQY + 68, w: (RW2 - 6) / 2, h: 20, small: true, fs: 10,
         variant: 'ghost', label: '卸　下',
