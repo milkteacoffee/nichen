@@ -92,6 +92,11 @@ function drawSpy() {
     hits.push({ img, x: arguments[1], y: arguments[2], w: arguments[3], h: arguments[4] });
   };
   c.__hits = hits;
+  /* 变换记录（v0.32.0）：面板滑入这类"整体位移"用 drawImage 的 y **查不到** ——
+     探针记的是**变换前**的实参，`x.translate` 不改它们。所以单独记 translate。 */
+  c.__tr = [];
+  const _tr = c.translate;
+  c.translate = function (tx, ty) { c.__tr.push({ x: tx, y: ty }); return _tr.apply(c, arguments); };
   return c;
 }
 
@@ -2820,6 +2825,36 @@ step(function () {
   try { b.render(c); } catch (e) { ok = false; errors.push('战斗渲染在有效特效时抛异常：' + e.message); }
   if (ok && !b._fxs.length) errors.push('特效列表在渲染前被清空');
 }, 'battle.fx.contract');
+
+/* ---------- 面板滑入契约（v0.32.0） ----------
+   用户口径（多轮）：「整个游戏还是和 PPT 网页一样」。面板**直接出现**是典型症状之一。
+   ① `openPanel` 必须记下 `panelOpenAt`
+   ② 刚打开时渲染**必须发生位移**（translate 有非零 y）；动画结束后位移归零
+   ⚠️ 判据必须看 `translate` 而不是 `drawImage` 的 y ——
+      探针记的是**变换前**的实参，整体位移查不到。 */
+step(function () {
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.pos = null;
+  G.game.save = s2;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  const t0 = G.game.time;
+  G.Overlays.openPanel(sc, 'quest');
+  if (sc.panelOpenAt == null) { errors.push('openPanel 未记 panelOpenAt'); return; }
+  G.game.time = sc.panelOpenAt + 0.02;          /* 滑入中 */
+  const c1 = drawSpy(); sc.render(c1);
+  /* ⚠️ 只看"滑入那一次 translate"（x=0 且 y>0）——
+     镜头缩放/震屏也会 translate（x=240、y=136），一起看会永远为真（踩过）。 */
+  /* ⚠️ 幅度也要卡：滑入是 `translate(0, (1-e)*10)`（y ∈ (0,10]）。
+     只卡 `x===0 && y>0` 会把别的绘制（实测有 `translate(0,48)` 的 NPC/立绘锚点）
+     一起算进来，于是"动画结束仍偏着"永远为真。 */
+  const isSlide = function (t) { return t.x === 0 && t.y > 0.3 && t.y <= 10; };
+  if (!(c1.__tr || []).some(isSlide)) errors.push('面板刚打开时没有位移（滑入没生效）');
+  G.game.time = sc.panelOpenAt + 1;             /* 动画结束 */
+  const c2 = drawSpy(); sc.render(c2);
+  if ((c2.__tr || []).some(isSlide)) errors.push('面板动画结束后位移没有归零（会一直偏着）');
+  G.game.time = t0;
+}, 'panel.slide.contract');
 
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →

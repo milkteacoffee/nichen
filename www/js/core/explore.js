@@ -686,16 +686,34 @@
         this._drawInteractHint(x, camX, camY);
         this._drawMark(x, camX, camY);
         if (!this.overlay) this._drawHint(x);
-        /* 天劫是**核心覆盖层**（不属于任何场景的 hooks），优先分派 */
-        if (this.overlay === 'tribulation' && G.Overlays.renderTribulation) {
-          G.Overlays.renderTribulation(x, this);
-        } else if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
-
         if (this.flash > 0) {
           x.fillStyle = 'rgba(255,255,255,' + Math.min(1, this.flash) * .9 + ')';
           x.fillRect(0, 0, 480, 272);
         }
+
+        /* ===== 面板滑入（v0.32.0）=====
+           用户口径（多轮）：「整个游戏还是和 PPT 网页一样」。面板**直接出现**是典型症状之一。
+           0.18s 内从下方 10px 滑到位 + 淡入（easeOutQuad）。
+           ⚠️ 必须把**面板与按钮一起**包进同一个变换 —— 只滑面板不滑按钮会变成
+              "面板在滑、按钮不动"，比不做还怪。
+           ⚠️ 闪白放在变换**之外**（整屏白如果被平移 10px，顶上会留一条缝）。 */
+        var _pk = 1;
+        if (this.overlay && this.panelOpenAt != null) {
+          _pk = Math.min(1, ((G.game.time || 0) - this.panelOpenAt) / 0.18);
+        }
+        var _pe = 1 - (1 - _pk) * (1 - _pk);
+        var _popen = (this.overlay && _pk < 1);
+        if (_popen) {
+          x.save();
+          x.globalAlpha = 0.35 + 0.65 * _pe;
+          x.translate(0, (1 - _pe) * 10);
+        }
+        /* 天劫是**核心覆盖层**（不属于任何场景的 hooks），优先分派 */
+        if (this.overlay === 'tribulation' && G.Overlays.renderTribulation) {
+          G.Overlays.renderTribulation(x, this);
+        } else if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+        if (_popen) x.restore();
         /* 血夜红雾画在最上层：它要盖住 HUD 与底栏，读作"整屏被夜色吞掉" */
         if (this.night > 0) this._drawBloodVeil(x);
       },

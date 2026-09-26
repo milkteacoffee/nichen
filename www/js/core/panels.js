@@ -285,6 +285,9 @@
   }
 
   function openPanel(scene, id, keepTab) {
+    /* 面板滑入（v0.32.0）：记下打开时刻，渲染时按 `G.game.time` 算进度。
+       ⚠️ 用 `G.game.time` 而不是 performance.now —— 截图与契约才钉得住。 */
+    scene.panelOpenAt = G.game.time || 0;
     if (!IDS[id]) return;
     var prev = scene.overlay;
     scene.overlay = id;
