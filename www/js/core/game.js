@@ -195,7 +195,7 @@
       x.save();
       x.globalAlpha = a;
       G.UI.panel(x, { x: 60, y: y0, w: 360, h: h },
-        'rgba(10,13,24,0.92)', 'rgba(216,183,104,0.7)', 5, { paper: false });
+        'rgba(10,13,24,0.92)', 'rgba(216,183,104,0.7)', 5, { tex: false });
       G.UI.text(x, { x: 240, y: y0 + 5 }, '天 道 低 语', 10, G.UI.C.gold, 'center');
       lines.forEach(function (l, i) {
         G.UI.text(x, { x: 240, y: y0 + 19 + i * 18 }, l, 12.5,

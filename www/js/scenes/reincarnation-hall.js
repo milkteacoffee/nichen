@@ -316,7 +316,7 @@
 
       /* 档案条（三视图共用；末格随视图切换） */
       G.UI.panel(x, { x: 16, y: 52, w: 448, h: 30 }, '#131828',
-        'rgba(216,183,104,0.30)', 4, { paper: false, shadow: false });
+        'rgba(216,183,104,0.30)', 4, { tex: false, shadow: false });
       G.UI.text(x, { x: 30, y: 61 }, '轮回', 11, G.UI.C.textDim);
       G.UI.textOut(x, { x: 62, y: 57 }, String(m.lives || 0), 15, G.UI.C.text);
       G.UI.text(x, { x: 118, y: 61 }, '世', 11, G.UI.C.textDim);
@@ -362,7 +362,7 @@
       var m = G.game.meta;
 
       /* 仙躯灌注（分区标题放在面板内部，避免压在边框上） */
-      G.UI.frame(x, { x: 16, y: 88, w: 288, h: 134 }, null, { paper: true });
+      G.UI.frame(x, { x: 16, y: 88, w: 288, h: 134 }, null, { tex: true });
       G.UI.text(x, { x: 28, y: 94 }, '仙 躯 灌 注', 12, G.UI.C.gold);
       var ach = G.Player.ACHIEVE.filter(function (a) { return m.achieve[a.id]; }).length;
       G.UI.textOut(x, { x: 292, y: 96 }, '成就 ' + ach + '/' + G.Player.ACHIEVE.length,
@@ -370,7 +370,7 @@
       G.UI.divider(x, 160, 111, 264, 'rgba(216,183,104,0.28)');
 
       /* 前世名录 */
-      G.UI.frame(x, { x: 312, y: 88, w: 152, h: 134 }, null, { paper: true });
+      G.UI.frame(x, { x: 312, y: 88, w: 152, h: 134 }, null, { tex: true });
       G.UI.text(x, { x: 324, y: 94 }, '前 世 名 录', 12, G.UI.C.gold);
       G.UI.divider(x, 388, 111, 130, 'rgba(216,183,104,0.28)');
       var past = m.past.slice(-4).reverse();
@@ -391,12 +391,12 @@
       var pr = m.progress || {};
 
       /* 左：下一世主界 */
-      G.UI.frame(x, ASC_L, null, { paper: true });
+      G.UI.frame(x, ASC_L, null, { tex: true });
       G.UI.text(x, { x: 28, y: 94 }, '下 一 世 主 界', 12, G.UI.C.gold);
       G.UI.divider(x, 130, 111, 204, 'rgba(216,183,104,0.28)');
 
       /* 右：界域难度（正式入口；菜单里那处是世内便捷入口） */
-      G.UI.frame(x, ASC_R, null, { paper: true });
+      G.UI.frame(x, ASC_R, null, { tex: true });
       G.UI.text(x, { x: 264, y: 94 }, '界 域 难 度', 12, G.UI.C.gold);
       G.UI.divider(x, 358, 111, 188, 'rgba(216,183,104,0.28)');
 
@@ -427,7 +427,7 @@
       if (this.page > pages - 1) this.page = pages - 1;
       if (this.page < 0) this.page = 0;
 
-      G.UI.frame(x, { x: 16, y: 88, w: 448, h: 134 }, null, { paper: true });
+      G.UI.frame(x, { x: 16, y: 88, w: 448, h: 134 }, null, { tex: true });
       G.UI.text(x, { x: 28, y: 94 }, '前 世 经 历', 12, G.UI.C.gold);
       G.UI.textOut(x, { x: 448, y: 96 },
         '第 ' + (this.page + 1) + ' / ' + pages + ' 页', 10, G.UI.C.textDim, 'right');

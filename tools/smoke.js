@@ -3604,6 +3604,111 @@ step(function () {
 }, 'ui.batch3.contract');
 pump(6, 'ui.batch3.leave');
 
+/* ---------- 云海材质层（v0.13.0）----------
+   口径：这是修仙世界，界面要「仙气、腾云驾雾」—— 深青紫底 + 流云 + 青玉/月白辉光。
+   （v0.13.0 初版做过一版浅底「宣纸」，与世界观不符，已废弃。）
+   本契约钉四件事，都是"改材质时最容易漏、且漏了不报错"的：
+     ① 材质表是 MIST_C，旧的 PAPER_C 必须彻底消失（改材质最常留下半套旧色）；
+     ② 嵌套作用域不得提前还原色表（`UI.frame` 自己会进一层 → 外层对话框套内层面板必踩）；
+     ③ `UI.frame` 一律走云海材质（"仙气"的主入口，漏了就没有一致性）；
+     ④ 全项目不得残留 `paper:` / `UI.paper` 这类旧配置（改名不彻底 = 配置静默失效）。 */
+step(function () {
+  const errors = [];
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const ui = stripC(fs.readFileSync(path.join(WWW, 'js/core/ui.js'), 'utf8'));
+
+  /* ① 材质表 */
+  if (ui.indexOf('var MIST_C = {') < 0) errors.push('ui.js 缺 MIST_C（云海材质表）');
+  if (ui.indexOf('PAPER_C') >= 0) errors.push('ui.js 仍残留 PAPER_C（旧宣纸材质没删干净）');
+  if (ui.indexOf('function isMist') < 0) errors.push('ui.js 缺 isMist（材质标记，缓存键要用它防串色）');
+
+  /* ② 嵌套作用域：只在**最外层**进出时改写色表 */
+  const am = ui.slice(ui.indexOf('function applyMist'), ui.indexOf('function isMist'));
+  if (!/mistDepth === 1/.test(am) || !/mistDepth <= 0/.test(am)) {
+    errors.push('applyMist 未按"只在最外层进出"改写色表 —— 嵌套时内层退出会提前还原（外层文字串回墨夜色）');
+  }
+
+  /* ③ frame 一律走云海 */
+  const fr = ui.slice(ui.indexOf('    frame: function'), ui.indexOf('    bar: function'));
+  if (fr.indexOf('UI.mist(') < 0) {
+    errors.push('UI.frame 没有走云海作用域 —— 主面板会留在墨夜材质（"仙气"的主入口失效）');
+  }
+  /* panel 的纹理开关必须叫 tex **且有默认赋值**。
+     ⚠️ 判据不能只查 `ui.indexOf('opt.tex')` —— 它在缓存键里也出现，
+     所以"只把默认赋值改回 opt.paper"这种半改会漏网（纹理静默不画）。 */
+  if (!/if \(opt\.tex === undefined\) opt\.tex = true;/.test(ui)) {
+    errors.push('UI.panel 未把 opt.tex 默认置真（纹理开关改名不彻底 → 纹理静默不画）');
+  }
+
+  /* ④ 旧配置不得残留（扫全部已加载脚本） */
+  srcs.forEach((rel) => {
+    const s = stripC(fs.readFileSync(path.join(WWW, rel), 'utf8'));
+    if (/\bpaper\s*:/.test(s) || /UI\.paper\s*\(/.test(s)) {
+      errors.push('源码闸：' + rel + ' 仍残留旧材质配置 paper（改名不彻底 → 配置静默失效）');
+    }
+  });
+
+  /* 材质必须是**深底浅字**（用户口径：要仙气云海，不要宣纸）。
+     判据用**相对亮度**而非比对色值字符串 —— 改一个色号就绕过字符串比对的写法是假的；
+     亮度是"这块底是不是浅色"的量化口径，钉住它才钉得住"别改回浅底"。 */
+  const lum = (hex) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  };
+  const mistSrc = ui.slice(ui.indexOf('var MIST_C = {'), ui.indexOf('var DARK_C'));
+  const bgHex = (/panel:\s*'(#[0-9a-f]{6})'/i.exec(mistSrc) || [])[1];
+  const txHex = (/text:\s*'(#[0-9a-f]{6})'/i.exec(mistSrc) || [])[1];
+  const bgL = lum(bgHex), txL = lum(txHex);
+  if (bgL === null || txL === null) {
+    errors.push('MIST_C 缺 panel / text 的十六进制色值 —— 亮度判据取不到');
+  } else {
+    if (bgL > 0.35) {
+      errors.push('云海面板底色过亮（' + bgHex + ' 亮度 ' + bgL.toFixed(2)
+        + '）—— 又变回宣纸了，用户要的是深底仙雾');
+    }
+    if (txL < 0.60) {
+      errors.push('云海面板文字色过暗（' + txHex + ' 亮度 ' + txL.toFixed(2)
+        + '）—— 深底必须配浅字，否则整块面板读不出字');
+    }
+  }
+
+  /* 运行时：作用域进出可逆 + 嵌套安全 */
+  const outside = G.UI.C.text;
+  if (G.UI.isMist()) errors.push('未进云海作用域时 isMist() 应为假');
+  let midText = null, afterInner = null;
+  G.UI.mist(function () {
+    midText = G.UI.C.text;
+    if (midText === outside) errors.push('云海作用域内 C.text 没翻转 —— 材质没生效');
+    G.UI.mist(function () {
+      if (G.UI.C.text !== midText) errors.push('嵌套进入云海后 C.text 变了（内层应与外层同色）');
+    });
+    afterInner = G.UI.C.text;
+  });
+  if (afterInner !== midText) {
+    errors.push('嵌套作用域出内层时色表被提前还原 —— 外层文字会串回墨夜色');
+  }
+  if (G.UI.C.text !== outside) errors.push('退出云海作用域后 C.text 没还原（全局色表被污染）');
+  if (G.UI.isMist()) errors.push('退出云海作用域后 isMist() 应为假');
+
+  /* 运行时：真画一遍（渲染路径不得抛）—— 面板 + 对话框 + 抉择卡 */
+  G.game.changeScene('town', { toSpawn: true });
+  pump(2, 'mist.render');
+  const sc = G.game.scene;
+  sc.setOverlay('market', []);
+  pump(2, 'mist.render2');
+  sc.clearOverlay();
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('云海材质契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 云海材质：MIST_C + 嵌套作用域安全 + frame 统一 + 无旧 paper 残留');
+}, 'mist.material.contract');
+pump(6, 'mist.leave');
+
 /* ---------- 游戏内版本号必须与 HANDOVER 同步（v0.12.0）----------
    `G.VERSION` 从 v0.0.2 起就再没同步过，一直显示成初始占位 —— 标题「关于」与关于页
    都拿它当版本号，玩家看到的是两年前的数。这类"两处各写一遍、谁也不会同时改"的常量

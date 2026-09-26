@@ -150,7 +150,7 @@
 
       /* 左栏：一世账目 */
       var L = { x: 16, y: 58, w: 200, h: 148 };
-      G.UI.frame(x, L, null, { paper: true });
+      G.UI.frame(x, L, null, { tex: true });
       G.UI.text(x, { x: L.x + 12, y: L.y + 9 }, '一 世 账 目', 11.5, G.UI.C.gold);
       G.UI.divider(x, L.x + L.w / 2, L.y + 26, L.w - 24, 'rgba(216,183,104,0.28)');
 
@@ -173,7 +173,7 @@
 
       /* 右栏：仙力入账明细（§4 逐项） */
       var R = { x: 232, y: 58, w: 232, h: 148 };
-      G.UI.frame(x, R, null, { paper: true });
+      G.UI.frame(x, R, null, { tex: true });
       G.UI.text(x, { x: R.x + 12, y: R.y + 9 }, '仙 力 入 账', 11.5, G.UI.C.gold);
       G.UI.divider(x, R.x + R.w / 2, R.y + 26, R.w - 24, 'rgba(216,183,104,0.28)');
 

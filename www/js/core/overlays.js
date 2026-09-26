@@ -44,7 +44,7 @@
 
     frame: function (x, title, rect) {
       this.dim(x);
-      G.UI.frame(x, rect || PANEL, title, { paper: true });
+      G.UI.frame(x, rect || PANEL, title, { tex: true });
     },
 
     /* 覆盖层统一路由：各探索场景的 renderOverlay 先调它，返回 true = 已处理。
@@ -69,36 +69,42 @@
       opt = opt || {};
       var P = this.PANEL;
       this.dim(x);
-      G.UI.frame(x, P, opt.title, { paper: true });
+      /* 对话框 = 云海玉牌（深青紫底 + 浅字）。**只包住绘制、不包 dim** ——
+         dim 是压暗层，在云海作用域里画也无妨，但把它留在外面语义更清楚。 */
+      return G.UI.mist(function () {
+        G.UI.frame(x, P, opt.title, { tex: true });
 
-      var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
-      G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4,
-        { paper: false, shadow: false });
-      var art = G.Art.portrait(opt.portrait || 'villager');
-      if (art) x.drawImage(art.c, box.x, box.y, art.w, art.h);
+        var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
+        /* 立绘底板**刻意用字面暗色**，不走语义色 —— 立绘本身是深色半身像，
+           底板必须比面板更暗才读得成"框里嵌了一张像"。语义色会被云海作用域翻转，所以写死。 */
+        G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4,
+          { tex: false, shadow: false });
+        var art = G.Art.portrait(opt.portrait || 'villager');
+        if (art) x.drawImage(art.c, box.x, box.y, art.w, art.h);
 
-      var tx = box.x + box.w + 14;                 /* 台词列左端 */
-      var tw = P.x + P.w - 18 - tx;                /* 台词列宽 */
-      if (opt.name) {
-        x.font = G.UI.F(13);
-        var nw = x.measureText(opt.name).width + 20;
-        G.UI.rr(x, { x: tx, y: box.y - 3, w: nw, h: 19 }, 4);
-        x.fillStyle = 'rgba(216,183,104,0.16)'; x.fill();
-        x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.45)'; x.stroke();
-        G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
-      }
-      var ly = box.y + (opt.name ? 25 : 0);
-      (opt.lines || []).forEach(function (l) {
-        G.UI.wrap(x, l, 13, tw).forEach(function (row) {
-          G.UI.text(x, { x: tx, y: ly }, row, 13, G.UI.C.text);
-          ly += 21;
+        var tx = box.x + box.w + 14;                 /* 台词列左端 */
+        var tw = P.x + P.w - 18 - tx;                /* 台词列宽 */
+        if (opt.name) {
+          x.font = G.UI.F(13);
+          var nw = x.measureText(opt.name).width + 20;
+          G.UI.rr(x, { x: tx, y: box.y - 3, w: nw, h: 19 }, 4);
+          x.fillStyle = 'rgba(156,58,50,0.14)'; x.fill();
+          x.lineWidth = 1; x.strokeStyle = 'rgba(156,58,50,0.55)'; x.stroke();
+          G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
+        }
+        var ly = box.y + (opt.name ? 25 : 0);
+        (opt.lines || []).forEach(function (l) {
+          G.UI.wrap(x, l, 13, tw).forEach(function (row) {
+            G.UI.text(x, { x: tx, y: ly }, row, 13, G.UI.C.text);
+            ly += 21;
+          });
+          ly += 4;
         });
-        ly += 4;
+        if (opt.reward) {
+          G.UI.textOut(x, { x: tx, y: ly + 4 }, opt.reward, 15, G.UI.C.goldHi);
+        }
+        return P;
       });
-      if (opt.reward) {
-        G.UI.textOut(x, { x: tx, y: ly + 4 }, opt.reward, 15, G.UI.C.goldHi);
-      }
-      return P;
     },
 
     /* 抉择卡：M1 §4 起剧情要"选一个，并且记下来"（抉择 1 杀/放/交、抉择 2 护镇/护人）。
@@ -111,49 +117,55 @@
       opt = opt || {};
       var P = this.PANEL;
       this.dim(x);
-      G.UI.frame(x, P, opt.title, { paper: true });
+      /* 抉择卡与对话框**同一套云海材质**（同一个 PANEL 矩形、同一个立绘框、同一个名牌位置），
+         两处材质必须一致 —— 否则"先看台词再选"会读成两个界面。 */
+      return G.UI.mist(function () {
+        G.UI.frame(x, P, opt.title, { tex: true });
 
-      var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
-      G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4,
-        { paper: false, shadow: false });
-      var art = G.Art.portrait(opt.portrait || 'villager');
-      if (art) x.drawImage(art.c, box.x, box.y, art.w, art.h);
+        var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
+        /* 立绘底板用 `C.panelDark`（随材质翻转）：立绘是深色半身像，
+           底板必须比面板更暗才读得成"框里嵌了一张像"。 */
+        G.UI.panel(x, box, G.UI.C.panelDark, G.UI.C.frameBorder, 4,
+          { tex: false, shadow: false });
+        var art = G.Art.portrait(opt.portrait || 'villager');
+        if (art) x.drawImage(art.c, box.x, box.y, art.w, art.h);
 
-      var tx = box.x + box.w + 14;
-      var tw = P.x + P.w - 18 - tx;
-      if (opt.name) {
-        x.font = G.UI.F(13);
-        var nw = x.measureText(opt.name).width + 20;
-        G.UI.rr(x, { x: tx, y: box.y - 3, w: nw, h: 19 }, 4);
-        x.fillStyle = 'rgba(216,183,104,0.16)'; x.fill();
-        x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.45)'; x.stroke();
-        G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
-      }
-      /* 台词先全部折行、**再按剩余高度反推行距**。
-         抉择卡的按钮由调用方建（首条落在 y=P.y+150），台词区实际只到那儿为止；
-         台词一多折两行就会压到按钮上（按钮是实心色块，压上去直接读不出字）。
-         所以这里不写死行距：先算行数，再让行距（必要时连字号）缩到装得下为止。 */
-      var fs = 12.5;
-      var rows = [];
-      (opt.lines || []).forEach(function (l) {
-        G.UI.wrap(x, l, fs, tw).forEach(function (row) { rows.push(row); });
+        var tx = box.x + box.w + 14;
+        var tw = P.x + P.w - 18 - tx;
+        if (opt.name) {
+          x.font = G.UI.F(13);
+          var nw = x.measureText(opt.name).width + 20;
+          G.UI.rr(x, { x: tx, y: box.y - 3, w: nw, h: 19 }, 4);
+          x.fillStyle = 'rgba(156,58,50,0.14)'; x.fill();
+          x.lineWidth = 1; x.strokeStyle = 'rgba(156,58,50,0.55)'; x.stroke();
+          G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
+        }
+        /* 台词先全部折行、**再按剩余高度反推行距**。
+           抉择卡的按钮由调用方建（首条落在 y=P.y+150），台词区实际只到那儿为止；
+           台词一多折两行就会压到按钮上（按钮是实心色块，压上去直接读不出字）。
+           所以这里不写死行距：先算行数，再让行距（必要时连字号）缩到装得下为止。 */
+        var fs = 12.5;
+        var rows = [];
+        (opt.lines || []).forEach(function (l) {
+          G.UI.wrap(x, l, fs, tw).forEach(function (row) { rows.push(row); });
+        });
+        var btnTop = opt.btnTop || (P.y + 146);
+        var ly = box.y + (opt.name ? 25 : 0);
+        var avail = btnTop - ly - 3;
+        if (rows.length * 20 > avail) fs = 11.5;
+        var lead = Math.min(20, Math.floor(avail / Math.max(1, rows.length)));
+        if (lead < 13) lead = 13;                   /* 下限：再挤就不成行了 */
+        rows.forEach(function (row) {
+          G.UI.text(x, { x: tx, y: ly }, row, fs, G.UI.C.text);
+          ly += lead;
+        });
+        /* note 挂在台词之后，同样让位给底部按钮 */
+        if (opt.note) {
+          var ny = Math.min(ly + 5, btnTop - 14);
+          G.UI.text(x, { x: P.x + 14, y: ny }, opt.note, 10.5, G.UI.C.textDim);
+        }
+        return P;
       });
-      var btnTop = opt.btnTop || (P.y + 146);
-      var ly = box.y + (opt.name ? 25 : 0);
-      var avail = btnTop - ly - 3;
-      if (rows.length * 20 > avail) fs = 11.5;
-      var lead = Math.min(20, Math.floor(avail / Math.max(1, rows.length)));
-      if (lead < 13) lead = 13;                   /* 下限：再挤就不成行了 */
-      rows.forEach(function (row) {
-        G.UI.text(x, { x: tx, y: ly }, row, fs, G.UI.C.text);
-        ly += lead;
-      });
-      /* note 挂在台词之后，同样让位给底部按钮 */
-      if (opt.note) {
-        var ny = Math.min(ly + 5, btnTop - 14);
-        G.UI.text(x, { x: P.x + 14, y: ny }, opt.note, 10.5, G.UI.C.textDim);
-      }
-      return P;
     },
 
     closeBtn: function (scene, y) {
@@ -234,7 +246,7 @@
       var P = CHAR_PANEL;
       var tab = (scene && scene.charTab) || 'overview';
       this.dim(x);
-      G.UI.frame(x, P, null, { paper: true });
+      G.UI.frame(x, P, null, { tex: true });
       G.UI.textOut(x, { x: P.x + 14, y: P.y + 8 }, '角 色', 14, G.UI.C.goldHi);
       G.UI.divider(x, 240, P.y + 30, P.w - 56, 'rgba(216,183,104,0.18)');
       if (tab === 'linggen') { this.charLinggen(x, save); return; }
@@ -256,7 +268,7 @@
       /* ---- 左栏：立绘 + 境界 ---- */
       var ri = G.Player.realmInfo(save.globalLevel);
       var box = { x: LX, y: P.y + 36, w: LW, h: 84 };   /* 44..128 */
-      G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4, { paper: false, shadow: false });
+      G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4, { tex: false, shadow: false });
 
       /* 立绘框：74×74，与 G.Art.portrait 的逻辑尺寸一致 —— 1:1 绘制。
          一律走 portrait：装了 portrait.luchen 用素材，否则程序化半身像；

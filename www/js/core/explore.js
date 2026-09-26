@@ -722,7 +722,7 @@
           var tw = x.measureText(e.label).width + 16;
           var lx = cx - tw / 2, ly = Math.max(52, cy - plume - 15);
           G.UI.panel(x, { x: lx, y: ly, w: tw, h: 14 }, 'rgba(6,10,18,0.78)',
-            'rgba(150,210,245,0.50)', 4, { paper: false, shadow: false });
+            'rgba(150,210,245,0.50)', 4, { tex: false, shadow: false });
           G.UI.text(x, { x: cx, y: ly + 2.5 }, e.label, 10, '#c8e8ff', 'center');
         }
         x.restore();
@@ -1192,7 +1192,7 @@
           var sx = 244 + i * 58;
           var cell = { x: sx, y: 27, w: 54, h: 17 };
           G.UI.panel(x, cell, 'rgba(8,11,19,0.86)',
-            'rgba(216,183,104,0.32)', 4, { paper: false, shadow: false });
+            'rgba(216,183,104,0.32)', 4, { tex: false, shadow: false });
           G.UI.icon(x, s[0], sx + 10, 35.5, 6.2);
           G.UI.textOut(x, { x: sx + 49, y: 29.5 }, num(s[1]), 11.5, s[2], 'right');
           /* 面板打开时 HUD 被压暗，此时不该再挂提示（否则提示会浮在暗罩之上） */
@@ -1205,7 +1205,7 @@
         var sw = x.measureText(sname).width;
         var px = 8, py = HUD_H + 5, ph = 19, pw = sw + 27;
         G.UI.panel(x, { x: px, y: py, w: pw, h: ph }, 'rgba(6,8,14,0.74)',
-          'rgba(216,183,104,0.55)', 5, { paper: false, shadow: false });
+          'rgba(216,183,104,0.55)', 5, { tex: false, shadow: false });
         x.fillStyle = G.UI.C.goldHi;
         x.beginPath(); x.arc(px + 11, py + ph / 2, 2.4, 0, 6.2832); x.fill();
         G.UI.textOut(x, { x: px + 18, y: py + 3.5 }, sname, 13, G.UI.C.goldHi);
@@ -1223,7 +1223,7 @@
         /* 左边两个圆角落在屏外（x = -4）→ 视觉上就是"贴住屏幕左缘的一条" */
         G.UI.panel(x, { x: -4, y: by, w: TR_TAB_W + 4, h: h },
           'rgba(6,9,16,0.86)', 'rgba(216,183,104,0.42)', 4,
-          { paper: false, shadow: false });
+          { tex: false, shadow: false });
         /* 右缘亮线：开合状态用**亮度**区分（展开时更亮），比换色更不吵 */
         x.fillStyle = open ? 'rgba(245,227,168,0.75)' : 'rgba(216,183,104,0.42)';
         x.fillRect(TR_TAB_W - 1.4, by + 6, 1.4, h - 12);
@@ -1291,7 +1291,7 @@
         var H = 9 + 12 + 14 + dl.length * 11 + subs.length * 11 + (guide ? 27 : 0) + 9;
         var bx = TR_PANEL_X, by = TR_Y, bw = TR_W;
         G.UI.panel(x, { x: bx, y: by, w: bw, h: H }, 'rgba(6,9,16,0.80)',
-          'rgba(216,183,104,0.34)', 4, { paper: false, shadow: false });
+          'rgba(216,183,104,0.34)', 4, { tex: false, shadow: false });
         x.fillStyle = 'rgba(216,183,104,0.55)';
         x.fillRect(bx + 1.5, by + 4, 1.6, H - 8);
 

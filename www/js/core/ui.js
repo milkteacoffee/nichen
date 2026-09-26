@@ -1,10 +1,22 @@
-/* UI 套件 v2 —— 水墨夜 + 描金 + 宣纸质感
+/* UI 套件 v2 —— 仙穹云海 + 青玉辉光 + 描金
    ─ 面板/按钮/条框全部预渲染缓存（3 倍超采样），运行时只 drawImage，零性能负担。
-   ─ 风格对标《烟雨江湖》：墨底、金线、回纹角、印章点缀。 */
+   ─ 风格基调：修仙界的「腾云驾雾」—— 深青紫底 + 流云纹理 + 青玉/月白辉光 + 云纹角饰。
+     （v0.13.0 初版做过一版「宣纸水墨」，与世界观不符已废弃：这是仙侠世界，
+      不是凡俗纸墨 —— 面板要像**悬在云海里的玉牌**，不是摊在桌上的纸。） */
 (function () {
   var A = G.Art;
 
-  /* ---------- 调色板（保留旧键名，向后兼容） ---------- */
+  /* ---------- 调色板（保留旧键名，向后兼容） ----------
+     v0.13.0 起分**两套材质**：
+       · 墨夜（默认值，就是下面这份）：HUD 顶栏、底栏、场景内小浮层 —— 近黑蓝灰 + 暖金；
+       · 云海：六面板、对话框、抉择卡、关于页、**所有 `UI.frame` 主面板** ——
+         深青紫 + 流云 + 月白/青玉辉光（见 `UI.mist`）。
+     语义色（text / textDim / line / gold / goldHi / jade / jadeHi / panel / panelDark /
+     frameFill / frameBorder / rule / ruleHi / barBg / barBgDeep / barLine）在进入云海
+     作用域时会被**就地改写**，退出时还原 —— 见 `UI.mist`。
+     这样全项目 100+ 处 `C.textDim` / `C.gold` 这类引用**一行都不用动**。
+     ⚠️ 铁律：作用域内不得把 `C.xxx` 缓存进变量再带出作用域（目前全项目无此写法，
+        加新的请就地取、就地用）。 */
   var C = {
     ink: '#0b0d14',
     night: '#101423',
@@ -17,9 +29,50 @@
     /* 新增 */
     jade: '#6fae8f', jadeHi: '#a8dcc4',
     seal: '#9c3a32', sealHi: '#c2504a',
-    paper: '#e8dfc8', paperDim: '#b9ae94',
-    wood: '#6b4f34'
+    /* 面板框与装饰线（原先散在调用点硬编码，收进来才翻得动） */
+    frameFill: '#161b28', frameBorder: 'rgba(216,183,104,0.7)',
+    rule: 'rgba(216,183,104,0.18)', ruleHi: 'rgba(216,183,104,0.45)',
+    barBg: '#0a0c14', barBgDeep: '#05070c', barLine: 'rgba(216,183,104,0.34)'
   };
+
+  /* 云海版本的**语义色**（键与 C 同名；只列需要翻转的那些）。
+     取值原则：云海面板是**深青紫**，比墨夜更蓝、更透、更「仙」——
+     正文提亮成月白（冷白），金换成更透的青金，绿换成青玉。
+     ⚠️ 不要把这里改成浅底：曾经做过一版米黄宣纸（浅底深字），与修仙世界观不符。 */
+  var MIST_C = {
+    text: '#e4eefb', textDim: '#93a8c8',
+    line: '#3f5a80',
+    panel: '#1c2949', panelDark: '#121a30',
+    frameFill: '#1a2644', frameBorder: 'rgba(158,206,246,0.52)',
+    gold: '#e6cb8b', goldHi: '#fdf2d2', goldDeep: '#a8873f',
+    jade: '#7fdcc4', jadeHi: '#bdf3e4',
+    rule: 'rgba(158,206,246,0.20)', ruleHi: 'rgba(158,206,246,0.48)',
+    barBg: '#0c1425', barBgDeep: '#070d19', barLine: 'rgba(158,206,246,0.32)'
+  };
+  /* 墨夜原值快照：还原时照抄回去（别用"反向再算一遍"，两套值必须可逆） */
+  var DARK_C = {};
+  Object.keys(MIST_C).forEach(function (k) { DARK_C[k] = C[k]; });
+
+  var mistDepth = 0;
+  function setMistColors(on) {
+    Object.keys(MIST_C).forEach(function (k) { C[k] = on ? MIST_C[k] : DARK_C[k]; });
+  }
+  /* ⚠️ 只在**最外层**进出时改写色表。
+     曾经写成"每次调用都 set + depth±1"，于是嵌套作用域出内层时会把色表**提前还原**
+     （`UI.frame` 现在自己也会进一层 → 外层对话框套内层面板立刻踩到）：
+     表现为"内层面板是云海、外层文字却是墨夜色"，且只在截图里看得出来。 */
+  function applyMist(on) {
+    if (on) {
+      mistDepth += 1;
+      if (mistDepth === 1) setMistColors(true);
+    } else {
+      mistDepth -= 1;
+      if (mistDepth <= 0) { mistDepth = 0; setMistColors(false); }
+    }
+  }
+  /* 当前是否处于云海作用域 —— **缓存键必须带上它**：
+     barFrame 之类的缓存只按尺寸做键，两套材质共用一张就会串色（第一次生成的赢）。 */
+  function isMist() { return mistDepth > 0; }
 
   function F(size, pixel) {
     if (pixel) return 'bold ' + size + 'px "Ark Pixel", "Courier New", monospace';
@@ -145,108 +198,134 @@
   }
   function clearCache() { cache = {}; }
 
-  /* ---------- 回纹角饰（国风） ----------
-     v0.8.0 减负：去掉了原来的"内折小钩"（每个角 2 段描边 × 4 角 = 8 段），
-     并把线宽与不透明度压下来。角饰现在只出现在**面板**上；
-     按钮上**一律不画** —— 一屏可能有三十几个按钮，每个四角都描线，
-     整幅画面就只剩框了（用户原话："线框感太重，整个游戏很臃肿"）。 */
-  function cornerMarks(x, s, col, len) {
-    len = len || 6;
-    var L = len, o = 2.6;
+  /* ---------- 云纹角饰（v0.13.0） ----------
+     替代原来的「回纹直角」：每角两段同心圆弧，朝面板内侧卷 —— 云头卷。
+     云纹是修仙题材最省笔墨的「仙气」符号，且同样只有 0.9px 线宽，
+     不会像当年的回纹那样一屏几十个面板叠出一张铁丝网。
+     （历史：v0.8.0 删掉内折小钩、v0.11.x 删掉按钮上的角饰，都是同一个教训 ——
+       装饰件的成本要按「一屏出现多少次」算，不是按单件好不好看。） */
+  function cloudCurls(x, s, col, r) {
+    r = r || 5;
     x.strokeStyle = col;
-    x.lineWidth = 0.8;
-    var pts = [
-      [s.x + o, s.y + o, 1, 1], [s.x + s.w - o, s.y + o, -1, 1],
-      [s.x + o, s.y + s.h - o, 1, -1], [s.x + s.w - o, s.y + s.h - o, -1, -1]
+    x.lineWidth = 0.9;
+    x.lineCap = 'round';
+    var o = 3.2;                        /* 角点内缩 */
+    /* 每角：圆弧圆心 + 起止角（朝面板内侧卷） */
+    var corners = [
+      [s.x + o + r, s.y + o + r, Math.PI, Math.PI * 1.5],
+      [s.x + s.w - o - r, s.y + o + r, Math.PI * 1.5, Math.PI * 2],
+      [s.x + s.w - o - r, s.y + s.h - o - r, 0, Math.PI * 0.5],
+      [s.x + o + r, s.y + s.h - o - r, Math.PI * 0.5, Math.PI]
     ];
-    pts.forEach(function (p) {
-      x.beginPath();
-      x.moveTo(p[0], p[1] + p[3] * L);
-      x.lineTo(p[0], p[1]);
-      x.lineTo(p[0] + p[2] * L, p[1]);
-      x.stroke();
+    corners.forEach(function (c) {
+      for (var i = 0; i < 2; i++) {
+        x.beginPath();
+        x.arc(c[0], c[1], r * (0.52 + i * 0.48), c[2], c[3]);
+        x.stroke();
+      }
     });
   }
 
   /* ---------- 面板 ---------- */
   function panelCanvas(w, h, fill, border, r, opt) {
-    opt = opt || { paper: true };
-    var key = 'p|' + w + 'x' + h + '|' + fill + '|' + border + '|' + r + '|' + (opt.corners ? 1 : 0)
-      + '|' + (opt.paper ? 1 : 0) + '|' + (opt.shadow === false ? 0 : 1);
+    opt = opt || { tex: true };
+    /* ⚠️ 缓存键**必须带材质标记**：外框/角饰的默认色随作用域翻转，
+       只按尺寸与显式色做键会让"第一次生成的赢"，云海面板沿用墨夜那张（或反过来）—— 静默串色。 */
+    var key = 'p|' + (isMist() ? 'm' : 'd') + '|' + w + 'x' + h + '|' + fill + '|' + border + '|' + r
+      + '|' + (opt.corners ? 1 : 0) + '|' + (opt.tex ? 1 : 0) + '|' + (opt.shadow === false ? 0 : 1);
     var pad = opt.shadow === false ? 0 : 4;
     return cachedCanvas(key, w + pad * 2, h + pad * 2, function (x) {
       x.translate(pad, pad);
       var s = { x: 0, y: 0, w: w, h: h };
 
-      /* 投影 */
+      /* 投影：偏青的柔光，不用纯黑（纯黑会把云海面板压成"贴上去的硬块"） */
       if (opt.shadow !== false) {
         x.save();
-        x.shadowColor = 'rgba(0,0,0,0.55)';
-        x.shadowBlur = 5;
-        x.shadowOffsetY = 2;
+        x.shadowColor = 'rgba(4,10,26,0.62)';
+        x.shadowBlur = 7;
+        x.shadowOffsetY = 2.2;
         rr(x, s, r);
-        x.fillStyle = 'rgba(10,12,20,0.9)';
+        x.fillStyle = 'rgba(8,14,30,0.92)';
         x.fill();
         x.restore();
       }
 
-      /* 底：墨色渐变 */
+      /* 底：青紫渐变（顶部天光略亮，底部沉下去） */
       var g = x.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, A.shade(fill, 0.10));
+      g.addColorStop(0, A.shade(fill, 0.13));
       g.addColorStop(0.55, fill);
-      g.addColorStop(1, A.shade(fill, -0.16));
+      g.addColorStop(1, A.shade(fill, -0.18));
       rr(x, s, r);
       x.fillStyle = g;
       x.fill();
 
-      /* 宣纸纹理 */
-      if (opt.paper) {
+      /* 流云纹理（`tex`）—— 面板的「仙气」全在这一层：
+         若干条横向云带（两端淡出的椭圆）+ 顶部天光。
+         云带用**固定种子**（由 w/h 派生）保证同尺寸每次生成一致，不会闪。
+         ⚠️ 别改成"随机噪点"：那是旧纸/宣纸的质感，与云海是两回事。 */
+      if (opt.tex) {
         x.save();
         rr(x, s, r); x.clip();
         var rnd = A.rnd(w * 71 + h * 13);
-        for (var i = 0; i < Math.floor(w * h / 26); i++) {
-          x.fillStyle = 'rgba(255,255,255,' + (0.012 + rnd() * 0.022) + ')';
-          x.fillRect(rnd() * w, rnd() * h, 1.4, 0.8);
+        var bands = Math.max(3, Math.round(h / 13));
+        for (var i = 0; i < bands; i++) {
+          var by = h * (0.10 + 0.86 * (i / bands)) + (rnd() - 0.5) * h * 0.10;
+          var bw = w * (0.42 + rnd() * 0.62);
+          var bx = -w * 0.10 + rnd() * (w * 1.05);
+          var bh = 3.4 + rnd() * (h * 0.055);
+          var ba = 0.040 + rnd() * 0.070;
+          var cg = x.createLinearGradient(bx, 0, bx + bw, 0);
+          cg.addColorStop(0, 'rgba(214,236,255,0)');
+          cg.addColorStop(0.5, 'rgba(214,236,255,' + ba.toFixed(3) + ')');
+          cg.addColorStop(1, 'rgba(214,236,255,0)');
+          x.fillStyle = cg;
+          x.beginPath();
+          x.ellipse(bx + bw / 2, by, bw / 2, bh, 0, 0, 6.2832);
+          x.fill();
         }
-        for (var j = 0; j < Math.floor(w * h / 90); j++) {
-          x.fillStyle = 'rgba(0,0,0,' + (0.02 + rnd() * 0.03) + ')';
-          x.fillRect(rnd() * w, rnd() * h, 1.8, 1);
-        }
-        /* 顶部微光 */
-        var tg = x.createLinearGradient(0, 0, 0, h * 0.34);
-        tg.addColorStop(0, 'rgba(255,255,255,0.055)');
-        tg.addColorStop(1, 'rgba(255,255,255,0)');
-        x.fillStyle = tg; x.fillRect(0, 0, w, h * 0.34);
+        /* 顶部天光：云海之上透下来的一道光 */
+        var tg = x.createLinearGradient(0, 0, 0, h * 0.40);
+        tg.addColorStop(0, 'rgba(196,226,255,0.090)');
+        tg.addColorStop(1, 'rgba(196,226,255,0)');
+        x.fillStyle = tg; x.fillRect(0, 0, w, h * 0.40);
         x.restore();
       }
 
-      /* 内墨线（v0.8.0 已删）：外框 + 内墨线 + 金线内衬三层描边叠在一个面板上，
-         远看就是"一圈又一圈的线"。现在只留最外那一层。 */
+      /* 内缘辉光：贴着内边一圈冷光，做出"玉牌边缘在发光"的观感。
+         只在 tex 面板上画 —— 小浮层（tex:false）本来就是要"沉下去"的。 */
+      if (opt.tex) {
+        rr(x, { x: 1.6, y: 1.6, w: w - 3.2, h: h - 3.2 }, Math.max(1, r - 1));
+        x.strokeStyle = 'rgba(176,216,255,0.16)';
+        x.lineWidth = 1.4;
+        x.stroke();
+      }
 
-      /* 外框（唯一的一层描边） */
+      /* 外框（唯一的一层硬描边） */
       rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
       x.strokeStyle = border || C.line;
       x.lineWidth = 1;
       x.stroke();
 
-      if (opt.corners) cornerMarks(x, s, 'rgba(216,183,104,0.45)', Math.min(7, w * 0.12));
+      if (opt.corners) cloudCurls(x, s, C.ruleHi, Math.min(6.5, w * 0.11));
     });
   }
 
   /* ---------- 条框 ---------- */
   function barFrame(w, h) {
-    return cachedCanvas('bf|' + w + 'x' + h, w, h, function (x) {
+    /* ⚠️ 缓存键**必须带材质标记**：槽底/描边色随作用域翻转，只按尺寸做键
+       会让"第一次生成的赢"，云海面板里的进度条沿用墨夜那张（或反过来）—— 静默串色。 */
+    return cachedCanvas('bf|' + (isMist() ? 'm' : 'd') + '|' + w + 'x' + h, w, h, function (x) {
       var s = { x: 0, y: 0, w: w, h: h };
       rr(x, s, Math.min(2.5, h / 2));
-      x.fillStyle = '#0a0c14';
+      x.fillStyle = C.barBg;
       x.fill();
       /* 内凹 */
       rr(x, { x: 0.9, y: 0.9, w: w - 1.8, h: h - 1.8 }, Math.min(2, h / 2));
-      x.fillStyle = '#05070c';
+      x.fillStyle = C.barBgDeep;
       x.fill();
       /* 外框：细一档，进度条本来就有高光带，描边再重就糊成一条白边 */
       rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, Math.min(2.5, h / 2));
-      x.strokeStyle = 'rgba(216,183,104,0.34)';
+      x.strokeStyle = C.barLine;
       x.lineWidth = 0.8;
       x.stroke();
     });
@@ -254,6 +333,16 @@
 
   var UI = {
     C: C, F: F, rr: rr, clearCache: clearCache,
+
+    /* 云海作用域（v0.13.0）：`G.UI.mist(fn)` 内所有语义色自动切到云海版本。
+       用法见 panels.js / overlays.js 的渲染入口 —— **必须在真正开始画之前进入**，
+       且用 try/finally 保证异常路径也能还原（否则一次异常会把全局色表永久改掉，
+       后面所有界面都变青紫 —— 这种"脏状态"在截图里才看得出来）。 */
+    mist: function (fn) {
+      applyMist(true);
+      try { return fn(); } finally { applyMist(false); }
+    },
+    isMist: isMist,
 
     text: function (x, s, str, size, color, align, pixel) {
       x.font = F(size, pixel);
@@ -309,34 +398,37 @@
 
     panel: function (x, s, fill, border, r, opt) {
       opt = opt || {};
-      if (opt.paper === undefined) opt.paper = true;
+      if (opt.tex === undefined) opt.tex = true;
       var c = panelCanvas(s.w, s.h, fill || C.panel, border, r == null ? 4 : r, opt);
       var pad = (opt && opt.shadow === false) ? 0 : 4;
       x.drawImage(c, Math.round(s.x) - pad, Math.round(s.y) - pad, s.w + pad * 2, s.h + pad * 2);
     },
 
-    /* 主面板（金框 + 回纹角 + 纸纹）—— 覆盖层通用。
-       v0.8.0：标题两侧的"云纹短线 + 两个菱形端点"删掉了（一页里出现四五次太吵），
-       只留一条从标题往两边退让的细线。 */
+    /* 主面板（云海玉牌：流云底 + 冷光边 + 云纹角 + 发丝内圈）—— 覆盖层通用。
+       所有 `UI.frame` 一律走云海材质，这是"仙气"的主入口；
+       嵌套安全（applyMist 只在最外层改写色表），所以外层已进作用域时调用它也不会串色。
+       标题两侧只留一条退让的细线（v0.8.0 删掉了云纹短线与菱形端点：一页出现四五次太吵）。 */
     frame: function (x, s, title, opt) {
       opt = opt || {};
-      UI.panel(x, s, opt.fill || '#161b28', opt.border || 'rgba(216,183,104,0.7)', 5,
-        { corners: true, paper: true, gold: true });
-      if (title) {
-        UI.textOut(x, { x: s.x + s.w / 2, y: s.y + 11 }, title, 16, C.goldHi, 'center');
-        x.font = F(16);
-        var tw = x.measureText(title).width;
-        var cx = s.x + s.w / 2;
-        x.strokeStyle = 'rgba(216,183,104,0.32)';
-        x.lineWidth = 0.8;
-        x.beginPath();
-        x.moveTo(s.x + 14, s.y + 21);
-        x.lineTo(cx - tw / 2 - 12, s.y + 21);
-        x.moveTo(cx + tw / 2 + 12, s.y + 21);
-        x.lineTo(s.x + s.w - 14, s.y + 21);
-        x.stroke();
-      }
-      return s;
+      return UI.mist(function () {
+        UI.panel(x, s, opt.fill || C.frameFill, opt.border || C.frameBorder, 5,
+          { corners: true, tex: opt.tex !== false, gold: true });
+        if (title) {
+          UI.textOut(x, { x: s.x + s.w / 2, y: s.y + 11 }, title, 16, C.goldHi, 'center');
+          x.font = F(16);
+          var tw = x.measureText(title).width;
+          var cx = s.x + s.w / 2;
+          x.strokeStyle = C.ruleHi;
+          x.lineWidth = 0.8;
+          x.beginPath();
+          x.moveTo(s.x + 14, s.y + 21);
+          x.lineTo(cx - tw / 2 - 12, s.y + 21);
+          x.moveTo(cx + tw / 2 + 12, s.y + 21);
+          x.lineTo(s.x + s.w - 14, s.y + 21);
+          x.stroke();
+        }
+        return s;
+      });
     },
 
     bar: function (x, s, ratio, color, bg) {
@@ -601,9 +693,9 @@
          ⚠️ 必须在**落影之前**返回：落影是画给 default 的，plain 连它都不能有。 */
       if (variant === 'plain') return;
 
-      /* 落影（default 变体保留；battle/ghost/tab/subtab/ink/inkGold 不想要投影，画面会变铁丝网） */
+      /* 落影（default 变体保留；battle/ghost/tab/subtab/frost/frostGold 不想要投影，画面会变铁丝网） */
       if (variant !== 'battle' && variant !== 'ghost' && variant !== 'tab'
-        && variant !== 'subtab' && variant !== 'ink' && variant !== 'inkGold') {
+        && variant !== 'subtab' && variant !== 'frost' && variant !== 'frostGold') {
         x.save();
         x.shadowColor = 'rgba(0,0,0,0.45)';
         x.shadowBlur = 3;
@@ -697,40 +789,46 @@
           x.fillStyle = 'rgba(255,255,255,0.08)';
           x.fillRect(3, 1.4, w - 6, 0.9);
         }
-      } else if (variant === 'ink' || variant === 'inkGold') {
-        /* 宣纸牌匾（v0.12.0）：参考《烟雨江湖》的浅色题牌 —— 米色纸底 + 深褐细边 + 内圈发丝线。
-           与 default（墨玉深底）是两个体系：**浅底深字**，用于"宣纸背景"上的菜单，
-           例如标题主界面。内圈发丝线是"纸牌"质感的关键 —— 只有一圈外框会读成"白方块"。
-           `inkGold` = 同一块牌换金边金线，做纸面上的**主操作**（次要动作用 `ink`）——
-           纸面上不该出现 default 那种亮金渐变块，它与宣纸是两个材质。 */
-        var gold = variant === 'inkGold';
+      } else if (variant === 'frost' || variant === 'frostGold') {
+        /* 云雾玉牌（v0.13.0）：给**深色云海底图**上的菜单用 —— 半透明青玉玻璃 + 冷光细边。
+           v0.12.0 曾做过浅色「宣纸牌匾」，与修仙世界观不符（凡俗纸墨），已废弃。
+           `frostGold` = 同一块牌换金边金字，做云海上的**主操作**（次要动作用 `frost`）。
+           内圈发丝线是"玉牌"质感的关键 —— 只有一圈外框会读成"贴上去的方块"。 */
+        var gold = variant === 'frostGold';
         rr(x, s, r);
         var ig = x.createLinearGradient(0, 0, 0, h);
         if (pressed) {
-          ig.addColorStop(0, gold ? 'rgba(214,192,146,0.98)' : 'rgba(206,190,156,0.97)');
-          ig.addColorStop(1, gold ? 'rgba(190,166,116,0.98)' : 'rgba(184,167,132,0.97)');
+          ig.addColorStop(0, gold ? 'rgba(78,63,32,0.94)' : 'rgba(30,42,68,0.94)');
+          ig.addColorStop(1, gold ? 'rgba(56,45,22,0.94)' : 'rgba(20,28,48,0.94)');
         } else {
-          ig.addColorStop(0, gold ? 'rgba(248,239,210,0.96)' : 'rgba(241,232,209,0.95)');
-          ig.addColorStop(1, gold ? 'rgba(230,212,168,0.96)' : 'rgba(219,206,175,0.95)');
+          ig.addColorStop(0, gold ? 'rgba(68,55,28,0.90)' : 'rgba(42,58,92,0.86)');
+          ig.addColorStop(1, gold ? 'rgba(46,37,18,0.90)' : 'rgba(24,34,58,0.86)');
         }
         x.fillStyle = ig; x.fill();
-        /* 外框：深褐，比纯黑柔和（纯黑会把整块牌读成"贴上去的"）；主操作换金 */
+        /* 顶部一层冷光：玉牌"透光"的观感（压在底渐变之上、描边之下） */
+        if (!pressed) {
+          var hg = x.createLinearGradient(0, 0, 0, h * 0.58);
+          hg.addColorStop(0, gold ? 'rgba(255,236,186,0.15)' : 'rgba(196,226,255,0.13)');
+          hg.addColorStop(1, 'rgba(196,226,255,0)');
+          rr(x, s, r); x.fillStyle = hg; x.fill();
+        }
+        /* 外框：冷青（主操作换金），主操作线更粗一档让它"亮"出来 */
         rr(x, { x: 0.5, y: 0.5, w: w - 1, h: h - 1 }, r);
         x.strokeStyle = gold
-          ? (pressed ? 'rgba(146,110,40,0.90)' : 'rgba(172,136,60,0.82)')
-          : (pressed ? 'rgba(46,36,22,0.82)' : 'rgba(64,50,32,0.66)');
+          ? (pressed ? 'rgba(214,178,96,0.88)' : 'rgba(232,198,120,0.74)')
+          : (pressed ? 'rgba(178,212,246,0.68)' : 'rgba(158,200,240,0.50)');
         x.lineWidth = gold ? 1.3 : 1; x.stroke();
         /* 内圈发丝线 */
         rr(x, { x: 2.5, y: 2.5, w: w - 5, h: h - 5 }, Math.max(1, r - 1));
-        x.strokeStyle = gold ? 'rgba(178,142,64,0.42)' : 'rgba(120,100,70,0.34)';
+        x.strokeStyle = gold ? 'rgba(226,196,124,0.30)' : 'rgba(158,200,240,0.20)';
         x.lineWidth = 0.7; x.stroke();
-        /* 左缘一道竖线：次要牌用朱线（呼应标题的朱印），主操作牌用金线 */
+        /* 左缘一道竖线：次要牌用青玉线，主操作牌用金线 */
         x.fillStyle = gold
-          ? (pressed ? 'rgba(172,132,50,0.92)' : 'rgba(196,158,74,0.88)')
-          : (pressed ? 'rgba(140,52,44,0.75)' : 'rgba(156,58,50,0.62)');
+          ? (pressed ? 'rgba(206,168,88,0.92)' : 'rgba(226,190,108,0.86)')
+          : (pressed ? 'rgba(110,196,176,0.72)' : 'rgba(126,214,192,0.62)');
         x.fillRect(gold ? 3 : 3.5, 5, gold ? 2.4 : 1.6, h - 10);
         if (!pressed) {
-          x.fillStyle = 'rgba(255,255,255,0.42)';
+          x.fillStyle = gold ? 'rgba(255,240,200,0.30)' : 'rgba(210,234,255,0.24)';
           x.fillRect(4, 1.6, w - 8, 1);
         }
 
@@ -818,8 +916,9 @@
     else if (this.variant === 'ghost') col = C.goldHi;
     else if (this.variant === 'tab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.82)';
     else if (this.variant === 'subtab') col = this.active ? C.goldHi : 'rgba(206,196,172,0.78)';
-    /* 宣纸牌匾：**深褐字**（浅底必须配深字，否则整块牌读不出字） */
-    else if (this.variant === 'ink' || this.variant === 'inkGold') col = down ? '#140f08' : '#2a2116';
+    /* 云雾玉牌：**浅字**（深色青玉玻璃底必须配浅字，否则整块牌读不出字） */
+    else if (this.variant === 'frost') col = down ? '#cfe0f5' : '#e4eefb';
+    else if (this.variant === 'frostGold') col = down ? '#f0dca6' : '#fdf2d2';
     else if (this.variant === 'danger') col = '#ffe4dc';
     else { col = C.text; if (this.tier === '仙') col = C.goldHi; }
 

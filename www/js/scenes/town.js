@@ -614,7 +614,7 @@
     if (scene.overlay === 'cult') {
       var bs = G.Player.breakState(save);
       G.Overlays.dim(x);
-      G.UI.frame(x, SP, save.world.vessel + ' · 珠内空间', { paper: true });
+      G.UI.frame(x, SP, save.world.vessel + ' · 珠内空间', { tex: true });
       G.UI.text(x, { x: SP.x + 18, y: 44 },
         '境界 ' + G.Player.realmInfo(save.globalLevel).n
           + '　灵气 ' + bs.have + ' / ' + bs.need, 12, G.UI.C.text);

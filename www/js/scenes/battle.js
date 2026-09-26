@@ -1618,7 +1618,7 @@
         x.fillStyle = 'rgba(4,6,12,0.52)';
         x.fillRect(0, 0, 480, 272);
         var title = '选择目标';
-        G.UI.frame(x, { x: 12, y: 34, w: 456, h: 176 }, title, { paper: true });
+        G.UI.frame(x, { x: 12, y: 34, w: 456, h: 176 }, title, { tex: true });
         var hint = '选择攻击对象（前排更近、后排更远）';
         G.UI.text(x, { x: 240, y: 196 }, hint, 10.5, G.UI.C.textDim, 'center');
       }
@@ -1905,7 +1905,7 @@
 
     _drawLog: function (x) {
       G.UI.panel(x, { x: 10, y: 172, w: 460, h: 32 }, 'rgba(10,13,22,0.88)',
-        'rgba(216,183,104,0.35)', 4, { paper: true, shadow: false });
+        'rgba(216,183,104,0.35)', 4, { tex: true, shadow: false });
       var lines = this.logs.slice(-2);
       for (var i = 0; i < lines.length; i++) {
         var last = i === lines.length - 1;

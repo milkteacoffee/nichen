@@ -549,7 +549,7 @@
       if (scene.overlay === 'worlds') {
         var WP = this.WORLDS_P;
         G.Overlays.dim(x);
-        G.UI.frame(x, WP, '界 域 难 度', { paper: true });
+        G.UI.frame(x, WP, '界 域 难 度', { tex: true });
         G.UI.text(x, { x: WP.x + 30, y: 44 }, '点击切换该界难度，立即生效', 11, G.UI.C.textDim);
         G.UI.text(x, { x: WP.x + 30, y: 168 }, '地狱：Boss 气血×1.8 / 攻击×1.55、资源×0.6、Boss CD−1', 10, G.UI.C.textDim);
         G.UI.text(x, { x: WP.x + 30, y: 185 }, '地狱通关给：称号 + 跨世永久全属性+10% + 道之钥匙碎片', 10, G.UI.C.goldHi);
@@ -557,14 +557,14 @@
       } else if (scene.overlay === 'worldgate') {
         var GP = this.WORLDS_P;
         G.Overlays.dim(x);
-        G.UI.frame(x, GP, '界　门', { paper: true });
+        G.UI.frame(x, GP, '界　门', { tex: true });
         G.UI.text(x, { x: GP.x + 30, y: 44 }, '点击前往已解锁的界', 11, G.UI.C.textDim);
         G.UI.text(x, { x: GP.x + 30, y: 185 }, '凡界 — 下品灵石　灵界 — 中品　仙界 — 上品/极品', 10, G.UI.C.textDim);
         G.UI.text(x, { x: GP.x + 30, y: 202 }, '道界需集齐三界地狱的道之钥匙碎片', 10, G.UI.C.goldHi);
       } else if (scene.overlay === 'about') {
         var AP = this.ABOUT_P;
         G.Overlays.dim(x);
-        G.UI.frame(x, AP, '关　于', { paper: true });
+        G.UI.frame(x, AP, '关　于', { tex: true });
         var lines = [
           '逆尘　·　万界轮回，微尘逆命',
           '横屏单机仙侠轮回 Roguelite　—　原生 JS + Canvas2D',
@@ -581,7 +581,7 @@
       } else if (scene.overlay === 'settings') {
         var P = this.SET_P, cfg = this.ensure();
         G.Overlays.dim(x);
-        G.UI.frame(x, P, '设　置', { paper: true });
+        G.UI.frame(x, P, '设　置', { tex: true });
 
         G.UI.text(x, { x: P.x + 20, y: 54 }, '天道', 11.5, G.UI.C.gold);
         G.UI.text(x, { x: P.x + 20, y: 90 }, '协议', 11.5, G.UI.C.gold);

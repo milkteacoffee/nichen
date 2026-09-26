@@ -686,7 +686,7 @@
       var arch = this._entranceArch(slot, this.entrance);
 
       G.Overlays.dim(x);
-      G.UI.frame(x, P, '秘 境 入 口', { paper: true });
+      G.UI.frame(x, P, '秘 境 入 口', { tex: true });
 
       if (!arch) {
         G.UI.text(x, { x: 240, y: P.y + 74 }, '此处秘境尚未成形', 13, '#aab0c0', 'center');
@@ -760,7 +760,7 @@
 
     _renderBrief: function (x) {
       G.Overlays.dim(x);
-      G.UI.frame(x, BRIEF, this.briefTitle, { paper: true });
+      G.UI.frame(x, BRIEF, this.briefTitle, { tex: true });
       for (var i = 0; i < this.briefLines.length; i++) {
         G.UI.text(x, { x: BRIEF.x + 22, y: BRIEF.y + 48 + i * 20 },
           this.briefLines[i], 12, '#d8d2c0');

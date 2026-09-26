@@ -1,4 +1,4 @@
-/* 标题画面：月夜远山、层雾落英、水墨标题 */
+/* 标题画面：仙穹云海、流云落英、竖排仙题 */
 (function () {
   var title = {
     smooth: true,
@@ -16,13 +16,14 @@
       if (!pal && G.Data.xiang && G.Data.xiang.length) pal = G.Data.xiang[0].pal;
       if (G.Art.warmup) G.Art.warmup(pal);
 
-      /* v0.12.0 去掉"闪烁星"：底图已从夜景换成宣纸水墨（白天），星点与主题矛盾。
-         `this.mist` 仍在，但渲染改成**墨色晕染**（见 render 的注释）。 */
+      /* ⚠️ 这里的 `G.rng` 调用**条数不能改**：全局 rng 是时间播种的，多取一次
+         就会把之后的序列整体推移，把靠它跑出来的回归基线一起带歪。
+         所以改视觉只调参数范围/颜色，**不要加删 for 的循环次数**。 */
       this.mist = [];
       for (var m = 0; m < 6; m++) {
-        this.mist.push({ x: G.rng.range(-120, 480), y: G.rng.range(140, 220),
-          w: G.rng.range(200, 340), h: G.rng.range(12, 22),
-          a: G.rng.range(.03, .075), sp: G.rng.range(4, 11) });
+        this.mist.push({ x: G.rng.range(-120, 480), y: G.rng.range(146, 226),
+          w: G.rng.range(200, 340), h: G.rng.range(9, 17),
+          a: G.rng.range(.07, .14), sp: G.rng.range(5, 13) });
       }
       this.petals = [];
       for (var p2 = 0; p2 < 12; p2++) {
@@ -46,19 +47,20 @@
         }));
         y += h + gap;
       }
-      if (hasSave) add('继续当世', 'ink', function () {
+      if (hasSave) add('继续当世', 'frost', function () {
         G.game.save = G.Storage.loadCurrent();
         G.game.toast('读档成功');
         G.game.changeScene(G.game.save.scene || 'town');
       });
-      /* 主操作走 `inkGold`（宣纸金框）：纸面上不该出现 default 的亮金渐变块 —— 那是墨玉体系的材质。 */
-      add(hasMeta ? '转世重修' : '新游戏', 'inkGold', function () {
+      /* 主操作走 `frostGold`（云雾玉牌·金）：云海底上不该出现 default 的墨玉渐变块 ——
+         那是 HUD 体系的材质，压在云海背景上会读成"贴上去的补丁"。 */
+      add(hasMeta ? '转世重修' : '新游戏', 'frostGold', function () {
         G.game.changeScene(hasMeta ? 'reincarnation' : 'difficulty');
       });
-      if (hasMeta) add('轮回殿', 'ink', function () { G.game.changeScene('hall'); });
+      if (hasMeta) add('轮回殿', 'frost', function () { G.game.changeScene('hall'); });
 
       this.buttons.push(new G.UI.Btn({
-        x: 40, y: 236, w: 136, h: 22, small: true, variant: 'ink',
+        x: 40, y: 236, w: 136, h: 22, small: true, variant: 'frost',
         label: '关于 · ' + G.VERSION,
         onClick: function () { self._openAbout(); }
       }));
@@ -83,10 +85,9 @@
       var im = G.Assets.img('bg.title');
       if (im) { this.bg = im; return; }
 
-      /* v0.12.0：**水墨宣纸**（参考《烟雨江湖》的主界面）。
-         旧版是"月夜远山"的深色夜景 —— 与游戏内的墨玉 UI 同源，但缺辨识度。
-         现在换成浅底水墨：宣纸暖米色 + 三层墨色远山 + 淡日 + 前景松枝，
-         标题竖排在右、题牌菜单在左。
+      /* v0.13.0：**仙穹云海**。
+         v0.12.0 做过一版浅底宣纸水墨，与修仙世界观不符（凡俗纸墨），已废弃。
+         现在是：深青紫仙穹 + 仙月 + 从云海里探出的远峰 + 多层流云 + 前景云气。
          ⚠️ 噪声一律用 `G.Art.rnd(固定种子)`，**不要用 `G.rng`** ——
          全局 rng 是时间播种的，在它上面多取几个随机数会推移序列，
          把靠它跑出来的回归基线一起带歪。 */
@@ -95,39 +96,48 @@
       x.scale(K, K);
       var r = G.Art.rnd(20260926);
 
-      /* ① 宣纸底 */
-      var paper = x.createLinearGradient(0, 0, 0, 272);
-      paper.addColorStop(0, '#f4ecda');
-      paper.addColorStop(0.40, '#eae0c8');
-      paper.addColorStop(0.72, '#dbcdad');
-      paper.addColorStop(1, '#c6b492');
-      x.fillStyle = paper; x.fillRect(0, 0, 480, 272);
+      /* ① 仙穹：深青紫渐变（顶近墨，中靛蓝，下转青灰 —— 云海反射的天光） */
+      var sky = x.createLinearGradient(0, 0, 0, 272);
+      sky.addColorStop(0, '#060a17');
+      sky.addColorStop(0.34, '#101a38');
+      sky.addColorStop(0.62, '#1a2750');
+      sky.addColorStop(0.84, '#243357');
+      sky.addColorStop(1, '#2d3a58');
+      x.fillStyle = sky; x.fillRect(0, 0, 480, 272);
 
-      /* 纸纤维：短横线 + 细点。纯平色会读成"没画完" */
-      for (var i = 0; i < 1100; i++) {
-        var fx = r() * 480, fy = r() * 272, fw = 2 + r() * 10;
-        x.globalAlpha = 0.025 + r() * 0.05;
-        x.fillStyle = r() < 0.5 ? '#8a7a58' : '#fffaf0';
-        x.fillRect(fx, fy, fw, 0.7);
+      /* ② 星：稀疏细星。仙穹不是凡间夜空，不要满天 */
+      for (var i = 0; i < 90; i++) {
+        var sx2 = r() * 480, sy2 = r() * 148;
+        x.globalAlpha = 0.20 + r() * 0.60;
+        x.fillStyle = r() < 0.22 ? '#cfe6ff' : '#e8f0ff';
+        var big = r() < 0.10;
+        x.fillRect(sx2, sy2, big ? 1.6 : 1, big ? 1.6 : 1);
       }
       x.globalAlpha = 1;
 
-      /* ② 淡日（水墨里的"留白点"）：日轮 + 大范围暖晕 */
-      var sx = 352, sy = 64;
-      var halo = x.createRadialGradient(sx, sy, 8, sx, sy, 126);
-      halo.addColorStop(0, 'rgba(255,240,200,0.52)');
-      halo.addColorStop(0.40, 'rgba(255,232,180,0.15)');
-      halo.addColorStop(1, 'rgba(255,232,180,0)');
+      /* ③ 仙月：大月轮 + 青白光晕（悬在云海之上，画面唯一的高亮源）。
+         ⚠️ 月心必须让开竖排标题（TX=404）—— 压在字上会把「逆」糊掉；
+         现在放在 318，月轮右缘 350，与标题左缘（≈379）留 29px 缝。 */
+      var mx = 318, my = 58, mr = 32;
+      var halo = x.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 4.6);
+      halo.addColorStop(0, 'rgba(206,232,255,0.26)');
+      halo.addColorStop(0.42, 'rgba(150,196,246,0.10)');
+      halo.addColorStop(1, 'rgba(150,196,246,0)');
       x.fillStyle = halo;
-      x.beginPath(); x.arc(sx, sy, 126, 0, 6.2832); x.fill();
-      x.fillStyle = 'rgba(253,242,210,0.94)';
-      x.beginPath(); x.arc(sx, sy, 21, 0, 6.2832); x.fill();
-      x.fillStyle = 'rgba(210,186,138,0.20)';
-      [[-6, -5, 4], [5, 4, 5], [-1, 7, 3]].forEach(function (p) {
-        x.beginPath(); x.arc(sx + p[0], sy + p[1], p[2], 0, 6.2832); x.fill();
+      x.beginPath(); x.arc(mx, my, mr * 4.6, 0, 6.2832); x.fill();
+      var mg = x.createRadialGradient(mx - 10, my - 12, 3, mx, my, mr);
+      mg.addColorStop(0, '#fdfdff');
+      mg.addColorStop(0.62, '#e2ecfb');
+      mg.addColorStop(1, '#b9cce6');
+      x.fillStyle = mg;
+      x.beginPath(); x.arc(mx, my, mr, 0, 6.2832); x.fill();
+      x.fillStyle = 'rgba(150,172,200,0.20)';
+      [[-9, -7, 6], [8, 5, 7.5], [-3, 10, 4], [13, -10, 3.4]].forEach(function (p) {
+        x.beginPath(); x.arc(mx + p[0], my + p[1], p[2], 0, 6.2832); x.fill();
       });
 
-      /* ③ 三层远山（越近墨越浓）。山脊用二次曲线，山顶要"软" */
+      /* ④ 远峰（仙山）：从云海里探出来的剪影，越远越淡越青。
+         山脊用二次曲线，山顶要"软" —— 尖角会读成"锯齿"，不像云海里的仙山。 */
       function ridge(baseY, amp, step, top, bot, alpha, phase) {
         var pts = [];
         for (var px = -24; px <= 504; px += step) {
@@ -152,66 +162,41 @@
         x.lineTo(504, 272); x.closePath(); x.fill();
         x.restore();
       }
-      ridge(146, 15, 36, 'rgba(126,138,152,0.40)', 'rgba(126,138,152,0.06)', 0.9, 0.7);
-      ridge(176, 19, 30, 'rgba(76,88,106,0.56)', 'rgba(76,88,106,0.10)', 0.92, 2.6);
-      ridge(208, 21, 25, 'rgba(40,46,58,0.84)', 'rgba(26,30,40,0.34)', 0.96, 4.7);
+      ridge(150, 17, 34, 'rgba(96,132,190,0.34)', 'rgba(96,132,190,0.05)', 0.85, 0.7);
+      ridge(178, 20, 28, 'rgba(56,84,140,0.52)', 'rgba(56,84,140,0.08)', 0.90, 2.6);
+      ridge(206, 22, 23, 'rgba(26,42,78,0.86)', 'rgba(16,26,50,0.42)', 0.95, 4.7);
 
-      /* ④ 云雾：横过山腰的白色晕染（水墨的"破墨"） */
-      for (var cb = 0; cb < 6; cb++) {
-        var cy = 150 + cb * 15 + r() * 12;
-        var cw = 150 + r() * 220, cx0 = -60 + r() * 400;
+      /* ⑤ 云海：下半部的多层流云（冷白青）—— 「腾云驾雾」的主体。
+         两端淡出的椭圆做云带，再整体压一层冷光渐变给"体积"，
+         只画云带的话会读成几道白线、不像云。 */
+      for (var cb = 0; cb < 14; cb++) {
+        var cy = 168 + cb * 7.6 + r() * 8;
+        var cw = 190 + r() * 300, cx0 = -110 + r() * 470;
+        var ca = 0.055 + r() * 0.10;
         var cg = x.createLinearGradient(cx0, 0, cx0 + cw, 0);
-        cg.addColorStop(0, 'rgba(255,252,244,0)');
-        cg.addColorStop(.5, 'rgba(255,252,244,' + (0.16 + r() * 0.16).toFixed(3) + ')');
-        cg.addColorStop(1, 'rgba(255,252,244,0)');
+        cg.addColorStop(0, 'rgba(198,226,255,0)');
+        cg.addColorStop(.5, 'rgba(198,226,255,' + ca.toFixed(3) + ')');
+        cg.addColorStop(1, 'rgba(198,226,255,0)');
         x.fillStyle = cg;
         x.beginPath();
-        x.ellipse(cx0 + cw / 2, cy, cw / 2, 4 + r() * 8, 0, 0, 6.2832);
+        x.ellipse(cx0 + cw / 2, cy, cw / 2, 5 + r() * 11, 0, 0, 6.2832);
         x.fill();
       }
+      var sea = x.createLinearGradient(0, 196, 0, 272);
+      sea.addColorStop(0, 'rgba(150,190,240,0.04)');
+      sea.addColorStop(0.55, 'rgba(168,204,246,0.13)');
+      sea.addColorStop(1, 'rgba(120,158,208,0.07)');
+      x.fillStyle = sea; x.fillRect(0, 196, 480, 76);
 
-      /* ⑤ 水岸：底部一道墨色横带 + 几笔水纹 */
-      var wg = x.createLinearGradient(0, 232, 0, 272);
-      wg.addColorStop(0, 'rgba(28,32,42,0)');
-      wg.addColorStop(0.55, 'rgba(28,32,42,0.34)');
-      wg.addColorStop(1, 'rgba(20,23,31,0.62)');
-      x.fillStyle = wg; x.fillRect(0, 232, 480, 40);
-      x.strokeStyle = 'rgba(250,246,236,0.30)';
-      x.lineWidth = 1; x.lineCap = 'round';
-      for (var wv = 0; wv < 9; wv++) {
-        var wy = 240 + r() * 26, wx = r() * 380, ww = 40 + r() * 90;
-        x.beginPath();
-        x.moveTo(wx, wy);
-        x.quadraticCurveTo(wx + ww / 2, wy - 2.4, wx + ww, wy);
-        x.stroke();
+      /* ⑥ 前景云气：左下角一团浓云，压住画面重心（标题在右、菜单在左，都不挡） */
+      for (var f = 0; f < 5; f++) {
+        var fx = -30 + f * 34 + r() * 22, fy = 250 + r() * 16;
+        var fg = x.createRadialGradient(fx, fy, 4, fx, fy, 64 + r() * 36);
+        fg.addColorStop(0, 'rgba(206,232,255,0.14)');
+        fg.addColorStop(1, 'rgba(206,232,255,0)');
+        x.fillStyle = fg;
+        x.beginPath(); x.arc(fx, fy, 104, 0, 6.2832); x.fill();
       }
-
-      /* ⑥ 前景松枝（左上角，浓墨）：一笔枝干 + 几簇针叶。
-         压在标题/菜单之上会挡字，所以只占左上角 150×90 的范围。 */
-      x.save();
-      x.strokeStyle = 'rgba(24,26,34,0.92)';
-      x.lineCap = 'round';
-      x.lineWidth = 3.2;
-      x.beginPath(); x.moveTo(-6, 6); x.quadraticCurveTo(46, 26, 96, 18); x.stroke();
-      x.lineWidth = 2.2;
-      x.beginPath(); x.moveTo(30, 20); x.quadraticCurveTo(44, 40, 40, 62); x.stroke();
-      x.beginPath(); x.moveTo(72, 20); x.quadraticCurveTo(92, 32, 104, 52); x.stroke();
-      /* 针叶：短促的放射笔触，每簇 7 根 */
-      function needles(nx, ny, dir, len) {
-        for (var k = 0; k < 7; k++) {
-          var a = dir + (k - 3) * 0.30;
-          x.lineWidth = 1.1;
-          x.beginPath();
-          x.moveTo(nx, ny);
-          x.lineTo(nx + Math.cos(a) * len, ny + Math.sin(a) * len);
-          x.stroke();
-        }
-      }
-      needles(40, 60, 1.5, 13);
-      needles(102, 50, 0.6, 13);
-      needles(96, 18, 0.2, 12);
-      needles(12, 12, 0.35, 12);
-      x.restore();
 
       this.bg = c;
     },
@@ -235,33 +220,34 @@
     render: function (x) {
       x.drawImage(this.bg, 0, 0, 480, 272);
 
-      /* 云雾：横过山腰的**墨色**晕染。
-         旧版是夜雾（冷白），换到米色宣纸上等于没画 —— 浅底上只有深色才读得出"在动"。 */
+      /* 流云：横过云海的**冷白**晕染。
+         深色云海上只有亮色才读得出"在动" —— 与旧版（浅底宣纸用墨色）正好相反，
+         改材质时这类"前景色与底色互换"的地方最容易漏。 */
       for (var m2 = 0; m2 < this.mist.length; m2++) {
         var mm = this.mist[m2];
-        var a = Math.min(0.42, mm.a * 2.4);
+        var a = Math.min(0.30, mm.a * 2.0);
         var g = x.createLinearGradient(mm.x, 0, mm.x + mm.w, 0);
-        g.addColorStop(0, 'rgba(58,66,84,0)');
-        g.addColorStop(.5, 'rgba(58,66,84,' + a.toFixed(3) + ')');
-        g.addColorStop(1, 'rgba(58,66,84,0)');
+        g.addColorStop(0, 'rgba(206,232,255,0)');
+        g.addColorStop(.5, 'rgba(206,232,255,' + a.toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(206,232,255,0)');
         x.fillStyle = g;
         x.beginPath();
         x.ellipse(mm.x + mm.w / 2, mm.y, mm.w / 2, mm.h, 0, 0, 6.2832);
         x.fill();
       }
 
-      /* 落英：纸上用**淡墨粉**（原珠光白在米色纸上完全看不见） */
+      /* 落英：云海上用**淡青白**花瓣（深底上要用亮色） */
       for (var p3 = 0; p3 < this.petals.length; p3++) {
         var pe3 = this.petals[p3];
         x.save();
-        x.globalAlpha = .58;
+        x.globalAlpha = .66;
         x.translate(pe3.x, pe3.y);
         x.rotate(pe3.rot);
-        x.fillStyle = '#b98d97';
+        x.fillStyle = '#dcecfb';
         x.beginPath();
         x.ellipse(0, 0, pe3.size, pe3.size * .58, 0, 0, 6.2832);
         x.fill();
-        x.fillStyle = 'rgba(255,252,246,0.45)';
+        x.fillStyle = 'rgba(255,255,255,0.55)';
         x.beginPath();
         x.ellipse(-pe3.size * 0.2, -pe3.size * 0.15, pe3.size * 0.4, pe3.size * 0.22, 0, 0, 6.2832);
         x.fill();
@@ -271,42 +257,42 @@
 
       /* ===== 右侧竖排标题 =====
          题牌菜单占左列 x 40..198，标题必须让到右列（见 _buildMenu 的注释）。
-         字号 50 + 行距 60：两字竖排占 38..148，下面是墨线 / 副题 / 朱印，到 222 收住。 */
+         字号 50 + 行距 60：两字竖排占 38..148，下面是云光线 / 副题 / 朱印，到 222 收住。 */
       var TX = 404;
       x.textAlign = 'center'; x.textBaseline = 'middle';
       x.font = '50px "LXGW WenKai", KaiTi, serif';
       x.lineJoin = 'round';
-      /* 先描一圈**浅色**：宣纸吸水，墨会往外洇出一圈浅边 —— 反过来用浅色描边最像。
-         （旧版是深色描边，那是给夜景打光用的，在纸上会变成"描了黑边的贴纸"。） */
-      x.lineWidth = 4;
-      x.strokeStyle = 'rgba(255,250,238,0.66)';
+      /* 先描一圈**深色**：深色云海上要用暗边把字"托"出来（宣纸那版是反过来的 ——
+         浅底要浅描边、深底要深描边，这条与上面流云是同一条规律）。 */
+      x.lineWidth = 5;
+      x.strokeStyle = 'rgba(6,12,26,0.80)';
       x.strokeText('逆', TX, 62);
       x.strokeText('尘', TX, 122);
       var tg = x.createLinearGradient(0, 38, 0, 148);
-      tg.addColorStop(0, '#43331c');
-      tg.addColorStop(0.5, '#261c10');
-      tg.addColorStop(1, '#3d2e1a');
-      x.shadowColor = 'rgba(216,183,104,0.30)';
-      x.shadowBlur = 10;
+      tg.addColorStop(0, '#ffffff');
+      tg.addColorStop(0.45, '#d8ecff');
+      tg.addColorStop(1, '#8fc4ea');
+      x.shadowColor = 'rgba(150,220,255,0.62)';
+      x.shadowBlur = 20;
       x.fillStyle = tg;
       x.fillText('逆', TX, 62);
       x.fillText('尘', TX, 122);
       x.shadowBlur = 0;
 
-      /* 标题下墨线：两端淡出（一笔扫过，不是"一根规整的横杠"） */
+      /* 标题下云光线：两端淡出（一笔扫过，不是"一根规整的横杠"） */
       var lg = x.createLinearGradient(TX - 34, 0, TX + 34, 0);
-      lg.addColorStop(0, 'rgba(60,48,30,0)');
-      lg.addColorStop(.5, 'rgba(60,48,30,0.62)');
-      lg.addColorStop(1, 'rgba(60,48,30,0)');
+      lg.addColorStop(0, 'rgba(176,216,255,0)');
+      lg.addColorStop(.5, 'rgba(176,216,255,0.62)');
+      lg.addColorStop(1, 'rgba(176,216,255,0)');
       x.fillStyle = lg;
       x.fillRect(TX - 34, 152, 68, 1.2);
 
       /* 副题 */
       x.font = '11px "LXGW WenKai", KaiTi, serif';
-      x.fillStyle = 'rgba(70,58,40,0.80)';
+      x.fillStyle = 'rgba(190,214,242,0.86)';
       x.fillText('万界轮回 · 微尘逆命', TX, 168);
 
-      /* 朱印 */
+      /* 朱印：冷色画面里唯一的一点暖红，做视觉锚点 */
       x.fillStyle = '#9c3a32';
       x.beginPath(); x.arc(TX, 206, 15, 0, 6.2832); x.fill();
       x.strokeStyle = 'rgba(250,242,228,0.55)';
@@ -316,10 +302,10 @@
       x.fillStyle = '#f8efdd';
       x.fillText('逆', TX, 207);
 
-      /* 暗角：**暖褐**（冷黑会把宣纸压成"脏纸"），且比夜景那版轻得多 */
+      /* 暗角：**冷青黑**（暖褐会把云海压成"脏雾"），比夜景那版轻一些 */
       var vg = x.createRadialGradient(240, 136, 130, 240, 136, 330);
-      vg.addColorStop(0, 'rgba(40,32,20,0)');
-      vg.addColorStop(1, 'rgba(40,32,20,0.30)');
+      vg.addColorStop(0, 'rgba(4,8,20,0)');
+      vg.addColorStop(1, 'rgba(4,8,20,0.46)');
       x.fillStyle = vg;
       x.fillRect(0, 0, 480, 272);
 
@@ -331,7 +317,7 @@
       x.fillStyle = 'rgba(4,6,12,0.76)';
       x.fillRect(0, 0, 480, 272);
       var r = { x: 84, y: 28, w: 312, h: 206 };
-      G.UI.frame(x, r, '关 于', { paper: true });
+      G.UI.frame(x, r, '关 于', { tex: true });
       var lines = [
         '游戏：逆尘　　当前版本：' + G.VERSION,
         '类型：2D 回合制 · 万界轮回 Roguelite',

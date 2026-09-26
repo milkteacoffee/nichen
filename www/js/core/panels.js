@@ -204,7 +204,7 @@
 
   function shell(x, title, right) {
     G.Overlays.dim(x);
-    G.UI.frame(x, P, null, { paper: true });
+    G.UI.frame(x, P, null, { tex: true });
     G.UI.textOut(x, { x: P.x + 14, y: P.y + 6 }, title, 15, G.UI.C.goldHi);
     /* 右栏数值**必须让开关闭钮**（钮占 P.x+P.w-28 .. P.x+P.w-6）——
        原先右端贴到 P.x+P.w-14，正好压在钮上（panels.bounds.contract 会报"文字压在按钮上"）。 */
@@ -421,7 +421,7 @@
          列表外框衬一层底，免得文字直接压在面板的回纹上。 */
       var lh = Math.min(ids.length, SK.maxRows) * SK.rowH;
       G.UI.panel(x, { x: hb.x - 2, y: SK.listY - 2, w: hb.w + 4, h: lh + 3 },
-        'rgba(8,11,19,0.94)', 'rgba(216,183,104,0.28)', 4, { paper: false, shadow: false });
+        'rgba(8,11,19,0.94)', 'rgba(216,183,104,0.28)', 4, { tex: false, shadow: false });
       var more = ids.length - SK.maxRows;
       if (more > 0) {
         G.UI.textOut(x, { x: hb.x + hb.w - 10, y: SK.listY + lh + 3 },
@@ -805,7 +805,9 @@
   function renderPanel(x, scene) {
     var fn = DRAW[scene.overlay];
     if (!fn) return false;
-    fn(x, scene);
+    /* 六面板 = 云海玉牌（深青紫底 + 浅字）。**底栏不在作用域内** —— 它跟 HUD 一样是墨夜，
+       两套材质靠这个作用域边界分开，所以 `renderBar` 必须留在外面。 */
+    G.UI.mist(function () { fn(x, scene); });
     renderBar(x, scene.overlay);
     return true;
   }
