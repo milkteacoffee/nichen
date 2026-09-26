@@ -1601,6 +1601,48 @@
     x.strokeStyle = 'rgba(158,206,246,0.42)';
     x.lineWidth = 1; x.stroke();
 
+    /* ===== 地图精细化（v0.31.0，对标《烟雨江湖》）=====
+       用户口径：「这个地图可以精细化一点，看看烟雨江湖的地图」。
+       底图（山系/河流/林地）本来就有，缺的是**地图该有的"读图元素"**：
+        ① **道路连线**：把相距较近的区域用虚线连起来 —— 一眼看得出"哪几处挨着"，
+           而不是一堆孤立的圆点（这正是"粗糙"的主要来源）。
+        ② **云雾留白**：沿视口边缘压几团半透明的云，让画面有"卷轴未展"的呼吸感。
+       ⚠️ 都走**固定种子**：同一界每次生成完全一样（换机/重开不会变），
+          截图与契约才钉得住。 */
+    var rndM = G.Art.rnd(w.charCodeAt(0) * 3571 + list.length * 977);
+    x.save();
+    x.strokeStyle = 'rgba(226,236,252,0.20)';
+    x.lineWidth = 1.2;
+    x.setLineDash([3, 4]);
+    for (var ai = 0; ai < list.length; ai++) {
+      for (var bi = ai + 1; bi < list.length; bi++) {
+        var ax = list[ai].mx, ay = list[ai].my;
+        var bx2 = list[bi].mx, by2 = list[bi].my;
+        var dd = Math.hypot((ax - bx2) * V.vw, (ay - by2) * V.vh);
+        if (dd > 150) continue;                  /* 太远的不是"相邻" */
+        x.beginPath();
+        x.moveTo(V.vx + ax * V.vw, V.vy + ay * V.vh);
+        x.lineTo(V.vx + bx2 * V.vw, V.vy + by2 * V.vh);
+        x.stroke();
+      }
+    }
+    x.setLineDash([]);
+    /* 云雾：视口四边的半透明云团（固定种子） */
+    for (var ci = 0; ci < 14; ci++) {
+      var edge = ci % 4;
+      var cxp = edge === 0 || edge === 1 ? V.vx + rndM() * V.vw
+        : (edge === 2 ? V.vx + rndM() * 26 : V.vx + V.vw - rndM() * 26);
+      var cyp = edge === 2 || edge === 3 ? V.vy + rndM() * V.vh
+        : (edge === 0 ? V.vy + rndM() * 20 : V.vy + V.vh - rndM() * 20);
+      var crr = 12 + rndM() * 20;
+      var gg = x.createRadialGradient(cxp, cyp, 0, cxp, cyp, crr);
+      gg.addColorStop(0, 'rgba(236,242,252,0.30)');
+      gg.addColorStop(1, 'rgba(236,242,252,0)');
+      x.fillStyle = gg;
+      x.beginPath(); x.arc(cxp, cyp, crr, 0, 6.2832); x.fill();
+    }
+    x.restore();
+
     /* 区域节点 */
     list.forEach(function (r) {
       var nx = V.vx + r.mx * V.vw, ny = V.vy + r.my * V.vh;

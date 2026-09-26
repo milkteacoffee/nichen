@@ -42,7 +42,10 @@ function makeCtx() {
         throw new Error('drawImage 源尺寸为 0');
       }
     },
-    putImageData: noop, getImageData: () => ({ data: new Uint8ClampedArray(4) })
+    putImageData: noop, getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+    /* 虚线（v0.31.0 地图道路连线用到）。桩要覆盖**游戏真正用到的 API** ——
+       少一个就是一个"渲染期抛异常"，而那正是契约最该抓的一类。 */
+    setLineDash: noop
   };
   return ctx;
 }
