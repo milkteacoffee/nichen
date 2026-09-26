@@ -435,6 +435,11 @@
         /* M1 §4 m1-2：外堂探子撕下伪装。L = 本世 gl+1，上限 17
            （设计明写"上限 17" —— 别让高境界玩家把这场的等级抬到荒谬）。 */
         list = [G.Data.makeEnemy('血煞教徒', Math.min(17, (save.globalLevel || 1) + 1), '血煞教探子')];
+      } else if (p.script === 'sectTrial') {
+        /* 宗门入门试炼（《宗门与散修体系设计 v1.0》S2）：一场切磋。
+           用人形敌人换名；等级取主角 gl−2（过得去但不白给）。 */
+        list = [G.Data.makeEnemy('血煞教徒',
+          Math.max(1, (save.globalLevel || 1) - 2), '试炼傀儡')];
       } else if (p.script === 'xuemian') {
         /* M1 §4 m1-5：执事「血面」。面板**固定 L19**（设计 §5.3），不随主角成长 ——
            这是剧情战，靠沈伯燃命 + 主角补刀收场，不是数值对拼。
@@ -1430,6 +1435,19 @@
           this._log('灵气 +300　下一步：修至炼气三段，再探赤牙洞。');
         }
         this._finish(true, 'town');
+        return;
+      }
+
+      if (p.script === 'sectTrial') {
+        /* 试炼通过 → 正式入门。**转阵营的统一入口是 `Player.switchCult`** ——
+           面板与战斗都调它，不各写一份（两份"废功"迟早分叉）。 */
+        var sid = p.sectId;
+        var nSw = G.Player.switchCult(save, true, sid);
+        var sc2 = G.Data.sects && G.Data.sects.byId(sid);
+        this._loot('试炼通过 —— 拜入「' + (sc2 ? sc2.n : '宗门') + '」', true);
+        this._loot('散修功法废功 ×' + nSw + '　贡献 0', false);
+        G.Storage.saveCurrent(save);
+        this._finish(true, p.mapId || 'town');
         return;
       }
 

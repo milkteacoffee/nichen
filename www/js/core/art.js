@@ -921,8 +921,13 @@
 
   /* 取地面大纹理（逻辑 GTS×GTS，内部 K 倍超采样） */
   var GTS_MARK = [];
-  A.groundTex = function (kind, pal) {
-    var im = G.Assets.img('ground.' + kind);
+  A.groundTex = function (kind, pal, texKey) {
+    /* 取图优先序：**区域专属底图 → 地面类型通用底图 → 程序化**。
+       `texKey` 是区域 id（regiongen 写在 `md.tex`）——
+       用户口径：「所有的地图场景，根据场景名称来定」专属底图。
+       ⚠️ 专属键与通用键是**两级**：某区没出图就自动退回该地面类型的通用图，
+          再没有才走程序化 —— 所以出图可以一批一批来，不会出现"漏了哪区就白地"。 */
+    var im = (texKey && G.Assets.img('ground.' + texKey)) || G.Assets.img('ground.' + kind);
     if (im) return im;
     var key = 'g|' + kind + '|' + pal.ground + '|' + pal.rock;
     var o = cached(key, GTS, GTS, function (x) {

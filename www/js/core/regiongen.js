@@ -247,6 +247,7 @@
 
     var md = {
       id: regionId, regionId: regionId, n: r.n, label: r.n,
+      tex: regionId,   /* 区域专属底图键（ground.<regionId>） */
       w: w, h: h, ground: r.ground, safe: !!r.safe,
       zones: r.zones || [],
       structures: structures, paths: [], fences: [],

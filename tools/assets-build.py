@@ -129,6 +129,38 @@ SIZES = {
     #   ⚠️ 尺寸必须 ≥ GTS(224) 且是 16 的整数倍（按格取子矩形）；这里给 448 = 224×2。
     #   ⚠️ **必须四方无缝** —— 平铺按世界坐标取子块，有缝就会看到规则网格线。
     #      出图后走 tools/ 的镜像拼贴（2×2 镜像 → 四边必然对接），实测接缝差 0.00。
+    # ===== 区域专属底图（v0.21.0 文生图，28 区各一张）=====
+    #   取图优先序：`ground.<区域id>` → `ground.<地面类型>` → 程序化（art.js: A.groundTex）。
+    #   出图方式：一张 **2×2 纹理集**（4 个主题）→ 切片 → 每格做 2×2 镜像拼贴保证四方无缝。
+    #   ⚠️ 必须完全不透明（BG_KEYS 已含 ground.*，cover() 末尾强制 alpha=255）。
+    'ground.fan1': (448, 448),
+    'ground.fan2': (448, 448),
+    'ground.fan3': (448, 448),
+    'ground.fan4': (448, 448),
+    'ground.fan5': (448, 448),
+    'ground.fan6': (448, 448),
+    'ground.fan7': (448, 448),
+    'ground.fan8': (448, 448),
+    'ground.fan9': (448, 448),
+    'ground.ling1': (448, 448),
+    'ground.ling2': (448, 448),
+    'ground.ling3': (448, 448),
+    'ground.ling4': (448, 448),
+    'ground.ling5': (448, 448),
+    'ground.xian1': (448, 448),
+    'ground.xian2': (448, 448),
+    'ground.xian3': (448, 448),
+    'ground.xian4': (448, 448),
+    'ground.xian5': (448, 448),
+    'ground.xian6': (448, 448),
+    'ground.xian7': (448, 448),
+    'ground.xian8': (448, 448),
+    'ground.xian9': (448, 448),
+    'ground.dao1': (448, 448),
+    'ground.dao2': (448, 448),
+    'ground.dao3': (448, 448),
+    'ground.dao4': (448, 448),
+    'ground.dao5': (448, 448),
     'ground.grass': (448, 448),
     'ground.cave': (448, 448),
     'ground.town': (448, 448),

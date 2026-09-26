@@ -810,7 +810,8 @@
 
         /* 1) 基础地面：整张周期纹理按 TS 对齐平铺（超出画布的部分自动裁掉） */
         var TS = G.Art.GROUND_TS;
-        var base = G.Art.groundTex(this._baseType(), pal);
+        /* texKey：区域专属底图（md.tex = 区域 id）；没有则退回该地面类型的通用图 */
+        var base = G.Art.groundTex(this._baseType(), pal, this.map.md.tex);
         for (var oy = 0; oy < h; oy += TS)
           for (var ox = 0; ox < w; ox += TS)
             g.drawImage(base, ox, oy, TS, TS);

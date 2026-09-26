@@ -483,6 +483,15 @@
         this.grantHell(meta, this._worldId()).forEach(function (l) { lines.push(l); });
       }
 
+      /* 宗门贡献（《宗门与散修体系设计 v1.0》S2）：**已入宗**时通关给贡献，
+         用于在「宗门」面板兑换本门功法。首杀 +20 / 重复刷 +8。
+         散修不给（他的同一字段是"散修声望"，由散修线另行积累）。 */
+      if (save.cult === 'sect') {
+        var rep = farm ? 8 : 20;
+        G.Player.addRep(save, rep);
+        lines.push('宗门贡献 +' + rep + '（共 ' + save.sectRep + '）');
+      }
+
       if (!farm) {
         var stone = Math.round(25 * L * rf), qi = Math.round(320 * L * rf * G.Player.realmQiCoef(L));
         save.stone += stone; save.qi += qi;

@@ -11,7 +11,7 @@
 
   var maps = {
     town: {
-      id: 'town', w: 36, h: 24, safe: true, ground: 'town',
+      id: 'town', w: 36, h: 24, safe: true, ground: 'town', tex: 'fan1',
       spawn: { x: 18, y: 21 },
       structures: [
         /* `bk`（建筑类型）= **素材取图的键**（v0.16.0）：`struct.<bk>` 优先，
@@ -66,7 +66,7 @@
     },
 
     field: {
-      id: 'field', w: 50, h: 40, ground: 'grass',
+      id: 'field', w: 50, h: 40, ground: 'grass', tex: 'fan2',
       spawn: { x: 24, y: 37 },
       zones: [
         /* sp = 单只遭遇的相对权重；pair = 双只组出现概率（%，灵根切片 v0.3 §11）
@@ -102,7 +102,7 @@
     },
 
     cave: {
-      id: 'cave', w: 32, h: 26, ground: 'cave',
+      id: 'cave', w: 32, h: 26, ground: 'cave', tex: 'fan3',
       spawn: { x: 16, y: 24 },
       zones: [ { id: 'cave', y0: 4, y1: 25, enc: { min: 6, max: 9 },
         sp: { 青纹蛇: 40, 赤炎狼: 35, 树精: 25 }, pair: 35, pairWith: '青纹蛇' } ],

@@ -252,6 +252,7 @@
         /* 宗门与散修（《宗门与散修体系设计 v1.0》§7.2）：入世默认散修 */
         cult: 'free', sectId: null, sectRep: 0, sectRank: 'outer', cultSwitchUsed: false,
         askedRealms: {},
+        side: {},                                  /* 支线进度：{ <id>: 1进行/2可交/3完成 } */
         scene: 'town', map: 'town',
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,

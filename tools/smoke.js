@@ -2388,6 +2388,52 @@ step(function () {
   if (!blessed) errors.push('问道 300 次没抽到过赐福（权重表坏了？）');
 }, 'askdao.contract');
 
+/* ---------- 支线（内容型）契约 ----------
+   ① 每条支线的 giver 必须对应真实存在的 NPC act；steps ≥ 2；reward 至少给一样
+   ② **ready 与 cost 必须成对** —— 只写 ready 不写 cost 是白送；只写 cost 不写 ready 会把物品扣穿
+   ③ 接取 → 条件达成（tick 1→2）→ 交付（扣 cost + 发 reward + step=3）整条链
+   ④ 交付不会把物品扣成负数；已完成的不能重复交付 */
+step(function () {
+  const SQ = G.Data.sideQuests;
+  if (!SQ) { errors.push('G.Data.sideQuests 缺失'); return; }
+  const acts = {};
+  Object.keys(G.Data.maps).forEach(function (m) {
+    (G.Data.maps[m].npcs || []).forEach(function (n) { if (n.act) acts[n.act] = 1; });
+  });
+  SQ.list.forEach(function (q) {
+    if (!acts['chat.' + q.giver] && !acts[q.giver]) {
+      errors.push(`支线 ${q.id} 的 giver「${q.giver}」在 maps 里找不到对应 NPC act`);
+    }
+    if (!q.steps || q.steps.length < 2) errors.push(`支线 ${q.id} 步骤不足 2 步`);
+    if (!q.reward || (!q.reward.stone && !q.reward.items && !q.reward.rep)) {
+      errors.push(`支线 ${q.id} 没有任何奖励`);
+    }
+    /* 有 ready 就必须有 cost —— 否则是"白送"。
+       无物品代价的支线（判定靠别的系统）要**显式**写 `free: true`，不写就当漏了。 */
+    if (q.ready && !q.cost && !q.free) {
+      errors.push(`支线 ${q.id} 有 ready 却没有 cost（白送）；无代价请显式写 free:true`);
+    }
+  });
+
+  const q = SQ.list[0];
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.items = {}; s2.side = {}; s2.stone = 0;
+  if (!SQ.accept(s2, q)) errors.push('接取支线失败');
+  if (SQ.stepOf(s2, q.id) !== 1) errors.push('接取后 step 应为 1');
+  if (SQ.canTurnIn(s2, q)) errors.push('未满足条件时不该能交付');
+  Object.keys(q.cost || {}).forEach(function (k) { s2.items[k] = (q.cost[k] || 1) + 5; });
+  if (q.id === 'sq_keeper') s2.dungeonSlot = 1;
+  SQ.tick(s2);
+  if (SQ.stepOf(s2, q.id) !== 2) errors.push('条件达成后 tick 应把 step 推到 2');
+  const r = SQ.turnIn(s2, q);
+  if (!r.ok) errors.push('满足条件后应能交付：' + r.reason);
+  if (SQ.stepOf(s2, q.id) !== 3) errors.push('交付后 step 应为 3');
+  Object.keys(q.cost || {}).forEach(function (k) {
+    if (s2.items[k] < 0) errors.push(`交付把 ${k} 扣成了负数`);
+  });
+  if (SQ.canTurnIn(s2, q)) errors.push('已完成的支线不该能重复交付');
+}, 'sidequest.contract');
+
 /* ---------- 宗门与散修契约（《宗门与散修体系设计 v1.0》） ----------
    ① 宗门数据完整：凡 9 / 灵 7 / 仙 5 / 道 0，且 region / 功法池都指向真实存在的东西
    ② 功法归属：每本功法都有 src；src='sect' 的必须带 sect 且该宗门存在
@@ -2450,9 +2496,12 @@ step(function () {
   const mV = mk('free'); mV.skills[freeSkill] = { lv: 3, voided: true };
   if (G.Player.canUseSkill(mV, freeSkill)) errors.push('已废功的功法不应可用');
 
-  /* ⑤ 转阵营（用面板暴露的同一条逻辑：走 openPanel + 按钮点击，不重写一份） */
+  /* ⑤ 拜入 = **试炼战 → 胜利入宗**（S2）。
+     走"面板按钮 → 战斗胜利"整条真实路径，不直接调 Player.switchCult ——
+     那样只能测到函数，测不出"入口通不通"。 */
   const s0 = JSON.parse(JSON.stringify(save));
   s0.cult = 'free'; s0.sectId = null; s0.sectRep = 0; s0.cultSwitchUsed = false;
+  s0.globalLevel = 20;                                     /* 过试炼门槛（炼气一段） */
   s0.skills = {}; s0.skills[freeSkill] = { lv: 2, voided: false };
   s0.skills[commonSkill] = { lv: 1, voided: false };
   s0.skillEquip = [freeSkill, commonSkill];
@@ -2464,13 +2513,55 @@ step(function () {
   if (sc.overlay !== 'sect') { errors.push('宗门面板打不开'); return; }
   const joinBtn = (sc.buttons || []).filter(function (b) { return /拜入/.test(b.label || ''); })[0];
   if (!joinBtn) { errors.push('宗门面板没有「拜入」按钮（散修态）'); return; }
+  const wantSect = joinBtn.label.replace('拜入 ', '');
   joinBtn.onClick();
-  if (s0.cult !== 'sect' || !s0.sectId) errors.push('拜师后阵营/宗门未写入');
-  if (!s0.skills[freeSkill].voided) errors.push('拜师后散修功法应被废功');
+  if (G.game.sceneName !== 'battle') {
+    errors.push('拜入应开**试炼战**，实际场景 ' + G.game.sceneName);
+    return;
+  }
+  const bx = G.game.scene;
+  if (!bx.params || bx.params.script !== 'sectTrial') {
+    errors.push('试炼战 script 应为 sectTrial，实际 ' + (bx.params && bx.params.script));
+  }
+  /* 直接判胜，走真实的胜利分支 */
+  bx.es.forEach(function (e) { e.hp = 0; });
+  bx._victory();
+  pump(40);
+  if (s0.cult !== 'sect' || !s0.sectId) errors.push('试炼胜利后阵营/宗门未写入');
+  if (G.Data.sects.byId(s0.sectId) && G.Data.sects.byId(s0.sectId).n !== wantSect) {
+    errors.push('入的宗门与点的按钮不一致（' + s0.sectId + ' vs ' + wantSect + '）');
+  }
+  if (!s0.skills[freeSkill].voided) errors.push('入门后散修功法应被废功');
   if (s0.skills[commonSkill].voided) errors.push('common 功法不该被废功');
   if (s0.skillEquip.indexOf(freeSkill) >= 0) errors.push('已废功的功法应自动卸下');
-  if (!s0.cultSwitchUsed) errors.push('转阵营后应置 cultSwitchUsed');
-  /* 每世一次：再开面板不应有拜入/退门按钮 */
+  if (!s0.cultSwitchUsed) errors.push('入门后应置 cultSwitchUsed');
+
+  /* ⑤b 贡献兑换本门功法（用**实际入的那个宗门**的功法池，别写死 ——
+     按钮列表按"大宗门优先"排序，入的不一定是青溪剑馆） */
+  const mySect = G.Data.sects.byId(s0.sectId);
+  const mySkill = (mySect && mySect.skills) ? mySect.skills[0] : null;
+  const root = G.Data.sects.rootOf(s0.sectId);
+  const otherSkill = Object.keys(G.Data.skills).filter(function (id) {
+    const sk = G.Data.skills[id];
+    return sk.src === 'sect' && sk.sect !== root;
+  })[0];
+  if (!mySkill) { errors.push('入的宗门没有功法池'); return; }
+  s0.sectRep = 200;
+  const before = Object.keys(s0.skills).length;
+  const r = G.Player.learnSectSkill(s0, mySkill);
+  if (!r.ok) errors.push('贡献足够时应能兑换本门功法（' + mySkill + '）：' + r.reason);
+  if (Object.keys(s0.skills).length !== before + 1) errors.push('兑换后应习得该功法');
+  if (s0.sectRep >= 200) errors.push('兑换应扣贡献');
+  if (G.Player.learnSectSkill(s0, mySkill).ok) errors.push('已习得的功法不该能重复兑换');
+  if (otherSkill && G.Player.learnSectSkill(s0, otherSkill).ok) {
+    errors.push('不该能兑换别家的宗门功法：' + otherSkill);
+  }
+  s0.sectRep = 0;
+  if (mySect.skills[1] && G.Player.learnSectSkill(s0, mySect.skills[1]).ok) {
+    errors.push('贡献不足时不该能兑换');
+  }
+
+  /* ⑤c 每世一次：再开面板不应有拜入/退门按钮 */
   G.Overlays.openPanel(sc, 'sect');
   const again = (sc.buttons || []).filter(function (b) { return /拜入|退门帖/.test(b.label || ''); });
   if (again.length) errors.push('本世已转过阵营，不应再出现拜入/退门按钮');

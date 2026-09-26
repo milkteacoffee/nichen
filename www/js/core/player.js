@@ -640,6 +640,61 @@
       return (sk.src === 'sect') ? '宗门功法，非本门弟子不可用' : '散修功法，宗门弟子不可用';
     },
 
+    /* ===== 宗门：转阵营与贡献（《宗门与散修体系设计 v1.0》S2）=====
+       放在 Player 而不是 panels.js —— **战斗也要能调**（入门试炼在 battle 里结算），
+       放面板里会让 battle 反向依赖 UI。 */
+    switchCult: function (save, toSect, sectId) {
+      var n = 0;
+      Object.keys(save.skills || {}).forEach(function (id) {
+        var sk = G.Data.skills[id];
+        if (!sk || !save.skills[id]) return;
+        if (sk.src !== 'free' && sk.src !== 'sect') return;      /* common 两道通用，不动 */
+        if (toSect && sk.src === 'free') { save.skills[id].voided = true; n++; }
+        if (!toSect && sk.src === 'sect') { save.skills[id].voided = true; n++; }
+      });
+      /* 先切阵营再过滤装备 —— canUseSkill 读的是切完之后的 save */
+      save.cult = toSect ? 'sect' : 'free';
+      save.sectId = toSect ? sectId : null;
+      save.sectRep = 0;
+      save.sectRank = 'outer';
+      save.cultSwitchUsed = true;
+      save.skillEquip = (save.skillEquip || []).filter(function (id) {
+        return this.canUseSkill(save, id);
+      }, this);
+      return n;                                   /* 被废功的条数，供提示文案用 */
+    },
+
+    /* 贡献/声望增减（散修时同一字段当"散修声望"用） */
+    addRep: function (save, n) {
+      save.sectRep = Math.max(0, (save.sectRep || 0) + n);
+      return save.sectRep;
+    },
+
+    /* 入门试炼的**门槛**（试炼本身是一场切磋战，见 battle.js: sectTrial） */
+    trialReady: function (save) {
+      return (save.globalLevel || 1) >= 10;       /* 炼气一段起 */
+    },
+
+    /* 兑换本门功法：扣贡献 → 习得（未习得才给换；已习得返回原因） */
+    learnSectSkill: function (save, id) {
+      var sk = G.Data.skills[id];
+      if (!sk) return { ok: false, reason: '无此功法' };
+      if (save.skills && save.skills[id] && !save.skills[id].voided) {
+        return { ok: false, reason: '已习得' };
+      }
+      if (!this.canUseSkill(save, id)) return { ok: false, reason: '非本门功法' };
+      var cost = (sk.tier === '灵') ? 150 : 50;
+      if ((save.sectRep || 0) < cost) {
+        return { ok: false, reason: '贡献不足（需 ' + cost + '）' };
+      }
+      save.sectRep -= cost;
+      save.skills = save.skills || {};
+      /* 已废功的同类功法：重新习得视为"复功"（清掉 voided） */
+      save.skills[id] = { lv: 1, voided: false };
+      if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true, cost: cost };
+    },
+
     /* ===== 问道（v0.20.0）=====
        用户口径：「天道赐福属于**问道其中的一种**；每个大境界可以问道一次；
        突破之后，问道可能是奖励也可能是惩罚，扣除灵石、灵力、灵气之类的」。

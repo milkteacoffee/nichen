@@ -690,7 +690,11 @@
   function questRows(save, scene) {
     var tab = scene.questTab || 'main';
     if (tab === 'side') {
-      return { rows: SIDE.map(function (it) { return { id: it.id, side: it }; }), win0: 0, total: SIDE.length };
+      /* 内容型支线（`data/sidequests.js`）：有 NPC、有剧情、各记各的进度。
+         旧的"系统型"清单已被取代 —— 那一版没有 NPC 也没有剧情，
+         玩家在任务面板里看到的是"秘境历练/功法小成"这种目标，不像任务。 */
+      var list = (G.Data.sideQuests ? G.Data.sideQuests.list : []);
+      return { rows: list.map(function (q) { return { id: q.id, sq: q }; }), win0: 0, total: list.length };
     }
     var q = save.quest || { step: 'free', flags: {} };
     var idx = QUEST_ORDER.indexOf(q.step);
@@ -734,8 +738,8 @@
     view.rows.forEach(function (r, i) {
       var on = (r.id === selId);
       var done;
-      if (r.side) {
-        done = sideDone(save, r.side);
+      if (r.sq) {
+        done = (G.Data.sideQuests.stepOf(save, r.sq.id) >= 3);
       } else {
         done = (r.gi < idx);
       }
@@ -754,20 +758,31 @@
     /* ---- 右栏：详情 ---- */
     var dx = QP.detX, dy = QP.detY;
     G.UI.text(x, { x: dx, y: dy - 16 }, selSide ? '支线' : '主线', 10, G.UI.C.gold);
-    G.UI.text(x, { x: dx, y: dy + 2 }, selSide ? selSide.t : sel.t, 13.5, G.UI.C.goldHi);
-    var dl = G.UI.wrap(x, selSide ? selSide.d : sel.d, 11, QP.detW);
+    G.UI.text(x, { x: dx, y: dy + 2 }, selSide ? selSide.n : sel.t, 13.5, G.UI.C.goldHi);
+    var sideDesc = '';
+    if (selSide) {
+      var st0 = G.Data.sideQuests.stepOf(save, selSide.id);
+      sideDesc = st0 === 0 ? selSide.intro
+        : selSide.steps[Math.min(st0, 3) - 1].d;
+    }
+    var dl = G.UI.wrap(x, selSide ? sideDesc : sel.d, 11, QP.detW);
     dl.slice(0, 3).forEach(function (l, i) {
       G.UI.text(x, { x: dx, y: dy + 22 + i * 15 }, l, 11, G.UI.C.text);
     });
     var by = dy + 22 + Math.min(dl.length, 3) * 15 + 8;
 
     if (selSide) {
-      var ok = sideDone(save, selSide);
-      G.UI.text(x, { x: dx, y: by }, ok ? '已完成' : '进行中', 11,
-        ok ? G.UI.C.jadeHi : G.UI.C.gold);
-      G.UI.text(x, { x: dx, y: by + 18 }, '提示', 10, G.UI.C.gold);
-      G.UI.wrap(x, selSide.hint, 10, QP.detW).slice(0, 2).forEach(function (l, i) {
-        G.UI.text(x, { x: dx, y: by + 32 + i * 13 }, l, 10, G.UI.C.textDim);
+      /* 内容型支线：step 0 未接 / 1 进行中 / 2 可交付 / 3 已完成 */
+      var SQ = G.Data.sideQuests;
+      var st = SQ.stepOf(save, selSide.id);
+      var stN = st === 0 ? '未接取' : (st === 1 ? '进行中' : (st === 2 ? '可交付' : '已完成'));
+      G.UI.text(x, { x: dx, y: by }, stN, 11,
+        st === 3 ? G.UI.C.jadeHi : (st === 2 ? G.UI.C.goldHi : G.UI.C.gold));
+      G.UI.text(x, { x: dx, y: by + 20 }, '提示', 10, G.UI.C.gold);
+      var hint = st === 0 ? '去镇上找他说说话。'
+        : (st >= 3 ? '此桩已了。' : selSide.steps[st - 1].hint);
+      G.UI.wrap(x, hint, 10, QP.detW).slice(0, 2).forEach(function (l, i) {
+        G.UI.text(x, { x: dx, y: by + 34 + i * 13 }, l, 10, G.UI.C.textDim);
       });
       return;
     }
@@ -817,12 +832,12 @@
        `panels.bounds.contract` 直接判"文字压在按钮上"。 */
     questRows(save, scene).rows.forEach(function (r, i) {
       var on = (r.id === selId);
-      var done = r.side ? sideDone(save, r.side) : (r.gi < idxOf(q.step));
+      var done = r.sq ? (G.Data.sideQuests.stepOf(save, r.sq.id) >= 3) : (r.gi < idxOf(q.step));
       btns.push(new G.UI.Btn({
         x: QP.listX, y: QP.listY + i * QP.rowH - 5, w: QP.listW, h: QP.rowH - 1,
         small: true, fs: 10.5, lalign: true,
         variant: on ? 'gold' : 'ghost',
-        label: r.side ? r.side.t : r.s.t,
+        label: r.sq ? r.sq.n : r.s.t,
         onClick: function () {
           scene.questSel = r.id;
           G.Overlays.openPanel(scene, 'quest', true);
@@ -1161,28 +1176,6 @@
     if (!G.Data.sects || !save.sectId) return null;
     return G.Data.sects.byId(save.sectId);
   }
-  /* 转阵营：两道功法互废。**返回被废的条数**，供提示文案用。 */
-  function doSwitchCult(save, toSect, sectId) {
-    var n = 0;
-    Object.keys(save.skills || {}).forEach(function (id) {
-      var sk = G.Data.skills[id];
-      if (!sk || !save.skills[id]) return;
-      if (sk.src !== 'free' && sk.src !== 'sect') return;      /* common 两道通用，不动 */
-      if (toSect && sk.src === 'free') { save.skills[id].voided = true; n++; }
-      if (!toSect && sk.src === 'sect') { save.skills[id].voided = true; n++; }
-    });
-    /* 先切阵营再过滤装备 —— canUseSkill 读的是切完之后的 save */
-    save.cult = toSect ? 'sect' : 'free';
-    save.sectId = toSect ? sectId : null;
-    save.sectRep = 0;                                          /* 贡献/声望清零，重新积攒 */
-    save.sectRank = 'outer';
-    save.cultSwitchUsed = true;
-    save.skillEquip = (save.skillEquip || []).filter(function (id) {
-      return G.Player.canUseSkill(save, id);
-    });
-    return n;
-  }
-
   function drawSect(x, scene) {
     var save = G.game.save || {};
     shell(x, '宗门', '第 ' + (save.life || 1) + ' 世');
@@ -1206,9 +1199,12 @@
         var sk = G.Data.skills[id];
         if (!sk) return;
         var own = save.skills && save.skills[id];
-        var col = own ? (own.voided ? 'rgba(180,120,120,0.9)' : G.UI.C.jadeHi) : G.UI.C.textDim;
-        G.UI.text(x, { x: P.x + 22, y: SEC.listY + i * 15 },
-          sk.n + '　' + (own ? (own.voided ? '已废功' : 'Lv' + own.lv) : '未习'), 10, col);
+        var cost = (sk.tier === '灵') ? 150 : 50;
+        var st, col;
+        if (own && !own.voided) { st = 'Lv' + own.lv; col = G.UI.C.jadeHi; }
+        else if (own && own.voided) { st = '已废功 · 需 ' + cost; col = 'rgba(180,120,120,0.9)'; }
+        else { st = '未习 · 需 ' + cost + ' 贡献'; col = G.UI.C.textDim; }
+        G.UI.text(x, { x: P.x + 22, y: SEC.listY + i * 15 }, sk.n + '　' + st, 10, col);
       });
       G.UI.text(x, { x: P.x + 14, y: SEC.sectNoteY },
         save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
@@ -1224,42 +1220,67 @@
     var save = G.game.save;
     var isSect = (save.cult === 'sect');
 
-    if (save.cultSwitchUsed) return;          /* 每世一次：用过了就不给任何转换按钮 */
-
-    if (!isSect) {
-      /* 拜师：列出**当前界**的宗门，大宗门优先；两行 × 三列 = 6 个槽位 */
-      var wid = G.Player.activeWorldId(G.game.meta);
-      var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
-      list.sort(function (a, b) {
-        var ab = a.size === 'big' ? 0 : 1, bb = b.size === 'big' ? 0 : 1;
-        return ab - bb;
-      });
-      list.slice(0, 6).forEach(function (s, i) {
-        var col = i % 3, row = Math.floor(i / 3);
+    if (!save.cultSwitchUsed) {
+      if (!isSect) {
+        /* 拜入：列出**当前界**的宗门（大宗门优先），点一个即**开试炼战**（S2）。
+           试炼是一场切磋，胜利才算入门；门槛 = 炼气一段（`Player.trialReady`）。 */
+        var wid = G.Player.activeWorldId(G.game.meta);
+        var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
+        list.sort(function (a, b) {
+          return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1);
+        });
+        var ready = G.Player.trialReady(save);
+        list.slice(0, 6).forEach(function (s, i) {
+          var col = i % 3, row = Math.floor(i / 3);
+          btns.push(new G.UI.Btn({
+            x: P.x + 14 + col * (SEC.rowW + SEC.rowGap),
+            y: (row === 0 ? SEC.rowY : SEC.row2Y),
+            w: SEC.rowW, h: SEC.rowH, small: true, fs: 11,
+            variant: ready ? 'default' : 'ghost',
+            label: '拜入 ' + s.n,
+            onClick: function () {
+              if (!ready) { G.game.toast('修为不足（需炼气一段），先去历练'); return; }
+              scene.clearOverlay();
+              G.game.changeScene('battle', {
+                script: 'sectTrial', mapId: G.game.sceneName, sectId: s.id
+              });
+            }
+          }));
+        });
+      } else {
+        /* 宗门态：本门功法的**兑换**按钮（每门 2 本，落在功法行右侧） */
+        var s2 = sectOf(save);
+        var pool = (s2 && s2.skills) || [];
+        pool.slice(0, 2).forEach(function (id, i) {
+          var sk = G.Data.skills[id];
+          if (!sk) return;
+          var own = save.skills && save.skills[id];
+          var cost = (sk.tier === '灵') ? 150 : 50;
+          var can = !(own && !own.voided) && (save.sectRep || 0) >= cost;
+          btns.push(new G.UI.Btn({
+            x: SP.x + SP.w - 74, y: SEC.listY + i * 15 - 6, w: 70, h: 14,
+            small: true, fs: 10,
+            variant: can ? 'gold' : 'ghost',
+            label: can ? '兑换 ' + cost : '贡献不足',
+            onClick: function () {
+              var r = G.Player.learnSectSkill(save, id);
+              G.game.toast(r.ok ? ('习得《' + sk.n + '》　贡献 -' + r.cost)
+                : ('无法兑换：' + r.reason));
+              if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
+            }
+          }));
+        });
         btns.push(new G.UI.Btn({
-          x: P.x + 14 + col * (SEC.rowW + SEC.rowGap),
-          y: (row === 0 ? SEC.rowY : SEC.row2Y),
-          w: SEC.rowW, h: SEC.rowH, small: true, fs: 11,
-          variant: 'default', label: '拜入 ' + s.n,
+          x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'danger',
+          label: '递退门帖 · 转散修',
           onClick: function () {
-            var n = doSwitchCult(save, true, s.id);
+            var n = G.Player.switchCult(save, false, null);
             G.Storage.saveCurrent(save);
-            G.game.toast('拜入' + s.n + '　散修功法废功 ×' + n);
-            G.Overlays.openPanel(scene, 'sect');
+            G.game.toast('退出门墙　宗门功法废功 ×' + n);
+            G.Overlays.openPanel(scene, 'sect', true);
           }
         }));
-      });
-    } else {
-      btns.push(new G.UI.Btn({
-        x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'danger',
-        label: '递退门帖 · 转散修',
-        onClick: function () {
-          var n = doSwitchCult(save, false, null);
-          G.Storage.saveCurrent(save);
-          G.game.toast('退出门墙　宗门功法废功 ×' + n);
-          G.Overlays.openPanel(scene, 'sect');
-        }
-      }));
+      }
     }
   }
 

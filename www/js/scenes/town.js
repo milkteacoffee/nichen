@@ -49,6 +49,14 @@
      NPC：站桩对话（探图 v0.2 §NPC —— 有任务挂标记，无任务聊 1-2 句风味台词）
      覆盖层名 → 台词内容。台词由 G.Overlays.dialog 渲染（立绘 + 名牌 + 自动折行）。
      ============================================================ */
+  /* 支线（内容型）：一个 NPC 一条支线，台词随进度变。
+     `DIALOGS` 支持**函数式条目**（渲染处会 `d(save)`），正好用来按 step 出不同台词。
+     ⚠️ 函数拿不到 scene，所以当前在谈哪条支线靠模块级 `_sideCur` 传递
+       —— 同时只可能开一个对话覆盖层，够用。 */
+  var _sideCur = null;
+  var SIDE_NPC = { washer: '浣衣妇', woodman: '老樵夫', market: '刘掌柜' };
+  var SIDE_PORTRAIT = { washer: 'villager', woodman: 'villager', market: 'keeper' };
+
   var DIALOGS = {
     shenbo1: {
       title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
@@ -78,6 +86,21 @@
         reward: '灵气 +2500'
       };
     },
+    sideq: function (save) {
+      var SQ = G.Data.sideQuests;
+      var q = SQ && SQ.byId(_sideCur);
+      if (!q) return { title: '青溪镇', name: '镇民', portrait: 'villager', lines: ['……'] };
+      var step = SQ.stepOf(save, q.id);
+      var lines;
+      if (step === 0) lines = [q.intro];
+      else if (step >= 3) lines = [q.out];
+      else lines = [q.steps[step - 1].d, '（' + q.steps[step - 1].hint + '）'];
+      return {
+        title: '青溪镇 · 支线', name: SIDE_NPC[q.giver] || '镇民',
+        portrait: SIDE_PORTRAIT[q.giver] || 'villager', lines: lines
+      };
+    },
+
     chatWasher: {
       title: '青溪镇 · 井边', name: '浣衣妇', portrait: 'villager',
       lines: ['“这井水甜，比山泉还养人。”', '“后山近来不太平，”', '“莫要一个人往深处走。”']
@@ -248,6 +271,47 @@
     ]);
   }
 
+  /* 支线对话（内容型）：按 step 出「接下 / 交付 / 知道了」。
+     返回 false = 该 NPC 现在没有支线可谈（已完成），调用方退回普通闲聊。 */
+  function sideTalk(scene, npcId) {
+    var SQ = G.Data.sideQuests;
+    if (!SQ) return false;
+    var q = SQ.byGiver(npcId);
+    if (!q) return false;
+    var save = G.game.save;
+    SQ.tick(save);
+    var step = SQ.stepOf(save, q.id);
+    if (step >= 3) return false;                 /* 做完了 → 回到普通闲聊 */
+    _sideCur = q.id;
+    var ack = function () {
+      return new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
+        label: '知道了', onClick: function () { scene.clearOverlay(); } });
+    };
+    var btns = [];
+    if (step === 0) {
+      btns.push(new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
+        label: '接下', onClick: function () {
+          SQ.accept(save, q); G.game.toast('接下支线：' + q.n); scene.clearOverlay();
+        } }));
+      btns.push(new G.UI.Btn({ x: 70, y: 214, w: 100, h: 24, small: true, variant: 'ghost',
+        label: '再说', onClick: function () { scene.clearOverlay(); } }));
+    } else if (step === 2 && SQ.canTurnIn(save, q)) {
+      btns.push(new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
+        label: '交付', onClick: function () {
+          var r = SQ.turnIn(save, q);
+          if (r.ok) { G.game.toast('了却一桩：' + q.n); G.game.toast(r.text); }
+          else G.game.toast('无法交付：' + r.reason);
+          scene.clearOverlay();
+        } }));
+      btns.push(new G.UI.Btn({ x: 70, y: 214, w: 100, h: 24, small: true, variant: 'ghost',
+        label: '再说', onClick: function () { scene.clearOverlay(); } }));
+    } else {
+      btns.push(ack());
+    }
+    scene.setOverlay('sideq', btns);
+    return true;
+  }
+
   /* ===== 外堂探子（m1-2）=====
      两句试探 → 点破 → 撕破脸开打。打完由 battle 写 flags.probeWin，
      回镇时 hooks.enter 弹抉择 1（所以这里只负责把玩家送进战斗）。 */
@@ -270,8 +334,23 @@
     shenbo: function (scene) { shenBo(scene); },
     market: function (scene) { openMarket(scene); },
     probe: function (scene) { talkProbe(scene); },
-    'chat.washer': function (scene) { openChat(scene, 'chatWasher'); },
-    'chat.woodman': function (scene) { openChat(scene, 'chatWoodman'); }
+    'chat.washer': function (scene) {
+      if (sideTalk(scene, 'washer')) return;
+      openChat(scene, 'chatWasher');
+    },
+    'chat.woodman': function (scene) {
+      if (sideTalk(scene, 'woodman')) return;
+      openChat(scene, 'chatWoodman');
+    },
+    market: function (scene) {
+      /* ⚠️ **主线优先**：m1-4（取筑基丹货源）与 m1-7（离乡道别）都挂在刘掌柜身上，
+         支线插到前面会把这两拍整条吞掉（实测：m1-7 的「道别」被支线抢走，
+         m1.quest / m1.bloodnight 两条契约同时红）。所以主线拍内不走支线。 */
+      var q2 = G.game.save.quest;
+      var mainBeat = (q2.step === 'm1-4' || q2.step === 'm1-7');
+      if (!mainBeat && sideTalk(scene, 'market')) return;
+      openMarket(scene);
+    }
   };
 
   function onNpc(npc, scene) {
@@ -326,6 +405,7 @@
       G.Storage.saveCurrent(save);
     }
 
+    if (G.Data.sideQuests) G.Data.sideQuests.tick(save);   /* 支线：条件达成则 1 → 2 */
     if (q.step === 'm1-2' && q.flags.probeWin && !q.flags.probe) openChoice1(scene);
   };
 
