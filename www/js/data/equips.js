@@ -15,22 +15,45 @@
 (function () {
   var SLOT_N = { weapon: '武器', armor: '防具', accessory: '饰品' };
 
+  /* 16 件法宝 —— 类型覆盖刀枪剑戟 / 布甲重甲法衣 / 玉佩佛珠项链铃 等
+     （用户口径：「记得富化一下文生图的法宝样式，刀枪剑戟、项链、佛珠、玉佩、法衣、盔甲等等」）。
+     图标见 `assets/img/equip.<id>.png`（文生图 4×4 图标集切片）。 */
   var LIST = [
-    /* 武器：偏攻击 */
+    /* 武器：刀枪剑戟 */
     { id: 'eq_qingfeng', n: '青锋剑', slot: 'weapon', tier: '凡',
       d: '青溪镇上铁匠打的凡铁剑。', fx: { a: 0.10 } },
     { id: 'eq_chixiao', n: '赤霄刀', slot: 'weapon', tier: '灵',
-      d: '刀身赤红，出鞘带火气。', fx: { a: 0.18, c: 0.04 } },
-    /* 防具：偏防御与气血 */
+      d: '刀身赤红，出鞘带火气。', fx: { a: 0.16, c: 0.04 } },
+    { id: 'eq_dianqiang', n: '点钢枪', slot: 'weapon', tier: '灵',
+      d: '枪尖一点寒，最擅破甲。', fx: { a: 0.14, cd: 0.12 } },
+    { id: 'eq_fangtian', n: '方天戟', slot: 'weapon', tier: '宝',
+      d: '戟沉力猛，一击之威冠绝同阶。', fx: { a: 0.22, s: -0.04 } },
+    /* 防具：布甲 / 重甲 / 法衣 / 护腕 */
     { id: 'eq_bujia', n: '粗布甲', slot: 'armor', tier: '凡',
       d: '粗麻织成，聊胜于无。', fx: { f: 0.12 } },
     { id: 'eq_xuanwu', n: '玄武甲', slot: 'armor', tier: '灵',
       d: '玄龟背甲所制，沉而坚。', fx: { f: 0.22, h: 0.10 } },
-    /* 饰品：偏速度与暴击 */
+    { id: 'eq_fayi', n: '云纹法衣', slot: 'armor', tier: '灵',
+      d: '道袍绣云纹，行气最顺。', fx: { f: 0.10, h: 0.16 } },
+    { id: 'eq_huwan', n: '皮护腕', slot: 'armor', tier: '凡',
+      d: '护住手腕，出手更稳。', fx: { f: 0.08, c: 0.03 } },
+    /* 饰品：玉佩 / 铃 / 佛珠 / 项链 / 罗盘 / 如意 / 铜镜 / 葫芦 */
     { id: 'eq_yupei', n: '暖玉佩', slot: 'accessory', tier: '凡',
       d: '常年贴身，温润养气。', fx: { h: 0.08, s: 0.06 } },
-    { id: 'eq_lingdang', n: '摄魂铃', slot: 'accessory', tier: '灵',
-      d: '铃声一响，心神失守。', fx: { c: 0.06, cd: 0.15 } }
+    { id: 'eq_soulbell', n: '摄魂铃', slot: 'accessory', tier: '灵',
+      d: '铃声一响，心神失守。', fx: { c: 0.06, cd: 0.15 } },
+    { id: 'eq_fozhu', n: '菩提佛珠', slot: 'accessory', tier: '灵',
+      d: '一百零八颗，捻之定神。', fx: { h: 0.12, f: 0.06 } },
+    { id: 'eq_xianglian', n: '寒星项链', slot: 'accessory', tier: '宝',
+      d: '坠中星芒不灭，助长灵力。', fx: { c: 0.08, cd: 0.20 } },
+    { id: 'eq_bagua', n: '八卦盘', slot: 'accessory', tier: '灵',
+      d: '掌中罗盘，趋吉避凶。', fx: { s: 0.12, f: 0.05 } },
+    { id: 'eq_ruyi', n: '白玉如意', slot: 'accessory', tier: '宝',
+      d: '玉质温润，气机圆融。', fx: { a: 0.08, f: 0.08, h: 0.08 } },
+    { id: 'eq_tongjing', n: '照妖古镜', slot: 'accessory', tier: '灵',
+      d: '照见本相，破幻除魅。', fx: { c: 0.05, a: 0.06 } },
+    { id: 'eq_hulu', n: '药王葫芦', slot: 'accessory', tier: '凡',
+      d: '葫芦里装的不知是什么药。', fx: { h: 0.14 } }
   ];
 
   var index = {};

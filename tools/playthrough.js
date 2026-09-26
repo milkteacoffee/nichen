@@ -322,11 +322,23 @@ pump(4);
 step(function () {
   const sc = G.game.scene;
   if (sc.overlay !== 'cult') { errors.push('小院未进入珠内空间面板：' + sc.overlay); return; }
-  const bk = sc.buttons.filter((b) => /问心魔劫|突破境界/.test(b.label))[0];
+  /* ⚠️ 按钮文案已统一成「突破」两字（v0.25.0）——旧正则 /问心魔劫|突破境界/ 匹配不上了 */
+  const bk = sc.buttons.filter((b) => /突破/.test(b.label))[0];
   if (!bk) { errors.push('小院缺少突破入口'); return; }
   if (bk.disabled) { errors.push('灵气与丹齐备时突破按钮仍禁用'); return; }
   bk.onClick();
 }, 'm0-4.break');
+pump(6);
+/* 破境天劫（v0.26.0）：大境突破会**先演天劫 + 天道问话**，点「承受」才进心魔战。
+   ⚠️ 测试必须跟着新流程走 —— 不点的话就永远停在覆盖层上，后面全线报错。 */
+step(function () {
+  const sc = G.game.scene;
+  if (sc.overlay !== 'tribulation') return;
+  for (let i = 0; i < 80 && sc.trib && !sc.trib.asked; i++) sc.update(0.04);
+  const ok = (sc.buttons || []).filter((b) => /承/.test(b.label || ''))[0];
+  if (!ok) { errors.push('天劫问话段没有「承受」按钮'); return; }
+  ok.onClick();
+}, 'm0-4.tribulation');
 pump(6);
 step(function () {
   if (G.game.sceneName !== 'battle') { errors.push('突破未进入心魔战（当前 ' + G.game.sceneName + '）'); return; }

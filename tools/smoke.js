@@ -2702,6 +2702,52 @@ step(function () {
   if (eq3.atk !== base.atk || eq3.def !== base.def) errors.push('脱下法宝后加成应回落');
 }, 'equip.contract');
 
+/* ---------- 破境天劫契约（v0.26.0） ----------
+   用户口径：「破境必须有天劫动画，天道必须用起来，主角和天道意志对话」。
+   ① 天劫接管覆盖层，三拍依次推进：蓄势（无按钮）→ 落雷（白闪 + 震屏）→ 天道问话（出「承受」）
+   ② 天道文案**真的画出来**（只断言"不抛异常"是空断言）
+   ③ 点「承受」触发回调（进心魔战）并关掉覆盖层 */
+step(function () {
+  const O = G.Overlays;
+  if (!O.startTribulation) { errors.push('G.Overlays.startTribulation 缺失'); return; }
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.pos = null;
+  G.game.save = s2;
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+  let done = false;
+  O.startTribulation(sc, s2, function () { done = true; });
+  if (sc.overlay !== 'tribulation') errors.push('天劫未接管覆盖层');
+  if (!sc.trib) { errors.push('天劫状态未建立'); return; }
+  sc.update(0.5);
+  if (sc.buttons.length) errors.push('天劫蓄势段不该有按钮');
+  /* ⚠️ **必须小步推进**：一次 `update(0.8)` 会让白闪按 dt 当场衰减完
+     （`flash -= dt*3.2` → 2.56），于是"有闪"这一刻根本采不到 —— 这是**测试步长**问题，
+     不是代码问题（真实帧 dt ≤ 0.05）。 */
+  let sawFlash = false, sawShake = false;
+  for (let i = 0; i < 80; i++) {
+    sc.update(0.04);
+    if (!sc.trib) break;
+    if (sc.trib.flash > 0) sawFlash = true;
+    if (sc.trib.shake > 0) sawShake = true;
+    if (sc.trib.asked) break;
+  }
+  if (!sawFlash) errors.push('天劫落雷段没有白闪');
+  if (!sawShake) errors.push('天劫落雷段没有震屏');
+  if (!sc.trib.asked) { errors.push('天劫没推进到天道问话段'); return; }
+  /* ⚠️ 正则别写成 `/承受/` —— 两字按钮按项目惯例是「承　受」（中间是全角空格），
+     写连着的两字永远匹配不上（同一个坑在「突破」按钮上踩过一次）。 */
+  const ok = (sc.buttons || []).filter(function (b) { return /承/.test(b.label || ''); })[0];
+  if (!ok) { errors.push('天道问话段没有「承受」按钮'); return; }
+  const cx = textSpy(); sc.render(cx);
+  if (!(cx.__seen || []).some(function (t) { return t.indexOf('天') >= 0; })) {
+    errors.push('天劫没有渲染出天道文案');
+  }
+  ok.onClick();
+  if (!done) errors.push('点「承受」后没有回调（进不了心魔战）');
+  if (sc.overlay) errors.push('点「承受」后应关掉覆盖层');
+}, 'tribulation.contract');
+
 /* 任务面板**支线页要真的画出面板**（截图反馈踩过）：
    `questRows` 换了数据源（内容型支线），但选中项的兜底还写着旧表 `SIDE[0].id` →
    选中项取不到 → `drawQuest` 提前 return → **面板整块不画，只剩按钮浮在场景上**。

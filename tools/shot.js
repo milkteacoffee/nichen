@@ -782,6 +782,15 @@ step(() => {
   });
 }, 'dungeon.entrance');
 shot('27_dungeon_entrance', 6);
+/* 破境天劫（v0.26.0）：蓄势 → 落雷 → 天道问话。停在**问话段**拍一张 */
+step(() => {
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+  G.Overlays.startTribulation(sc, G.game.save, function () {});
+  for (let i = 0; i < 80 && sc.trib && !sc.trib.asked; i++) sc.update(0.04);
+  sc.update(0.04);
+}, 'tribulation.ask');
+shot('06_tribulation', 4);
 /* 每层三选一（v0.23.0）：Roguelite 的构筑环节 —— 通关一层后从 3 个临时增益里选 1 */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));

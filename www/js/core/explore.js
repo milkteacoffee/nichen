@@ -196,6 +196,11 @@
         }
         if (this.mark) { this.mark.t -= dt; if (this.mark.t <= 0) this.mark = null; }
         if (this.hintT < 20) this.hintT += dt;
+        /* 破境天劫（v0.26.0）：必须在 `if (this.overlay) return;` **之前**推进 ——
+           天劫期间是有覆盖层的，放后面就永远不动（表现：卡在蓄势那一帧）。 */
+        if (this.overlay === 'tribulation' && G.Overlays.tickTribulation) {
+          G.Overlays.tickTribulation(this, dt);
+        }
         if (this.overlay) return;
 
         var inp = G.Input, save = G.game.save;
@@ -606,9 +611,14 @@
            ⚠️ 只缩**世界层**，HUD / 追踪栏 / 提示不缩 —— 它们缩了会糊且不像 UI。 */
         var _zoom = 1;
         if (this.flashDir === 1) _zoom = 1 + 0.06 * Math.sin(this.flash * Math.PI);
-        if (_zoom !== 1) {
+        /* 天劫震屏：用 `t` 的正弦做抖动（**不用 Math.random** —— 随机会让截图钉不住） */
+        var _trib = this.trib;
+        var _shk = _trib ? _trib.shake : 0;
+        if (_zoom !== 1 || _shk) {
           x.save();
-          x.translate(240, 136); x.scale(_zoom, _zoom); x.translate(-240, -136);
+          x.translate(240 + (_shk ? Math.sin(_trib.t * 61) * _shk : 0),
+            136 + (_shk ? Math.sin(_trib.t * 73) * _shk : 0));
+          x.scale(_zoom, _zoom); x.translate(-240, -136);
         }
 
         /* 地面：整图已预烘好，每帧只 blit 视口这一块（1 次，而不是逐格 540 次）。
@@ -676,7 +686,10 @@
         this._drawInteractHint(x, camX, camY);
         this._drawMark(x, camX, camY);
         if (!this.overlay) this._drawHint(x);
-        if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
+        /* 天劫是**核心覆盖层**（不属于任何场景的 hooks），优先分派 */
+        if (this.overlay === 'tribulation' && G.Overlays.renderTribulation) {
+          G.Overlays.renderTribulation(x, this);
+        } else if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
 
         if (this.flash > 0) {
           x.fillStyle = 'rgba(255,255,255,' + Math.min(1, this.flash) * .9 + ')';
@@ -766,8 +779,12 @@
           x.beginPath(); x.arc(mx, my, 2.8 - up * 1.3, 0, 6.2832); x.fill();
         }
 
-        /* 目的地名牌：挂在雾柱顶端。**必须在底栏之上**（244），否则等于没写。 */
-        if (e.label) {
+        /* 目的地名牌：**只在鼠标悬浮时显示**。
+           用户口径：「这个下一个地图的名称信息是鼠标放到传送门上面悬浮提示，不需要固定展示」。
+           固定挂着会长期占屏，多个传送门的名牌还会互相挤。 */
+        var mm = G.Input && G.Input.mouse;
+        var hov = mm && mm.x >= cx - 22 && mm.x <= cx + 22 && mm.y >= cy - 40 && mm.y <= cy + 12;
+        if (e.label && hov) {
           x.font = G.UI.F(10);
           var tw = x.measureText(e.label).width + 16;
           var lx = cx - tw / 2, ly = Math.max(52, cy - plume - 15);
@@ -940,6 +957,12 @@
       _drawPlaque: function (x, s, bx0, by0) {
         var label = s.label;
         if (!label) return;
+        /* 匾额**只在鼠标悬浮到该建筑上时显示**（用户口径：「关于建筑的名称也是，
+           鼠标悬浮展示名称，不要固定展示」）。
+           固定挂着会盖住屋顶，一排建筑的名牌挤在一起也很乱。 */
+        var mm = G.Input && G.Input.mouse;
+        var W0 = s.w * 16, H0 = s.h * 16;
+        if (!(mm && mm.x >= bx0 && mm.x <= bx0 + W0 && mm.y >= by0 && mm.y <= by0 + H0)) return;
         var W = s.w * 16;
         var fs = 9.5;
         x.font = G.UI.F(fs);
@@ -1484,11 +1507,14 @@
         x.stroke();
         x.restore();
 
-        /* 有路引时在竖标顶端点一颗呼吸金点：收起状态下也能看出"任务有方向可走" */
+        /* 有路引时在竖标顶端点一颗金点：收起状态下也能看出"任务有方向可走"。
+           ⚠️ **不做呼吸**（用户口径：「任务左右上下都在浮动，做不好就改成禁止」）——
+              呼吸/浮动这类"永远在动"的装饰放在**常驻 UI** 上只会让人分心，
+              而且它原先是 `performance.now()`（本项目铁律：时间源一律 `G.game.time`，
+              否则截图与契约都钉不住）。这里改成**静态点**，信息不减、干扰归零。 */
         if (tk && tk.guide) {
-          var p = 0.5 + 0.5 * Math.sin(performance.now() / 420);
           x.save();
-          x.globalAlpha = 0.35 + 0.5 * p;
+          x.globalAlpha = 0.85;
           x.fillStyle = C.goldHi;
           x.beginPath(); x.arc(TR_TAB_W / 2 - 1, by + 4, 2.1, 0, 6.2832); x.fill();
           x.restore();
@@ -1525,7 +1551,10 @@
         var guide = tk.guide || null;
         var route = guide ? this._routeTo(guide.map) : null;
 
-        var H = 9 + 12 + 14 + dl.length * 11 + subs.length * 11 + (guide ? 27 : 0) + 9;
+        /* ⚠️ 高度**写死**，不随内容伸缩（用户口径：「任务左右上下都在浮动」）——
+           动态高度会让面板下沿随任务文案变化而伸缩，切任务时"跳一下"。
+           固定高度 = 稳定；内容超出由上面的折行上限（2 行）与子任务上限（3 条）保证。 */
+        var H = 118;
         var bx = TR_PANEL_X, by = TR_Y, bw = TR_W;
         G.UI.panel(x, { x: bx, y: by, w: bw, h: H }, 'rgba(6,9,16,0.80)',
           'rgba(216,183,104,0.34)', 4, { tex: false, shadow: false });

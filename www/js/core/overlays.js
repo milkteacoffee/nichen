@@ -269,11 +269,107 @@
         if (!b.ok) { G.game.toast(b.reason); ret(); return; }
         G.game.toast('「' + b.pill + '」已服下……问心魔劫起');
         scene.clearOverlay();
-        G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
+        /* 破境天劫（v0.26.0）：先演天劫 + 天道问话，玩家点「承受」再进心魔战。
+           ⚠️ 只在**探索场景**上演（珠内空间那种没有探索渲染管线，
+              硬演会什么都不显示）——不支持就直接进战斗。 */
+        if (scene && scene._px && this.startTribulation) {
+          var self2 = this;
+          this.startTribulation(scene, save, function () {
+            G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
+          });
+        } else {
+          G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
+        }
         return;
       }
       G.game.toast(r.reason);
       ret();
+    },
+
+    /* ===== 破境天劫（v0.26.0）=====
+       用户口径：「破境必须有天劫动画，天道必须用起来，主角和天道意志对话」。
+       三拍：**蓄势**（天变色 + 微抖）→ **落雷**（三道，白闪 + 震屏）→ **天道问话**（玩家回应）。
+       ⚠️ 做成**覆盖层**而不是独立场景：破境发生在任意探索场景里，
+          新开一个场景要把 enter / 渲染 / 探针全接一遍，成本远高于收益。
+       ⚠️ 时间源一律 `dt`（不用 performance.now）—— 截图与契约要钉得住。 */
+    TRIB: { hold: 1.0, strike: 1.2, bolts: 3, ask: '天道意志' },
+    TRIB_LINE: '雷云压顶，天道之声自云中落下 —— "此界容不下太多长生者。"',
+    startTribulation: function (scene, save, onDone) {
+      scene.trib = { t: 0, flash: 0, shake: 0, boltIdx: -1, asked: false };
+      scene.setOverlay('tribulation', []);
+      scene.tribAsk = function () {
+        if (scene.trib.asked) return;
+        scene.trib.asked = true;
+        scene.setOverlay('tribulation', [
+          new G.UI.Btn({
+            x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
+            label: '承　受',
+            onClick: function () {
+              scene.clearOverlay();
+              scene.trib = null;
+              scene.tribAsk = null;
+              if (onDone) onDone();
+            }
+          })
+        ]);
+      };
+    },
+    tickTribulation: function (scene, dt) {
+      var T = scene.trib;
+      if (!T) return;
+      T.t += dt;
+      var S = this.TRIB;
+      if (T.t >= S.hold && T.t < S.hold + S.strike) {
+        var idx = Math.floor((T.t - S.hold) / (S.strike / S.bolts));
+        if (T.boltIdx !== idx) { T.boltIdx = idx; T.flash = 1; T.shake = 6; }
+      }
+      if (T.flash > 0) T.flash = Math.max(0, T.flash - dt * 3.2);
+      if (T.shake > 0) T.shake = Math.max(0, T.shake - dt * 18);
+      if (T.t >= S.hold + S.strike) scene.tribAsk();
+    },
+    renderTribulation: function (x, scene) {
+      var T = scene.trib;
+      if (!T) return;
+      var S = this.TRIB, t = T.t;
+      var k = Math.min(1, t / S.hold);
+      x.save();
+      /* ① 天变色 + ② 雷云翻涌 */
+      x.fillStyle = 'rgba(28,10,44,' + (0.30 * k).toFixed(3) + ')';
+      x.fillRect(0, 0, 480, 272);
+      x.fillStyle = 'rgba(46,18,66,' + (0.45 * k).toFixed(3) + ')';
+      x.fillRect(0, 0, 480, 40 + 30 * k);
+      /* ③ 落雷：折线（已落下的保持残影，正在落的更亮） */
+      if (t >= S.hold && t < S.hold + S.strike) {
+        for (var i = 0; i <= T.boltIdx; i++) {
+          var age = (t - S.hold) - i * (S.strike / S.bolts);
+          if (age < 0 || age > 0.5) continue;
+          var al = 1 - age / 0.5, bx = 120 + i * 120;
+          x.lineCap = 'round';
+          x.strokeStyle = 'rgba(150,120,240,' + (0.5 * al).toFixed(3) + ')';
+          x.lineWidth = 7;
+          x.beginPath(); x.moveTo(bx, 0);
+          x.lineTo(bx + 14, 70); x.lineTo(bx - 10, 130); x.lineTo(bx + 8, 200); x.lineTo(bx, 272);
+          x.stroke();
+          x.strokeStyle = 'rgba(226,236,255,' + (0.9 * al).toFixed(3) + ')';
+          x.lineWidth = 3;
+          x.stroke();
+        }
+      }
+      /* ④ 白闪 */
+      if (T.flash > 0) {
+        x.fillStyle = 'rgba(255,255,255,' + (0.55 * T.flash).toFixed(3) + ')';
+        x.fillRect(0, 0, 480, 272);
+      }
+      /* ⑤ 天道问话 */
+      if (T.asked) {
+        G.UI.panel(x, { x: 60, y: 118, w: 360, h: 78 },
+          'rgba(8,10,20,0.90)', 'rgba(168,116,236,0.60)', 5, { tex: false, shadow: false });
+        G.UI.textOut(x, { x: 240, y: 128 }, '天 道 意 志', 12, '#c8a8f0', 'center');
+        G.UI.wrap(x, this.TRIB_LINE, 10.5, 330).slice(0, 3).forEach(function (l, i) {
+          G.UI.text(x, { x: 78, y: 150 + i * 15 }, l, 10.5, '#d8d2e8');
+        });
+      }
+      x.restore();
     },
 
     /* 主属性卡：图标 + 标签在上、数值在下，横排三张。

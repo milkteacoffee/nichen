@@ -104,7 +104,11 @@
     { item: '妖丹', n: 2, cost: 50 },
     /* 法宝三槽（v0.25.0）：宗门弟子用贡献换装备 */
     { item: 'eq_qingfeng', n: 1, cost: 80 },
-    { item: 'eq_bujia', n: 1, cost: 80 }
+    { item: 'eq_bujia', n: 1, cost: 80 },
+    { item: 'eq_yupei', n: 1, cost: 80 },
+    { item: 'eq_dianqiang', n: 1, cost: 150 },
+    { item: 'eq_fayi', n: 1, cost: 150 },
+    { item: 'eq_fozhu', n: 1, cost: 150 }
   ];
 
   G.Data.sects = {

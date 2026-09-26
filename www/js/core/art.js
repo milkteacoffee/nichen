@@ -2602,7 +2602,10 @@
 
   A.itemIcon = function (id, sz) {
     sz = sz || 44;
-    var im = G.Assets.img('item.' + id);
+    /* 取图优先序：item. → equip. → skill.（三套逻辑名共用同一个入口，
+       Btn 的 icon 字段只传后缀，不用关心它属于哪一套） */
+    var im = G.Assets.img('item.' + id) || G.Assets.img('equip.' + id)
+      || G.Assets.img('skill.' + id);
     if (im) {
       /* 等比内含、居中：图标是正方形源图，按短边贴合即可 */
       var k = Math.min(sz / im.width, sz / im.height);

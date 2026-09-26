@@ -246,6 +246,8 @@
         x: RX2 + i * (sw + 6), y: EQY, w: sw, h: 38, small: true, fs: 10,
         variant: e ? 'gold' : 'ghost',
         label: e ? e.n : '未装备', sub: EQ.SLOT_N[sl],
+        /* 法宝图标：`equip.<id>`（文生图 16 件）——见 art.js: A.itemIcon 的三套逻辑名 */
+        icon: e ? e.id : null,
         onClick: function () {
           scene.equipPick = sl;
           G.Overlays.openPanel(scene, 'char', true);
@@ -999,6 +1001,7 @@
         var why = G.Player.skillBlockReason ? G.Player.skillBlockReason(save, id) : null;
         out.push({
           n: sd.n, c: why ? '不可用' : ('Lv' + save.skills[id].lv),
+          icon: ELEM_PINYIN[sd.elem] || null,
           blocked: !!why,
           d: (why ? '【' + why + '】' : '')
             + (sd.tier || '凡') + '阶 · ' + sd.kind + ' · 属性 ' + (sd.elem || '无')
@@ -1262,6 +1265,14 @@
        （保留条目、不可用，`voided`），并自动卸下已装备的废功功法
      ⚠️ S1 只做"入/退"骨架，入门试炼与贡献任务属 S2（设计 §9）。
      ============================================================ */
+  /* 功法属性 → 图标后缀（`assets/img/skill.<拼音>.png`，文生图 4×4 图标集切片）。
+     ⚠️ 键必须与 `data/skills.js` 的 `elem` 字面量一致（'无' 也在内）——
+        少一个属性就会退回程序化兜底（不报错，只是那张图标不出现）。 */
+  var ELEM_PINYIN = {
+    '金': 'jin', '木': 'mu', '水': 'shui', '火': 'huo', '土': 'tu',
+    '光': 'guang', '雷': 'lei', '风': 'feng', '暗': 'an', '无': 'wu'
+  };
+
   var RANK_N = { outer: '外门', inner: '内门', core: '真传' };
   /* 宗门面板版式（内容区 P 为 y 26..238，底栏从 244 起）：
      · 散修态：说明在 y+138，拜师按钮**两行 × 三列**（y+160 / y+188，22 高 → 236 收住）
