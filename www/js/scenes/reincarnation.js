@@ -224,14 +224,20 @@
         /* 轮回殿「飞升台」指定的下一世主界优先（设计 v3.2 §10.3）。
            只认已解锁的界 —— 未解锁 / 越界的值一律忽略、回落天道抽取，
            免得旧档或手改档把玩家扔进还没开的世界。
-           道界（dao）即使有三枚碎片也**暂不作为入世主界**：道则回廊内容未开工
-           （缺口 U4），进去会是一个没有主线的界。 */
+           道界（dao）自 v0.9.0 起**可选**：条件是三枚碎片齐（daoKey）——
+           它已由道则回廊九关撑起完整内容（缺口 U4），不再是有区域没主线的空界。 */
         var pick = meta.progress.nextWorld;
         var wd = meta.progress.worlds || {};
-        if (pick && pick !== 'dao' && (pick === 'fan' || wd[pick])) mainWorld = pick;
+        if (pick === 'dao' && meta.progress.daoKey) mainWorld = 'dao';
+        else if (pick && pick !== 'dao' && (pick === 'fan' || wd[pick])) mainWorld = pick;
         else mainWorld = G.Data.regions.rollMainWorld(meta);
       }
       meta.progress.activeWorld = mainWorld;
+
+      /* 降世起始境界（《闭环报告 v3.2》G7「降世选界」）：
+         境界从该界的**起始 gl** 起算（凡 1 / 灵 64 / 仙 91 / 道 145），
+         否则"选灵界降世"却从淬体一段开始，等于把玩家扔进 64 级的野外。 */
+      var startGL = G.Player.worldById(mainWorld).start;
 
       var save = {
         life: life, worldSeed: seed, world: world,
@@ -240,21 +246,21 @@
         skills: skills, skillEquip: equip,
         items: items, stone: stone + addStone, qi: 100 + addQi, po: addPo,
         /* 直接 16 岁入世：幼年阶段（1-15 岁事件卡）已整体删除 */
-        globalLevel: 1, age: 16,
+        globalLevel: startGL, age: 16,
         watch: 0, whispers: 0, escapeLeft: 3 + addRescue,
         quest: { step: 'm0-1', flags: {} },
         scene: 'town', map: 'town',
         pos: { x: G.Data.maps.town.spawn.x, y: G.Data.maps.town.spawn.y },
         chestsOpened: [], bossKilled: false,
         /* 仙力结算与寿元（轮回 v0.4 §3.2 / §4） */
-        maxGlobalLevel: 1, bossKills: 0, chronicle: [], _ageTick: 0,
+        maxGlobalLevel: startGL, bossKills: 0, chronicle: [], _ageTick: 0,
         /* 副本（v3.3）：本世秘境序列随入世抽取。**种子化**（缺口 U8）——
            `dungeonSet` 与区域入口落位必须来自**同一条序列**（缺口 G20），
            否则区域裂隙显示的副本与秘境枢纽的槽位对不上。 */
         dungeonSet: G.Data.dungeons.rollSet(seed + ':set'),
         dungeonSlot: 0, dungeonRun: null, dungeonFarm: 0,
         dungeonPity: { mid: 0, clear: 0 },
-        secrets: {}, daoCrystal: 0,
+        secrets: {}, daoCrystal: 0, daoCleared: [],
         /* 区域层：入口落位按界分桶（锚世不抽池）/ 到访记录 / 已进建筑 */
         entrances: { fan: [], ling: [], xian: [], dao: [] },
         visited: {}, indoor: {}
@@ -263,6 +269,27 @@
       if (!anchor) {
         save.entrances[mainWorld] =
           G.Data.regions.rollEntrances(mainWorld, seed, save.dungeonSet);
+      }
+
+      /* 降世落点 = **主界首区**（《闭环报告 v3.2》G7）：
+         以前写死 `scene:'town'`，于是"选灵界降世"也会落在青溪镇 ——
+         人站在凡界的地图上，境界却是合体一重（gl64），界面与世界全对不上。
+         凡界首区就是 `town`，所以锚世与凡界降世的行为**完全不变**。
+         必须放在 entrances 落位之后：RegionGen 生成地图时要把裂隙放进地图里。 */
+      var firstR = G.Data.regions.of(mainWorld)[0];
+      if (firstR) {
+        if (!firstR.map && G.RegionGen) {
+          if (G.RegionGen.ensure) G.RegionGen.ensure(save, firstR.id);
+          /* 生成型区域还得把**场景**也注册出来，否则 changeScene 会撞上
+             "场景未开放"（地图注册 ≠ 场景注册，两件事）。 */
+          if (G.RegionGen.sceneFor) G.RegionGen.sceneFor(firstR.id);
+        }
+        var startId = G.Data.regions.mapIdOf(firstR.id);
+        var smd = G.Data.maps[startId];
+        if (smd && smd.spawn) {
+          save.scene = startId; save.map = startId;
+          save.pos = { x: smd.spawn.x, y: smd.spawn.y };
+        }
       }
 
       if (addQi || addPo || addStone || addRescue || (pf.body || 0)) {
@@ -275,10 +302,10 @@
         G.game.toast('仙力灌注：' + gains.join('　'));
       }
       /* 走马灯第一条：入世。必须在 saveCurrent 之前写，否则落不了盘。
-         镇名要取当前世界的（非锚世的镇名是随机的），不能写死"青溪镇" ——
-         锚世才叫青溪镇。 */
+         地名取**主界首区**的名字（凡界 = 青溪镇；灵/仙/道界是各自的首区），
+         不能写死"青溪镇" —— 那是凡界锚世才有的地名。 */
       G.Player.chronicle(save, 'birth',
-        '入世' + ((world.names && world.names.town) || '青溪镇'));
+        '入世' + ((firstR && firstR.n) || (world.names && world.names.town) || '青溪镇'));
       G.Storage.saveCurrent(save);
       G.game.save = save;
       /* 新世界的调色板是随机取的（非锚世），地面纹理的缓存键里带调色板 ——
@@ -287,7 +314,7 @@
          只对"后面才去的地图"（山/洞/室内）有效；青溪镇这一张会在进门时现场烘。
          那一下发生在玩家刚点完「入世」的转场瞬间，不打断任何操作，可以接受。 */
       if (G.Art.warmup) G.Art.warmup(world.pal);
-      G.game.changeScene('town');
+      G.game.changeScene(save.scene || 'town');
     },
 
     onTap: function (p) {

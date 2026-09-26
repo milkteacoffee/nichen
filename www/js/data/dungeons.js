@@ -20,24 +20,29 @@
     big:    { hp: [200, 36], atk: [15, 2.2], def: [8, 1.3],  spd: [11, .65] }
   };
 
-  /* ===== 槽位 → Boss 锚点 gl ===== */
+  /* ===== 槽位 → Boss 锚点 gl =====
+     道界不抽随机池（九关固定），这一行是给 `anchorGL('dao', i)` 兜底用的：
+     下标 i = 第 i 关，值 = **通关后**的境界锚点（见 DAO_TRIALS）。 */
   var SLOT_GL = {
     fan:  [9, 27, 45, 54, 63],
     ling: [64, 72, 81, 86, 90],
-    xian: [99, 108, 117, 135, 144]
+    xian: [99, 108, 117, 135, 144],
+    dao:  [147, 150, 153, 156, 159, 162, 165, 168, 171]
   };
 
-  /* ===== 三难度倍率 ===== */
+  /* ===== 三难度倍率 =====
+     `res` 是**灵石**收益系数（地狱扣到 0.6）；道界不流通灵石，
+     所以另给 `dao` 系数 —— 道晶是"道则结晶"，越难的道则越凝练，方向与 res 相反。 */
   var DIFF = {
-    normal: { id: 'normal', n: '普通', bossHp: 1,    bossAtk: 1,    trash: 1,   res: 1,   xianli: 1,   rare: 1,   cdAdj: 0 },
-    hard:   { id: 'hard',   n: '困难', bossHp: 1.35, bossAtk: 1.25, trash: 1.2, res: .8,  xianli: 1.2, rare: 1.5, cdAdj: 0 },
-    hell:   { id: 'hell',   n: '地狱', bossHp: 1.8,  bossAtk: 1.55, trash: 1.4, res: .6,  xianli: 1.5, rare: 2,   cdAdj: -1 }
+    normal: { id: 'normal', n: '普通', bossHp: 1,    bossAtk: 1,    trash: 1,   res: 1,   xianli: 1,   rare: 1,   cdAdj: 0,  dao: 1 },
+    hard:   { id: 'hard',   n: '困难', bossHp: 1.35, bossAtk: 1.25, trash: 1.2, res: .8,  xianli: 1.2, rare: 1.5, cdAdj: 0,  dao: 1.3 },
+    hell:   { id: 'hell',   n: '地狱', bossHp: 1.8,  bossAtk: 1.55, trash: 1.4, res: .6,  xianli: 1.5, rare: 2,   cdAdj: -1, dao: 1.6 }
   };
 
   /* ===== 世界系数 / 名号 ===== */
-  var WORLD_COEF = { fan: 1, ling: 1.05, xian: 1.1 };
-  var WORLD_NAME = { fan: '凡界', ling: '灵界', xian: '仙界' };
-  var WORLD_TIER_KEY = { fan: 'fan', ling: 'ling', xian: 'xian' };
+  var WORLD_COEF = { fan: 1, ling: 1.05, xian: 1.1, dao: 1.15 };
+  var WORLD_NAME = { fan: '凡界', ling: '灵界', xian: '仙界', dao: '道界' };
+  var WORLD_TIER_KEY = { fan: 'fan', ling: 'ling', xian: 'xian', dao: 'xian' };
 
   /* ===== 杂兵底怪（喂 makeEnemy 的 species）===== */
   var TRASH = {
@@ -514,6 +519,224 @@
     return typeof v === 'number' ? v : 1;
   }
 
+  /* ============================================================
+   * 道界：固定三境试炼（《境界体系 v3.2》§5–§7 + 副本 v3.2 §6.3）
+   * ============================================================
+     道界**不抽随机池**：一条线性「道则回廊」共九关，3 关一境 × 三境 ——
+       准圣斩三尸 → 圣人证混元 → 道祖合道。
+     每关 `gl` 是**通关后**的境界锚点，九关正好把 145 → 171 走完：
+       147 斩善尸 ｜ 150 斩恶尸 ｜ 153 斩自身尸
+       156 三尸合一 ｜ 159 功德道相 ｜ 162 天道束缚
+       165 道则傀儡 ｜ 168 大道化身 ｜ 171 合道（演出，无战斗）
+     `cost` 是入场道晶（《闭环报告 v3.2》G4 口径）：
+       100+300+500（准圣）+ 250+350+400（证圣）+ 500+700+800（合道）= 3900
+     名号一律**固定、非前缀**（副本 v3.2 §7.2）—— 不走「【界*称号】」公式，
+     因为三尸/道相/道则都是"道"本身的化身，不属于任何一界。 */
+  var DAO_GROWTH = { hp: [260, 46], atk: [18, 2.6], def: [10, 1.5], spd: [12, .7] };
+  var DAO_DROP_BASE = 80;              /* 道界每场战斗的道晶基准（× 难度 dao 系数） */
+  var DAO_ENTER_GL = 145;              /* 入道界的起始境界（准圣一重） */
+  var DAO_STAGES = 9;
+
+  var DAO_TRIALS = [
+    /* ---- 准圣：斩三尸（gl145–153）---- */
+    { n: '斩善尸', gl: 147, realm: '准圣', cost: 100, drop: 60,
+      win: '善尸已斩。慈悲亦是执，斩之方见本来。',
+      boss: {
+        name: '善念化身', sprite: 'heartDemon', elem: '木',
+        skills: [
+          { n: '慈悲渡厄', mult: 1.2, cd: 2, elem: '木' },
+          { n: '莲台护持', kind: 'shield', pct: .22, cd: 4 },
+          { n: '普度甘霖', kind: 'heal', pct: .18, cd: 5 }
+        ],
+        phases: [ { kind: 'heal', trig: .45, pct: .20 } ]
+      } },
+
+    { n: '斩恶尸', gl: 150, realm: '准圣', cost: 300, drop: 70,
+      win: '恶尸已斩。修罗相灭，杀心归寂。',
+      boss: {
+        name: '恶念化身', sprite: 'heartDemon', elem: '暗',
+        skills: [
+          { n: '修罗斩', mult: 1.45, cd: 2, elem: '暗', vamp: .25 },
+          { n: '血海滔天', mult: 1.3, cd: 4, charge: true, target: '全体', elem: '暗' }
+        ],
+        phases: [ { kind: 'enrage', trig: .35, atk: .30 } ]
+      } },
+
+    /* 自身尸 = 主角快照 ×1.1（境界 v3.2 §5：「本相：主角快照 ×1.1、全技能」），
+       面板在战斗生成时现取，所以这里只留 snapshot 倍率。 */
+    { n: '斩自身尸', gl: 153, realm: '准圣', cost: 500, drop: 80,
+      win: '自身尸已斩。照见执念 —— 执念即我，我即无我。',
+      boss: {
+        name: '执念化身', sprite: 'heartDemon', elem: '无', snapshot: 1.10,
+        skills: [
+          { n: '执念一击', mult: 1.6, cd: 3, charge: true },
+          { n: '心魔乱咒', mult: 1.2, cd: 2, status: { t: '封', chance: .30 } },
+          { n: '镜花水月', kind: 'shield', pct: .20, cd: 4 }
+        ],
+        phases: [ { kind: 'enrage', trig: .30, atk: .25 } ]
+      } },
+
+    /* ---- 圣人：证道混元（gl154–162）---- */
+    { n: '三尸合一', gl: 156, realm: '圣人', cost: 250, drop: 70,
+      win: '三尸合一，混元道基已成。',
+      boss: {
+        name: '混元道基', sprite: 'heartDemon', elem: '无',
+        skills: [
+          { n: '三尸合击', mult: 1.5, cd: 2 },
+          { n: '混元一气', mult: 1.25, cd: 4, charge: true, target: '全体' },
+          { n: '道基不坏', kind: 'shield', pct: .25, cd: 5 }
+        ],
+        phases: [ { kind: 'summon', trig: .55, spec: { base: '杀手', name: '尸气化身' }, n: 2 } ]
+      } },
+
+    { n: '功德道相', gl: 159, realm: '圣人', cost: 350, drop: 75,
+      win: '功德圆满，道相庄严 —— 业力不沾其身。',
+      boss: {
+        name: '功德道相', sprite: 'heartDemon', elem: '金',
+        skills: [
+          { n: '功德金光', mult: 1.3, cd: 2, elem: '金' },
+          { n: '业力反噬', mult: 1.2, cd: 3, target: '全体', elem: '无',
+            status: { t: '封', chance: .30 } },
+          { n: '莲台护持', kind: 'shield', pct: .28, cd: 4 }
+        ],
+        phases: [ { kind: 'heal', trig: .50, pct: .22 } ]
+      } },
+
+    { n: '天道束缚', gl: 162, realm: '圣人', cost: 400, drop: 80,
+      win: '天道锁链尽断 —— 元神寄托天道，证天道圣人。',
+      boss: {
+        name: '天道束缚', sprite: 'heartDemon', elem: '雷',
+        skills: [
+          { n: '锁链绞杀', mult: 1.4, cd: 2, elem: '雷' },
+          { n: '天规雷罚', mult: 1.35, cd: 4, charge: true, target: '全体', elem: '雷',
+            status: { t: '麻', chance: .35 } },
+          { n: '法则锁链', kind: 'shield', pct: .30, cd: 5 }
+        ],
+        phases: [ { kind: 'enrage', trig: .40, atk: .25, cdCut: [ { match: '天规雷罚', cd: 2 } ] } ]
+      } },
+
+    /* ---- 道祖：合道天劫（gl163–171）---- */
+    { n: '道则傀儡', gl: 165, realm: '道祖', cost: 500, drop: 70,
+      win: '五行四象皆入彀中，道则傀儡伏诛。',
+      boss: {
+        name: '道则傀儡', sprite: 'heartDemon', elem: '无',
+        skills: [
+          { n: '五行轮转', mult: 1.4, cd: 2 },
+          { n: '四象镇封', mult: 1.3, cd: 4, charge: true, target: '全体',
+            status: { t: '封', chance: .35 } },
+          { n: '法则护体', kind: 'shield', pct: .28, cd: 5 }
+        ],
+        phases: [ { kind: 'clone', trig: .50, pct: .45, n: 2 } ]
+      } },
+
+    { n: '大道化身', gl: 168, realm: '道祖', cost: 700, drop: 80,
+      win: '大道化身崩解 —— 万法归墟，唯道长存。',
+      boss: {
+        name: '大道化身', sprite: 'heartDemon', elem: '无',
+        skills: [
+          { n: '大道碾落', mult: 1.6, cd: 2 },
+          { n: '万法归墟', mult: 1.45, cd: 4, charge: true, target: '全体' },
+          { n: '一气化三清', mult: 1.3, cd: 3, target: '全体' }
+        ],
+        phases: [
+          { kind: 'summon', trig: .60, spec: { base: '杀手', name: '道则化身' }, n: 2 },
+          { kind: 'enrage', trig: .30, atk: .30 }
+        ]
+      } },
+
+    /* 合道 = 演出关（境界 v3.2 §7「合道演出：身合天道」），无战斗。 */
+    { n: '合道', gl: 171, realm: '道祖', cost: 800, drop: 0, finale: true,
+      win: '身合天道，言出为则。道祖境圆满 —— 此为修炼终点。',
+      boss: null }
+  ];
+
+  /* ===== 道界工厂 ===== */
+
+  function daoById(i) { return DAO_TRIALS[i] || null; }
+  function daoCount() { return DAO_TRIALS.length; }
+
+  /* 第 i 关的**入场**境界要求：线性回廊 —— 前关通关即达（第 0 关要求 gl145） */
+  function daoReqGL(i) { return i <= 0 ? DAO_ENTER_GL : DAO_TRIALS[i - 1].gl; }
+
+  /* 该关是否已历（本世内有效） */
+  function daoCleared(save, i) {
+    var cl = (save && save.daoCleared) || [];
+    return !!cl[i];
+  }
+
+  /* 该关是否可挑战：线性回廊，前关已历才开下一关 */
+  function daoOpen(save, i) {
+    if (i <= 0) return true;
+    return daoCleared(save, i - 1);
+  }
+
+  /* 道晶产出：道界每场战斗（野外与试炼同口径），随难度与关序略增 */
+  function daoCrystalDrop(diff, index) {
+    var d = DIFF[diff] || DIFF.normal;
+    var base = DAO_DROP_BASE * (d.dao || 1);
+    return Math.max(1, Math.round(base * (1 + 0.06 * (index || 0))));
+  }
+
+  /* 道晶总耗（用于 UI 与契约校验）：3900 */
+  function daoTotalCost() {
+    var n = 0;
+    DAO_TRIALS.forEach(function (t) { n += t.cost || 0; });
+    return n;
+  }
+
+  /* 某界当前难度（每界独立，缺省回落新游戏选的默认档）——
+     dungeon 场景与 battle 场景共用这一份口径，避免两处漂移。 */
+  function diffOf(meta, worldId) {
+    var p = (meta && meta.progress) || {};
+    var wd = p.worldDiff || {};
+    return wd[worldId] || p.difficulty || 'normal';
+  }
+
+  /* 道界 Boss：不走 makeBoss 的「【界*称号】」公式（名号固定），
+     数值按 DAO_GROWTH 生长；`snapshot` 关（执念化身）现取玩家面板 × 倍率。 */
+  function makeDaoBoss(trial, diff, save, meta) {
+    var b = trial.boss, d = DIFF[diff] || DIFF.normal, L = trial.gl;
+    var hp, atk, def, spd;
+    if (b.snapshot) {
+      var st = G.Player.computeStats(save, meta);
+      hp = st.maxhp * b.snapshot;
+      atk = st.atk * b.snapshot;
+      def = st.def * b.snapshot;
+      spd = st.spd * b.snapshot;
+    } else {
+      hp  = DAO_GROWTH.hp[0]  + DAO_GROWTH.hp[1]  * (L - 1);
+      atk = DAO_GROWTH.atk[0] + DAO_GROWTH.atk[1] * (L - 1);
+      def = DAO_GROWTH.def[0] + DAO_GROWTH.def[1] * (L - 1);
+      spd = DAO_GROWTH.spd[0] + DAO_GROWTH.spd[1] * (L - 1);
+    }
+    var w = WORLD_COEF.dao;
+    hp  = round(hp * d.bossHp * w);
+    atk = round(atk * d.bossAtk * w);
+    def = round(def * w);
+    spd = round(spd);
+
+    return {
+      name: b.name, species: b.name,
+      sprite: b.sprite, artKey: b.artKey || null,
+      level: L,
+      maxhp: hp, hp: hp,
+      atk: atk, def: def, spd: spd,
+      elem: b.elem,
+      boss: true,
+      skills: buildSkills(b.skills, diff),
+      phases: (b.phases || []).map(clone),
+      shield: 0,
+      buffs: { atk: 0, turns: 0 },
+      guard: false, statuses: {}, im: [], charge: null
+    };
+  }
+
+  /* 某关的战斗参数；合道关（finale）无敌人 */
+  function makeDaoStage(trial, diff, save, meta) {
+    if (!trial || trial.finale || !trial.boss) return { type: 'finale', enemies: [] };
+    return { type: 'dao', enemies: [makeDaoBoss(trial, diff, save, meta)] };
+  }
+
   G.Data.dungeons = {
     ARCH: ARCH,
     GROWTH: GROWTH,
@@ -524,6 +747,12 @@
     TRASH: TRASH,
     SECRETS: SECRETS,
     SECRET_EFFECTS: SECRET_EFFECTS,
+    /* 道界 */
+    DAO_TRIALS: DAO_TRIALS,
+    DAO_GROWTH: DAO_GROWTH,
+    DAO_ENTER_GL: DAO_ENTER_GL,
+    DAO_STAGES: DAO_STAGES,
+    DAO_DROP_BASE: DAO_DROP_BASE,
     archById: archById,
     anchorGL: anchorGL,
     makeBoss: makeBoss,
@@ -534,7 +763,18 @@
     secretById: secretById,
     secretEffectById: secretEffectById,
     secretGrade: secretGrade,
-    gradeOf: gradeOf
+    gradeOf: gradeOf,
+    /* 道界接口 */
+    daoById: daoById,
+    daoCount: daoCount,
+    daoReqGL: daoReqGL,
+    daoCleared: daoCleared,
+    daoOpen: daoOpen,
+    daoCrystalDrop: daoCrystalDrop,
+    daoTotalCost: daoTotalCost,
+    diffOf: diffOf,
+    makeDaoBoss: makeDaoBoss,
+    makeDaoStage: makeDaoStage
   };
 
 })();

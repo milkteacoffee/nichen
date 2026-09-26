@@ -1028,6 +1028,13 @@
       /* 副本战：杂兵/精英走通用收益，Boss 关由副本场景结算；打完回副本场景推进。 */
       if (p.dungeon) {
         var dg = p.dungeon;
+        /* 道界试炼（缺口 U4）：没有「关卡序列」这一套 —— 一场定胜负，
+           奖励与进境全部由副本场景的 _afterDaoBattle 结算，这里只回场。 */
+        if (dg.dao) {
+          G.Storage.saveCurrent(save);
+          this._finishDungeon();
+          return;
+        }
         var darch = G.Data.dungeons.archById(dg.archId);
         var dtype = G.Data.dungeons.stageType(darch, dg.stage);
         if (dtype === 'trash' || dtype === 'elite') {
@@ -1055,7 +1062,8 @@
 
       /* 普通遭遇（经济表 v0.2 §4）：逐只结算再合计
          灵气 80×L×灵根系数×(1+灵气加成) / 灵力 8×L×(1+灵力加成)
-         灵石 6×L×(1+灵石加成)；主角境界 − L > 5 → 该只 ×0.5 */
+         灵石 6×L×(1+灵石加成)；主角境界 − L > 5 → 该只 ×0.5
+         **道界例外**（境界 v3.2 §10.3）：道界不流通灵石，野外所得折算为**道晶**。 */
       var r = G.Player.rates(save);
       var lg = save.linggen || { elems: ['无'], coef: {} };
       var lgCoef = (lg.coef && lg.coef[(lg.elems && lg.elems[0]) || '无']) || 1;
@@ -1070,9 +1078,16 @@
       });
       save.qi = (save.qi || 0) + qi;
       save.po = (save.po || 0) + po;
-      save.stone += st;
-      this._log('战利：灵气 +' + qi + '　灵力 +' + po + '　灵石 +' + st
-        + (cut ? '（境界压制，收益减半）' : ''));
+      var aw = G.Player.activeWorldId(G.game.meta);
+      if (aw === 'dao') {
+        var dcr = G.Data.dungeons.daoCrystalDrop(G.Data.dungeons.diffOf(G.game.meta, 'dao'));
+        save.daoCrystal = (save.daoCrystal || 0) + dcr;
+        this._log('战利：灵气 +' + qi + '　灵力 +' + po + '　道晶 +' + dcr);
+      } else {
+        save.stone += st;
+        this._log('战利：灵气 +' + qi + '　灵力 +' + po + '　灵石 +' + st
+          + (cut ? '（境界压制，收益减半）' : ''));
+      }
       G.Storage.saveCurrent(save);
       this._finish(true, this.mapId);
     },

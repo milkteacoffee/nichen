@@ -95,6 +95,15 @@ for (const rel of srcs) {
   vm.runInContext(fs.readFileSync(path.join(WWW, rel), 'utf8'), sandbox, { filename: rel });
 }
 
+/* 钉死时钟，让「第 2 世变强」这行**可复现**。
+   原因：非锚世的世界种子取自 `Date.now()`（`reincarnation.js: var seed = anchor ? 20260924
+   : (Date.now() & 0x7fffffff)`），于是第 2 世的落位/调色板等每次跑都可能不同，
+   实测 30 次里 28 次「攻击 41→43」、2 次「41→46」——**基线不可复现等于没有基线**。
+   必须放在脚本载入**之后**：`G.rng` 的种子在 `rng.js` 载入时就取过真实时间了，
+   此处改 `Date.now` 不会回改它，第 1 世（锚世，种子固定 20260924）行为完全不变。 */
+const FIXED_NOW = 1774512000000;   /* 2026-09-26T12:00:00+08:00 */
+vm.runInContext('Date.now = function () { return ' + FIXED_NOW + '; };', sandbox);
+
 const errors = [];
 const trace = [];
 function pump(frames) {

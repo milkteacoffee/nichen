@@ -622,6 +622,63 @@ step(() => {
 }, 'hall.lives');
 shot('36_hall_lives', 10);
 
+/* 11) v0.9.0：道界·道则回廊（缺口 U4）
+   道界此前**只有区域、没有内容** —— 这三张是"九关真的列出来了、通关真的结算了、
+   飞升台的道界行真的可选了"的肉眼凭据。 */
+const daoMeta = () => ({
+  lives: 5, xianli: 0, totalXianli: 0,
+  perfusion: { body: 3, qi: 2, po: 1, stone: 2, rescue: 1 },
+  achieve: {}, past: [],
+  titles: ['破狱·凡尘', '破狱·灵渊', '破狱·仙穹'],
+  hellCleared: { fan: true, ling: true, xian: true },
+  device: { id: G.Storage.deviceId(), browser: G.Storage.browserId() },
+  progress: {
+    difficulty: 'normal', activeWorld: 'dao', nextWorld: null,
+    worlds: { fan: true, ling: true, xian: true, dao: true },
+    worldDiff: { fan: 'normal', ling: 'hell', xian: 'normal', dao: 'hard' },
+    daoKey: true, daoShards: { fan: true, ling: true, xian: true }
+  }
+});
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  G.game.meta = daoMeta();
+  s.globalLevel = 156;                 /* 斩三尸已历，正在证道 */
+  s.maxGlobalLevel = 156;
+  s.daoCrystal = 320;
+  s.daoCleared = [true, true, true, true, false, false, false, false, false];
+  s.dungeonRun = null;
+  s.pos = null;
+  G.game.changeScene('dungeon');
+}, 'dao.corridor');
+shot('37_dao_corridor', 8);
+
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  G.game.meta = daoMeta();
+  s.globalLevel = 147;
+  s.maxGlobalLevel = 147;
+  s.daoCrystal = 300;
+  s.daoCleared = [true, false, false, false, false, false, false, false, false];
+  s.dungeonRun = null;
+  s.pos = null;
+  G.game.changeScene('dungeon');
+  G.scenes.dungeon._startDaoTrial(1);          /* 扣道晶 → 进战斗 */
+  G.game.changeScene('dungeon', { fromBattle: true });   /* 结算简报 */
+}, 'dao.brief');
+shot('38_dao_brief', 8);
+
+step(() => {
+  G.game.save = JSON.parse(JSON.stringify(save));
+  G.game.meta = daoMeta();
+  G.game.meta.progress.nextWorld = 'dao';
+  G.game.changeScene('hall');
+  G.scenes.hall.view = 'ascend';
+  G.scenes.hall._build();
+}, 'hall.ascend.dao');
+shot('39_hall_ascend_dao', 8);
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n渲染期间异常 (' + errors.length + ')：');

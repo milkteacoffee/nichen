@@ -441,7 +441,7 @@ NPC 与人物立绘目前全部走程序化画面 —— 键已接线，随时�
   另含关卡类型序列（大9/小5）与 Boss gl（大=锚/中=锚−2/头领=锚）结构断言。
 - `node tools/secret-test.js` —— **签名秘术效果**：品阶函数（凡1/灵1.5/仙2/道2.5）、
   圣术面板%聚合、神术战斗被动（吸血/封印/枯荣/护盾/每回合回灵）、仙术每场一次主动施放。
-- `node tools/shot.js [输出目录] [名字片段 ...]` —— 用 `@napi-rs/canvas` 真实光栅化，把 54 个场景导出 PNG。
+- `node tools/shot.js [输出目录] [名字片段 ...]` —— 用 `@napi-rs/canvas` 真实光栅化，把 57 个场景导出 PNG。
   **会先读 `assets/manifest.json` 把素材登记进去**，所以出图就是"装了素材"的真实画面。
   第一个参数只有**指向已存在的目录**时才当输出目录，其余参数是名字过滤
   （`node tools/shot.js 24_char` 只落盘这一张）。过滤时**所有帧照常推进** ——
@@ -451,9 +451,12 @@ NPC 与人物立绘目前全部走程序化画面 —— 键已接线，随时�
   `04_hud` / `04b_hud_lowhp` / **`29_hud_bar`** 三张专门盯主界面 HUD（满血 / 濒死 / 底栏六功能）——
   改 `_drawHUD` 或换立绘素材（`AVATAR_HEAD`）后跑这几张就能看出问题；
   **`30_panel_skills` ~ `34_panel_achieve`** 五张盯底栏六个面板的排版，
-  **`35_settings`** 盯天道设置页（Claude 协议配置态），**`36_hall_lives`** 盯轮回殿「前世经历」。
-  > ⚠️ 改面板排版（`core/panels.js`）后**必须逐张看这几帧**：排版越界/叠字**不报错**，
-  > 只有截图能看出来（G21–G24 就是这么发现的）。无头契约 `panels.bounds.contract` 是第二道闸。
+  **`35_settings`** 盯天道设置页（Claude 协议配置态），**`36_hall_lives`** 盯轮回殿「前世经历」，
+  **`37_dao_corridor` / `38_dao_brief`** 盯道界道则回廊枢纽与试炼简报，
+  **`39_hall_ascend_dao`** 盯飞升台选中道界行（金底文字色 + 底部信息行不压面板下沿）。
+  > ⚠️ 改面板排版（`core/panels.js` / `scenes/reincarnation-hall.js`）后**必须逐张看这几帧**：
+  > 排版越界/叠字/压边框**不报错**，只有截图能看出来（G21–G25 就是这么发现的）。
+  > 无头契约 `panels.bounds.contract` 是第二道闸。
 - `node tools/zoom.js [场景] [倍数|full] [输出目录]` —— 单场景局部放大审查，用来确认
   精灵清晰度 / 有没有被低倍率位图放大糊掉。场景支持
   `town | field | cave | town_home | town_shop | town_market | field_temple | title | battle | death | hall`。

@@ -347,6 +347,11 @@
       return this.realmOf(gl || 1).n + '突破丹';
     },
 
+    /* 是否已入道界三境（准圣/圣人/道祖）。道界**无破境之说** ——
+       境界只由「道则回廊」九关试炼推进（境界 v3.2 §5–§7），
+       所以灵气突破在 gl≥145 一律拦截，避免玩家刷灵气跳过三境试炼。 */
+    isDaoRealm: function (gl) { return (gl || 1) >= 145; },
+
     /* 突破按钮/面板状态 */
     breakState: function (save) {
       var gl = save.globalLevel || 1;
@@ -358,21 +363,25 @@
       var pill = this.breakPill(gl);
       var owned = (save.items && save.items[pill]) || 0;
       var cap = this.worldCap();
+      var daoLv = this.isDaoRealm(gl) && gl < MAX_GL;
       var st = {
         gl: gl, realm: t.n, stage: stage, big: big,
         need: need, have: have, lack: Math.max(0, need - have),
         pill: pill, pillOwned: owned,
         maxed: gl >= MAX_GL,
         worldcap: gl >= cap && gl < MAX_GL,
+        daoRealm: daoLv,
         cap: cap,
         next: this.realmInfo(Math.min(MAX_GL, gl + 1))
       };
-      st.ready = !st.maxed && !st.worldcap && have >= need && (!big || owned > 0);
+      st.ready = !st.maxed && !st.worldcap && !daoLv
+        && have >= need && (!big || owned > 0);
       st.reason = st.maxed ? '已至道祖圆满，无路可破'
         : st.worldcap ? '此界天道所限，飞升方可再进一步'
-          : (big && !owned) ? '需「' + pill + '」'
-            : (have < need) ? '灵气不足，还需 ' + st.lack
-              : '';
+          : daoLv ? '道界无破境之说 —— 唯历「道则回廊」试炼可进'
+            : (big && !owned) ? '需「' + pill + '」'
+              : (have < need) ? '灵气不足，还需 ' + st.lack
+                : '';
       return st;
     },
 
@@ -381,6 +390,7 @@
       var st = this.breakState(save);
       if (st.maxed) return { ok: false, reason: st.reason };
       if (st.worldcap) return { ok: false, worldcap: true, reason: st.reason };
+      if (st.daoRealm) return { ok: false, daoRealm: true, reason: st.reason };
       if (st.big) return { ok: false, big: true, reason: st.reason || ('需「' + st.pill + '」') };
       if (st.have < st.need) return { ok: false, reason: st.reason };
       save.qi = Math.max(0, (save.qi || 0) - st.need);
@@ -393,6 +403,7 @@
       var st = this.breakState(save);
       if (st.maxed) return { ok: false, reason: st.reason };
       if (st.worldcap) return { ok: false, worldcap: true, reason: st.reason };
+      if (st.daoRealm) return { ok: false, daoRealm: true, reason: st.reason };
       if (!st.big) return { ok: false, reason: '尚未修至大圆满' };
       if (st.have < st.need) return { ok: false, reason: st.reason };
       if (!st.pillOwned) return { ok: false, reason: '需「' + st.pill + '」' };
@@ -428,6 +439,19 @@
       save.globalLevel = toW.start;
       save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
       this.chronicle(save, 'ascend:' + targetId, '自' + fromW.n + '飞升' + toW.n);
+      /* 秘术飞升升品（《闭环报告 v3.2》G11）：秘术品阶跟着**获得它的世界**走，
+         飞升到更高的界后手上的秘术一并升品 —— 否则凡界早期拿到的秘术
+         到了仙界还是凡品 1.0，等于作废。只升不降。 */
+      var upgraded = 0;
+      if (G.Data.dungeons && save.secrets) {
+        var g2 = G.Data.dungeons.secretGrade(targetId);
+        Object.keys(save.secrets).forEach(function (id) {
+          if (G.Data.dungeons.gradeOf(save, id) < g2) {
+            save.secrets[id] = g2;
+            upgraded += 1;
+          }
+        });
+      }
       if (meta) {
         meta.progress = meta.progress || {};
         meta.progress.activeWorld = targetId;
@@ -439,7 +463,8 @@
         if (G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       }
       if (G.TianDao) G.TianDao.notify('ascend');
-      return { ok: true, from: fromW.id, to: targetId, gl: save.globalLevel };
+      return { ok: true, from: fromW.id, to: targetId, gl: save.globalLevel,
+        secretUpgraded: upgraded };
     },
 
     _applyBreak: function (save, meta, big) {

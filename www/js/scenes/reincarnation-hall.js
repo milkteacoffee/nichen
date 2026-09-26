@@ -3,7 +3,9 @@
  *   · 左列选**下一世主界**（未解锁置灰并显条件；三枚碎片齐才现道界）；
  *   · 右列调**每界难度**（普通→困难→地狱，与菜单「界域难度」共用 Player.cycleWorldDiff）；
  *   · 底部显示道之钥匙碎片与已得称号。
- * 两处难度入口共用同一份逻辑，菜单那处是"世内便捷入口"，此处是**正式入口**。 */
+ * 两处难度入口共用同一份逻辑，菜单那处是"世内便捷入口"，此处是**正式入口**。
+ * v0.9.0：道界（dao）行**不再是「未开放」** —— 道则回廊九关已落地（缺口 U4），
+ *   有钥匙即可选为下一世主界（入世即准圣一重 gl145）。 */
 (function () {
   var MAXLV = 10;
   var LIVES_PER = 4;              /* 前世经历每页几条 */
@@ -29,12 +31,29 @@
 
   function costOf(lv) { return 20 + lv * 18; }
 
+  /* 金底按钮上的文字色 —— 与 G.UI.Btn 里 `variant:'gold'` 的标签同色。
+     金底上再画亮金（goldHi）会糊成一片（选中行 / 地狱难度行都踩过）。 */
+  var ON_GOLD = '#241a06';
+
+  /* 飞升台两个分区面板的矩形。**渲染与契约共用这一份**（导出为 ASC_PANELS）——
+     以前契约里写死 h=116，改了渲染它照样绿，等于没钉住（反例验证漏过一次）。
+     高度必须收在 116 以内：底部还要留出「碎片/称号」信息行（y=208）与底栏按钮（y=232）。 */
+  var ASC_L = { x: 16, y: 88, w: 228, h: 116 };
+  var ASC_R = { x: 252, y: 88, w: 212, h: 116 };
+  var ASC_INFO_Y = 208;              /* 碎片 / 称号 / 下一世 那一行的 y */
+  var ASC_FOOT_Y = 232;              /* 底栏按钮的 y（信息行必须在其之上） */
+
   var scene = {
     smooth: true,
     t: 0,
     hint: '',
     view: 'perfuse',              /* 'perfuse' 仙躯灌注 / 'ascend' 飞升台 / 'lives' 前世经历 */
     page: 0,                      /* 前世经历视图的翻页（每页 6 世） */
+
+    /* 飞升台版式（渲染与契约共用；契约用它判"信息行有没有落进面板里"） */
+    ASC_PANELS: [ASC_L, ASC_R],
+    ASC_INFO_Y: ASC_INFO_Y,
+    ASC_FOOT_Y: ASC_FOOT_Y,
 
     enter: function () {
       if (!G.game.meta) {
@@ -158,20 +177,21 @@
 
       WORDER.forEach(function (w, i) {
         var unlocked = self._unlocked(m, w);
-        var y = 112 + i * 24;
+        var y = 110 + i * 22;
 
         /* —— 左：下一世主界（再点一次取消，交回天道抽定） —— */
         var chosen = (sel === w);
         var cur = (self._curWorld(m) === w);
         var lb = new G.UI.Btn({
-          x: 28, y: y, w: 200, h: 21, small: true, label: '',
+          x: 28, y: y, w: 200, h: 20, small: true, label: '',
           variant: chosen ? 'gold' : (unlocked ? 'default' : 'ghost'),
           onClick: function () {
             if (!unlocked) { G.game.toast(WN[w] + '尚未解锁（' + UNLOCK_HINT[w] + '）'); return; }
-            if (w === 'dao') { G.game.toast('道界内容尚未开放，暂不可选'); return; }
             pr.nextWorld = chosen ? null : w;
             G.Storage.saveMeta(m);
-            self.hint = pr.nextWorld ? ('下一世自' + WN[w] + '入世') : '下一世由天道抽定';
+            self.hint = pr.nextWorld
+              ? ('下一世自' + WN[w] + '入世（起始 ' + G.Player.realmInfo(G.Player.worldById(w).start).n + '）')
+              : '下一世由天道抽定';
             self._build();
           }
         });
@@ -179,13 +199,14 @@
           G.UI.Btn.prototype.render.call(this, xx);
           var dis = !unlocked;
           if (dis) { xx.save(); xx.globalAlpha = 0.5; }
-          xx.fillStyle = chosen ? G.UI.C.goldHi : 'rgba(216,183,104,0.35)';
+          var onGold = chosen && !dis;
+          xx.fillStyle = onGold ? 'rgba(36,26,6,0.55)' : 'rgba(216,183,104,0.35)';
           xx.fillRect(this.x + 9, this.y + 8, 5, 5);
           G.UI.text(xx, { x: this.x + 22, y: this.y + 3.5 }, WN[w], 12,
-            chosen ? G.UI.C.goldHi : (dis ? G.UI.C.textDim : G.UI.C.text));
-          var tag = !unlocked ? '未解锁' : (w === 'dao' ? '未开放' : (chosen ? '下一世' : (cur ? '当前' : '可选')));
+            onGold ? ON_GOLD : (dis ? G.UI.C.textDim : G.UI.C.text));
+          var tag = !unlocked ? '未解锁' : (chosen ? '下一世' : (cur ? '当前' : '可选'));
           G.UI.text(xx, { x: this.x + this.w - 10, y: this.y + 4 }, tag, 10,
-            !unlocked ? G.UI.C.danger : (chosen ? G.UI.C.gold : G.UI.C.textDim), 'right');
+            !unlocked ? G.UI.C.danger : (onGold ? ON_GOLD : G.UI.C.textDim), 'right');
           if (dis) xx.restore();
         };
         self.buttons.push(lb);
@@ -193,7 +214,7 @@
         /* —— 右：该界难度（点一下轮换，立即生效） —— */
         var dn = DN[self._diffOf(m, w)];
         var rb = new G.UI.Btn({
-          x: 264, y: y, w: 188, h: 21, small: true, label: '',
+          x: 264, y: y, w: 188, h: 20, small: true, label: '',
           disabled: !unlocked,
           variant: self._diffOf(m, w) === 'hell' ? 'gold' : 'default',
           onClick: function () {
@@ -207,11 +228,12 @@
           G.UI.Btn.prototype.render.call(this, xx);
           var dis = this.disabled;
           if (dis) { xx.save(); xx.globalAlpha = 0.5; }
+          var onGold = !dis && dn === '地狱';
           G.UI.text(xx, { x: this.x + 12, y: this.y + 3.5 }, WN[w], 12,
-            dis ? G.UI.C.textDim : G.UI.C.text);
+            dis ? G.UI.C.textDim : (onGold ? ON_GOLD : G.UI.C.text));
           G.UI.text(xx, { x: this.x + this.w - 10, y: this.y + 4 },
             dis ? '—' : dn, 11.5,
-            dis ? G.UI.C.textDim : (dn === '地狱' ? G.UI.C.goldHi : G.UI.C.jadeHi), 'right');
+            dis ? G.UI.C.textDim : (onGold ? ON_GOLD : G.UI.C.jadeHi), 'right');
           if (dis) xx.restore();
         };
         self.buttons.push(rb);
@@ -369,23 +391,27 @@
       var pr = m.progress || {};
 
       /* 左：下一世主界 */
-      G.UI.frame(x, { x: 16, y: 88, w: 228, h: 134 }, null, { paper: true });
+      G.UI.frame(x, ASC_L, null, { paper: true });
       G.UI.text(x, { x: 28, y: 94 }, '下 一 世 主 界', 12, G.UI.C.gold);
       G.UI.divider(x, 130, 111, 204, 'rgba(216,183,104,0.28)');
 
       /* 右：界域难度（正式入口；菜单里那处是世内便捷入口） */
-      G.UI.frame(x, { x: 252, y: 88, w: 212, h: 134 }, null, { paper: true });
+      G.UI.frame(x, ASC_R, null, { paper: true });
       G.UI.text(x, { x: 264, y: 94 }, '界 域 难 度', 12, G.UI.C.gold);
       G.UI.divider(x, 358, 111, 188, 'rgba(216,183,104,0.28)');
 
-      /* 底部一行：碎片 / 称号 / 下一世落点 */
+      /* 底部一行：碎片 / 称号 / 下一世落点。
+         位置必须落在两个面板**下沿之外**（面板到 y=204 为止）——
+         以前画在 y=212，正好压在面板的下沿花角上（39 号截图可见）。
+         称号最多 3 个（破狱·凡尘/灵渊/仙穹），再多就截断，免得撞上右对齐的落点。 */
       var sel = pr.nextWorld;
       var shards = this._shards(m);
       var titles = (m.titles && m.titles.length) ? m.titles.join('·') : '无';
-      G.UI.text(x, { x: 20, y: 212 },
-        '道之钥匙碎片 ' + shards + '/3　称号 ' + titles, 10,
+      var info = '道之钥匙碎片 ' + shards + '/3　称号 ' + titles;
+      if (info.length > 44) info = info.slice(0, 43) + '…';
+      G.UI.text(x, { x: 20, y: ASC_INFO_Y }, info, 10,
         shards >= 3 ? G.UI.C.goldHi : G.UI.C.textDim);
-      G.UI.text(x, { x: 448, y: 212 },
+      G.UI.text(x, { x: 448, y: ASC_INFO_Y },
         sel ? ('下一世：' + WN[sel]) : '下一世：天道抽定', 10,
         sel ? G.UI.C.gold : G.UI.C.textDim, 'right');
     },

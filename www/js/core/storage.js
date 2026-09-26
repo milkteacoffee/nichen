@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 4;
+  var VERSION = 5;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -133,6 +133,17 @@
           delete data.mainWorld;
         }
         data.version = 4;
+      }
+
+      /* v4 → v5：道界道则回廊（缺口 U4）
+         save 侧补 daoCleared（九关通关记录，**本世内有效** —— 每世重爬）；
+         daoCrystal 老档已在 v2 补过，这里只兜一次底。 */
+      if (data.version < 5) {
+        if (!this._isMeta(data)) {
+          data.daoCrystal = data.daoCrystal || 0;
+          data.daoCleared = data.daoCleared || [];
+        }
+        data.version = 5;
       }
       return data;
     },

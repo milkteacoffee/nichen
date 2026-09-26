@@ -1,13 +1,14 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-09-26 · 代码版本 **v0.8.1（GitHub Pages 上线 + 天道三协议真机实测）** · 前一里程碑 v0.8.0 commit `dcc52de`
+> 最后更新：2026-09-26 · 代码版本 **v0.9.0（道界道则回廊 + 降世选界）** · 前一里程碑 v0.8.1
 > 本次增量（详见 §8 顶部）：
-> ①**上线 GitHub Pages**：https://milkteacoffee.github.io/nichen/ —— Actions 部署，
->   **部署前跑冒烟测试，不过就不发**；
-> ②**天道三协议真机实测：全部打通**（新增常驻工具 `tools/api-probe.js`）；
->   实测暴露并修掉两个真问题 —— `joinUrl` 会拼出叠加路径（必现 404）、超时 30s 太紧（改 45s）；
-> ③`browser-probe.js` 支持 `PROBE_URL` 探**线上构建**（线上实测：素材 389ms ready / 页面错误：无）。
-> v0.8.0 的完整增量（底栏六功能 / 天道多协议 / 轮回档案 / 正面立绘 / 削减线框感）见 §8 下方小节。
+> ①**道界内容（缺口 U4）落地**：`dungeons.js` 新增九关固定试炼 `DAO_TRIALS`（斩善/恶/自身尸 →
+>   三尸合一/功德道相/天道束缚 → 道则傀儡/大道化身/合道），道晶经济闭环 3,900，`SLOT_GL` 补 `dao`；
+>   `dungeon.js` 新增「道则回廊」枢纽（线性解锁 + 一场定胜负 + 合道演出关）；
+> ②**飞升台道界行改为可选**（去掉「未开放」）；**降世起始境界按界**、**落点 = 该界首区**（修掉写死 `town`）；
+> ③**道界无破境之说**（`player.js: isDaoRealm`，唯历道则回廊可进）；`ascend` 飞升**秘术同步升品**；
+>   道界野外战斗收益折算**道晶**；存档 **v5**（新增 `daoCrystal` / `daoCleared`）。
+> v0.8.1 的增量（Pages 上线 / 天道三协议真机实测）与 v0.8.0（底栏六功能 / 正面立绘）见 §8 下方小节。
 > **设计基线：GDD v3.3（2026-09-25，全案文档版本统一）** —— 全部文档清单、状态与权威顺序见
 > `doc/《逆尘》设计文档总索引与版本基线 v3.2.md`（文件名保留 v3.2，内容已 v3.3）；单份文档不再单独代表“最新”。
 > 用途：换电脑继续开发时的**唯一入口**。仓库里其它文档的分工见 §2.3。
@@ -25,9 +26,9 @@
 | 逻辑分辨率 | **480 × 272**，内部超采样倍率 `S ∈ [3,4]` 按窗口自适应 |
 | 打包 | Capacitor（`capacitor.config.json` 已配好，**但 `android/` 还没 init**） |
 | **线上试玩** | **https://milkteacoffee.github.io/nichen/** （GitHub Pages，Actions 部署，部署前会卡一道冒烟测试；见 §1.5） |
-| 代码量 | `www/js` ≈ 14.3k 行；`tools/` ≈ 5.8k 行（无头测试与审查工具） |
-| 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识**（圣术面板% / 神术战斗被动 / 仙术每场一次主动，数值随品阶），**道界内容（道则回廊三试炼）未开工** |
-| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** 全过；smoke 共 **14 条契约**（本轮新增 `panels` / `panels.bounds` / `tiandao.protocol` / `device` 四条，均已做反例验证）；浏览器实测难度页/秘境枢纽/战斗/秘术面板通过 |
+| 代码量 | `www/js` ≈ 14.9k 行；`tools/` ≈ 6.3k 行（无头测试与审查工具） |
+| 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识**（圣术面板% / 神术战斗被动 / 仙术每场一次主动，数值随品阶），**道界道则回廊九关固定试炼（斩三尸→证道→合道）+ 道晶经济 + 秘术飞升升品 + 降世按界起始境界与首区落点** |
+| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** 全过；smoke 共 **16 条契约**（v0.9.0 新增 `dao.trials` / `descend.world` 两条，均做反例验证；v0.8.0 批的 `panels` / `panels.bounds` / `tiandao.protocol` / `device` 四条同） |
 
 **最重要的一句话**：这个项目**没有构建步骤**。改完 `www/js/*.js` 直接刷新浏览器就能看到效果；
 `tools/` 下的 node 脚本是**测试与审查**用的，不参与运行。
@@ -162,7 +163,7 @@ nichen/
 | `overlays.js` | 222 | 覆盖层公共件：暗底、对话（立绘+台词）、**角色面板（含称号行）**、**统一路由 `route(x, scene)`**（面板 → 天道菜单页，五处场景共用这一个入口） |
 | `tiandao.js` | 592 | **天道意志**：配置/感应五阶段/世界状态包/**三协议调用（OpenAI `/chat/completions` · Claude `/messages` · 原生 `/responses`，见 `buildRequest` / `extractText`）**/JSON 校验/模板兜底/问卦/注视低语/DOM 输入框（密钥为密码态）/**设置面板（`SET_P`）·界域难度 · 关于**（`G.TianDao`，含 `isMenuOverlay` 路由白名单；**v0.8.0 起没有「菜单」这一页**） |
 | `assets.js` | 107 | 素材登记/查询/加载（`G.Assets.img/register/load`） |
-| `storage.js` | 197 | localStorage 存档 **v4**（`nichen_meta` / `nichen_save`，各带 `_bak`；含历史迁移）＋**设备/浏览器标识**（`deviceId` / `browserId` / `stampDevice`，纯本地不外发） |
+| `storage.js` | 208 | localStorage 存档 **v5**（`nichen_meta` / `nichen_save`，各带 `_bak`；含历史迁移；v5 新增 `daoCrystal` / `daoCleared`）＋**设备/浏览器标识**（`deviceId` / `browserId` / `stampDevice`，纯本地不外发） |
 | `input.js` | 51 | 指针/键盘输入 → `onTap` / `onKey` |
 | `rng.js` | 50 | 可复现随机（种子化，测试靠它） |
 | `ns.js` | 3 | `window.G = window.G \|\| {}` |
@@ -179,7 +180,7 @@ nichen/
 | `title.js` | 331 | 标题菜单、关于页 |
 | `death.js` | 258 | 死亡结算：死因/享年/走马灯/仙力明细/**称号** → 写入轮回档案（每世记来源设备 `dev`）+ **天道跨世记忆**（memory 最近 30 世、watchTotal） |
 | `heaven.js` | 225 | **天道拦魂**（v0.0.2 新增）：死亡后全屏星河场景，≤3 轮模型对话（预设/自由应答）→ 死亡结算 |
-| `reincarnation-hall.js` | 436 | 轮回殿：**三视图 `perfuse`（五线灌注）/ `ascend`（飞升台）/ `lives`（前世经历，倒序分页 + 走马灯 + 设备号）**；底部显示本机 `deviceId` / `browserId` |
+| `reincarnation-hall.js` | 462 | 轮回殿：**三视图 `perfuse`（五线灌注）/ `ascend`（飞升台，含 `ASC_PANELS` 共享版式常量）/ `lives`（前世经历，倒序分页 + 走马灯 + 设备号）**；底部显示本机 `deviceId` / `browserId` |
 | `field.js` | 64 | 翠微山（含山神庙覆盖层） |
 | `cave.js` | 24 | 赤牙洞 |
 
@@ -206,14 +207,14 @@ nichen/
 
 | 工具 | 行数 | 用途 |
 |---|---|---|
-| `smoke.js` | 2502 | **冒烟测试**：加载全部脚本、走遍所有场景、**14 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识**）。改任何东西后第一件事 |
+| `smoke.js` | 2819 | **冒烟测试**：加载全部脚本、走遍所有场景、**16 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点**）。改任何东西后第一件事 |
 | `playthrough.js` | 392 | **M0 通关模拟**：新档 → m0-1..m0-5 → 赤炎狼王，打印每步数值 |
-| `rebirth.js` | 575 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强" |
+| `rebirth.js` | 578 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强"。**开头把 `Date.now` 钉成常量**（§5.9）——不钉的话第 2 世种子随时间变、基线不可复现 |
 | `dungeon-run.js` | 242 | **副本全流程无头测试**：凡界5本→飞升灵界→灵界5本→飞升仙界（结构断言 + 真实开局逐关胜） |
 | `secret-test.js` | 221 | **秘术效果测试**：品阶/圣术面板/神术被动/仙术主动施放断言 |
 | `browser-probe.js` | 679 | **真实浏览器探针**（CDP 驱动本机 Chrome/Edge），唯一能验证素材是否生效的工具。`PROBE_URL` 可指向**线上构建** |
 | `api-probe.js` | ~150 | **天道三协议真机探测**：用游戏自己的 `buildRequest`/`extractText` 打真实端点（`NICHEN_TEST_KEY` / `NICHEN_TEST_ENDPOINT` / `NICHEN_TEST_MODEL`）。契约只钉形状，端到端只认它 |
-| `shot.js` | 633 | 54 个场景导出 PNG（`@napi-rs/canvas` 真实光栅化） |
+| `shot.js` | 690 | 57 个场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
 | `zoom.js` | 182 | 单场景局部放大审查（看精灵清晰度） |
 | `portrait-sheet.js` | 126 | 立绘总览 + ASCII 缩略图（图片直读会间歇失败，文本化更可靠） |
 | `sprite-sheet.js` | 105 | 战斗立绘高倍导出 |
@@ -231,7 +232,7 @@ nichen/
 export NODE_PATH=./node_modules      # 只对 node 工具需要
 
 # —— 每次改完代码 ——
-node tools/smoke.js                       # 必须过（含 14 条契约）
+node tools/smoke.js                       # 必须过（含 16 条契约）
 node tools/shot.js 04_hud                 # 只落这一张（其它帧照常推进）
 node tools/shot.js                        # 全部 54 张
 node tools/playthrough.js                 # 数值回归
@@ -256,14 +257,18 @@ node tools/portrait-sheet.js              # 立绘审查
 
 ### 3.2 当前回归基线（**换机后拿这三个对表**）
 
-> ✅ 以下数字已于 **2026-09-26（v0.8.0）在本机实测复核**（smoke 通过 / playthrough 13 步逐字吻合 /
-> rebirth 仙力 +386、攻击 41→43 / dungeon-run 8·15 / secret-test 全过）。新机上跑出来不一致，
-> 基本就是环境问题，别怀疑代码。
-> ⚠️ **随机源会推移 rebirth 的「第 2 世变强」数字**：它取决于入世时抽到的灵根/天赋，
-> 而抽取用的全局 `G.rng` 序列会被任何**新增的随机消耗**推移。v0.6.0 期间本机实测为 `41→46`，
-> v0.7.0 把秘境序列与入口落位改成**独立种子 RNG**（不再消耗全局 rng）后回到 `41→43`，
-> v0.8.0 未触碰随机源、仍为 `41→43`。
-> 判定标准是「第 2 世四维是否**全面高于**第 1 世」，不是某个具体数字。
+> ✅ 以下数字已于 **2026-09-26（v0.8.0）在本机实测复核**，并于 **v0.9.0 复跑确认无漂移**
+> （smoke 16 条契约全过 / playthrough 13 步逐字吻合 / rebirth 仙力 +386、攻击 41→43 /
+> dungeon-run 8·15 / secret-test 全过）。新机上跑出来不一致，基本就是环境问题，别怀疑代码。
+> ⚠️ **「第 2 世变强」这行曾经不可复现（v0.9.0 已修，务必知悉）**：
+> 非锚世的世界种子取自 `Date.now()` —— `reincarnation.js: var seed = anchor ? 20260924 : (Date.now() & 0x7fffffff);`
+> 于是每次跑 `rebirth.js`，第 2 世的落位/调色板都不同。实测 30 次：**28 次「攻击 41→43」、2 次「41→46」**。
+> > 旧版 HANDOVER 把这种差异归因于「新增随机消耗推移了全局 `G.rng` 序列」——
+> > **那个归因是错的**。`rebirth.js` 已用 `rollFixed()` 把两世的灵根钉死、天赋清空，
+> > 第 1 世（锚世，种子恒为 `20260924`）完全确定，仙力恒为 +386。差异**只来自 `Date.now()`**。
+> 修法：`rebirth.js` 在**脚本载入之后**把 `Date.now` 钉成常量（此时 `G.rng` 的种子已取过真实时间，
+> 第 1 世行为完全不变），第 2 世种子随之固定 → 基线可复现（现恒为 `41→43`）。
+> 判定标准仍是「第 2 世四维是否**全面高于**第 1 世」，不是某个具体数字。
 
 **`smoke.js`** → `冒烟测试通过：脚本加载 + 标题/转世/镇/山/洞/战斗/死亡/轮回殿 全场景渲染无异常。`
 
@@ -485,6 +490,28 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 `browser-probe.js` 需要**常驻**的 `http.server 8173`（用后台任务起），
 中途断掉会让所有子资源变 502，表现为"驱动里 `window.G` 是 undefined"。
 
+### 5.9 回归基线必须可复现 —— 时钟也要钉
+
+**症状**：`rebirth.js` 的「第 2 世变强」那行**偶尔**从 `攻击 41→43` 变成 `41→46`，
+其余数字（仙力 +386 等）完全不变。30 次里出现 2 次。
+
+**误判**：旧版 HANDOVER 把它归因于"新增随机消耗推移了全局 `G.rng` 序列"，
+于是每次改代码都去数"我有没有多调一次随机"——**方向完全错了**。
+
+**真因**：`reincarnation.js` 的非锚世世界种子取自 `Date.now()`
+（`var seed = anchor ? 20260924 : (Date.now() & 0x7fffffff);`）。
+`rebirth.js` 的灵根/天赋早已用 `rollFixed()` 钉死，所以**唯一的时间输入就是这一句**。
+
+**修法**：在 `rebirth.js` 里，**脚本载入之后**执行
+`vm.runInContext('Date.now = function () { return 1774512000000; };', sandbox)`。
+放在载入之后是关键：`G.rng` 的种子在 `rng.js` 载入时就取过真实时间了，
+此时改 `Date.now` 不回改它，第 1 世行为完全不变；只有第 2 世的世界种子被固定。
+
+**教训（可复用）**：**一个不可复现的基线等于没有基线。**
+凡是"偶尔不一样"的回归数字，先找**时间源**（`Date.now` / `performance.now` / `Math.random`），
+不要先假设是业务逻辑的随机消耗。跑 N 次统计分布（`for i in $(seq 1 30); do ... done | sort | uniq -c`）
+比盯一次输出靠谱得多。
+
 ---
 
 ## 6. 已知遗留 / 下一步
@@ -502,7 +529,7 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 | `bg.battle` / `bg.cave` / `bg.hall` / `bg.death` 背景素材 | 逻辑名已定，**未接线**（全走程序化背景） |
 | `portrait.luchen`（主角正面立绘）/ `avatar.luchen`（正面胸像） | **已出图并接线**（v0.8.0）：角色面板走 `A.portrait('luchen')`、HUD 圆头像走 `A.avatar('luchen')`；其余 7 张 `portrait.*`（沈伯/刘掌柜/村民/老者/阿阮/杀手/心魔）也已接线 |
 | `obj.rift` / `obj.worldgate` 区域物件素材 | 未出图，走程序化（`A.rift` / `A.worldgate`；登记素材键即自动优先） |
-| **道界内容（道则回廊三试炼）** | **未开工**（缺口 U4）：`dungeon.js` 对 `dao` 只显示“尚未开放”，`SLOT_GL` 无 `dao`；飞升台里道界行也标「未开放」、不可选为入世主界 |
+| **道界内容（道则回廊九关试炼）** | **✅ 已接线**（v0.9.0，缺口 U4 闭合）：`dungeons.js` 新增 `DAO_TRIALS`（9 关固定序列）+ 道晶经济（总耗 3,900）+ `SLOT_GL.dao`；`dungeon.js` 新增「道则回廊」枢纽（线性解锁 / 一场定胜负 / 合道演出关）；飞升台道界行**已可选**；道界**无破境**、野外收益折算道晶。契约 `dao.trials.contract` + `descend.world.contract` |
 | 区域美术换皮（U7） | 28 区共用同一套程序化外观（主题地面/建筑外观未分化） |
 | 野怪收益曲线验算（U5） | 各区 `zones` 已按 gl 分段，但未做过“某区刷 N 场能否支撑到下一段破境”的数值验算 |
 | **天道模型接入的真机实测** | **✅ 已做**（2026-09-26）：三协议（OpenAI / Claude / 原生 Response）在真实中转站上**全部打通**，见 §8「v0.8.1」。日常复测跑 `tools/api-probe.js` |
@@ -520,14 +547,14 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 
 1. 先跑 §1.4 的三条自检，确认新环境与基线一致。
 2. 开 `npm run serve` 手玩一遍 M0 主线（新档 → 赤炎狼王），感受一下当前手感。
-3. **P4 已收口**（U1/U2/U3/U6 全闭合，见 §8）。剩余按 v3.3 基线推进，按性价比排序：
-   - **道界道则回廊**（U4，P5 最大一块）：`SLOT_GL` 补 dao、固定三境试炼（斩三尸/证道/合道）、
-     道晶经济、秘术飞升升品；做完把飞升台的道界行改为可选（现在标「未开放」）；
+3. **P4 / P5 第一块（U4）均已收口**（U1/U2/U3/U6 见 §8 v0.7.0；U4 道界见 §8 v0.9.0）。
+   剩余按 v3.3 基线推进，按性价比排序：
+   - ~~**道界道则回廊**（U4）~~ **✅ 已完成（v0.9.0）**；
    - **区域美术换皮**（U7）：28 区目前共用一套程序化外观，主题地面/建筑外观未分化；
    - **野怪收益曲线验算**（U5）：逐区算“刷 N 场能否支撑到下一段破境”，必要时调 `zones.enc`；
    - **M1 内容** / **补素材接线**（`bg.*`、`obj.rift` / `obj.worldgate`）。
 4. 工具层欠账（§6.3）优先级低，但 `browser-probe ablate` 的基准帧间隔建议顺手修掉。
-5. **v0.8.0 遗留的小尾巴**：天道三协议没打过真实云端端点（见 §6.2），下次动 `tiandao.js` 时顺手实测一次。
+5. ~~**v0.8.0 遗留的小尾巴**：天道三协议没打过真实云端端点~~ **✅ 已于 v0.8.1 真机实测打通**（见 §8）。
 
 ---
 
@@ -584,6 +611,127 @@ node_modules/
 ---
 
 ## 8. 最近一次改了什么
+
+### v0.9.0：道界道则回廊（U4 闭合）+ 降世选界（2026-09-26）
+
+**背景**：v0.8.1 之后按 §6.4 推进，P5 最大一块是 **U4 道界内容** ——
+此前道界只有 5 个区域（道则回廊/斩尸崖/功德海/混沌渊/合道台），
+`dungeon.js` 对 `dao` 只显示“尚未开放”，`SLOT_GL` 里也没有 `dao`，飞升台道界行标「未开放」不可选。
+本轮把道界从“有地图没内容”补成**完整闭环**。
+
+**① 数据层：九关固定试炼 + 道晶经济（`www/js/data/dungeons.js`）**
+
+道界**不是随机池**，是一条**线性道则回廊**（副本 v3.2 §6.3 口径）。新增 `DAO_TRIALS` 九关：
+
+| # | 关卡 | gl | 境界 | 道晶 | Boss | 备注 |
+|---|---|---|---|---|---|---|
+| 1 | 斩善尸 | 147 | 准圣 | 100 | 善念化身 | 木 |
+| 2 | 斩恶尸 | 150 | 准圣 | 300 | 恶念化身 | 暗 |
+| 3 | 斩自身尸 | 153 | 准圣 | 500 | 执念化身 | `snapshot:1.10`，取玩家面板 ×1.1 |
+| 4 | 三尸合一 | 156 | 圣人 | 250 | 混元道基 | |
+| 5 | 功德道相 | 159 | 圣人 | 350 | 功德道相 | 金 |
+| 6 | 天道束缚 | 162 | 圣人 | 400 | 天道束缚 | 雷 |
+| 7 | 道则傀儡 | 165 | 道祖 | 500 | 道则傀儡 | |
+| 8 | 大道化身 | 168 | 道祖 | 700 | 大道化身 | |
+| 9 | 合道 | 171 | 道祖 | 800 | — | `finale:true`，**无战斗演出关** |
+
+- **道晶总耗 = 3,900**（100+300+500+250+350+400+500+700+800），与闭环报告 v3.2 的 G4 口径一致。
+- 道晶来源 = **道则回廊每场掉落**（`daoCrystalDrop`：基准 80 × 难度系数 × `(1 + 0.06×关序)`）。
+- `SLOT_GL` 补 `dao`；`WORLD_COEF` / `WORLD_NAME` / `WORLD_TIER_KEY` 补道界；
+  `DIFF` 三档补 `dao` 系数（普通 1 / 困难 1.3 / 地狱 1.6）。
+- 工厂：`daoById / daoCount / daoReqGL / daoCleared / daoOpen / daoCrystalDrop / daoTotalCost /
+  makeDaoBoss / makeDaoStage`，外加 **`diffOf(meta, worldId)`** —— 与 battle 场景共用同一份难度口径，
+  **不要在两处各写一遍**。
+
+**② 逻辑层**
+
+- **线性门**：`daoOpen(save, i)` = 前一关已历；`_startDaoTrial` 里先校验、再扣道晶（**已历关重刷免费**）。
+- **一场定胜负**：道界试炼不分阶段，`battle._victory` 里 `dg.dao` 短路直接回副本场景，
+  奖励与进境统一由 `dungeon._afterDaoBattle` 结算（`daoCleared[i]=true` + `globalLevel = max(before, t.gl)`）。
+- **合道关（第 9 关）是演出关**：`_doDaoFinale` 无战斗，直接置通关 + 走马灯 `dao:heDao`。
+- **道界无破境之说**：`player.isDaoRealm(gl)`（`gl ≥ 145`）→ `breakState.daoRealm = true`，
+  `ready` 强制 false、`reason` 改为「道界无破境之说 —— 唯历「道则回廊」试炼可进」，
+  `breakthrough` / `startBigBreak` 均直接拒绝。**道界的唯一进境途径就是道则回廊。**
+- **飞升秘术同步升品**：`Player.ascend` 飞升到新界时，把 `save.secrets` 全部升到该界品阶
+  （`secretGrade(targetId)`），返回值多带 `secretUpgraded` 计数。
+- **道界野外收益折算道晶**：`battle._victory` 的野外分支里，若 `activeWorldId === 'dao'`，
+  不给灵石、改给道晶（`daoCrystalDrop`）。
+
+**③ 界面层（`www/js/scenes/dungeon.js`）**
+
+- 新增 **`_showDaoHub` / `_renderDaoHub`**：「道 则 回 廊」标题 + 「道界　难度 X　道晶 N　已历 k/9 关」，
+  九行关卡（关名 / 境名按 `REALM_COL` 上色：准圣 `#a0b8e0`、圣人 `#e0c878`、道祖 `#e0a070` /
+  「通关后至X二转　道晶 N」），每行一颗按钮（`重　刷` / `挑　战` / `道晶不足` / `封印中`）+「返　回」，
+  **按钮数 = 9 + 1 = 10**。
+- `_showHub` / `_showEntrance` 遇 `dao` 一律转 `_showDaoHub`；`Escape` 在道界枢纽返回。
+- `_diff()` 改用 `D().diffOf(G.game.meta, this._worldId())`（唯一难度口径）。
+
+**④ 飞升台道界行改为可选（`reincarnation-hall.js`）**
+
+- 去掉道界行的「未开放」拦截与 tag；道界可选为下一世主界（**需 `meta.progress.daoKey`**）。
+- 顺带修**排版三处**（见下「踩坑」）：共享版式常量 `ASC_PANELS` / `ASC_INFO_Y` / `ASC_FOOT_Y`
+  提到场景上导出，**渲染与契约读同一份矩形**（否则契约里写死矩形 = 空断言）。
+
+**⑤ 降世选界（`reincarnation.js`，顺带修掉一个静默 bug）**
+
+- **起始境界按界**：`globalLevel = Player.worldById(mainWorld).start`（原先写死 1）。
+- **落点 = 该界首区**：`regions.of(mainWorld)[0]` → `RegionGen.ensure` + `sceneFor` → `mapIdOf` → 取 `spawn`；
+  原先写死 `scene:'town'`，**降世到灵界/仙界/道界也会落在青溪镇**（不报错、只是错得离谱）。
+- 新档补 `secrets: {} / daoCrystal: 0 / daoCleared: []`；走马灯改「入世 + 首区名」。
+
+**⑥ 存档 v4 → v5（`storage.js`）**
+
+- 新增 `daoCrystal`（道晶）/ `daoCleared`（九关通关位）。
+  迁移只在 `save` 侧补（`_isMeta` 分支不动），并保持 v4 及以下逐级迁移链。
+
+**⑦ 契约（`tools/smoke.js`，14 → 16 条）**
+
+- 新增 **`dao.trials.contract`**（~120 行）：数据（9 关 / gl 序列 / 总耗 3,900 / 三境各 3 关 / finale /
+  `DAO_ENTER_GL` / 道晶随难度递增）、线性开锁、**文本探针**（标题 + 九关名 + 道晶 + 按钮 label/disabled）、
+  道晶不足**不开战也不扣费**、扣费开战 + Boss 名号与 gl、结算进境 + 得道晶、
+  重刷**不扣费也不重复进境**、走完九关 → gl171、**gl150 破境被拦**、飞升台道界行可选且整页无「未开放」。
+- 新增 **`descend.world.contract`**：驱动 `reincarnation.finish()` 断言「起始境界 = 该界起始 gl」
+  「落点 = 该界首区」「灵界抽 5 处落位」「无钥匙不可降世道界」「有钥匙 → gl145 + dao1 +
+  `daoCleared:[]` + `daoCrystal:0` + 入口仅 1 处」。
+- 增强两条：`entrances.contract` 改断言「道界只应有 1 个回廊入口落在 dao1，且带 seed/set 也不变」；
+  `panels.bounds.contract` 新增第 ③ 段 —— 飞升台**底部信息行不得落进面板矩形**、不得压底栏、
+  面板底须高于 `ASC_INFO_Y`、碎片行与右对齐「下一世」不得相撞。
+- **反例验证 13 组全部命中**。其中两处**首轮未被抓到**，值得记：
+  - 契约在渲染前把 `hall.buttons = []` 清空 → 按钮标签根本没画，**反向断言成了空断言**。
+    修法：不清空，并加一条「按钮被清空 → 直接报错」的自检。
+  - 契约里把面板矩形**写死** `{h:116}` → 改渲染里的 `frame` 高度契约照样绿。
+    修法：矩形提到场景上导出，契约改读 `h.ASC_PANELS`。
+    **教训：契约里凡是硬编码的版式数字，都等于把断言写空。**
+
+**⑧ 回归无漂移 + 顺手修掉一个「基线不可复现」的坑**
+
+- smoke **16 条契约**全过；playthrough 13 步逐字吻合（`炼气三重 4013 / 696 / 1422 / 16 场 / free`）；
+  rebirth 仙力 **+386**、攻击 **41→43**；dungeon-run **8 / 15**；secret-test 全过。
+- ⚠️ **发现并修掉：`rebirth.js` 的「第 2 世变强」原本不可复现**。
+  非锚世世界种子取自 `Date.now()`，实测 30 次里 28 次 `41→43`、2 次 `41→46`。
+  > 旧版 HANDOVER 把这种差异归因于"新增随机消耗推移 `G.rng`"—— **归因错误**，
+  > 真正的时间输入只有 `reincarnation.js` 那一句 `Date.now()`。
+  > 详细症状/真因/修法见 **§5.9**。
+  修法：`rebirth.js` 在脚本载入**之后**把 `Date.now` 钉成常量（`G.rng` 已播种完毕，第 1 世不变），
+  第 2 世种子固定 → 现在连跑 6 次恒为 `41→43`。**基线终于可复现。**
+- 道界试炼是**固定序列、不消耗 `G.rng`**，不影响任何既有基线。
+
+**⑨ 截图（`tools/shot.js`，57 张）**
+
+新增三帧：`37_dao_corridor`（道则回廊枢纽，gl156 / 道晶 320 / 前 4 关已历）、
+`38_dao_brief`（试炼简报）、`39_hall_ascend_dao`（飞升台选中道界行）。
+
+**踩坑（排版类，均由截图肉眼发现）**
+
+1. **金底行用亮金写字 = 看不见**：飞升台选中行的底色是 `gold`，文字若用 `goldHi` 几乎同色。
+   统一改用 `ON_GOLD = '#241a06'`（与 `G.UI.Btn` 的 gold 标签同色）。**金底上不要再画 goldHi。**
+2. **底部信息行压在面板下沿花角上**：`y=212` 正好踩在两个面板的底边框（底 222）上。
+   修法：面板 `h 134→116`（底 204）、行距 `24→22`、信息行 `212→208`。
+   **`checkTexts` 抓不到这种** —— 它既不越界也不叠字。故新增独立判据「信息行不得落进面板纵向带内」。
+3. **截图必须定向重跑**：`shot.js` 支持帧名过滤（`node tools/shot.js dao_corridor ...`）；
+   前台跑长任务会被 SIGTERM 打断，**长任务一律后台跑 + 日志重定向**。
+
+---
 
 ### v0.8.1：GitHub Pages 上线 + 天道三协议真机实测（2026-09-26）
 

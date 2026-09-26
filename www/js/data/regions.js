@@ -222,6 +222,14 @@
     },
 
     rollEntrances: function (worldId, seed, set) {
+      /* 道界是**线性道则回廊**（副本 v3.2 §6.3），不是 5 处随机秘境：
+         只给一个固定入口，落在回廊入口区 dao1（安全区，也是界门所在），
+         点开就是九关列表。所以这里不走抽签。 */
+      if (worldId === 'dao') {
+        var hub = byWorld.dao.filter(function (r) { return r.id === 'dao1'; })[0] || byWorld.dao[0];
+        return [{ slot: 0, arch: null, region: hub.id, stage: 0, fixed: true }];
+      }
+
       var list = G.Data.regions.entranceCandidates(worldId);
       if (!list.length) return [];
       var n = Math.min(5, list.length);
@@ -229,11 +237,6 @@
          不给则用全局 rng（无头测试靠它覆盖随机性）。 */
       var rng = seed == null ? G.rng : new G.RNG(G.RNG.hash(seed + ':' + worldId + ':ent'));
       var picked = rng.sampleIndices(n, list.length).map(function (i) { return list[i]; });
-      if (worldId === 'dao') {
-        return picked.map(function (r, i) {
-          return { slot: i, arch: null, region: r.id, stage: 0, fixed: true };
-        });
-      }
       /* set 给了就**复用调用方的副本序列**（缺口 G20）：否则区域裂隙显示的副本
          与秘境枢纽的槽位来自两次独立随机，玩家会看到"裂隙点进去是万骨渊、
          枢纽里第 3 槽却是黑风寨"。 */

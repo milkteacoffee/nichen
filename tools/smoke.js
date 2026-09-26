@@ -1534,6 +1534,70 @@ step(() => {
   if (sv.escapeLeft < 4) errors.push('遁法灌注未折算到遁走次数（' + sv.escapeLeft + '）');
 }, 'reinc2.check');
 
+/* ---------- 降世选界契约（《闭环报告 v3.2》G7 + 缺口 U4）----------
+   飞升台选定的下一世主界要**真的生效**：境界从该界起始 gl 起算、落点在该界首区。
+   以前 finish() 把 `globalLevel:1` 与 `scene:'town'` 写死 ——
+   "选灵界降世"会落在青溪镇、境界却是淬体一段，界面与世界全对不上。
+   道界（dao）自 v0.9.0 起也可选，但**必须有钥匙**（三枚碎片齐）。 */
+step(function () {
+  const reinc = G.scenes.reincarnation;
+  function descend(nextWorld, daoKey) {
+    G.game.meta = {
+      lives: 3, xianli: 0, totalXianli: 0,
+      perfusion: {}, achieve: {}, titles: [], past: [{ life: 1 }],
+      heaven: { talks: 0, watchTotal: 0, memory: [], karma: [] },
+      progress: {
+        difficulty: 'normal', activeWorld: 'fan', nextWorld: nextWorld || null,
+        worlds: { fan: true, ling: true, xian: true, dao: false },
+        worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+        daoKey: !!daoKey, daoShards: { fan: true, ling: true, xian: true }
+      }
+    };
+    G.game.changeScene('reincarnation');
+    reinc.originSel = 0;
+    reinc.step = 'linggen'; reinc.rollLinggen();
+    reinc.step = 'talent'; reinc.drawTalents();
+    reinc.finish();
+    return G.game.save;
+  }
+
+  /* 未指定 → 天道抽定；抽到哪界就从哪界起始 gl 起算、落在该界首区 */
+  let s = descend(null, false);
+  if (!s) { errors.push('降世未生成当世档'); return; }
+  const w0 = G.Player.activeWorldId(G.game.meta);
+  if (s.globalLevel !== G.Player.worldById(w0).start) {
+    errors.push(`降世起始境界应等于该界起始 gl（${w0} → ${G.Player.worldById(w0).start}），实际 ${s.globalLevel}`);
+  }
+  if (s.scene !== G.Data.regions.mapIdOf(G.Data.regions.of(w0)[0].id)) {
+    errors.push(`降世落点应为该界首区（${w0}），实际 ${s.scene}`);
+  }
+  if (G.game.sceneName !== s.scene) errors.push(`降世后应进入 ${s.scene}，实际 ${G.game.sceneName}`);
+
+  /* 指定灵界 → gl64 + 雷泽荒原 */
+  s = descend('ling', false);
+  if (G.Player.activeWorldId(G.game.meta) !== 'ling') errors.push('指定灵界降世未生效');
+  if (s.globalLevel !== 64) errors.push(`灵界降世起始 gl 应为 64，实际 ${s.globalLevel}`);
+  if (s.scene !== G.Data.regions.mapIdOf('ling1')) errors.push(`灵界降世落点应为 ling1，实际 ${s.scene}`);
+  if (s.entrances.ling.length !== 5) errors.push('灵界降世未抽 5 处副本落位');
+
+  /* 指定道界但没钥匙 → 必须回落（不能被扔进没开的世界） */
+  s = descend('dao', false);
+  if (G.Player.activeWorldId(G.game.meta) === 'dao') errors.push('没钥匙却降世到了道界');
+
+  /* 有钥匙 → 道界可选：gl145 + 道则回廊（dao1），且只有 1 处入口 */
+  s = descend('dao', true);
+  if (G.Player.activeWorldId(G.game.meta) !== 'dao') errors.push('有钥匙时道界降世未生效');
+  if (s.globalLevel !== 145) errors.push(`道界降世起始 gl 应为 145，实际 ${s.globalLevel}`);
+  if (s.scene !== G.Data.regions.mapIdOf('dao1')) errors.push(`道界降世落点应为 dao1，实际 ${s.scene}`);
+  if (!Array.isArray(s.daoCleared) || s.daoCleared.length !== 0) errors.push('道界降世应初始化 daoCleared');
+  if (s.daoCrystal !== 0) errors.push('道界降世道晶应从 0 起');
+  if (s.entrances.dao.length !== 1 || s.entrances.dao[0].region !== 'dao1') {
+    errors.push('道界降世入口应只有 dao1 一处');
+  }
+  /* 道界内破境被拦（入世即准圣一重，只能靠试炼推进） */
+  if (G.Player.breakState(s).ready) errors.push('道界降世后不该能靠灵气突破');
+}, 'descend.world.contract');
+
 /* ---------- 新场景走查：难度选择 / 副本枢纽 ---------- */
 step(() => { G.game.changeScene('difficulty'); pump(12, 'difficulty'); }, 'scene.difficulty');
 step(function () {
@@ -1710,12 +1774,17 @@ step(function () {
     }
   });
 
-  /* 道界：固定试炼，不走随机池 */
+  /* 道界：**线性道则回廊**，不抽随机池、也没有 5 处裂隙 ——
+     只给一个固定入口落在回廊入口区 dao1（缺口 U4）。 */
   const de = G.Data.regions.rollEntrances('dao');
-  if (de.length !== 5) errors.push(`dao: 入口数应为 5，实际 ${de.length}`);
+  if (de.length !== 1) errors.push(`dao: 道界只应有 1 个回廊入口，实际 ${de.length}`);
+  if (de[0] && de[0].region !== 'dao1') errors.push(`dao: 回廊入口应落在 dao1，实际 ${de[0] && de[0].region}`);
   if (!de.every(function (e) { return e.fixed && e.arch === null; })) {
     errors.push('dao: 道界入口应为固定试炼（arch=null, fixed=true）');
   }
+  /* 带 seed/set 也不该被抽签逻辑带偏 */
+  const de2 = G.Data.regions.rollEntrances('dao', 12345, ['B1', 'B2', 'S1', 'S2', 'S3']);
+  if (de2.length !== 1 || de2[0].region !== 'dao1') errors.push('dao: 传 seed/set 后入口落位被改变');
 
   /* 主界抽取：**未通关的界优先**（否则会反复回已通关的凡界刷，主线推不动） */
   const meta = { progress: { worlds: { fan: { cleared: true }, ling: { cleared: false }, xian: false, dao: false }, daoKey: false } };
@@ -2095,6 +2164,162 @@ step(function () {
   }
 }, 'dungeon.entrance.contract');
 
+/* ---------- 道界·道则回廊契约（缺口 U4）----------
+   道界此前只有区域、没有内容（闭环报告 G17）：SLOT_GL 无 dao、dungeon 场景对 dao
+   只说"尚未开放"。这条契约钉住九关固定试炼的四件事：
+     ① 数据：9 关 / gl 147→171 / 道晶总耗 3900 / 三境各 3 关 / 末关为演出（无战斗）
+     ② 线性：前关未历则后关封印
+     ③ 道晶：不足不扣不开战；足够则扣费开战
+     ④ 进境：通关即 gl = 该关锚点（道界无破境之说，灵气突破被拦）
+   面板一律用**文本探针**确认九关真的画出来了 —— 漏路由是静默的、只断言
+   "render 不抛异常"抓不到（教训见 worlds.panel.contract / G21–G24）。 */
+step(function () {
+  const Dg = G.Data.dungeons;
+  const T = Dg.DAO_TRIALS;
+  if (!Array.isArray(T) || T.length !== 9) { errors.push(`道界应有 9 关试炼，实际 ${T && T.length}`); return; }
+  const gls = T.map(function (t) { return t.gl; });
+  if (gls.join(',') !== '147,150,153,156,159,162,165,168,171') {
+    errors.push('道界九关锚点 gl 序列错误：' + gls.join(','));
+  }
+  if (Dg.daoTotalCost() !== 3900) errors.push(`道晶总耗应为 3900，实际 ${Dg.daoTotalCost()}`);
+  ['准圣', '圣人', '道祖'].forEach(function (r) {
+    const n = T.filter(function (t) { return t.realm === r; }).length;
+    if (n !== 3) errors.push(`${r} 应有 3 关，实际 ${n}`);
+  });
+  if (!T[8].finale) errors.push('末关「合道」应为演出关（finale）');
+  if (Dg.DAO_ENTER_GL !== 145) errors.push('入道界起始境界应为 gl145');
+  /* 道晶产出方向：地狱 > 普通（与灵石 res 相反，道则越难越凝练） */
+  const dn = Dg.daoCrystalDrop('normal', 0), dh = Dg.daoCrystalDrop('hell', 0);
+  if (!(dh > dn)) errors.push(`道晶产出应随难度上升：普通 ${dn} / 地狱 ${dh}`);
+
+  /* ---- 造一份道界档 ---- */
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 145;
+  s.maxGlobalLevel = 145;
+  s.daoCrystal = 0;
+  s.daoCleared = [];
+  s.dungeonRun = null;
+  s.pos = null;
+  s.hp = 99999;
+  G.game.save = s;
+  G.game.meta = {
+    lives: 5, xianli: 0, totalXianli: 0, perfusion: {}, achieve: {}, past: [],
+    titles: ['破狱·凡尘', '破狱·灵渊', '破狱·仙穹'],
+    hellCleared: { fan: true, ling: true, xian: true },
+    progress: {
+      difficulty: 'normal', activeWorld: 'dao', nextWorld: null,
+      worlds: { fan: true, ling: true, xian: true, dao: true },
+      worldDiff: { fan: 'normal', ling: 'normal', xian: 'normal', dao: 'normal' },
+      daoKey: true, daoShards: { fan: true, ling: true, xian: true }
+    }
+  };
+
+  const sc = G.scenes.dungeon;
+
+  /* ---- ② 线性开锁 ---- */
+  if (!Dg.daoOpen(s, 0)) errors.push('第 1 关应默认可挑战');
+  if (Dg.daoOpen(s, 1)) errors.push('第 2 关在第 1 关未历前不该开');
+  if (Dg.daoReqGL(0) !== 145 || Dg.daoReqGL(1) !== 147) errors.push('daoReqGL 口径错');
+
+  /* ---- 面板：九关真的画出来了 ---- */
+  sc.enter();
+  if (sc.view !== 'daohub') { errors.push(`道界枢纽视图应为 daohub，实际 ${sc.view}`); return; }
+  if (sc.buttons.length !== 10) errors.push(`道则回廊按钮数应为 10（9 关 + 返回），实际 ${sc.buttons.length}`);
+  const cx = textSpy(); sc.render(cx);
+  const has = function (t) { return cx.__seen.some(function (x2) { return x2.indexOf(t) >= 0; }); };
+  if (!has('道 则 回 廊')) errors.push('道则回廊面板没有渲染出标题（render 路由漏了 view=daohub）');
+  ['斩善尸', '斩恶尸', '斩自身尸', '三尸合一', '功德道相', '天道束缚', '道则傀儡', '大道化身', '合道']
+    .forEach(function (n) {
+      if (!has(n)) errors.push('道则回廊没有渲染出关卡「' + n + '」');
+    });
+  if (!has('道晶')) errors.push('道则回廊没有渲染出道晶余额');
+  if (!sc.buttons[0].disabled || sc.buttons[0].label !== '道晶不足') {
+    errors.push(`0 道晶时第 1 关应显示「道晶不足」并置灰，实际 ${sc.buttons[0].label}`);
+  }
+  if (!sc.buttons[1].disabled || sc.buttons[1].label !== '封印中') errors.push('第 2 关应显示「封印中」并置灰');
+
+  /* ---- ③ 道晶不足：不扣、不进战斗 ---- */
+  sc.buttons[0].onClick();
+  if (G.game.sceneName === 'battle') errors.push('道晶不足时不该能开战');
+  if (s.daoCrystal !== 0) errors.push('道晶不足时不该扣费');
+
+  /* ---- ④ 道晶足够：扣费开战，敌人为固定名号 + 该关 gl ---- */
+  s.daoCrystal = 100;
+  sc._showDaoHub();
+  if (sc.buttons[0].label !== '挑　战') errors.push(`道晶足够后按钮应为「挑战」，实际 ${sc.buttons[0].label}`);
+  sc.buttons[0].onClick();
+  if (s.daoCrystal !== 0) errors.push(`开战应扣 100 道晶，实际余 ${s.daoCrystal}`);
+  if (G.game.sceneName !== 'battle') { errors.push('道晶足够后应进入战斗场景'); return; }
+  const es = G.scenes.battle.es;
+  if (!es || es.length !== 1) errors.push('道界试炼应为单 Boss 战');
+  else {
+    if (es[0].name !== '善念化身') errors.push(`道界 Boss 名号应为固定「善念化身」，实际 ${es[0].name}`);
+    if (es[0].level !== 147) errors.push(`斩善尸 Boss gl 应为 147，实际 ${es[0].level}`);
+  }
+
+  /* ---- ④ 结算：通关即进境 + 得道晶 ---- */
+  G.game.changeScene('dungeon', { fromBattle: true });
+  if (sc.view !== 'brief') errors.push('道界战斗返回后应停在结算简报');
+  if (!s.daoCleared[0]) errors.push('通关后第 1 关未记入 daoCleared');
+  if (s.globalLevel !== 147) errors.push(`斩善尸通关后 gl 应为 147，实际 ${s.globalLevel}`);
+  if (!(s.daoCrystal > 0)) errors.push('道界试炼通关应得道晶');
+  if (!Dg.daoOpen(s, 1)) errors.push('第 1 关通关后第 2 关应开锁');
+  if (s.dungeonRun !== null) errors.push('道界试炼结算后应清空 dungeonRun');
+
+  /* ---- 重刷已历的关：不扣道晶、不再进境 ---- */
+  const keepGl = s.globalLevel, keepCr = s.daoCrystal;
+  sc._showDaoHub();
+  if (sc.buttons[0].label !== '重　刷') errors.push('已历的关按钮应显示「重刷」');
+  sc.buttons[0].onClick();
+  if (s.daoCrystal !== keepCr) errors.push('重刷已历的关不该再扣道晶');
+  if (G.game.sceneName !== 'battle') { errors.push('重刷应能开战'); return; }
+  G.game.changeScene('dungeon', { fromBattle: true });
+  if (s.globalLevel !== keepGl) errors.push('重刷不该再推进境界');
+
+  /* ---- ⑤ 走完九关 → gl171 ---- */
+  for (let i = 1; i < 9; i++) {
+    s.daoCrystal = 99999;
+    sc._showDaoHub();
+    sc.buttons[i].onClick();
+    if (i === 8) break;                        /* 第 9 关是演出关，不进战斗 */
+    if (G.game.sceneName !== 'battle') { errors.push(`第 ${i + 1} 关未能开战`); return; }
+    G.game.changeScene('dungeon', { fromBattle: true });
+  }
+  if (G.game.sceneName !== 'dungeon') { errors.push('合道演出应回到副本场景'); return; }
+  if (s.globalLevel !== 171) errors.push(`九关走完后 gl 应为 171，实际 ${s.globalLevel}`);
+  if (s.daoCleared.filter(Boolean).length !== 9) errors.push('九关应全部记为已历');
+  if (!G.Player.breakState(s).maxed) errors.push('gl171 应判为已至绝顶（maxed）');
+
+  /* ---- ⑤ 道界无破境之说：gl150 时灵气突破必须被拦 ---- */
+  const s2 = JSON.parse(JSON.stringify(s));
+  s2.globalLevel = 150; s2.qi = 1e9;
+  const bs = G.Player.breakState(s2);
+  if (bs.ready) errors.push('道界内不该能靠灵气突破（ready 应为 false）');
+  if (!bs.daoRealm) errors.push('breakState 未标记 daoRealm');
+  if (String(bs.reason).indexOf('试炼') < 0) errors.push('道界突破拦截提示应指向试炼，实际：' + bs.reason);
+  if (G.Player.breakthrough(s2, G.game.meta).ok) errors.push('道界内 breakthrough 不该成功');
+
+  /* ---- ⑥ 飞升台：道界行可选（不再是「未开放」） ---- */
+  const hall = G.scenes.hall;
+  G.game.meta.progress.nextWorld = null;
+  hall.enter();
+  const tog = hall.buttons.filter(function (b) { return b.label === '飞升台'; })[0];
+  if (!tog) { errors.push('轮回殿缺少「飞升台」入口'); return; }
+  tog.onClick();
+  hall.buttons[6].onClick();                   /* 左列第 4 行 = 道界 */
+  if (G.game.meta.progress.nextWorld !== 'dao') {
+    errors.push(`有钥匙时道界应能选为下一世主界，实际 ${G.game.meta.progress.nextWorld}`);
+  }
+  /* 反向断言：整页（**含按钮**）不该再出现「未开放」。
+     坑：按钮标签是各按钮自己的 render 画的 —— 渲染前把 buttons 清空，
+     这条断言就成了空断言（反例验证时正是这么漏过一次）。 */
+  if (!hall.buttons.length) errors.push('飞升台按钮被清空，反向断言会失效');
+  const hx = textSpy(); hall.render(hx);
+  if (hx.__seen.some(function (t) { return t.indexOf('未开放') >= 0; })) {
+    errors.push('飞升台道界行仍显示「未开放」');
+  }
+}, 'dao.trials.contract');
+
 /* ---------- 轮回殿·飞升台契约（缺口 U2 正式入口 + U3 展示位） ----------
    飞升台要能：选下一世主界（未解锁置灰、再点取消）、调每界难度（正式入口）、
    显示碎片与称号。文本探针同样是必须的 —— 新增视图漏路由的表现是"静默不画"。 */
@@ -2376,6 +2601,64 @@ step(function () {
     G.TianDao.renderOverlay(cx, sc);
     checkTexts(item.id, item.R, cx.__seenXY, sc.buttons);
   });
+
+  /* ③ 轮回殿·飞升台（v0.9.0）：底部「碎片 / 称号」行以前画在 y=212，
+     正好压在两个面板的**下沿花角**上（39 号截图可见）—— 它既没越界也没叠字，
+     所以 checkTexts 抓不到。判据换成"这一行不得落进面板的纵向带内"。
+     顺带校验碎片行与右对齐的「下一世」不会横向相撞（称号最多 3 个）。 */
+  {
+    G.game.save = s;
+    G.game.meta = {
+      lives: 5, xianli: 300, totalXianli: 900,
+      perfusion: { body: 2, qi: 0, po: 0, stone: 0, rescue: 0 },
+      achieve: {}, past: [],
+      titles: ['破狱·凡尘', '破狱·灵渊', '破狱·仙穹'],
+      hellCleared: { fan: true, ling: true, xian: true },
+      progress: { difficulty: 'normal', activeWorld: 'dao', nextWorld: 'dao',
+        worlds: { fan: true, ling: true, xian: true, dao: true },
+        worldDiff: { fan: 'normal', ling: 'hell', xian: 'normal', dao: 'hell' },
+        daoKey: true, daoShards: { fan: true, ling: true, xian: true } }
+    };
+    const h = G.scenes.hall;
+    h.enter();
+    h.view = 'ascend'; h._build();
+    const cx2 = textSpyXY();
+    h.render(cx2);
+    /* 两个分区面板的矩形**取自场景本身**（h.ASC_PANELS）——
+       写死在契约里的话，改了渲染它照样绿，等于没钉住（反例验证漏过一次）。 */
+    const P = h.ASC_PANELS;
+    if (!Array.isArray(P) || P.length !== 2) { errors.push('轮回殿未导出 ASC_PANELS'); return; }
+    const rows = cx2.__seenXY.filter(function (t) {
+      return t.s.indexOf('道之钥匙碎片') >= 0 || t.s.indexOf('下一世：') >= 0;
+    });
+    if (rows.length !== 2) errors.push(`飞升台底部信息行应为 2 条，实际 ${rows.length}`);
+    rows.forEach(function (t) {
+      P.forEach(function (r) {
+        const insideX = t.x > r.x - 2 && t.x < r.x + r.w + 2;
+        const overlapY = t.y < r.y + r.h - 0.5 && t.y + t.size > r.y + 0.5;
+        if (insideX && overlapY) {
+          errors.push('飞升台信息行落进面板矩形（' + JSON.stringify(t.s) + ' y=' + t.y
+            + '..' + (t.y + t.size) + '，面板 ' + r.y + '..' + (r.y + r.h) + '）');
+        }
+      });
+      if (t.y + t.size > h.ASC_FOOT_Y + 0.5) {
+        errors.push('飞升台信息行压到底栏按钮上（' + JSON.stringify(t.s)
+          + ' 底 ' + (t.y + t.size) + ' > ' + h.ASC_FOOT_Y + '）');
+      }
+    });
+    /* 面板高度必须收在信息行之上 —— 否则这条契约会被"两处一起改错"绕过 */
+    P.forEach(function (r) {
+      if (r.y + r.h > h.ASC_INFO_Y) {
+        errors.push(`飞升台面板底 (${r.y + r.h}) 应高于信息行 y (${h.ASC_INFO_Y})`);
+      }
+    });
+    const info = rows.filter(function (t) { return t.s.indexOf('道之钥匙碎片') >= 0; })[0];
+    const nxt = rows.filter(function (t) { return t.s.indexOf('下一世：') >= 0; })[0];
+    if (info && nxt && info.x + bw(info) > (nxt.x - bw(nxt)) - 4) {
+      errors.push('飞升台碎片/称号行与「下一世」相撞（右缘 '
+        + (info.x + bw(info)).toFixed(0) + ' vs 起点 ' + (nxt.x - bw(nxt)).toFixed(0) + '）');
+    }
+  }
 }, 'panels.bounds.contract');
 
 /* ---------- 天道多协议契约（v0.8.0） ----------

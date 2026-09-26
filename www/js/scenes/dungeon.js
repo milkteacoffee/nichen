@@ -1,11 +1,16 @@
-/* 副本运行场景 v3.3：秘境枢纽 + 关卡推进 + Boss 奖励 + 通关飞升
+/* 副本运行场景 v3.4：秘境枢纽 + 关卡推进 + Boss 奖励 + 通关飞升 + 道则回廊
  * 数据：save.dungeonSet[5] / dungeonSlot / dungeonRun / secrets / dungeonFarm
- * 关卡：大副本九关（第5小Boss、第6休整、第9大Boss）；小副本五关（第5头领）。 */
+ *       save.daoCleared[9] / daoCrystal（道界，缺口 U4）
+ * 关卡：大副本九关（第5小Boss、第6休整、第9大Boss）；小副本五关（第5头领）。
+ *       道界九关固定（斩三尸 → 证混元 → 合道），每关一场，通关即进境。 */
 (function () {
   var ROW = { x: 16, w: 448, h: 32, gap: 8, y0: 42 };
   var BRIEF = { x: 40, y: 46, w: 400, h: 184 };
   /* 区域裂隙 → 副本入口面板（缺口 U6） */
   var ENT = { x: 40, y: 22, w: 400, h: 196 };
+  /* 道则回廊九关行（缺口 U4）：一行一关，右侧一颗行动按钮 */
+  var DAO = { x: 14, w: 452, h: 17, y0: 46, step: 19 };
+  var DAO_BTN = { w: 72, h: 15, dx: 8 };
 
   var D = function () { return G.Data.dungeons; };
 
@@ -44,11 +49,9 @@
     _worldId: function () { return G.Player.activeWorldId(G.game.meta); },
     _diff: function () {
       /* 难度**每界独立**（设计 v1.1 §2.5）：先读本界的 worldDiff，缺省回落到新游戏选的默认档。
-         这样"普通通关凡界 → 日后回刷凡界地狱拿碎片"才成立。 */
-      var p = G.game.meta && G.game.meta.progress;
-      if (!p) return 'normal';
-      var wd = p.worldDiff || {};
-      return wd[this._worldId()] || p.difficulty || 'normal';
+         这样"普通通关凡界 → 日后回刷凡界地狱拿碎片"才成立。
+         口径与 battle 场景共用 `dungeons.diffOf`，避免两处漂移。 */
+      return D().diffOf(G.game.meta, this._worldId());
     },
     _slotIndex: function (archId) { return G.game.save.dungeonSet.indexOf(archId); },
 
@@ -58,16 +61,11 @@
       this.view = 'hub';
       this.rows = [];
       this.buttons = [];
+      this.entrance = null;
       var world = this._worldId();
 
-      /* 道界无秘境数据 */
-      if (world === 'dao') {
-        this.buttons.push(new G.UI.Btn({
-          x: 190, y: 150, w: 100, h: 26, small: true, variant: 'gold',
-          label: '返回', onClick: function () { G.game.changeScene('town'); }
-        }));
-        return;
-      }
+      /* 道界不抽秘境池，走固定道则回廊（缺口 U4） */
+      if (world === 'dao') { this._showDaoHub(); return; }
 
       var set = G.game.save.dungeonSet;
       for (var i = 0; i < set.length; i++) {
@@ -103,6 +101,167 @@
       }));
     },
 
+    /* ================= 道界：道则回廊（缺口 U4）=================
+       道界不抽随机池：一条线性回廊、九关三境 ——
+         准圣斩三尸（善/恶/自身）→ 圣人证混元（合一/功德/天道束缚）→ 道祖合道。
+       三处硬规则：
+         ① **线性**：前一关未历，后一关封印（`daoOpen`）；
+         ② **道晶入场**：未历的关要付该关 `cost`，已历可免费重刷；
+         ③ **通关即进境**：道界无破境之说（Player.breakState 会拦灵气突破），
+            境界只由试炼推进 —— 所以九关正好走完 gl145 → gl171。
+       进入方式与其它界一致：区域裂隙（dao1 那一个）与秘境枢纽都落到这里。 */
+    _showDaoHub: function () {
+      var self = this, save = G.game.save;
+      this.view = 'daohub';
+      this.rows = [];
+      this.buttons = [];
+      save.daoCleared = save.daoCleared || [];
+      save.daoCrystal = save.daoCrystal || 0;
+
+      var n = D().daoCount();
+      for (var i = 0; i < n; i++) {
+        var t = D().daoById(i);
+        var r = { x: DAO.x, y: DAO.y0 + i * DAO.step, w: DAO.w, h: DAO.h };
+        this.rows.push({ r: r, trial: t, idx: i });
+
+        (function (idx, rect, tr) {
+          var done = !!save.daoCleared[idx];
+          var open = D().daoOpen(save, idx);
+          var afford = (save.daoCrystal || 0) >= tr.cost;
+          var label = done ? '重　刷'
+            : (open ? (afford ? '挑　战' : '道晶不足') : '封印中');
+          self.buttons.push(new G.UI.Btn({
+            x: rect.x + rect.w - DAO_BTN.w - DAO_BTN.dx,
+            y: rect.y + 1, w: DAO_BTN.w, h: DAO_BTN.h,
+            small: true, variant: done ? 'ghost' : 'gold',
+            disabled: !open || (!done && !afford),
+            label: label,
+            onClick: function () { self._startDaoTrial(idx); }
+          }));
+        })(i, r, t);
+      }
+
+      this.buttons.push(new G.UI.Btn({
+        x: 10, y: 240, w: 96, h: 22, small: true, variant: 'ghost',
+        label: '返　回', onClick: function () {
+          if (self.entrance) { self._leaveEntrance(); return; }
+          G.game.changeScene(G.game.save.scene || 'town');
+        }
+      }));
+    },
+
+    /* 开一关道则试炼：线性校验 + 道晶扣除（已历的关免费重刷） */
+    _startDaoTrial: function (idx) {
+      var save = G.game.save, Dg = D();
+      var t = Dg.daoById(idx);
+      if (!t) return;
+      save.daoCleared = save.daoCleared || [];
+      save.daoCrystal = save.daoCrystal || 0;
+      if (!Dg.daoOpen(save, idx)) { G.game.toast('道则回廊须依次而进'); return; }
+
+      var done = !!save.daoCleared[idx];
+      if (!done && save.daoCrystal < t.cost) {
+        G.game.toast('道晶不足：需 ' + t.cost + '，尚缺 ' + (t.cost - save.daoCrystal));
+        return;
+      }
+      if (!done) save.daoCrystal -= t.cost;
+
+      save.dungeonRun = { dao: true, daoIndex: idx, archId: null, stage: 1, farm: done };
+      if (t.finale) { this._doDaoFinale(); return; }
+      G.Storage.saveCurrent(save);
+      this._enterStage();
+    },
+
+    /* 道界试炼的战场（`_enterStage` 的道界分支） */
+    _enterDaoStage: function (run) {
+      var save = G.game.save;
+      if (!run || !run.dao) { this._showDaoHub(); return; }
+      var t = D().daoById(run.daoIndex);
+      if (!t) { this._showDaoHub(); return; }
+      if (t.finale) { this._doDaoFinale(); return; }
+      var st = D().makeDaoStage(t, this._diff(), save, G.game.meta);
+      G.Storage.saveCurrent(save);
+      G.game.changeScene('battle', {
+        mapId: 'dungeon',
+        dungeon: { dao: true, daoIndex: run.daoIndex, worldId: 'dao',
+          diff: this._diff(), stage: 1 },
+        enemies: st.enemies
+      });
+    },
+
+    /* 合道：道祖段没有战斗 —— 设计写的是「合道演出」（境界 v3.2 §7）。 */
+    _doDaoFinale: function () {
+      var save = G.game.save;
+      var i = save.dungeonRun ? save.dungeonRun.daoIndex : D().daoCount() - 1;
+      var t = D().daoById(i);
+      var farm = !!(save.dungeonRun && save.dungeonRun.farm);
+      save.daoCleared = save.daoCleared || [];
+
+      this.view = 'brief';
+      this.briefTitle = '道则回廊 · ' + (t ? t.n : '合道');
+      var lines = [];
+      if (!farm) {
+        save.daoCleared[i] = true;
+        var before = save.globalLevel || 1;
+        save.globalLevel = Math.max(before, t.gl);
+        save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
+        G.Player.chronicle(save, 'dao:heDao', '合道 —— 身合天道，证道祖境圆满');
+        lines.push(t.win);
+        if (save.globalLevel > before) {
+          lines.push('境界：' + G.Player.realmInfo(before).n
+            + ' → ' + G.Player.realmInfo(save.globalLevel).n);
+        }
+        lines.push('道祖境圆满（gl171）—— 此为本作修炼终点。');
+        if (G.TianDao) G.TianDao.notify('daoAscend');
+      } else {
+        lines.push('合道已证，道途无复可进。');
+      }
+      save.dungeonRun = null;
+      this.briefLines = lines;
+      this._pending = null;
+      G.Storage.saveCurrent(save);
+      this._buildBriefButtons('返回回廊');
+    },
+
+    /* 道界试炼结算：一场定胜负（不推进 stage），通关即进境 + 得道晶 */
+    _afterDaoBattle: function () {
+      var save = G.game.save, run = save.dungeonRun;
+      var i = run.daoIndex, t = D().daoById(i);
+      var farm = !!run.farm;
+      save.daoCleared = save.daoCleared || [];
+      save.daoCrystal = save.daoCrystal || 0;
+
+      this.view = 'brief';
+      this.briefTitle = '道则回廊 · ' + t.n;
+      var lines = [];
+
+      var drop = D().daoCrystalDrop(this._diff(), i);
+      save.daoCrystal += drop;
+
+      if (!farm) {
+        save.daoCleared[i] = true;
+        var before = save.globalLevel || 1;
+        save.globalLevel = Math.max(before, t.gl);
+        save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
+        lines.push(t.win);
+        if (save.globalLevel > before) {
+          lines.push('境界精进：' + G.Player.realmInfo(before).n
+            + ' → ' + G.Player.realmInfo(save.globalLevel).n);
+          G.Player.chronicle(save, 'dao:' + t.gl,
+            '道界历「' + t.n + '」，入' + G.Player.realmInfo(save.globalLevel).n);
+        }
+      } else {
+        lines.push('道则再度流转，此番只取道晶。');
+      }
+      lines.push('道晶 +' + drop + '（余 ' + save.daoCrystal + '）');
+
+      save.dungeonRun = null;
+      this.briefLines = lines;
+      this._pending = null;
+      G.Storage.saveCurrent(save);
+      this._buildBriefButtons('返回回廊');
+    },
+
     /* ================= 区域裂隙 → 副本入口面板（缺口 U6）=================
        `regiongen.onInteract` 早就在裂隙上 changeScene('dungeon', { entrance })，
        但 enter() 只认 fromBattle —— 于是"点了裂隙"跳的是通用枢纽，
@@ -112,6 +271,9 @@
     _showEntrance: function (ent) {
       var self = this;
       this.entrance = ent;
+      /* 道界只有一处入口（dao1 的道则回廊），点开即九关列表 ——
+         不走"按 slot 取副本原型"那套（道界没有随机池）。 */
+      if (this._worldId() === 'dao') { this._showDaoHub(); return; }
       this.view = 'entrance';
       this.buttons = [];
 
@@ -162,7 +324,9 @@
     },
 
     onKey: function (code) {
-      if (code === 'Escape' && this.view === 'entrance') this._leaveEntrance();
+      if (code !== 'Escape') return;
+      if (this.view === 'entrance') this._leaveEntrance();
+      else if (this.view === 'daohub' && this.entrance) this._leaveEntrance();
     },
 
     _startOrResume: function (slot) {
@@ -184,9 +348,10 @@
     /* ================= 进入关卡 ================= */
     _enterStage: function () {
       var save = G.game.save, run = save.dungeonRun;
-      var arch = D().archById(run.archId);
       var world = this._worldId();
-      if (world === 'dao') { this._showHub(); return; }
+      /* 道界走固定回廊，没有 dungeonSet/slot 这一套 */
+      if (world === 'dao') { this._enterDaoStage(run); return; }
+      var arch = D().archById(run.archId);
       var slot = this._slotIndex(run.archId);
       var type = D().stageType(arch, run.stage);
 
@@ -232,6 +397,7 @@
     _afterBattle: function () {
       var save = G.game.save, run = save.dungeonRun;
       if (!run) { this._showHub(); return; }
+      if (run.dao) { this._afterDaoBattle(); return; }
       var arch = D().archById(run.archId);
       var type = D().stageType(arch, run.stage);
       var lines = [];
@@ -475,10 +641,42 @@
       x.fillStyle = g; x.fillRect(0, 0, 480, 272);
 
       if (this.view === 'hub') this._renderHub(x);
+      else if (this.view === 'daohub') this._renderDaoHub(x);
       else if (this.view === 'entrance') this._renderEntrance(x);
       else this._renderBrief(x);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+    },
+
+    /* 道则回廊面板（缺口 U4） */
+    _renderDaoHub: function (x) {
+      var save = G.game.save;
+      var dn = D().DIFF[this._diff()].n;
+      var cleared = (save.daoCleared || []).filter(Boolean).length;
+
+      G.UI.textOut(x, { x: 240, y: 12 }, '道 则 回 廊', 18,
+        '#f0e2b0', 'center', 'rgba(6,8,14,0.7)', 3);
+      G.UI.text(x, { x: 240, y: 32 },
+        '道界　难度 ' + dn + '　道晶 ' + (save.daoCrystal || 0)
+        + '　已历 ' + cleared + '/' + D().daoCount() + ' 关',
+        10, '#8f95a6', 'center');
+
+      var REALM_COL = { 准圣: '#a0b8e0', 圣人: '#e0c878', 道祖: '#e0a070' };
+      for (var i = 0; i < this.rows.length; i++) {
+        var row = this.rows[i], t = row.trial, r = row.r;
+        var done = !!(save.daoCleared || [])[i];
+        var open = D().daoOpen(save, i);
+        G.UI.panel(x, r, done ? 'rgba(24,32,44,0.92)' : 'rgba(20,26,40,0.92)',
+          done ? 'rgba(120,180,140,0.38)' : 'rgba(120,140,180,0.35)', 4);
+
+        G.UI.text(x, { x: r.x + 8, y: r.y + 2 }, (i + 1) + '. ' + t.n, 11.5,
+          done ? '#9aa0b0' : (open ? '#e8e2d0' : '#7c8296'));
+        G.UI.text(x, { x: 116, y: r.y + 3 }, t.realm, 9.5,
+          REALM_COL[t.realm] || '#9aa0b0');
+        G.UI.text(x, { x: 146, y: r.y + 3 },
+          (done ? '已历' : '通关后至') + G.Player.realmInfo(t.gl).n
+          + '　道晶 ' + t.cost, 9.5, done ? '#8f95a6' : '#a8aebd');
+      }
     },
 
     /* 区域裂隙的副本入口面板 */
@@ -535,12 +733,6 @@
       G.UI.text(x, { x: 240, y: 32 }, '难度 ' + dn
         + '　通关进度 ' + Math.min(5, G.game.save.dungeonSlot) + '/5',
         10, '#8f95a6', 'center');
-
-      if (world === 'dao') {
-        G.UI.text(x, { x: 240, y: 120 }, '道界道则回廊尚未开放', 13,
-          '#aab0c0', 'center');
-        return;
-      }
 
       for (var i = 0; i < this.rows.length; i++) {
         var row = this.rows[i], a = row.arch, r = row.r;
