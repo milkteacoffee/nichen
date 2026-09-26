@@ -308,6 +308,21 @@ step(() => {
 }, 'battle.summon');
 shot('18c_battle_summon', 20);
 
+/* M1：血煞教三敌（程序化立绘验收，设计 M1 v1.0 §5.3）——
+   本轮只上了数据与立绘，所以直接造单位进战斗，验证 beastResolve 真的取到新图。 */
+[['血煞教徒', '44_battle_cultist'], ['血蝠', '45_battle_bloodbat']].forEach((it) => {
+  step(() => {
+    G.game.save = JSON.parse(JSON.stringify(save));
+    G.game.changeScene('battle', { enemy: G.Data.makeEnemy(it[0], 14, it[0]), mapId: 'cave' });
+  }, 'battle.' + it[0]);
+  shot(it[1], 30);
+});
+step(() => {
+  G.game.save = JSON.parse(JSON.stringify(save));
+  G.game.changeScene('battle', { enemy: G.Data.makeXuemian(), mapId: 'cave' });
+}, 'battle.xuemian');
+shot('46_battle_xuemian', 30);
+
 /* 6) 剧情战：杀手 / 狼王 / 心魔 */
 step(() => {
   G.game.save = JSON.parse(JSON.stringify(save));

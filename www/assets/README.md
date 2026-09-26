@@ -130,6 +130,18 @@ v0.11.0 起，四界 **28 个区域各有自己的一套程序化外观**（缺�
 | `battle.enemy.wolfking` | 192×192 | 赤炎狼王 |
 | `battle.enemy.killer` | 192×192 | 血煞教杀手 |
 | `battle.enemy.heartDemon` | 192×192 | 心魔 |
+| `battle.enemy.cultist` | 192×192 | 血煞教徒（M1）**⏳ 待出图**，现走程序化兜底 |
+| `battle.enemy.bloodbat` | 192×192 | 血蝠（M1）**⏳ 待出图**，现走程序化兜底 |
+| `battle.enemy.xuemian` | 192×192 | 血面（M1 血夜 Boss）**⏳ 待出图**，现走程序化兜底 |
+| `battle.enemy.heartDemon2` | 192×192 | 心魔残影（M1）**⏳ 待出图**，现走程序化兜底 |
+
+> **M1 血煞教四张立绘（v0.11.1 已接线，图未出）**：逻辑名已登记在 `enemies.js` 的
+> `artKey` 上（`beastResolve` 会去查 `battle.enemy.<artKey>`），**当前一律退回程序化立绘**
+> （`sprites.js: BAKE` 的 `cultist` / `bloodbat` / `xuemian`，心魔残影退回 `heartDemon`）。
+> 出图后放进 `_gen/` 即可自动接管，**不需要改任何代码**。
+> ⚠️ **筑基心魔不吃 `battle.enemy.heartDemon2`**：`battle.js` 对 `species === '心魔'` 有特判，
+> 直接走 `G.Sprites.heartDemon()`。这张图只服务**心魔残影**（`species: '心魔残影'`）。
+> 若要给筑基心魔换形象，得先拆掉那条特判，别只丢图进去。
 
 > **副本 Boss（20 张，✅ 已装 AI 素材；设计见《副本Boss形象与关卡结构设计 v3.3》§3 / §4）**：
 > 大 Boss `battle.enemy.b1big` … `b5big`、小 Boss `battle.enemy.b1mid` … `b5mid`、

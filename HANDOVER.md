@@ -1,24 +1,15 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-09-26 · 代码版本 **v0.11.0（区域美术换皮 U7 闭合 + 面板关闭钮 + 角色子页）** · 前一里程碑 v0.10.0
+> 最后更新：2026-09-26 · 代码版本 **v0.11.1（M1 内容第一段：数据层）** · 前一里程碑 v0.11.0
 > 本次增量（详见 §8 顶部）：
-> ①**区域美术换皮（缺口 U7，P5 最后一块）**：28 个区域此前共用同一套程序化外观。
->   新增 **`regions.PAL`（28 区 28 套配色，键 `ground/dark/grass/rock/scatter`）+ `TINT` 映射**，
->   经 `regions.palOf()` 覆盖世界调色板的 4 个颜色字段（**其余字段透传**，避免以后加字段静默丢失），
->   由 `regiongen` 落到地图的 **`md.pal` / `md.scatter`**；`explore.js` 新增单一入口 **`_pal()`**，
->   7 处绘制路径（阴影/家具/地面/路/建筑/装饰/Boss）**全部改走它** —— 绘制代码不再直读 `world.pal`。
->   室内图与凡界 F1–F3 复用型地图的 `md` 无 `pal` 字段 → **天然退回世界调色板，行为零变化**。
-> ②**底栏六面板加「主动关闭钮」**：此前只有"再点一次当前页签收起"这一隐含出口。
->   新增 `G.UI.Btn` 的 **`glyph:'close'`（矢量两笔画叉）**，六个面板统一挂右上角，
->   `onClick = scene.clearOverlay()`；面板右栏数值统一让位到 `P.x+P.w-38`（否则压住关闭钮）。
-> ③**角色面板拆四子页**：`总览 / 灵根 / 属性 / 境界`（原先立绘+境界+灵根+属性+功法+称号挤一页）。
->   子页签用**新变体 `variant:'subtab'`**（不能复用底栏 `'tab'`，`panels.contract` 靠它认底栏）；
->   `scene.charTab` 由 `panels.openPanel` 维护（从别处切进来重置「总览」，面板内点页签保留）。
-> ④契约 **18 → 19 条**：新增 **`region.tint.contract`**（数据全覆盖 / 同界内不得两区同色 /
->   运行时两区域 `md.pal`+`scatter`+`_groundKey` 必不同 / **源码闸**：`explore.js` 不得直读 `world.pal`）；
->   `panels.contract` 追加关闭钮与子页签断言，`panels.bounds.contract` 改为**四子页全跑**
->   并补上**横向右端越界**检查（原先只看左端 `t.x`，右端溢出是契约盲区，本版真的漏过一次）。
-> v0.10.0 的增量（野怪收益曲线 U5）与更早的 v0.9.x / v0.8.x 见 §8 下方小节。
+> ①**M1 数据层**（按 `doc/《逆尘》M1剧情与内容设计 v1.0.md` §11 的第一步推进）：
+>   血煞教四敌（血煞教徒 / 血蝠 / 执事·血面 / 筑基心魔）+ **5 本灵阶功法** + 2 个新掉落池；
+>   新增 **多段攻击**（`skill.hits`，每段独立结算、控制只判最后一段）；
+>   `sprites.js` 的 `BAKE` 新增 3 张程序化立绘（cultist / bloodbat / xuemian）；
+>   契约 **19 → 20 条**（新增 `m1.data.contract`），并顺手修掉 `zone.weights` 那条
+>   用**时间播种** `G.rng` 导致的偶发假红（改固定种子采样）。
+>   **任务链 m1-1..m1-7 / 血煞据点地图 / 抉择卡 / 因果簿 / 血夜演出 见下一步。**
+> v0.11.0 的增量（区域美术换皮 U7 + 面板关闭钮 + 角色四子页）与更早版本见 §8 下方小节。
 > **设计基线：GDD v3.3（2026-09-25，全案文档版本统一）** —— 全部文档清单、状态与权威顺序见
 > `doc/《逆尘》设计文档总索引与版本基线 v3.2.md`（文件名保留 v3.2，内容已 v3.3）；单份文档不再单独代表“最新”。
 > 用途：换电脑继续开发时的**唯一入口**。仓库里其它文档的分工见 §2.3。
@@ -36,9 +27,9 @@
 | 逻辑分辨率 | **480 × 272**，内部超采样倍率 `S ∈ [3,4]` 按窗口自适应 |
 | 打包 | Capacitor（`capacitor.config.json` 已配好，**但 `android/` 还没 init**） |
 | **线上试玩** | **https://milkteacoffee.github.io/nichen/** （GitHub Pages，Actions 部署，部署前会卡一道冒烟测试；见 §1.5） |
-| 代码量 | `www/js` ≈ 15.3k 行（37 个文件）；`tools/` ≈ 7.3k 行（无头测试与审查工具） |
-| 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识 + 道界道则回廊九关固定试炼（斩三尸→证道→合道）+ 道晶经济 + 秘术飞升升品 + 降世按界起始境界与首区落点** + **野怪收益曲线已校准（各境界刷满 12–42 场，原大罗 60,895 场）** + **区域美术换皮（28 区 28 套配色与装饰物配方，U7 闭合）** + **底栏六面板主动关闭钮** + **角色面板四子页（总览/灵根/属性/境界）** |
-| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** · **zone-curve（野怪收益曲线验算）** 全过；smoke 共 **19 条契约**（v0.11.0 新增 `region.tint` 一条 + `panels`/`panels.bounds` 两条增强，均做反例验证；v0.10.0 批 `zone.curve` / `zone.curve.source` 两条 + 两条运行时差分探针；v0.9.0 批 `dao.trials` / `descend.world` 两条；v0.8.0 批四条同） |
+| 代码量 | `www/js` ≈ 15.6k 行（37 个文件）；`tools/` ≈ 7.4k 行（无头测试与审查工具） |
+| 当前进度 | **M0 主线全通 + 天道意志（三协议云端模型）+ 19境/四界/15副本 + 签名秘术效果 + 20 Boss 立绘 + NPC 精灵/立绘全量替换 + 主角正面立绘 + 四界 28 区域层/建筑可进/副本入口随机落位 + 地狱难度体系（三碎片开道界）+ 区域裂隙与界门可见 + 副本入口面板 + 轮回殿飞升台（选下一世主界/调界域难度/碎片与称号）+ 飞升·道界·地狱成就 + 常驻底栏六功能 + 每一世经历回溯与设备标识 + 道界道则回廊九关固定试炼（斩三尸→证道→合道）+ 道晶经济 + 秘术飞升升品 + 降世按界起始境界与首区落点** + **野怪收益曲线已校准（各境界刷满 12–42 场，原大罗 60,895 场）** + **区域美术换皮（28 区 28 套配色与装饰物配方，U7 闭合）** + **底栏六面板主动关闭钮** + **角色面板四子页（总览/灵根/属性/境界）** + **M1 数据层（血煞教四敌 + 5 本灵阶功法 + 多段攻击 + 3 张程序化立绘）** |
+| 回归状态 | smoke · playthrough · rebirth · **dungeon-run（凡→灵→仙）** · **secret-test（秘术效果）** · **zone-curve（野怪收益曲线验算）** 全过；smoke 共 **20 条契约**（v0.11.1 新增 `m1.data` 一条 + 修掉 `zone.weights` 的时间播种假红；v0.11.0 新增 `region.tint` 一条 + `panels`/`panels.bounds` 两条增强；v0.10.0 批 `zone.curve` / `zone.curve.source` 两条 + 两条运行时差分探针；v0.9.0 批 `dao.trials` / `descend.world` 两条；v0.8.0 批四条同） |
 
 **最重要的一句话**：这个项目**没有构建步骤**。改完 `www/js/*.js` 直接刷新浏览器就能看到效果；
 `tools/` 下的 node 脚本是**测试与审查**用的，不参与运行。
@@ -163,7 +154,7 @@ nichen/
 |---|---|---|
 | `art.js` | 2509 | **全部程序化美术**。地面纹理、建筑、家具、装饰、精灵、立绘、图标、**区域物件（秘境裂隙 / 界门）**；三级缓存（`cached` / `G.Sprites` / `G.UI`）都在这里定义。**头像走 `A.avatar`（专用胸像 `avatar.luchen`），取景表 `AVATAR_HEAD` 是显式的，不要写自动检测** |
 | `ui.js` | 751 | UI 套件：调色板 `C`、字体 `F`、`panel/frame/bar/seal/icon/avatar/divider/rr`、`Btn`（底栏页签变体 `tab` / 面板子页签变体 `subtab` / **矢量图标钮 `glyph:'close'`**）、打字机 `Typewriter` |
-| `sprites.js` | 1091 | 主角四向行走帧 + NPC 精灵，程序化兜底 |
+| `sprites.js` | 1207 | 主角四向行走帧 + NPC 精灵，程序化兜底。**`BAKE` 战斗立绘表**（v0.11.1 新增 `cultist` / `bloodbat` / `xuemian`），导出 `BAKE_KEYS` 供契约断言 |
 | `explore.js` | 1002 | **探索引擎**（镇/山/洞/室内/区域通用）：寻路、交互、遭遇、**HUD**、**区域物件绘制（宝箱 / Boss / 裂隙 / 界门）**；导出 `HUD_H`（顶栏 48）与 `BOT_H`（底栏 28），两段都靠它挡误触。**绘制路径的调色板一律走 `_pal()`**（区域预设 `md.pal` → 退世界调色板，缺口 U7） |
 | `panels.js` | 525 | **常驻底栏 + 六个面板**（v0.8.0 新增）：角色/功法/秘术/任务/储物/成就。底栏页签 `barBtns`、面板矩形 `PANEL_RECT`、路由 `isPanel/renderPanel`、状态标记矢量绘制 `mark()`（**不要用 `✓`/`▶` 字符，缺字会变豆腐块**）。**v0.11.0：六面板统一挂主动关闭钮 `closeBtn()`（`glyph:'close'`），角色面板另挂四子页签 `buildCharTabs()`** |
 | `player.js` | 619 | 数值中枢：19境/四界WORLDS/寿元/ascend飞升（**含秘术同步升品**）、`computeStats`（含圣术 `secretPct`）/ `breakState`（**道界 `daoRealm` 无破境**）/ `rates` / **`realmQiCoef`（灵气收益的境界系数，缺口 U5）** / `xianliOf`（成就 A1–A9）/ **`cycleWorldDiff`（界域难度轮换）** |
@@ -183,7 +174,7 @@ nichen/
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `battle.js` | 1512 | 回合制战斗：数据驱动通用 Boss 阶段引擎、全体技/护盾/吸血/破防/纯状态技、多敌前后排、自动战斗、**秘术被动与仙术施放**、副本胜利分支（**含道界 `dg.dao` 短路：一场定胜负**）；野外与副本 trash 两处灵气收益**均带 `realmQiCoef`**（缺口 U5） |
+| `battle.js` | 1522 | 回合制战斗：数据驱动通用 Boss 阶段引擎（**`boss.phases`**，血面/筑基心魔走它）、全体技/护盾/吸血/破防/纯状态技、多敌前后排、自动战斗、**秘术被动与仙术施放**、**多段攻击（`skill.hits`，v0.11.1）**、副本胜利分支（**含道界 `dg.dao` 短路：一场定胜负**）；野外与副本 trash 两处灵气收益**均带 `realmQiCoef`**（缺口 U5） |
 | `dungeon.js` | 772 | **秘境系统**：枢纽 + 关卡推进 + 休整 + 两套奖励（小Boss/大Boss/头领）+ 通关飞升；秘术按获得世界写品阶；**道界「道则回廊」枢纽（九关线性解锁 / 道晶入场 / 合道演出关 / 结算进境）**；**四档灵气奖励全部带 `realmQiCoef`** |
 | `difficulty.js` | — | **三难度选择卡片**（普通/困难/地狱） |
 | `reincarnation.js` | 429 | 转世流程：**出身 → 灵根 → 天赋 → 直接入世**；**降世按界设起始境界、落点 = 该界首区**（道界需 `daoKey`） |
@@ -218,7 +209,7 @@ nichen/
 
 | 工具 | 行数 | 用途 |
 |---|---|---|
-| `smoke.js` | 3234 | **冒烟测试**：加载全部脚本、走遍所有场景、**19 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / **`region.tint.contract` 区域换皮（数据/运行时/源码闸三层）** / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能、关闭钮、角色子页与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点** / **`zone.curve.contract` 野怪收益曲线** + **`zone.curve.source.contract` 源码闸**）。改任何东西后第一件事 |
+| `smoke.js` | 3346 | **冒烟测试**：加载全部脚本、走遍所有场景、**20 条契约断言**（素材接线 / `regions.contract` 区域+建筑+入口落图 / `entrances.contract` 落位算法 / `hell.contract` 地狱体系 / `worlds.panel.contract` 界域难度 / `worldgate.contract` 界门 / `region.visual.contract` 裂隙与界门真的画出来（差分绘制探针） / **`region.tint.contract` 区域换皮（数据/运行时/源码闸三层）** / **`m1.data.contract` M1 数据层（灵阶功法 / 血煞教四敌 / 程序化立绘）** / `dungeon.entrance.contract` 裂隙→入口面板+序列一致 / `ascend.hall.contract` 飞升台 / `achieve.contract` 成就 / **`panels.contract` + `panels.bounds.contract` 底栏六功能、关闭钮、角色子页与面板排版** / **`tiandao.protocol.contract` 天道三协议** / **`device.contract` 轮回档案与设备标识** / **`dao.trials.contract` 道则回廊九关** / **`descend.world.contract` 降世按界起始境界与落点** / **`zone.curve.contract` 野怪收益曲线** + **`zone.curve.source.contract` 源码闸**）。改任何东西后第一件事 |
 | `zone-curve.js` | 285 | **野怪收益曲线验算**（缺口 U5）：逐区列出遭遇带与灵气/场、**覆盖缺口**（gl 1–171 逐级）、**逐境刷满场次与寿元年岁**，并给出告警。`--json` 出结构化结果。**改 `zones.enc` / `needQi` / 灵气奖励公式后必跑** |
 | `playthrough.js` | 392 | **M0 通关模拟**：新档 → m0-1..m0-5 → 赤炎狼王，打印每步数值 |
 | `rebirth.js` | 578 | **轮回闭环模拟**：一世终结算 → 五线灌注 → 浮世重生，验证"第二世确实变强"。**开头把 `Date.now` 钉成常量**（§5.9）——不钉的话第 2 世种子随时间变、基线不可复现 |
@@ -226,7 +217,7 @@ nichen/
 | `secret-test.js` | 221 | **秘术效果测试**：品阶/圣术面板/神术被动/仙术主动施放断言 |
 | `browser-probe.js` | 679 | **真实浏览器探针**（CDP 驱动本机 Chrome/Edge），唯一能验证素材是否生效的工具。`PROBE_URL` 可指向**线上构建** |
 | `api-probe.js` | ~150 | **天道三协议真机探测**：用游戏自己的 `buildRequest`/`extractText` 打真实端点（`NICHEN_TEST_KEY` / `NICHEN_TEST_ENDPOINT` / `NICHEN_TEST_MODEL`）。契约只钉形状，端到端只认它 |
-| `shot.js` | 726 | 65 张场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
+| `shot.js` | 741 | 68 张场景导出 PNG（`@napi-rs/canvas` 真实光栅化）；支持**帧名过滤**（`shot.js dao_corridor`）。长任务要**后台跑**，前台会被 SIGTERM |
 | `zoom.js` | 182 | 单场景局部放大审查（看精灵清晰度） |
 | `portrait-sheet.js` | 126 | 立绘总览 + ASCII 缩略图（图片直读会间歇失败，文本化更可靠） |
 | `sprite-sheet.js` | 105 | 战斗立绘高倍导出 |
@@ -246,7 +237,7 @@ export NODE_PATH=./node_modules      # 只对 node 工具需要
 # —— 每次改完代码 ——
 node tools/smoke.js                       # 必须过（含 19 条契约）
 node tools/shot.js 04_hud                 # 只落这一张（其它帧照常推进）
-node tools/shot.js                        # 全部 65 张
+node tools/shot.js                        # 全部 68 张
 node tools/playthrough.js                 # 数值回归
 node tools/rebirth.js                     # 轮回回归
 node tools/zone-curve.js                  # 野怪收益曲线（改 zones.enc / 灵气公式后必跑）
@@ -270,11 +261,12 @@ node tools/portrait-sheet.js              # 立绘审查
 
 ### 3.2 当前回归基线（**换机后拿这三个对表**）
 
-> ✅ 以下数字已于 **2026-09-26（v0.8.0）在本机实测复核**，并于 **v0.9.0 / v0.10.0 / v0.11.0 复跑确认无漂移**
-> （smoke **19 条契约**全过 / playthrough 13 步逐字吻合 / rebirth 仙力 +386、攻击 41→43 /
+> ✅ 以下数字已于 **2026-09-26（v0.8.0）在本机实测复核**，并于 **v0.9.0 / v0.10.0 / v0.11.0 / v0.11.1 复跑确认无漂移**
+> （smoke **20 条契约**全过 / playthrough 13 步逐字吻合 / rebirth 仙力 +386、攻击 41→43 /
 > dungeon-run 8·15 / secret-test 全过 / zone-curve **告警：无**）。新机上跑出来不一致，
 > 基本就是环境问题，别怀疑代码。
-> （v0.11.0 只改调色板与面板 UI，**不碰逻辑与 `G.rng`**，所以六项数字逐字未动。）
+> （v0.11.0 只改调色板与面板 UI、v0.11.1 只加数据与立绘，**都不碰逻辑与 `G.rng`**，
+> 所以六项数字逐字未动。）
 > ⚠️ **「第 2 世变强」这行曾经不可复现（v0.9.0 已修，务必知悉）**：
 > 非锚世的世界种子取自 `Date.now()` —— `reincarnation.js: var seed = anchor ? 20260924 : (Date.now() & 0x7fffffff);`
 > 于是每次跑 `rebirth.js`，第 2 世的落位/调色板都不同。实测 30 次：**28 次「攻击 41→43」、2 次「41→46」**。
@@ -572,7 +564,7 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
 | **野怪收益曲线验算（U5）** | **✅ 已闭合**（v0.10.0）：新增 `tools/zone-curve.js` 逐区逐境验算；实测高界场次比凡界高 ≈2,500 倍（大罗 60,895 场），根因是"需求随境界指数增长、产出只有线性"；新增 `Player.realmQiCoef` 校准后拉平到 12–42 场；并补上仙界 gl 91–105 的覆盖空洞 |
 | **天道模型接入的真机实测** | **✅ 已做**（2026-09-26）：三协议（OpenAI / Claude / 原生 Response）在真实中转站上**全部打通**，见 §8「v0.8.1」。日常复测跑 `tools/api-probe.js` |
 | `android/` | Capacitor **未 init**，`npm run cap:sync` / `apk:debug` 现在会失败 |
-| M1 内容 | 未开工 |
+| **M1 内容** | **进行中**（v0.11.1 落地**数据层**：血煞教四敌 + 5 本灵阶功法 + 2 个新掉落池 + 3 张程序化立绘 + 多段攻击 + `m1.data.contract`）；**任务链 m1-1..m1-7 / 血煞据点地图 `bloodhall` / 抉择卡 / 因果簿 / 血夜演出 未开工** |
 | 御兽 / 炼丹炼器 | 有规格（`doc/` v0.2），未实现 |
 
 ### 6.3 工具层面的欠账
@@ -591,7 +583,10 @@ HUD 开销从 ~0.9–1.1ms/帧降到 **~0.5–0.7ms/帧**。
    - ~~**道界道则回廊**（U4）~~ **✅ 已完成（v0.9.0）**；
    - ~~**野怪收益曲线验算**（U5）~~ **✅ 已完成（v0.10.0）**；
    - ~~**区域美术换皮**（U7）~~ **✅ 已完成（v0.11.0）**；
-   - **M1 内容**（`doc/《逆尘》M1剧情与内容设计 v1.0.md` 已就位，**未开工**）/ **补素材接线**（`bg.*`、`obj.rift` / `obj.worldgate`）/ **`android/` Capacitor init**。
+   - **M1 内容**：**数据层已落地（v0.11.1）** —— 按 M1 §11 继续做任务链 m1-1..m1-7 / 血煞据点地图 /
+     抉择卡 / 因果簿 / 血夜演出（设计见 `doc/《逆尘》M1剧情与内容设计 v1.0.md`）；
+   - **补素材接线**（`bg.*`、`obj.rift` / `obj.worldgate`，以及 M1 新增的 `battle.enemy.cultist` /
+     `bloodbat` / `xuemian`、`char.npc.cultist.*`、`ground.bloodcave` 等，见 M1 §7）/ **`android/` Capacitor init**。
 4. 工具层欠账（§6.3）优先级低，但 `browser-probe ablate` 的基准帧间隔建议顺手修掉。
 5. ~~**v0.8.0 遗留的小尾巴**：天道三协议没打过真实云端端点~~ **✅ 已于 v0.8.1 真机实测打通**（见 §8）。
 
@@ -650,6 +645,56 @@ node_modules/
 ---
 
 ## 8. 最近一次改了什么
+
+### v0.11.1：M1 内容第一段 —— 数据层（2026-09-26）
+
+**背景**：P5 全部闭合后，按 `doc/《逆尘》M1剧情与内容设计 v1.0.md` §11 的六步顺序推进。
+本轮做**第 1 步（数据层）**：新敌人 / 新功法 / 程序化立绘 —— 任务链与据点地图留下一步。
+
+**① 功法（`data/skills.js`）**
+- 新增 5 本**灵阶**功法（`tier:'灵'` → `tierCoef` 1.5，面板成长自动 ×1.5）：
+  流云剑诀（攻击·金 1.4/cd2/hit95）、疾风九刃（攻击·风 1.1/cd1/hit90/**多段 2**）、
+  玄水诀（仙术·水，带 `active` 治疗 0.9）、磐石功（防御·土）、赤焰心法（仙术·火）。
+- 新增两个掉落池：`skillDropPoolLing`（血面掉落，随机 1）与 `shenBoPool`（m1-3 沈伯旧藏，匹配灵根优先）。
+- **M0 的凡阶池 `skillDropPool` 一字未动**（契约专门钉这条）。
+
+**② 敌人（`data/enemies.js`）**
+- `species.血煞教徒`（HP 70+8L / ATK 12+2.2L / DEF 6+1.2L / SPD 10+.5L，暗）与
+  `species.血蝠`（55+7L / 13+2.4L / 4+1L / 14+.8L，暗，吸血）。
+- `makeXuemian()`：执事·血面，固定 L19 面板（480/38/18/18），阶段用 **battle.js 的通用阶段引擎**
+  （`phases` 数据驱动）：HP<40% 狂暴 +25%，并把「血河咒」CD 压到 2。
+- `makeHeartDemon2(p)`：筑基心魔，快照 HP×1.05、攻防速×1.0（M0 的 `makeHeartDemon` 仍是 ×.9），
+  开局召一次「心魔残影」（新增 `species.心魔残影`）。
+- `makeEnemy` 新增 **`artKey` / `sprite` 透传**（老物种两者都没登记 → null，行为逐字不变）。
+
+**③ 多段攻击（`scenes/battle.js`）**
+- 伤害结算支持 `skill.hits`（默认 1）：每段**独立**判定暴击 / 属性克制 / 浮动；
+  **附加状态与诛邪封印只在最后一段判定一次**（否则多段会把控制概率叠成近似必中）。
+- 只在**单体技**上生效 —— 全体技 × 多段没有设计需求，且会让逐目标日志爆掉。
+
+**④ 程序化立绘（`core/sprites.js`）**
+- `BAKE` 新增 `cultist`（兜帽黑袍 + 血色目线）/ `bloodbat`（宽翼分层翼膜）/
+  `xuemian`（白面具 + 三道血纹 + 金饰）。剪影比例对齐 `killer`（头 y1.6–15 / 身 y15–31 / 靴 y30–35），
+  否则并排站着会比主角矮胖一大截。
+- 新增导出 `BAKE_KEYS`（供契约断言"登记了"）；`battle.js: SPECIES_SPRITE` 补四个映射。
+
+**⑤ 契约（19 → 20 条）**
+- 新增 **`m1.data.contract`**：功法（灵阶齐备 / `tierCoef` 1.5 / 两个池的键都在表里且是灵阶 /
+  凡阶池不被污染 / 疾风九刃 `hits===2` / 玄水诀有 `active.heal`）+ 敌人（物种齐备 /
+  `artKey`+`sprite` 不缺失 / 面板随等级单调 / 血面固定面板与 40% 狂暴 /
+  筑基心魔 ×1.05 且 **M0 心魔仍 ×.9**）+ 立绘（`BAKE_KEYS` 登记 / `beastResolve` 真的产出非空位图）。
+- **顺手修掉一条既有测试的假红**：`zone.weights` 的 400 次采样用的是**时间播种**的全局 `G.rng`
+  （`rng.js: Date.now() & 0xffffffff`），实测偶发报「双只组概率偏离 38.3%」。改为**固定种子**采样 +
+  1200 次，跑完还原 `G.rng` —— 现在完全可复现。
+
+**⑥ 验收与回归**
+- 新增 3 张截图（`44_battle_cultist` / `45_battle_bloodbat` / `46_battle_xuemian`），全量 65 → **68 张**。
+- **6 组反例全部命中**（hits 2→1 / 磐石功 tier 灵→凡 / 血面 maxhp 480→500 / 血煞教徒删 artKey /
+  BAKE 摘 cultist / M0 心魔 ×.9→×1.0）。
+- 六项回归零漂移（smoke 20 条全过 / playthrough `炼气三重 4013 696 1422 16 场 free` /
+  rebirth `41→43` / dungeon-run `8/15` / secret-test 全过 / zone-curve `【告警】无`）。
+- **下一步（M1 §11 第 2–6 步）**：任务链 m1-1..m1-4 → m1-5 据点连战与血夜演出 →
+  m1-6/7 筑基心魔与离乡 → 抉择卡 / 因果簿 / 桌面端控件 → 前尘速通与浮世换名回归。
 
 ### v0.11.0：区域美术换皮（U7 闭合）+ 面板关闭钮 + 角色子页（2026-09-26）
 

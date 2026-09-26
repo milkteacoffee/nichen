@@ -45,6 +45,14 @@ SIZES = {
     'battle.enemy.wolfking': (192, 192),
     'battle.enemy.killer': (192, 192),
     'battle.enemy.heartDemon': (192, 192),
+    # M1 血煞教（设计见《逆尘》M1剧情与内容设计 v1.0 §5.3）。
+    # ⚠️ 图还没出，引擎现走程序化兜底（sprites.js: BAKE 的 cultist / bloodbat / xuemian）；
+    #    这里先登记尺寸，图一旦放进 _gen/ 就能被切图脚本认下（否则报「未登记尺寸，跳过」）。
+    # ⚠️ heartDemon2 只服务「心魔残影」；筑基心魔走 battle.js 的 species==='心魔' 特判，不吃这张图。
+    'battle.enemy.cultist': (192, 192),
+    'battle.enemy.bloodbat': (192, 192),
+    'battle.enemy.xuemian': (192, 192),
+    'battle.enemy.heartDemon2': (192, 192),
     # 副本 Boss 立绘（20 张，设计见《副本Boss形象与关卡结构设计 v3.3》§7.1）
     #   大副本：b<n>big = 第 9 关大 Boss；b<n>mid = 第 5 关小 Boss
     #   小副本：s<n>    = 第 5 关头领

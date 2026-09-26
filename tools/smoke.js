@@ -796,11 +796,17 @@ step(function () {
   const sc = G.game.scene;
   const seen = {};
   const pairCount = {};
+  /* 采样必须用**固定种子**的 RNG：全局 G.rng 是时间播种的（rng.js: `Date.now() & 0xffffffff`），
+     用它会让这条概率断言每次运行都不同 —— v0.11.0 实测偶发假红（38.3% vs 阈值 30%±8）。
+     换定种子后完全可复现，跑完还原。 */
+  const rngBackup = G.rng;
+  G.rng = new G.RNG(20260926);
+  const N = 1200;
   ['front', 'mid', 'back'].forEach(function (id) {
     const zone = (sc.map.md.zones || []).filter((z) => z.id === id)[0];
     if (!zone) { errors.push('缺少分区：' + id); return; }
     pairCount[id] = 0;
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < N; i++) {
       sc._encounter(zone);
       const units = sc._pending.units;
       if (units.length > 1) pairCount[id] += 1;
@@ -814,12 +820,13 @@ step(function () {
       });
     }
     /* 双只组概率应贴近 pair 配置（±8 个百分点） */
-    const rate = pairCount[id] / 400 * 100;
+    const rate = pairCount[id] / N * 100;
     const want = zone.pair || 0;
     if (Math.abs(rate - want) > 8) {
       errors.push(id + ' 区双只组概率偏离配置：实测 ' + rate.toFixed(1) + '%（应约 ' + want + '%）');
     }
   });
+  G.rng = rngBackup;
   if (seen['front.树精']) errors.push('前坡不应出现树精');
   if (seen['back.青纹蛇']) errors.push('后坡不应出现青纹蛇');
   if (!seen['mid.赤炎狼']) errors.push('中坡应以赤炎狼为主，却从未出现');
@@ -2225,6 +2232,111 @@ step(function () {
     }
   }
 }, 'region.tint.contract');
+
+/* ---------- M1 数据层契约（设计 M1 v1.0 §5.2 / §5.3） ----------
+   本轮只上**数据与程序化立绘**（任务链 / 血煞据点地图 / 抉择卡见后续轮次）。
+   三条：① 功法（灵阶 + 两个掉落池 + 多段字段）
+        ② 敌人（面板公式 + 两个剧情 Boss 的规格）
+        ③ 立绘（登记 + 真的能产出位图）—— G19 的教训：登记了 ≠ 画得出来。 */
+step(function () {
+  const errors = [];
+  const S = G.Data.skills, TC = G.Data.tierCoef, E = G.Data;
+
+  /* ① 灵阶功法 */
+  if (TC['灵'] !== 1.5) errors.push('tierCoef[灵] 应为 1.5，实际 ' + TC['灵']);
+  ['流云剑诀', '疾风九刃', '玄水诀', '磐石功', '赤焰心法'].forEach(function (id) {
+    const d = S[id];
+    if (!d) { errors.push('缺灵阶功法 ' + id); return; }
+    if (d.tier !== '灵') errors.push(id + ' 的 tier 应为「灵」，实际 ' + d.tier);
+    if (!d.kind) errors.push(id + ' 缺 kind（面板成长靠它分派：攻击→ATK / 防御→DEF / 仙术→HP）');
+  });
+  if (!S['疾风九刃'] || S['疾风九刃'].hits !== 2) {
+    errors.push('疾风九刃 的 hits 应为 2，实际 ' + (S['疾风九刃'] && S['疾风九刃'].hits));
+  }
+  if (!(S['玄水诀'] && S['玄水诀'].active && S['玄水诀'].active.heal > 0)) {
+    errors.push('玄水诀 应有 active.heal（设计 M1 §5.2 的治疗主动）');
+  }
+  /* 两个新池的键必须都在 skills 表里且都是灵阶 */
+  [['skillDropPoolLing', E.skillDropPoolLing], ['shenBoPool', E.shenBoPool]].forEach(function (pair) {
+    const nm = pair[0], pool = pair[1];
+    if (!pool || !pool.length) { errors.push('缺掉落池 ' + nm); return; }
+    pool.forEach(function (id) {
+      if (!S[id]) errors.push(nm + ' 里的 ' + id + ' 不在 skills 表');
+      else if (S[id].tier !== '灵') errors.push(nm + ' 里的 ' + id + ' 不是灵阶');
+    });
+  });
+  /* 凡阶池不得被污染（M0 掉落不变） */
+  (E.skillDropPool || []).forEach(function (id) {
+    if (S[id] && S[id].tier !== '凡') errors.push('凡阶池被污染：' + id + ' 是 ' + S[id].tier);
+  });
+
+  /* ② 敌人 */
+  ['血煞教徒', '血蝠', '心魔残影'].forEach(function (k) {
+    if (!E.species[k]) errors.push('缺 M1 物种：' + k);
+  });
+  ['血煞教徒', '血蝠'].forEach(function (k) {
+    if (!E.species[k]) return;
+    /* artKey / sprite 缺一个，素材或兜底立绘就接不上 */
+    if (!E.species[k].artKey) errors.push(k + ' 缺 artKey（素材逻辑名后缀）');
+    if (!E.species[k].sprite) errors.push(k + ' 缺 sprite（程序化兜底键）');
+    const a = E.makeEnemy(k, 10), b = E.makeEnemy(k, 20);
+    ['maxhp', 'atk', 'def', 'spd'].forEach(function (f) {
+      if (!(b[f] > a[f])) errors.push(k + ' 的 ' + f + ' 未随等级增长');
+    });
+    if (a.artKey !== E.species[k].artKey) errors.push(k + ' 的 artKey 没透传到单位上');
+  });
+  /* 血面：固定 L19 面板 + 40% 狂暴 */
+  const xm = E.makeXuemian();
+  if (xm.level !== 19) errors.push('血面 等级应为 19，实际 ' + xm.level);
+  if (!xm.boss) errors.push('血面 应标 boss（影响立绘尺寸与「首领战」标签）');
+  [['maxhp', 480], ['atk', 38], ['def', 18], ['spd', 18]].forEach(function (p) {
+    if (xm[p[0]] !== p[1]) errors.push('血面 ' + p[0] + ' 应为 ' + p[1] + '，实际 ' + xm[p[0]]);
+  });
+  if (!xm.phases || !xm.phases.length) errors.push('血面 缺 phases（通用阶段引擎读它）');
+  else if (xm.phases[0].kind !== 'enrage' || xm.phases[0].trig !== 0.40) {
+    errors.push('血面 狂暴阶段应为 enrage@0.40，实际 ' + xm.phases[0].kind + '@' + xm.phases[0].trig);
+  }
+  if (!xm.skills.some(function (s) { return /血河/.test(s.n); })) {
+    errors.push('血面 缺「血河咒」（狂暴阶段要压它的 CD）');
+  }
+  /* 筑基心魔：快照 HP×1.05、攻防速×1.0；且不能把 M0 的 ×.9 顺手改掉 */
+  const fake = { maxhp: 400, atk: 50, def: 20, spd: 16, level: 18 };
+  const hd2 = E.makeHeartDemon2(fake);
+  if (hd2.maxhp !== Math.round(400 * 1.05)) {
+    errors.push('筑基心魔 HP 应为快照 ×1.05 = ' + Math.round(400 * 1.05) + '，实际 ' + hd2.maxhp);
+  }
+  if (hd2.atk !== 50 || hd2.def !== 20 || hd2.spd !== 16) {
+    errors.push('筑基心魔 攻防速应为快照 ×1.0');
+  }
+  if (!hd2.phases || !hd2.phases.some(function (p) { return p.kind === 'summon'; })) {
+    errors.push('筑基心魔 缺 summon 阶段（心魔分身）');
+  }
+  if (E.makeHeartDemon(fake).atk !== Math.round(50 * .9)) {
+    errors.push('M0 心魔 攻应为快照 ×.9 —— 被改动了');
+  }
+
+  /* ③ 立绘：登记 + 真的能产出位图 */
+  const KEYS = G.Sprites.BAKE_KEYS || [];
+  ['cultist', 'bloodbat', 'xuemian'].forEach(function (k) {
+    if (KEYS.indexOf(k) < 0) errors.push('程序化立绘未登记：BAKE.' + k);
+  });
+  /* 心魔立绘**不在 BAKE 里** —— 它是独立的 heartDemonSprite()（battle.js 按 species 特判）。
+     心魔残影的兜底就靠它，所以单独钉一下。 */
+  if (typeof G.Sprites.heartDemon !== 'function') {
+    errors.push('缺 G.Sprites.heartDemon（心魔残影的兜底立绘）');
+  }
+  ['cultist', 'bloodbat', 'xuemian'].forEach(function (k) {
+    const c = G.Sprites.beastResolve(k, k);
+    if (!c) errors.push('立绘 ' + k + ' 产不出位图');
+    else if (!(c.width > 0)) errors.push('立绘 ' + k + ' 的位图宽度为 0');
+  });
+
+  if (errors.length) {
+    errors.forEach(function (e) { console.log('  ✗ ' + e); });
+    throw new Error('M1 数据层契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ M1 数据层：5 本灵阶功法 + 2 个新掉落池 + 4 个新敌人 + 3 张程序化立绘');
+}, 'm1.data.contract');
 
 /* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------
    裂隙点了必须开**那一处**秘境的面板（此前一律跳通用枢纽）；

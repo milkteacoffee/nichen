@@ -41,12 +41,32 @@
     '光': '曜光诀', '雷': '惊雷诀', '风': '风刃诀', '暗': '冥气诀'
   };
 
+  /* ===== M1：灵阶功法（tier 灵 → tierCoef 1.5；设计 M1 v1.0 §5.2）=====
+     面板贡献走 computeStats 的 kind 分支：攻击→ATK、防御→DEF、仙术→HP，
+     所以这里只声明 kind/tier/elem，成长自动按 1.5 倍算。
+     ⚠️ 凡阶池（dropPool）保持不变，灵阶另立两池，别混。 */
+  S.流云剑诀 = atk('流云剑诀', '流云剑诀', '金', 1.4, { tier: '灵', cd: 2, hit: 95 });
+  /* hits：多段攻击（见 battle.js 结算）。cd 1 的低倍率靠 2 段补回来。 */
+  S.疾风九刃 = atk('疾风九刃', '疾风九刃', '风', 1.1, { tier: '灵', cd: 1, hit: 90, hits: 2 });
+  S.赤焰心法 = { id: '赤焰心法', n: '赤焰心法', kind: '仙术', tier: '灵', elem: '火', passive: true };
+  S.磐石功 = { id: '磐石功', n: '磐石功', kind: '防御', tier: '灵', elem: '土', passive: true };
+  S.玄水诀 = {
+    id: '玄水诀', n: '玄水诀', kind: '仙术', tier: '灵', elem: '水', passive: true,
+    active: { n: '玄水术', heal: 0.9, cd: 2, hit: 100, target: '自身' }
+  };
+
+  /* 血面掉落池（随机 1 本）；沈伯旧藏池（m1-3 赠，匹配灵根优先） */
+  var dropPoolLing = ['流云剑诀', '疾风九刃', '赤焰心法'];
+  var shenBoPool = ['流云剑诀', '玄水诀', '磐石功', '疾风九刃', '赤焰心法'];
+
   /* 品阶系数（成长规格 v0.1） */
   var tierCoef = { '凡': 1.0, '灵': 1.5, '宝': 2.0, '玄': 3.0, '地': 4.5, '天': 6.5, '仙': 10.0 };
 
   G.Data = G.Data || {};
   G.Data.skills = S;
   G.Data.skillDropPool = dropPool;
+  G.Data.skillDropPoolLing = dropPoolLing;
+  G.Data.shenBoPool = shenBoPool;
   G.Data.startSkillByElem = startByElem;
   G.Data.tierCoef = tierCoef;
 })();

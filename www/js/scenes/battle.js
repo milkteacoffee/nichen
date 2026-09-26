@@ -25,7 +25,9 @@
 
   var SPECIES_SPRITE = {
     '青纹蛇': 'snake', '赤炎狼': 'wolf', '树精': 'tree',
-    '赤炎狼王': 'wolfking', '杀手': 'killer', '心魔': 'heartDemon'
+    '赤炎狼王': 'wolfking', '杀手': 'killer', '心魔': 'heartDemon',
+    /* M1：血煞教（设计 M1 v1.0 §5.3）。心魔残影与心魔同形象（本就是它的影）。 */
+    '血煞教徒': 'cultist', '血蝠': 'bloodbat', '血面': 'xuemian', '心魔残影': 'heartDemon'
   };
 
   /* M0 功法装配位上限（v0.3 §10） */
@@ -772,6 +774,9 @@
         } else targets = [{ u: def, key: dKey }];
 
         var totalHp = 0;
+        /* 多段攻击（M1 §5.2 疾风九刃）：hits 段独立结算，每段各自判定暴击 / 克制 / 浮动。
+           ⚠️ 只在**单体技**上生效 —— 全体技 × 多段没有设计需求，且会让逐目标日志爆掉。 */
+        var segs = isAll ? 1 : Math.max(1, skill.hits || 1);
         targets.forEach(function (t) {
           if (!t.u || t.u.hp <= 0) return;
           /* 全体技逐目标命中（无 hit 字段默认必中） */
@@ -779,23 +784,28 @@
             var hh = Math.max(5, skill.hit == null ? 100 : skill.hit);
             if (Math.random() * 100 > hh) { self._log(atk.name + ' 攻向 ' + t.u.name + '，却落空了。'); return; }
           }
-          var r = self._calc(atk, t.u, skill);
-          var hpDmg = self._impact(t.key, r);
-          totalHp += hpDmg;
-          var extra = G.Data.elem.label(r.ec);
-          if (r.crit) extra = ' 会心一击！' + extra;
-          self._log(atk.name + ' 命中 ' + t.u.name + '，造成 ' + hpDmg + ' 点伤害。' + extra);
+          for (var si = 0; si < segs; si++) {
+            if (t.u.hp <= 0) break;
+            var r = self._calc(atk, t.u, skill);
+            var hpDmg = self._impact(t.key, r);
+            totalHp += hpDmg;
+            var extra = G.Data.elem.label(r.ec);
+            if (r.crit) extra = ' 会心一击！' + extra;
+            self._log(atk.name + ' 命中 ' + t.u.name + '，造成 ' + hpDmg + ' 点伤害。'
+              + (segs > 1 ? '（第 ' + (si + 1) + '/' + segs + ' 段）' : '') + extra);
 
-          /* 附加状态：命中最多 1 种；目标高 5 级以上概率减半（v0.2 §8.2） */
-          if (skill.status) {
-            var chance = skill.status.chance || 0;
-            if (t.u.level != null && atk.level != null && t.u.level > atk.level + 5) chance *= 0.5;
-            if (Math.random() < chance) self._applyStatus(t.u, t.key, skill.status.t);
-          }
-          /* 诛邪神光：玩家命中额外概率封印目标 */
-          if (aKey === 'P' && atk._zhuxie && t.u.hp > 0
-            && Math.random() < atk._zhuxie) {
-            self._applyStatus(t.u, t.key, '封');
+            /* 附加状态与诛邪封印**只在最后一段判定一次** ——
+               否则多段会把控制概率叠成近似必中（设计上多段只加伤害，不加控制）。 */
+            if (si < segs - 1) continue;
+            if (skill.status) {
+              var chance = skill.status.chance || 0;
+              if (t.u.level != null && atk.level != null && t.u.level > atk.level + 5) chance *= 0.5;
+              if (Math.random() < chance) self._applyStatus(t.u, t.key, skill.status.t);
+            }
+            if (aKey === 'P' && atk._zhuxie && t.u.hp > 0
+              && Math.random() < atk._zhuxie) {
+              self._applyStatus(t.u, t.key, '封');
+            }
           }
         });
 

@@ -43,6 +43,34 @@
         { lv: 1, s: sp('血煞斩', 1.2, { cd: 2 }) },
         { lv: 5, s: sp('血煞刀法', 1.5, { cd: 4, charge: true }) }
       ]
+    },
+
+    /* ===== M1：血煞教（设计 M1 v1.0 §5.3）=====
+       artKey = **素材逻辑名后缀**（`battle.enemy.<artKey>`）；缺图时 beastResolve
+       自动退回 BAKE 里的同名程序化立绘（见 sprites.js）。 */
+    血煞教徒: {
+      base: '血煞教徒', elem: '暗', artKey: 'cultist', sprite: 'cultist',
+      hp: [70, 8], atk: [12, 2.2], def: [6, 1.2], spd: [10, .5],
+      skills: [
+        { lv: 1, s: sp('血煞斩', 1.3, { cd: 2 }) },
+        { lv: 6, s: sp('血煞刀法', 1.5, { cd: 4, charge: true }) }
+      ]
+    },
+    血蝠: {
+      base: '血蝠', elem: '暗', artKey: 'bloodbat', sprite: 'bloodbat',
+      hp: [55, 7], atk: [13, 2.4], def: [4, 1], spd: [14, .8],
+      skills: [
+        { lv: 1, s: sp('吸血', 0.9, { cd: 1, healSelf: .5 }) }
+      ]
+    },
+    /* 筑基心魔的召唤物（M1 §5.3 备注）：只有作为 summon 的 spec.base 出现，
+       不参与任何野外遭遇池。 */
+    心魔残影: {
+      base: '心魔残影', elem: '无', artKey: 'heartDemon2', sprite: 'heartDemon',
+      hp: [70, 8], atk: [13, 2.2], def: [6, 1.2], spd: [11, .6],
+      skills: [
+        { lv: 1, s: sp('心魔乱咒', 1.0, { cd: 3, status: { t: '封', chance: .20 } }) }
+      ]
     }
   };
 
@@ -56,6 +84,9 @@
     });
     return {
       name: name || d.base, species: speciesKey, elem: d.elem, level: L,
+      /* artKey / sprite 透传给 beastResolve：前者查素材（battle.enemy.<artKey>），
+         后者是程序化兜底键。老物种两者都没登记 → null，行为与以前逐字一致。 */
+      artKey: d.artKey || null, sprite: d.sprite || null,
       maxhp: stat(d.hp, L), hp: stat(d.hp, L),
       atk: stat(d.atk, L), def: stat(d.def, L), spd: stat(d.spd, L),
       skills: skills, statuses: {}, buffs: {}, side: 'right'
@@ -104,10 +135,52 @@
     };
   }
 
+  /* ===== M1 剧情 Boss（设计 M1 v1.0 §5.3）=====
+     两者都走 battle.js 的**通用阶段引擎**（`_genericPhases` 读 `phases`），
+     禁逃由 `params.script` 自动兜住（`_noFlee` 见 script 即 true），不需要额外字段。 */
+
+  /* 执事·血面：固定 L19 面板。HP<40% 狂暴（攻击 +25%，并把「血河咒」CD 压到 2）。 */
+  function makeXuemian() {
+    return {
+      name: '血面', species: '血面', elem: '暗', level: 19, boss: true,
+      artKey: 'xuemian', sprite: 'xuemian',
+      maxhp: 480, hp: 480, atk: 38, def: 18, spd: 18,
+      skills: [
+        Object.assign({ cdLeft: 0 }, sp('血影斩', 1.5, { cd: 2, hit: 95, healSelf: .30 })),
+        Object.assign({ cdLeft: 0 }, sp('血河咒', 1.2, {
+          cd: 3, target: '全体', charge: 'all', status: { t: '烧', chance: .20 }
+        })),
+        Object.assign({ cdLeft: 0 }, sp('血煞封脉', 1.0, { cd: 3, status: { t: '封', chance: .30 } }))
+      ],
+      phases: [{ trig: .40, kind: 'enrage', atk: .25, cdCut: [{ match: '血河', cd: 2 }] }],
+      statuses: {}, buffs: {}, side: 'right'
+    };
+  }
+
+  /* 筑基心魔：快照 HP ×1.05、攻防速 ×1.0（M0 的 makeHeartDemon 是 ×.9）。
+     阶段：开局召一次「心魔残影」—— 设计写"第二回合"，实现为**开局触发**
+     （通用阶段引擎按血量过线，trig .99 在满血即成立；等效且不引入回合计数状态）。 */
+  function makeHeartDemon2(p) {
+    return {
+      name: '心魔', species: '心魔', elem: '无', level: p.level,
+      artKey: 'heartDemon2', sprite: 'heartDemon',
+      maxhp: Math.round(p.maxhp * 1.05), hp: Math.round(p.maxhp * 1.05),
+      atk: Math.round(p.atk * 1.0), def: Math.round(p.def * 1.0), spd: Math.round(p.spd * 1.0),
+      skills: [
+        Object.assign({ cdLeft: 0 }, sp('心魔乱咒', 1.2, { cd: 2, status: { t: '封', chance: .30 } })),
+        Object.assign({ cdLeft: 0 }, sp('执念一击', 1.6, { cd: 4, charge: true }))
+      ],
+      phases: [{ trig: .99, kind: 'summon', n: 1, spec: { base: '心魔残影', name: '心魔残影' } }],
+      statuses: {}, buffs: {}, side: 'right'
+    };
+  }
+
   G.Data = G.Data || {};
   G.Data.species = species;
   G.Data.makeEnemy = makeEnemy;
   G.Data.makeWolfKing = makeWolfKing;
   G.Data.makeKiller = makeKiller;
   G.Data.makeHeartDemon = makeHeartDemon;
+  G.Data.makeXuemian = makeXuemian;
+  G.Data.makeHeartDemon2 = makeHeartDemon2;
 })();

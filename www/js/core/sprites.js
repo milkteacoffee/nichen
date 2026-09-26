@@ -1037,6 +1037,120 @@
       add(21.3, 11.0, 1.7, 0.5, A.alpha(pal.skinSh, 0.55));
       add(19.7, 11.0, 0.8, 0.8, A.alpha(pal.skinSh, 0.9));   /* 鼻影 */
       return bake(P, 40, 40);
+    },
+
+    /* ===== M1：血煞教（设计 M1 v1.0 §5.3）=====
+       三者都是"缺素材时的程序化兜底"。剪影比例对齐 killer（头 y1.6–15 / 身 y15–31 / 靴 y30–35），
+       否则并排站着会比主角矮胖一大截。ell() 是椭圆工具，poly() 画多边形。 */
+    cultist: function () {
+      var o = A.cv(40, 40), x = o.x;
+      function ell(cx, cy, rx, ry) { x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, 6.2832); x.fill(); }
+      function poly(p, c) {
+        x.fillStyle = c; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+        for (var i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
+        x.closePath(); x.fill();
+      }
+      A.shadowEllipse(x, 20, 36, 12.5, 4.2, 0.46);
+      var robe = '#33202c', robeHi = '#4e3040', robeDark = '#1b1018', blood = '#a8242c';
+      /* 靴：藏在袍下只露一点，避免整块剪影"悬浮" */
+      poly([[16.2, 29.6], [18.6, 29.6], [18.6, 34.8], [16.2, 34.8]], '#141018');
+      poly([[21.4, 29.6], [23.8, 29.6], [23.8, 34.8], [21.4, 34.8]], '#0f0c12');
+      /* 下摆（梯形张开）→ 袍身（肩宽腰收）→ 垂袖 → 血色腰带 */
+      poly([[14.2, 22], [25.8, 22], [28.4, 31.4], [11.6, 31.4]], robeDark);
+      x.fillStyle = robe;
+      x.beginPath(); x.moveTo(14.6, 15.4);
+      x.quadraticCurveTo(20, 13.6, 25.4, 15.4);
+      x.quadraticCurveTo(25.0, 19.4, 25.6, 23.2);
+      x.quadraticCurveTo(20, 24.8, 14.4, 23.2);
+      x.quadraticCurveTo(15.0, 19.4, 14.6, 15.4); x.closePath(); x.fill();
+      poly([[13.2, 16.6], [16.0, 15.8], [16.6, 24.8], [12.8, 24.0]], robeHi);
+      poly([[24.0, 15.8], [26.8, 16.6], [27.2, 24.0], [23.4, 24.8]], robeHi);
+      x.fillStyle = blood; x.fillRect(14.2, 20.4, 11.6, 2.0);
+      /* 兜帽（罩住整个头）→ 面部阴影 → 血色目线 */
+      x.fillStyle = robeDark;
+      x.beginPath(); x.moveTo(14.8, 6.2);
+      x.quadraticCurveTo(14.0, 1.4, 20, 1.4);
+      x.quadraticCurveTo(26.0, 1.4, 25.2, 6.2);
+      x.quadraticCurveTo(24.6, 12.6, 20, 15.0);
+      x.quadraticCurveTo(15.4, 12.6, 14.8, 6.2); x.closePath(); x.fill();
+      x.fillStyle = '#0b0608'; ell(20, 9.2, 4.6, 3.4);
+      x.fillStyle = blood; x.fillRect(16.6, 8.0, 2.8, 1.0); x.fillRect(20.6, 8.0, 2.8, 1.0);
+      return o.c;
+    },
+
+    bloodbat: function () {
+      var o = A.cv(40, 40), x = o.x;
+      function ell(cx, cy, rx, ry) { x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, 6.2832); x.fill(); }
+      A.shadowEllipse(x, 20, 35, 9, 3.2, 0.40);
+      var wing = '#2a1630', wingHi = '#452443', body = '#190d1c', blood = '#b32b34';
+      /* 双翼：外缘暗色 → 内翼亮色（读得出翼膜层次），翼展拉到近满幅 */
+      x.fillStyle = wing;
+      x.beginPath(); x.moveTo(20, 15);
+      x.quadraticCurveTo(10, 6.5, 1.8, 11.5); x.quadraticCurveTo(5.4, 18, 2.6, 25);
+      x.quadraticCurveTo(12, 24.4, 20, 19.6); x.closePath(); x.fill();
+      x.beginPath(); x.moveTo(20, 15);
+      x.quadraticCurveTo(30, 6.5, 38.2, 11.5); x.quadraticCurveTo(34.6, 18, 37.4, 25);
+      x.quadraticCurveTo(28, 24.4, 20, 19.6); x.closePath(); x.fill();
+      x.fillStyle = wingHi;
+      x.beginPath(); x.moveTo(20, 16.4);
+      x.quadraticCurveTo(12.4, 10.4, 5.6, 13.6); x.quadraticCurveTo(8.6, 18, 6.6, 22.4);
+      x.quadraticCurveTo(13.6, 22, 20, 18.6); x.closePath(); x.fill();
+      x.beginPath(); x.moveTo(20, 16.4);
+      x.quadraticCurveTo(27.6, 10.4, 34.4, 13.6); x.quadraticCurveTo(31.4, 18, 33.4, 22.4);
+      x.quadraticCurveTo(26.4, 22, 20, 18.6); x.closePath(); x.fill();
+      /* 翼骨（把翼膜分区读出来） */
+      x.strokeStyle = 'rgba(0,0,0,0.34)'; x.lineWidth = 0.55;
+      [[7.4, 13.2, 4.6, 22.6], [32.6, 13.2, 35.4, 22.6]].forEach(function (b) {
+        x.beginPath(); x.moveTo(b[0], b[1]); x.lineTo(b[2], b[3]); x.stroke();
+      });
+      /* 躯干与头 */
+      x.fillStyle = body; ell(20, 21.6, 5.0, 5.4); ell(20, 14.6, 3.6, 3.2);
+      /* 耳 */
+      x.beginPath(); x.moveTo(17.4, 12.6); x.lineTo(16.0, 7.6); x.lineTo(19.4, 11.6); x.closePath(); x.fill();
+      x.beginPath(); x.moveTo(22.6, 12.6); x.lineTo(24.0, 7.6); x.lineTo(20.6, 11.6); x.closePath(); x.fill();
+      /* 血色双目 */
+      x.fillStyle = blood; ell(18.6, 14.4, 1.0, 1.0); ell(21.4, 14.4, 1.0, 1.0);
+      return o.c;
+    },
+
+    xuemian: function () {
+      var o = A.cv(40, 40), x = o.x;
+      function ell(cx, cy, rx, ry) { x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, 6.2832); x.fill(); }
+      function poly(p, c) {
+        x.fillStyle = c; x.beginPath(); x.moveTo(p[0][0], p[0][1]);
+        for (var i = 1; i < p.length; i++) x.lineTo(p[i][0], p[i][1]);
+        x.closePath(); x.fill();
+      }
+      A.shadowEllipse(x, 20, 36, 14, 4.8, 0.48);
+      var robe = '#4a1f2a', robeHi = '#74303c', robeDark = '#281016', gold = '#c9a24a', blood = '#c02a33';
+      /* 靴 */
+      poly([[15.8, 29.4], [18.4, 29.4], [18.4, 34.8], [15.8, 34.8]], '#171016');
+      poly([[21.6, 29.4], [24.2, 29.4], [24.2, 34.8], [21.6, 34.8]], '#120c11');
+      /* 大氅（比杂兵更宽，压出「执事」气场）→ 袍身 → 垂袖 */
+      poly([[12.4, 21.4], [27.6, 21.4], [30.6, 31.8], [9.4, 31.8]], robeDark);
+      x.fillStyle = robe;
+      x.beginPath(); x.moveTo(14.0, 15.2);
+      x.quadraticCurveTo(20, 13.2, 26.0, 15.2);
+      x.quadraticCurveTo(25.6, 19.4, 26.2, 23.4);
+      x.quadraticCurveTo(20, 25.2, 13.8, 23.4);
+      x.quadraticCurveTo(14.4, 19.4, 14.0, 15.2); x.closePath(); x.fill();
+      poly([[12.6, 16.6], [15.6, 15.6], [16.2, 25.0], [12.2, 24.2]], robeHi);
+      poly([[24.4, 15.6], [27.4, 16.6], [27.8, 24.2], [23.8, 25.0]], robeHi);
+      /* 血色内衬 + 金色门襟 + 金色腰带 */
+      x.fillStyle = blood; x.fillRect(19.2, 15.6, 1.6, 8.4);
+      x.fillStyle = gold; x.fillRect(13.6, 20.4, 12.8, 1.5);
+      /* 肩甲 + 金饰 */
+      x.fillStyle = robeHi; ell(11.0, 16.6, 3.8, 3.0); ell(29.0, 16.6, 3.8, 3.0);
+      x.fillStyle = gold; ell(11.0, 15.4, 2.1, 1.2); ell(29.0, 15.4, 2.1, 1.2);
+      /* 头 + 血纹面具（暗底 → 白面具 → 三道血纹 → 眼缝）：辨识核心 */
+      x.fillStyle = '#170c10'; ell(20, 8.4, 5.8, 5.6);
+      x.fillStyle = '#d8d2c4'; ell(20, 9.2, 4.6, 4.2);
+      x.fillStyle = blood;
+      x.fillRect(16.0, 7.8, 8.0, 1.1);
+      x.fillRect(17.4, 10.2, 5.2, 0.9);
+      x.fillRect(18.8, 12.0, 2.4, 0.8);
+      x.fillStyle = '#12060a'; x.fillRect(16.6, 6.4, 2.6, 1.0); x.fillRect(20.8, 6.4, 2.6, 1.0);
+      return o.c;
     }
   };
 
@@ -1075,6 +1189,8 @@
     beastResolve: beastResolve,
     heroBattle: function () { return beastSprite('hero'); },
     heartDemon: heartDemonSprite,
+    /* 已登记的程序化战斗立绘键（供契约断言"登记了且真的能产出位图"） */
+    BAKE_KEYS: Object.keys(BAKE),
     HERO_PAL: HERO,
     /* 地图角色的逻辑占位尺寸：渲染点必须用它，改 MAP_SCALE 时不会漏改一边 */
     HERO_W: HERO_LW, HERO_H: HERO_LH, MAP_SCALE: MAP_SCALE,
