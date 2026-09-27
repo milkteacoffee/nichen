@@ -3045,6 +3045,53 @@ step(() => {
 }, 'beasts.capture.full');
 pump(20);
 
+/* ---------- 陆地坐骑契约（design B3，《灵兽 v1.1》§6/§15.1） ----------
+   ① 骑乘室外 _riding 取兽；② 骑乘每格更快；③ 进室内自动下马；④ 幼年不可骑。 */
+step(() => {
+  function mkRidden(ridden) {
+    const sx = JSON.parse(JSON.stringify(save));
+    sx.beasts = []; sx.beastTeam = []; sx.riding = null; sx.beastSeq = 0;
+    const rr = G.Beasts.add(sx, 'b_huangzongma', { gl: 9, stage: 'adult' });
+    if (!rr.ok) { errors.push('测试黄鬃马未能入栏：' + rr.reason); return null; }
+    if (ridden) {
+      const rd = G.Beasts.setRide(sx, rr.beast.uid);
+      if (!rd.ok) { errors.push('黄鬃马骑乘失败：' + rd.reason); return null; }
+    }
+    G.game.save = sx;
+    G.game.changeScene('field', { toSpawn: true });
+    const sc = G.game.scene;
+    const held = sc._heldDir;
+    sc._heldDir = function () { return 'right'; };
+    sc.update(0.02); sc.update(0.02);
+    const dMt = sc.mt;
+    sc._heldDir = held;
+    return { sc: sc, save: sx, dMt: dMt };
+  }
+  const walk = mkRidden(false);
+  const ride = mkRidden(true);
+  if (walk && ride) {
+    if (!ride.sc._riding()) errors.push('室外骑乘 _riding() 应返回坐骑');
+    if (!(ride.dMt > walk.dMt * 1.15))
+      errors.push('骑乘移速应快于步行（步行 ' + walk.dMt.toFixed(3) + ' vs 骑乘 ' + ride.dMt.toFixed(3) + '）');
+  }
+  /* 进室内自动下马 */
+  const sx2 = JSON.parse(JSON.stringify(save));
+  sx2.beasts = []; sx2.beastTeam = []; sx2.riding = null; sx2.beastSeq = 0;
+  const hr = G.Beasts.add(sx2, 'b_huangzongma', { gl: 9, stage: 'adult' });
+  G.Beasts.setRide(sx2, hr.beast.uid);
+  G.game.save = sx2;
+  G.game.changeScene('town_home', { toSpawn: true });
+  const sc2 = G.game.scene;
+  if (sx2.riding) errors.push('进入室内应自动下马');
+  if (sc2._riding()) errors.push('室内 _riding() 应为 null');
+  /* 幼年马不可骑（物种可骑但未成年） */
+  const sx3 = JSON.parse(JSON.stringify(save));
+  sx3.beasts = []; sx3.beastTeam = []; sx3.riding = null; sx3.beastSeq = 0;
+  const yr = G.Beasts.add(sx3, 'b_huangzongma', { gl: 3, stage: 'young' });
+  const yb = G.Beasts.setRide(sx3, yr.beast.uid);
+  if (yb.ok) errors.push('幼年灵兽不应可骑');
+}, 'beasts.ride.contract');
+
 
 /* ---------- 自创宗门 + 散修盟悬赏契约（v0.39.0，S5） ----------
    ① 开宗三条件缺一不可（境界 / 灵石 / 声望）；**已飞升灵界可豁免境界**

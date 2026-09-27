@@ -61,6 +61,11 @@
         if (!save) { G.game.changeScene('title'); return; }
         params = params || {};
         this.map = G.MapGen.buildMap(save, mapId);
+        /* 陆地坐骑只在室外；一进室内（洞府/店铺/山门）自动翻身下马，避免骑着穿屋。 */
+        if (this.map.md.indoor && save.riding) {
+          G.Beasts.dismount(save);
+          G.game.toast('入得室内，翻身下马');
+        }
         if (!save.pos || params.toSpawn) {
           save.pos = { x: this.map.md.spawn.x, y: this.map.md.spawn.y };
         }
@@ -208,7 +213,9 @@
 
         if (this.moving) {
           /* 御剑：移速 ×1/0.55 ≈ 1.8 倍（"飞"的第二个线索） */
-          var mtBase = this._flying() ? MOVE_T * G.Player.FLY_MOVE_COEF : MOVE_T;
+          var mtBase = MOVE_T;
+          if (this._flying()) mtBase = MOVE_T * G.Player.FLY_MOVE_COEF;
+          else { var _rd = this._riding(); if (_rd) { var _ri = G.Data.beasts.rideInfo(_rd.id); if (_ri) mtBase = MOVE_T * _ri.coef; } }
           this.mt += dt / mtBase;
           this.walkT += dt;
           this.frame = 1 + Math.floor(this.walkT / .18) % 2;
@@ -1251,6 +1258,13 @@
         var save = G.game.save;
         return !!(save && save.fly && G.Player.canFly && G.Player.canFly(save));
       },
+      /* 当前骑乘的成年可骑灵兽（仅室外）。室内/不可骑/被放生 → null。 */
+      _riding: function () {
+        var save = G.game.save;
+        if (!save || !save.riding || !this.map || !this.map.md || this.map.md.indoor) return null;
+        var bst = G.Beasts.byUid(save, save.riding.uid);
+        return bst && G.Data.beasts.canRide(bst) ? bst : null;
+      },
       /* 可越过的低矮物：只有这几类。`wall`/`wallrock` 是墙，绝不可越 */
       _ensureFlyGrid: function () {
         if (this._flyKey === this.mapId) return;
@@ -1344,6 +1358,15 @@
           }
         }
 
+        var rdBeast = (!this._flying()) ? this._riding() : null;
+        if (rdBeast) {
+          var mspr = G.Sprites.beastResolve(rdBeast.id, 'mount');
+          x.save();
+          x.translate(px, py + 2);
+          if (this.dir === 'left') x.scale(-1, 1);
+          x.drawImage(mspr, -19, -30, 38, 36);
+          x.restore();
+        }
         var spr = G.Sprites.heroFrames()[this.dir][this.frame];
         x.save();
         x.translate(px, py + 3);

@@ -947,6 +947,17 @@ step(() => {
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 2, '青纹蛇'), mapId: 'field' });
 }, 'battle.beast');
 shot('48_battle_beast', 30);
+/* 陆地坐骑（design B3）：骑黄鬃马在野外，坐骑精灵在主角身下 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.beasts = []; s.beastTeam = []; s.riding = null; s.beastSeq = 0;
+  const r = G.Beasts.add(s, 'b_huangzongma', { gl: 9, stage: 'adult' });
+  const rd = G.Beasts.setRide(s, r.beast.uid);
+  if (!rd.ok) throw new Error('骑乘截图设置失败：' + rd.reason);
+  G.game.save = s;
+  G.game.changeScene('field', { toSpawn: true });
+}, 'ride.field');
+shot('49_field_ride', 30);
 /* 宗门面板（《宗门与散修体系设计 v1.0》）：散修态应看到「拜入 XX」按钮 */
 step(() => {
   const s = G.game.save;

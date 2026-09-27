@@ -398,6 +398,38 @@
   }
 
   var BAKE = {
+    /* 通用陆地坐骑（马形，朝右；explore 左向时镜像）。无素材时的兜底，保证骑乘必有可见坐骑。 */
+    mount: function () {
+      var o = A.cv(40, 40), x = o.x;
+      A.shadowEllipse(x, 20, 37, 15, 4.5, 0.4);
+      var body = '#8a5a34', hi = '#b47d49', dark = '#5e3c22', mane = '#3a2414', hoof = '#241608';
+      /* 四条腿（后腿偏左、前腿偏右），先画腿再盖身体 */
+      x.strokeStyle = dark; x.lineWidth = 3; x.lineCap = 'round';
+      [[11, 23, 11, 35], [14, 23, 15, 35], [24, 22, 24, 35], [27, 22, 28, 35]].forEach(function (l) {
+        x.beginPath(); x.moveTo(l[0], l[1]); x.lineTo(l[2], l[3]); x.stroke();
+      });
+      x.strokeStyle = hoof; x.lineWidth = 2;
+      [[11, 35], [15, 35], [24, 35], [28, 35]].forEach(function (p2) {
+        x.beginPath(); x.moveTo(p2[0] - 1, p2[1]); x.lineTo(p2[0] + 1, p2[1]); x.stroke();
+      });
+      /* 躯干 + 臀 + 胸 */
+      x.fillStyle = dark; A.blob(x, 19, 23, 11.5, 0.52);
+      x.fillStyle = body; A.blob(x, 19, 22, 11, 0.5); A.blob(x, 11, 22, 5, 0.6); A.blob(x, 26, 21, 5, 0.58);
+      x.fillStyle = hi; A.blob(x, 17, 20, 7, 0.4);
+      /* 尾（左后）*/
+      x.strokeStyle = dark; x.lineWidth = 2.4;
+      x.beginPath(); x.moveTo(9, 20); x.quadraticCurveTo(4, 25, 6, 30); x.stroke();
+      /* 颈 + 鬃（朝右上）*/
+      x.strokeStyle = body; x.lineWidth = 5;
+      x.beginPath(); x.moveTo(26, 19); x.lineTo(31, 11); x.stroke();
+      x.strokeStyle = mane; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(24, 19); x.lineTo(29, 11); x.stroke();
+      /* 头 + 耳 + 眼 */
+      x.fillStyle = body; A.blob(x, 32, 10, 4, 0.66);
+      x.fillStyle = dark; x.fillRect(30, 5, 1.6, 3.4); x.fillRect(33, 5.4, 1.6, 3.2);
+      x.fillStyle = '#1c1208'; x.fillRect(33.4, 9.4, 1.4, 1.4);
+      return o.c;
+    },
     /* 青纹蛇 */
     snake: function () {
       var o = A.cv(40, 40), x = o.x;
