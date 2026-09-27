@@ -91,7 +91,7 @@
       var packet = {
         当世: {
           灵根: (save.linggen && save.linggen.elems || ['无']).join('·'),
-          境界: ri.n, 全局等级: save.globalLevel || 1, 注视值: save.watch || 0
+          境界: ri.n, 境界gl: save.globalLevel || 1, 注视值: save.watch || 0
         },
         资源概览: { 灵气: Math.floor(save.qi || 0), 灵石: save.stone || 0 },
         近期事件: (save.chronicle || []).slice(-5).map(function (c) { return c.s; }),

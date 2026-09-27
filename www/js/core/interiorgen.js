@@ -203,13 +203,20 @@
       onInteract: function (o, s) {
         if (!o || o.type !== 'furn') return;
         var act = o.act || '';
-        if (act === 'trade' || act === 'inn' || act === 'forge' || act === 'brew') {
-          G.game.toast('（' + (o.label || '柜台') + '）铺子尚未开张');
-        } else if (act === 'pray') {
-          G.game.toast('你对着神台上了一炷香');
-        } else if (act === 'sit' || act === 'read' || act === 'hall' || act === 'guard') {
-          G.game.toast('（' + (o.label || '') + '）没什么可做的');
-        }
+        /* 通用建筑为环境向（活生生的世界）：给可信的生活气息，不出现"尚未开张"这类缺失承诺。
+           真正的交易/休息/打造服务随"区域建筑服务系统"开放（见全案闭环审计）。 */
+        var LINE = {
+          trade: '掌柜笑问客从何处来，柜上却只摆着些寻常物件。',
+          inn: '店小二殷勤抹着桌子，店里眼下暂无空房。',
+          forge: '铁匠叮当地敲着一块烧红的熟铁，无暇搭话。',
+          brew: '丹房门缝里飘出苦涩药香，丹师正守着闭关火候。',
+          pray: '你对着神台上了一炷香，心头稍定。',
+          sit: '你在桌边小坐片刻。',
+          read: '案上典籍字迹斑驳，一时读不出名堂。',
+          hall: '主事正与旁人议事，不便打扰。',
+          guard: '守卫目不斜视，不肯多言。'
+        };
+        if (LINE[act]) G.game.toast(LINE[act]);
       },
       renderOverlay: function (x, s) {
         G.Overlays.route(x, s);

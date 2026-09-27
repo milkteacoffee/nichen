@@ -564,6 +564,27 @@ const INDOOR = ['town_home', 'town_shop', 'town_market', 'field_temple'];
   }
 });
 
+/* 3a-1a) 读档「继续当世」直接落在生成型区域：场景必须惰性构建，不得误报「场景未开放：fan6」 */
+step(function () {
+  ['fan6', 'fan9', 'ling4'].forEach(function (rid) {
+    const s2 = JSON.parse(JSON.stringify(save));
+    s2.scene = rid; s2.map = rid; s2.pos = null;
+    G.game.save = s2;
+    G.game.toasts.length = 0;
+    G.game.changeScene(rid, { toSpawn: true });
+    if (G.game.sceneName !== rid) errors.push('继续当世进入「' + rid + '」失败（场景未惰性构建）');
+    if (G.game.toasts.some(function (t) { return /场景未开放/.test(t.text); })) {
+      errors.push('继续当世进入「' + rid + '」误报场景未开放');
+    }
+  });
+  /* 真正缺失的场景仍须报错（惰性路径不得吞掉真实 miss） */
+  G.game.changeScene('__no_such_scene__');
+  if (!G.game.toasts.some(function (t) { return /场景未开放：__no_such_scene__/.test(t.text); })) {
+    errors.push('真正缺失的场景未报「场景未开放」');
+  }
+  G.game.save = save;
+}, 'continue.region');
+
 /* 3a-1b) 地图出入口可达性契约：
    每张图的**每个出口格**、以及每个 gate 结构（洞口/关隘）的门格，都必须从该图出生点走得到。
    这条挡的是最恼人的一类问题 —— "地图上明明有个门，就是走不到 / 点了没反应"，
@@ -2771,6 +2792,110 @@ step(function () {
   if (s3.stone !== 0) errors.push('首次结算发了灵石');
 }, 'sect.stipend.contract');
 
+/* ---------- 宗门独立小世界生成契约（v0.44.0，GDD v3.5）----------
+   ① 大宗门 12 栋 / 小宗门 5 栋；② 从山门无向 BFS 可达全部房间；
+   ③ 每条邻接双向有门、山门有通往外界的门、主殿存在；
+   ④ 每栋有可交互焦点；每个 NPC 带合法 gl，且 realmInfo 与主角同一境界表。 */
+step(function () {
+  const SG = G.SectGen;
+  G.Data.sects.list.forEach(function (sect) {
+    const c = SG.of(save, sect.id);
+    if (!c) { errors.push(sect.id + ' 小世界未生成'); return; }
+    const want = sect.size === 'big' ? 12 : 5;
+    if (c.rooms.length !== want) errors.push(sect.n + ' 房间数应为 ' + want + '，实为 ' + c.rooms.length);
+
+    const byId = {}; c.rooms.forEach(function (r) { byId[r.id] = r; });
+    const seen = {}, queue = [c.entry]; seen[c.entry] = 1;
+    while (queue.length) {
+      const cur = queue.shift();
+      (byId[cur].exits || []).forEach(function (e) {
+        if (byId[e.to] && !seen[e.to]) { seen[e.to] = 1; queue.push(e.to); }
+      });
+    }
+    c.rooms.forEach(function (r) { if (!seen[r.id]) errors.push(sect.n + ' 的「' + r.label + '」不可达'); });
+
+    if (!byId[c.hall]) errors.push(sect.n + ' 缺主殿');
+    const gate = byId[c.entry];
+    if (!gate.exits.some(function (e) { return e.to.indexOf('sect.') !== 0; })) {
+      errors.push(sect.n + ' 山门缺通往外界的门');
+    }
+    c.links.forEach(function (lk) {
+      const a = SG.roomId(sect.id, lk[0]), b = SG.roomId(sect.id, lk[1]);
+      if (!byId[a].exits.some(function (e) { return e.to === b; })) {
+        errors.push(sect.n + ' 缺门 ' + lk[0] + '→' + lk[1]);
+      }
+      if (!byId[b].exits.some(function (e) { return e.to === a; })) {
+        errors.push(sect.n + ' 缺门 ' + lk[1] + '→' + lk[0]);
+      }
+    });
+    c.rooms.forEach(function (r) {
+      if (!r.furn.some(function (f) { return f.act; })) {
+        errors.push(sect.n + '「' + r.label + '」缺可交互焦点');
+      }
+      r.npcs.forEach(function (n) {
+        if (n.gl == null || n.gl < 1 || n.gl > 171) errors.push(sect.n + ' NPC ' + n.name + ' gl 非法');
+        const rn = G.Player.realmInfo(n.gl);
+        if (!rn || !rn.n) errors.push(sect.n + ' NPC ' + n.name + ' 境界解析失败');
+      });
+    });
+  });
+}, 'sectgen.contract');
+
+/* ---------- 灵兽数据契约（v0.44.0，B1，《灵兽 v1.1》） ---------- */
+step(function () {
+  const B = G.Data.beasts;
+  if (B.list.length !== 24) errors.push('灵兽物种应为 24，实际 ' + B.list.length);
+  const ROLES = { battle: 1, mount: 1, both: 1, pet: 1, boss: 1 };
+  B.list.forEach(function (sp) {
+    ['id','n','elem','role','base','grow','qual'].forEach(function (k) {
+      if (sp[k] == null) errors.push('灵兽 ' + sp.id + ' 缺字段 ' + k);
+    });
+    if (!ROLES[sp.role]) errors.push('灵兽 ' + sp.id + ' 非法 role ' + sp.role);
+    ['hp','atk','def','spd'].forEach(function (k) {
+      if (typeof sp.base[k] !== 'number' || typeof sp.grow[k] !== 'number') {
+        errors.push('灵兽 ' + sp.id + ' base/grow.' + k + ' 非数值');
+      }
+    });
+    if (B.canBattle(sp.id) !== (sp.role === 'battle' || sp.role === 'both')) {
+      errors.push('灵兽 ' + sp.id + ' canBattle 与 role 不一致');
+    }
+    if (B.canRideSpecies(sp.id) !== (sp.role === 'mount' || sp.role === 'both')) {
+      errors.push('灵兽 ' + sp.id + ' canRideSpecies 与 role 不一致');
+    }
+    const rides = sp.role === 'mount' || sp.role === 'both';
+    if (rides) {
+      if (!sp.ride || !(sp.ride.coef > 0) || !Array.isArray(sp.ride.terrains) || !sp.ride.terrains.length) {
+        errors.push('灵兽 ' + sp.id + ' 可骑但 ride 配置缺失');
+      }
+    } else if (sp.ride) {
+      errors.push('灵兽 ' + sp.id + ' 不可骑却带 ride');
+    }
+    if (sp.chain) {
+      if (!(sp.chain.gl > 0)) errors.push('灵兽 ' + sp.id + ' chain.gl 非法');
+      if (sp.chain.to && !B.byId(sp.chain.to)) errors.push('灵兽 ' + sp.id + ' chain.to 不存在');
+    }
+    if (!(sp.qual[0] >= 0 && sp.qual[1] >= sp.qual[0] && sp.qual[1] <= 100)) {
+      errors.push('灵兽 ' + sp.id + ' 资质区间非法');
+    }
+    [1, 10, 50, 171].forEach(function (gl) {
+      const st = B.stat(sp.id, gl, 60);
+      ['hp','atk','def','spd'].forEach(function (k) {
+        if (!isFinite(st[k]) || st[k] <= 0) errors.push('灵兽 ' + sp.id + ' gl=' + gl + ' ' + k + ' 非法');
+      });
+    });
+  });
+  const mk = function (id, stage) { return { id: id, stage: stage }; };
+  if (B.canRide(mk('b_huangzongma','young'))) errors.push('幼年坐骑不应可骑');
+  if (!B.canRide(mk('b_huangzongma','adult'))) errors.push('成年坐骑应可骑');
+  if (B.canRide(mk('b_chiyanlang','adult'))) errors.push('战种不应可骑');
+  const mig = G.Storage._migrate({ version: 6, cult: 'free', skills: {} });
+  if (mig.version !== 7 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
+    errors.push('v6→v7 存档迁移缺灵兽字段');
+  }
+  const migM = G.Storage._migrate({ version: 6, xianli: 0 });
+  if (migM.version !== 7 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
+}, 'beasts.data.contract');
+
 /* ---------- 自创宗门 + 散修盟悬赏契约（v0.39.0，S5） ----------
    ① 开宗三条件缺一不可（境界 / 灵石 / 声望）；**已飞升灵界可豁免境界**
    ② 开宗：扣灵石 / `sectId='own'` / 写 `meta.mySect`（跨世）/ **不占用转阵营机会**
@@ -3538,6 +3663,21 @@ step(function () {
     if ((s0.items[SH[0].item] || 0) !== b0 + SH[0].n) errors.push('换物后物品数量不对');
     if (s0.sectRep !== 0) errors.push('换物应扣贡献');
     if (G.Player.buySectItem(s0, 999).ok) errors.push('不存在的商品不该能换');
+
+    /* 回归（v0.43.0，截图反馈"eq_qingfeng 裸显"）：
+       ① 每件商品的显示名都必须解析成中文，内部 id 不得残留；
+       ② 逐下标购买一遍 —— 防止"只测第 0 件、后面的商品被截断成死货"。 */
+    SH.forEach(function (it, i) {
+      const nm = G.Player.itemName(it.item);
+      if (!nm || /^eq_|[a-z]{3,}_[a-z_]+/.test(nm)) {
+        errors.push('商品(' + it.item + ')显示名未解析：' + nm);
+      }
+      s0.sectRep = it.cost;
+      const buy = G.Player.buySectItem(s0, i);
+      if (!buy.ok || buy.name !== G.Player.itemName(it.item)) {
+        errors.push('商品下标 ' + i + ' 应可购买并回传显示名：' + (buy.reason || 'name 缺失'));
+      }
+    });
   }
 
   /* ⑥ 底栏 */
@@ -4736,17 +4876,21 @@ step(function () {
       errors.push('下拉头默认选的不是等级最高的功法：' + head.label);
     }
     head.onClick();                                     /* 展开列表 */
-    const rows = sc.buttons.filter((b) => /Lv\d/.test(b.label || ''));
+    const realmRe = /([一二三四五六七八九])重(初期|中期|后期|巅峰)/;
+    const rows = sc.buttons.filter((b) => realmRe.test(b.label || ''));
     if (rows.length !== 3) errors.push('功法下拉应有 3 行，实为 ' + rows.length);
-    const lvs = rows.map((b) => parseInt((b.label.match(/Lv(\d+)/) || [0, 0])[1], 10));
+    const CN_ = ['一','二','三','四','五','六','七','八','九'];
+    const PH_ = ['初期','中期','后期','巅峰'];
+    const progOf = (lab) => { const m = lab.match(realmRe); return CN_.indexOf(m[1]) * 4 + PH_.indexOf(m[2]); };
+    const lvs = rows.map((b) => progOf(b.label));
     for (let i = 1; i < lvs.length; i++) {
-      if (lvs[i] > lvs[i - 1]) errors.push('功法下拉未按等级降序：' + lvs.join(' / '));
+      if (lvs[i] > lvs[i - 1]) errors.push('功法下拉未按境界降序：' + rows.map((b) => b.label).join(' / '));
     }
     if (rows.length && rows[0].label.indexOf('缠藤指') < 0) {
       errors.push('下拉第一行不是等级最高的功法：' + rows[0].label);
     }
     /* 下拉行必须排在 buttons 前面（命中按数组顺序），否则会被「精进」抢走点击 */
-    if (sc.buttons[0].label.indexOf('Lv') < 0) {
+    if (!realmRe.test(sc.buttons[0].label || '')) {
       errors.push('下拉行没排在 buttons 前面 —— 会被别的按钮抢走点击');
     }
     sc.clearOverlay();
@@ -4815,7 +4959,7 @@ step(function () {
     if (!skTab) bail('储物缺「功法」子页');
     skTab.onClick();
     if (sc.bagTab !== 'skill') errors.push('点「功法」子页没有切到 skill');
-    if (!sc.buttons.some((b) => b.sub && /^Lv/.test(String(b.sub)))) {
+    if (!sc.buttons.some((b) => b.sub && /重(初期|中期|后期|巅峰)/.test(String(b.sub)))) {
       errors.push('功法子页没有功法方格');
     }
     /* 悬浮说明：方格必须带 hover 文案（渲染路径里挂的） */

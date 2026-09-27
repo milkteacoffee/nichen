@@ -87,6 +87,12 @@
 
     changeScene: function (name, params) {
       var s = G.scenes[name];
+      /* 生成型区域场景惰性创建；读档「继续当世」直接落到 fan6 这类区域时，G.scenes 还是新的，
+         必须先按 regionId 建出场景，否则误报「场景未开放」。F1–F3 复用手写地图（mapIdOf≠id）不进此路。 */
+      if (!s && G.RegionGen && G.Data.regions && G.Data.regions.byId(name)
+        && G.Data.regions.mapIdOf(name) === name) {
+        s = G.RegionGen.sceneFor(name);
+      }
       if (!s) { this.toast('场景未开放：' + name); return; }
       if (this.scene && this.scene.exit) this.scene.exit();
       this.sceneName = name;

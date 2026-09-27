@@ -180,7 +180,7 @@
       var d = rec.detail;
       var rows = [
         ['境界仙力', '10 × L' + rec.level, d.realm],
-        ['功法仙力', '2 × Σ功法等级', d.skill],
+        ['功法仙力', '2 × Σ功法境界', d.skill],
         ['击杀仙力', '30 × ' + Math.round(d.kill / 30) + ' 次', d.kill],
         ['年岁仙力', '（' + rec.age + '−15）× 2', d.age],
         ['轮回成就', d.achieveList.length ? '共 ' + d.achieveList.length + ' 项' : '—', d.achieve]

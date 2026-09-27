@@ -567,9 +567,9 @@
       if (sd.healSelf) out.push('吸取伤害的 ' + Math.round(sd.healSelf * 100) + '% 回复气血');
       if (sd.heal) out.push('同时回复 ' + Math.round(sd.heal * 100) + '% 气血');
     } else if (sd.kind === '防御') {
-      out.push('被动 · 每级 防御 +' + (3 * tc) + '（品阶系数 ×' + tc + '）');
+      out.push('被动 · 每精进一阶 防御 +' + (3 * tc) + '（品阶系数 ×' + tc + '）');
     } else {
-      out.push('被动 · 每级 气血 +' + (20 * tc) + '（品阶系数 ×' + tc + '）');
+      out.push('被动 · 每精进一阶 气血 +' + (20 * tc) + '（品阶系数 ×' + tc + '）');
     }
     if (sd.active) {
       out.push('主动「' + sd.active.n + '」：回复 '
@@ -625,7 +625,7 @@
           x: SK.head.x, y: SK.listY + i * SK.rowH, w: SK.head.w, h: SK.rowH - 1,
           small: true,
           variant: id === sel ? 'gold' : 'battle',
-          label: d.n + '　Lv' + l + '　' + (d.elem || '无') + '　' + (d.tier || '凡') + '阶',
+          label: d.n + '　' + G.Data.skillRealm(l).short + '　' + (d.elem || '无') + '　' + (d.tier || '凡') + '阶',
           onClick: function () {
             scene.skillSel = id; scene.skillOpen = false;
             G.Overlays.openPanel(scene, 'skills');
@@ -635,12 +635,13 @@
     } else {
       btns.push(new G.UI.Btn({
         x: SK.btn.x, y: SK.btn.y, w: SK.btn.w, h: SK.btn.h, small: true,
-        variant: save.po >= cost ? 'gold' : 'default',
-        label: '精进 ' + cost + ' 灵力', disabled: save.po < cost,
+        variant: (save.po >= cost && !G.Data.skillAtTop(lv)) ? 'gold' : 'default',
+        label: G.Data.skillAtTop(lv) ? '已至九重巅峰' : ('精进 ' + cost + ' 灵力'),
+        disabled: save.po < cost || G.Data.skillAtTop(lv),
         onClick: function () {
           save.po -= cost; save.skills[sel].lv += 1;
           G.Storage.saveCurrent(save);
-          G.game.toast(sd.n + ' 精进至 Lv' + save.skills[sel].lv);
+          G.game.toast(sd.n + ' 精进至 ' + G.Data.skillRealm(save.skills[sel].lv).n);
           G.Overlays.openPanel(scene, 'skills');
         }
       }));
@@ -658,7 +659,7 @@
           G.Storage.saveCurrent(save);
           G.game.toast(r.learned
             ? '参悟得「' + r.name + '」'
-            : '「' + r.name + '」精进至 Lv' + r.lv);
+            : '「' + r.name + '」精进至 ' + G.Data.skillRealm(r.lv).n);
           G.Overlays.openPanel(scene, 'skills');
         }
       }));
@@ -672,7 +673,7 @@
       variant: scene.skillOpen ? 'gold' : 'default',
       label: scene.skillOpen
         ? '收起列表'
-        : sd.n + '　Lv' + lv + '　（共 ' + ids.length + ' 本）',
+        : sd.n + '　' + G.Data.skillRealm(lv).short + '　（共 ' + ids.length + ' 本）',
       onClick: function () {
         scene.skillOpen = !scene.skillOpen;
         G.Overlays.openPanel(scene, 'skills');
@@ -719,13 +720,13 @@
           '另有 ' + more + ' 本未列出', 10, G.UI.C.textDim, 'right');
       }
       G.UI.text(x, { x: SP.x + 14, y: SP.y + 202 },
-        '点一本即可切换；等级最高的排在最上面。', 10, G.UI.C.textDim);
+        '点一本即可切换；境界高的排在最上面。', 10, G.UI.C.textDim);
       return;
     }
 
     /* ---- 收起态：详情 ---- */
     var info = (sd.tier || '凡') + '阶　' + sd.kind
-      + '　属性 ' + (sd.elem || '无') + '　等级 Lv' + lv;
+      + '　属性 ' + (sd.elem || '无') + '　' + G.Data.skillRealm(lv).n;
     G.UI.text(x, { x: SP.x + 14, y: SK.infoY }, info, 11.5, G.UI.C.text);
 
     sec(x, SP.x + 14, SK.secY, '效 果');
@@ -1081,6 +1082,8 @@
     if (tab === 'misc') {
       Object.keys(save.items || {}).forEach(function (k) {
         if (!(save.items[k] > 0)) return;
+        /* 法宝（eq_ 前缀）归「法宝」页陈列，不混在杂项里 */
+        if (G.Data.equips && G.Data.equips.byId(k)) return;
         out.push({ n: k, c: '×' + save.items[k], d: ITEM_D[k] || '—',
           use: ITEM_USE[k] ? k : null, icon: ITEM_ICON_ID[k] || null });
       });
@@ -1091,7 +1094,7 @@
            但数量位改成原因、说明里前置【】标注。 */
         var why = G.Player.skillBlockReason ? G.Player.skillBlockReason(save, id) : null;
         out.push({
-          n: sd.n, c: why ? '不可用' : ('Lv' + save.skills[id].lv),
+          n: sd.n, c: why ? '不可用' : G.Data.skillRealm(save.skills[id].lv).short,
           icon: ELEM_PINYIN[sd.elem] || null,
           blocked: !!why,
           d: (why ? '【' + why + '】' : '')
@@ -1110,13 +1113,24 @@
         var lv = save.secrets[id];
         out.push({
           n: (Dg.SECRETS && Dg.SECRETS[id]) || id,
-          c: 'Lv' + lv,
+          c: '×' + lv,
           d: secretDesc(id, lv)
         });
       });
+    } else if (tab === 'treasure') {
+      /* 法宝（v0.41.0 起入库陈列）：save.items 里的 eq_ 前缀条目。
+         陈列用，穿戴在「角色 → 法宝」子页（不做"点了没反应"的僵尸操作）。 */
+      var EQD = G.Data.equips;
+      Object.keys(save.items || {}).forEach(function (k) {
+        var eq = EQD && EQD.byId(k);
+        if (!eq || !(save.items[k] > 0)) return;
+        out.push({
+          n: eq.n, c: '×' + save.items[k], icon: k,
+          d: eq.tier + '阶 · ' + EQD.SLOT_N[eq.slot] + '。' + eq.d
+            + ' 在「角色 → 法宝」页穿戴。'
+        });
+      });
     }
-    /* treasure（法宝）M2 才做 —— 不产出任何格子，由 drawBag 出空态文案。
-       不做"点了没反应"的僵尸格子。 */
     return out;
   }
 
@@ -1189,12 +1203,12 @@
        可用格子的边框由 'battle' 变体给，不可用的走 'default'。 */
     if (!cells.length) {
       empty(x, P.x + 14, BG.y0 + 8,
-        tab === 'treasure' ? '法宝尚未开放 —— M2 起可自坊市炼制。'
+        tab === 'treasure' ? '尚无法宝 —— 宗门商店可用贡献换取。'
           : tab === 'skill' ? '尚未习得任何功法。'
             : tab === 'secret' ? '尚未获得任何秘术（秘境首通可得）。'
               : '囊中空空。');
       G.UI.text(x, { x: P.x + 14, y: BG.y0 + 32 },
-        tab === 'treasure' ? 'M1 阶段法宝不入库，相关天赋与词条先行保留。'
+        tab === 'treasure' ? '拜入宗门后，在「势力 → 门派商店」换取。'
           : '杂货铺可购丹药；妖丹可回收换灵石。', 10.5, G.UI.C.textDim);
       return;
     }
@@ -1406,17 +1420,31 @@
         '镇派功法取你已习得的第一门。开宗后仍可收徒。', 10, G.UI.C.textDim);
       return;
     }
-    /* 门派商店子视图 */
+    /* 门派商店子视图（v0.41.0：两列陈列、全部商品可见；名称一律走 itemName 解析，
+       内部 id 不再裸显）。 */
     if (scene.sectView === 'shop') {
       shell(x, '势力', '贡献 ' + (save.sectRep || 0));
       G.UI.text(x, { x: P.x + 14, y: P.y + 58 }, '门派商店 · 以贡献换取', 12, G.UI.C.goldHi);
       G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
         '贡献来自副本通关（首杀 +20 / 刷取 +8）。', 10, G.UI.C.textDim);
       var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
-      SH.slice(0, 5).forEach(function (it, i) {
-        G.UI.text(x, { x: P.x + 22, y: P.y + 100 + i * 18 },
-          it.item + ' ×' + it.n + '　　' + it.cost + ' 贡献', 10.5,
-          (save.sectRep || 0) >= it.cost ? G.UI.C.text : G.UI.C.textDim);
+      /* 两列几何：内容宽 422，左右各留 14、列间留 12 → 列宽 191；
+         5 行 ×16 收在 y+100..179，返回按钮（y+184）不打架。 */
+      var SH_COL_W = (P.w - 14 * 2 - 12) / 2;
+      SH.forEach(function (it, i) {
+        var col = i % 2, row = Math.floor(i / 2);
+        var cx = P.x + 14 + col * (SH_COL_W + 12);
+        var cy = P.y + 100 + row * 16;
+        var can = (save.sectRep || 0) >= it.cost;
+        /* 小图标：普通道具走 ITEM_ICON_ID，法宝直接用 id（itemIcon 会补 equip. 前缀） */
+        var iconId = ITEM_ICON_ID[it.item] || it.item;
+        var ic = G.Art.itemIcon ? G.Art.itemIcon(iconId, 14) : null;
+        if (ic && ic.c) {
+          x.drawImage(ic.c, Math.round(cx + ic.ox), Math.round(cy + 1 + ic.oy), ic.w, ic.h);
+        }
+        G.UI.text(x, { x: cx + 18, y: cy + 3 },
+          G.Player.itemName(it.item) + ' ×' + it.n + '　' + it.cost + '贡献', 9.5,
+          can ? G.UI.C.text : G.UI.C.textDim);
       });
       return;
     }
@@ -1477,7 +1505,7 @@
       var own = save.skills && save.skills[id];
       var cost = (sk.tier === '灵') ? 150 : 50;
       var st, col;
-      if (own && !own.voided) { st = 'Lv' + own.lv; col = G.UI.C.jadeHi; }
+      if (own && !own.voided) { st = G.Data.skillRealm(own.lv).short; col = G.UI.C.jadeHi; }
       else if (own && own.voided) { st = '已废功 · 需 ' + cost; col = 'rgba(180,120,120,0.9)'; }
       else { st = '未习 · 需 ' + cost + ' 贡献'; col = G.UI.C.textDim; }
       G.UI.text(x, { x: P.x + 22, y: P.y + 120 + i * 15 }, sk.n + '　' + st, 10, col);
@@ -1524,18 +1552,23 @@
       }));
       return;
     }
-    /* 商店子视图 */
+    /* 商店子视图（v0.41.0：两列，按钮落在每行右侧；购买索引用全表真实下标，
+       不再受 slice 截断影响）。 */
     if (scene.sectView === 'shop') {
       var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
-      SH.slice(0, 5).forEach(function (it, i) {
+      var SH_COL_W = (P.w - 14 * 2 - 12) / 2;
+      SH.forEach(function (it, i) {
+        var col = i % 2, row = Math.floor(i / 2);
+        var cx = P.x + 14 + col * (SH_COL_W + 12);
+        var cy = P.y + 100 + row * 16;
         var can = (save.sectRep || 0) >= it.cost;
         btns.push(new G.UI.Btn({
-          x: P.x + P.w - 110, y: P.y + 96 + i * 18, w: 100, h: 16, small: true, fs: 9.5,
+          x: cx + SH_COL_W - 58, y: cy, w: 58, h: 15, small: true, fs: 9,
           variant: can ? 'gold' : 'ghost',
           label: can ? ('换取 ' + it.cost) : '贡献不足',
           onClick: function () {
             var r = G.Player.buySectItem(save, i);
-            G.game.toast(r.ok ? ('得 ' + r.item.item + ' ×' + r.item.n + '　贡献 -' + r.item.cost)
+            G.game.toast(r.ok ? ('得 ' + r.name + ' ×' + r.item.n + '　贡献 -' + r.item.cost)
               : ('无法换取：' + r.reason));
             if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
           }

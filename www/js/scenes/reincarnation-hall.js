@@ -145,7 +145,7 @@
             m.xianli -= cost;
             m.perfusion[row.key] = lv + 1;
             G.Storage.saveMeta(m);
-            self.hint = row.n + ' 提升至 Lv' + (lv + 1) + '　' + row.apply;
+            self.hint = row.n + ' 提升至 ' + (lv + 1) + ' 层　' + row.apply;
             self._build();
           }
         });
@@ -331,7 +331,7 @@
           ? ('碎片 ' + this._shards(m) + '/3')
           : (this.view === 'lives'
             ? ('记录 ' + (m.past || []).length + ' 世')
-            : ('仙躯 Lv' + (m.perfusion.body || 0))),
+            : ('仙躯 ' + (m.perfusion.body || 0) + ' 层')),
         11, G.UI.C.jadeHi, 'right');
 
       if (this.view === 'ascend') this._renderAscend(x);

@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 6;
+  var VERSION = 7;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -166,6 +166,22 @@
           });
         }
         data.version = 6;
+      }
+
+      /* v6 → v7：灵兽系统（《灵兽系统 v1.1》§12）
+         save 侧加 beasts（个体）/ beastTeam（出战位）/ riding（当前骑乘）/ rideSkill（骑术）；
+         meta 侧加 bestiary（跨世图鉴）/ companionBeast（伴生仙兽槽，后期预留）。缺字段补默认，不白屏。 */
+      if (data.version < 7) {
+        if (this._isMeta(data)) {
+          data.bestiary = data.bestiary || {};
+          if (data.companionBeast == null) data.companionBeast = null;
+        } else {
+          data.beasts = data.beasts || [];
+          data.beastTeam = data.beastTeam || [];
+          if (data.riding == null) data.riding = null;
+          data.rideSkill = data.rideSkill || { land: false, air: false };
+        }
+        data.version = 7;
       }
       return data;
     },

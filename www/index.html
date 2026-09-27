@@ -30,6 +30,10 @@
 <!-- ===== 数据 ===== -->
 <script src="js/data/talents.js"></script>
 <script src="js/data/skills.js"></script>
+<!-- 品级（物品11档）与功法境界（九重×四阶段），统一去"等级"化 -->
+<script src="js/data/grades.js"></script>
+<!-- 灵兽数据层（24物种、角色标签、境界成长、骑乘判定，《灵兽 v1.1》） -->
+<script src="js/data/beasts.js"></script>
 <!-- 宗门与散修体系（《宗门与散修体系设计 v1.0》）：21 宗门 + 功法 src 归属 -->
 <script src="js/data/sects.js"></script>
 <!-- 宗门山门（凡界 9 宗门的可进室内场景） -->
@@ -56,6 +60,8 @@
      注册进 G.Data.maps 后 mapgen.buildMap 直接可用（mapgen 零改动）。 -->
 <script src="js/core/regiongen.js"></script>
 <script src="js/core/interiorgen.js"></script>
+<!-- 宗门独立小世界：多房间内部地图确定性生成（GDD v3.5）-->
+<script src="js/core/sectgen.js"></script>
 <script src="js/core/overlays.js"></script>
 <!-- 底栏功能栏 + 六个面板（角色/功法/秘术/任务/储物/成就）。
      依赖 G.Overlays（挂 PANELS/barBtns/renderPanel），必须在 overlays.js 之后。 -->

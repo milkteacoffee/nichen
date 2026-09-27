@@ -426,7 +426,7 @@
       '筑基丹': '刘记订购 1000 灵石，或用沈伯旧方（妖丹×3 + 600 灵石）'
     },
     pillHint: function (pill) {
-      return this.PILL_HINT[pill] || '尚未见售（待炼丹与宗门交易开放）';
+      return this.PILL_HINT[pill] || '秘境/小世界探索可得，或宗门贡献兑换、自行炼制';
     },
     breakPill: function (gl) {
       var n = this.realmOf(gl || 1).n;
@@ -891,7 +891,15 @@
       save.items = save.items || {};
       save.items[it.item] = (save.items[it.item] || 0) + it.n;
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
-      return { ok: true, item: it };
+      return { ok: true, item: it, name: this.itemName(it.item) };
+    },
+
+    /* 道具显示名（v0.41.0）：普通道具 id 即中文名；法宝 id（eq_ 前缀）走法宝表。
+       ⚠️ 任何"把道具 id 画给玩家看"的地方都必须先过这里 ——
+          否则 eq_qingfeng 这类内部 id 会直接裸显在界面上。 */
+    itemName: function (id) {
+      var eq = G.Data.equips && G.Data.equips.byId(id);
+      return eq ? eq.n : id;
     },
 
     /* 入门试炼的**门槛**（试炼本身是一场切磋战，见 battle.js: sectTrial） */
@@ -908,7 +916,7 @@
       }
       if (!this.canUseSkill(save, id)) return { ok: false, reason: '非本门功法' };
       /* ===== 功法前置链（S3，对标《太吾绘卷》）=====
-         本门功法**按池子顺序解锁**：第 2 本需要第 1 本达 Lv3。
+         本门功法**按池子顺序解锁**：第 2 本需要第 1 本修至「一重·后期」（prog≥3）。
          没有前置链的话，贡献一够就能直接买最强的 —— "成长"没有层次，
          玩家也不会去用第一本。 */
       var sect = G.Data.sects.byId(save.sectId);
@@ -919,7 +927,7 @@
         var pv = (save.skills && save.skills[prev] && save.skills[prev].lv) || 0;
         if (pv < 3) {
           var pn = (G.Data.skills[prev] && G.Data.skills[prev].n) || prev;
-          return { ok: false, reason: '需先修《' + pn + '》至 Lv3（当前 Lv' + pv + '）' };
+          return { ok: false, reason: '需先修《' + pn + '》至「' + G.Data.skillRealm(3).short + '」（当前 ' + G.Data.skillRealm(pv).short + '）' };
         }
       }
       var cost = (sk.tier === '灵') ? 150 : 50;
@@ -1107,8 +1115,8 @@
     PILL_QUALITY: [
       { n: '下品', add: 10 }, { n: '中品', add: 12 }, { n: '上品', add: 14 },
       { n: '极品', add: 16 }, { n: '黄级', add: 18 }, { n: '玄级', add: 20 },
-      { n: '地级', add: 22 }, { n: '天级', add: 24 }, { n: '圣级', add: 26 },
-      { n: '神级', add: 28 }, { n: '仙级', add: 30 }, { n: '道级', add: 30 }
+      { n: '地级', add: 22 }, { n: '天级', add: 24 }, { n: '神级', add: 26 },
+      { n: '仙级', add: 28 }, { n: '圣级', add: 30 }, { n: '道级', add: 30 }
     ],
     /* 破境丹的品级序号（1..12）= 它服务的**大境界序号**映射到 12 档。
        ⚠️ 必须**单调不降**：写成"高境界反而吃低品丹"会让后期破境比前期还容易。 */
@@ -1189,8 +1197,16 @@
       var pool = Dt.shardPool(tier);
       if (!pool.length) return { ok: false, reason: '此品阶暂无功法可参悟' };
 
+      var MAXP = G.Data.SKILL_MAX_PROG;
       var fresh = pool.filter(function (id) { return !save.skills[id]; });
-      var pick = G.rng.pick(fresh.length ? fresh : pool);
+      /* 已习得的里，只挑还没到九重巅峰的（否则碎片会白砸到顶的功法上）*/
+      var canUp = pool.filter(function (id) {
+        return save.skills[id] && save.skills[id].lv < MAXP;
+      });
+      if (!fresh.length && !canUp.length) {
+        return { ok: false, reason: '此品阶功法皆已修至九重巅峰' };
+      }
+      var pick = G.rng.pick(fresh.length ? fresh : canUp);
       save.items = save.items || {};
       save.items[item] -= need;
       if (save.items[item] <= 0) delete save.items[item];

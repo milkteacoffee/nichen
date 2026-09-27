@@ -275,7 +275,9 @@
         secrets: {}, daoCrystal: 0, daoCleared: [],
         /* 区域层：入口落位按界分桶（锚世不抽池）/ 到访记录 / 已进建筑 */
         entrances: { fan: [], ling: [], xian: [], dao: [] },
-        visited: {}, indoor: {}
+        visited: {}, indoor: {},
+        /* 灵兽（《灵兽 v1.1》§12）：开局空兽栏、未学骑术 */
+        beasts: [], beastTeam: [], riding: null, rideSkill: { land: false, air: false }
       };
       /* 锚世不抽随机副本池（走剧情锚定副本）；浮世为起始界 roll 一次落位 */
       if (!anchor) {
@@ -312,7 +314,7 @@
 
       if (addQi || addPo || addStone || addRescue || (pf.body || 0)) {
         var gains = [];
-        if (pf.body) gains.push('仙躯 Lv' + pf.body);
+        if (pf.body) gains.push('仙躯 ' + pf.body + ' 层');
         if (addQi) gains.push('灵气 +' + addQi);
         if (addPo) gains.push('灵力 +' + addPo);
         if (addStone) gains.push('灵石 +' + addStone);

@@ -472,12 +472,13 @@
       var cost = G.Player.skillCost(sd, lv);
       btns.push(new G.UI.Btn({
         x: SP.x + SP.w - 110, y: 104 + i * 26, w: 92, h: 20,
-        small: true, label: '修炼 ' + cost + '力',
-        disabled: save.po < cost,
+        small: true,
+        label: G.Data.skillAtTop(lv) ? '已至巅峰' : ('修炼 ' + cost + '力'),
+        disabled: save.po < cost || G.Data.skillAtTop(lv),
         onClick: function () {
           save.po -= cost; save.skills[id].lv += 1;
           G.Storage.saveCurrent(save);
-          G.game.toast(sd.n + ' 精进至 Lv' + save.skills[id].lv);
+          G.game.toast(sd.n + ' 精进至 ' + G.Data.skillRealm(save.skills[id].lv).n);
           openCult(scene);
         }
       }));
@@ -795,7 +796,7 @@
         var sd = G.Data.skills[id];
         var y = 108 + i * 26;
         G.UI.text(x, { x: SP.x + 18, y: y },
-          (sd ? sd.n : id) + ' · Lv' + save.skills[id].lv, 12, G.UI.C.text);
+          (sd ? sd.n : id) + ' · ' + G.Data.skillRealm(save.skills[id].lv).short, 12, G.UI.C.text);
         if (sd) {
           G.UI.text(x, { x: SP.x + 152, y: y + 1 }, sd.elem, 10,
             G.Data.elem.color[sd.elem] || G.UI.C.textDim);

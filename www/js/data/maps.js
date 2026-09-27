@@ -208,7 +208,7 @@
       /* 沈伯站在柜台之后（y=5，柜台 y=6）。室内 y<5 的话头顶会被顶部 HUD 压住，
          连任务标记都会藏进 HUD 里，所以掌柜一律摆到 y≥5。 */
       npcs: [
-        { id: 'shenbo', kind: 'elder', name: '沈伯', portrait: 'shenbo',
+        { id: 'shenbo', kind: 'elder', name: '沈伯', portrait: 'shenbo', gl: 27,
           x: 13, y: 5, act: 'shenbo' }
       ],
       exits: [ { x0: 14, x1: 15, y: 16, to: 'town', spawn: { x: 17, y: 12 }, label: '出门' } ]
@@ -234,7 +234,7 @@
         { id: 'shelf', kind: 'shelf', x: 25, y: 13, w: 3, h: 1 }
       ],
       npcs: [
-        { id: 'keeper', kind: 'keeper', name: '刘掌柜', portrait: 'keeper',
+        { id: 'keeper', kind: 'keeper', name: '刘掌柜', portrait: 'keeper', gl: 5,
           x: 12, y: 6, act: 'market' }
       ],
       exits: [ { x0: 14, x1: 15, y: 16, to: 'town', spawn: { x: 28, y: 12 }, label: '出门' } ]

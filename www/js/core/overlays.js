@@ -492,10 +492,10 @@
         G.UI.textOut(x, { x: RX, y: yy }, sd ? sd.n : id, 12,
           sd && sd.tier === '仙' ? G.UI.C.goldHi : G.UI.C.text);
         if (sd) {
-          G.UI.text(x, { x: RX + RW - 34, y: yy + 1 }, sd.elem, 10,
+          G.UI.text(x, { x: RX + RW - 60, y: yy + 1 }, sd.elem, 10,
             (G.Data.elem && G.Data.elem.color[sd.elem]) || G.UI.C.textDim);
         }
-        G.UI.text(x, { x: RX + RW, y: yy + 1 }, 'Lv' + lv, 11, G.UI.C.textDim, 'right');
+        G.UI.text(x, { x: RX + RW, y: yy + 1 }, G.Data.skillRealm(lv).short, 11, G.UI.C.textDim, 'right');
         yy += 19;
       });
       if (ids.length > maxRows) {

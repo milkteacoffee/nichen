@@ -12,3 +12,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+
+# IDE
+.idea/
+.vscode/
+
+# 根目录临时输出（smoke/error 重定向）
+/_*.txt

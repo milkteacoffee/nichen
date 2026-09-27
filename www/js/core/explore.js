@@ -431,7 +431,7 @@
         if (loot.stone) { save.stone += loot.stone; G.game.toast('灵石 +' + loot.stone); }
         if (loot.items) Object.keys(loot.items).forEach(function (k) {
           save.items[k] = (save.items[k] || 0) + loot.items[k];
-          G.game.toast(k + ' ×' + loot.items[k]);
+          G.game.toast(G.Player.itemName(k) + ' ×' + loot.items[k]);
         });
         save.chestsOpened.push(o.id);
         G.Storage.saveCurrent(save);

@@ -353,7 +353,7 @@
       } else if (this.es.length > 1) {
         this._log('遭遇 ' + this.es.map(function (e) { return e.name; }).join('、'));
       } else {
-        this._log('遭遇 ' + this.es[0].name + '（' + this.es[0].level + ' 级）');
+        this._log('遭遇 ' + this.es[0].name + '（' + G.Player.realmInfo(this.es[0].level).n + '）');
       }
       this._log('请选择行动。');
       this.phase = 'command';
