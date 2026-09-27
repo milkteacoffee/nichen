@@ -937,6 +937,16 @@ step(() => {
 shot('47b_panel_beasts', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'beastShop'); }, 'panel.beastshop');
 shot('47c_panel_beastshop', 6);
+/* 出战兽接入战斗（design B2）：赤炎狼作友方单位站主角左后侧 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.beasts = []; s.beastTeam = []; s.riding = null; s.beastSeq = 0;
+  const r = G.Beasts.add(s, 'b_chiyanlang', { gl: 2, stage: 'adult' });
+  G.Beasts.setBattle(s, r.beast.uid);
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 2, '青纹蛇'), mapId: 'field' });
+}, 'battle.beast');
+shot('48_battle_beast', 30);
 /* 宗门面板（《宗门与散修体系设计 v1.0》）：散修态应看到「拜入 XX」按钮 */
 step(() => {
   const s = G.game.save;

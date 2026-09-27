@@ -2953,6 +2953,40 @@ step(function () {
   if (!(tp2.__seen || []).some(function (x) { return x.indexOf('尚无灵兽') >= 0; })) errors.push('空兽栏空状态未渲染');
 }, 'beasts.manager.contract');
 
+/* ---------- 出战灵兽接入战斗契约（design B2，《灵兽 v1.1》§5） ----------
+   ① 出战兽进战斗为独立单位，按速度自主行动；② 敌方可转火；③ 胜利 +亲密度/修为 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  const rr = G.Beasts.add(s, 'b_chiyanlang', { gl: 1, stage: 'adult' });
+  if (!rr.ok) { errors.push('测试赤炎狼未能入栏：' + rr.reason); return; }
+  if (!G.Beasts.setBattle(s, rr.beast.uid).ok) { errors.push('赤炎狼出战失败'); return; }
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 1, '青纹蛇'), mapId: 'field' });
+}, 'beasts.battle.enter');
+pump(10);
+step(() => {
+  const b = G.game.scene;
+  if (!b.beast) { errors.push('出战兽未进战斗为独立单位'); return; }
+  if (!(b.beast.maxhp > 0) || b.beast.hp <= 0) errors.push('出战兽气血异常');
+  b.__logs0 = b.logs.length;
+  b._playerAction({ kind: 'atk', mult: 1.0, elem: b.p.elem, n: '攻击', cost: 0 }, b.es[0].key);
+}, 'beasts.battle.act');
+pump(160, 'beasts.battle.resolve');
+step(() => {
+  const b = G.game.scene, s = G.game.save;
+  if (!b.beast) { errors.push('战斗中出战兽丢失'); return; }
+  const acted = b.logs.slice(b.__logs0 || 0).some(function (l) { return l.indexOf(b.beast.name) >= 0; });
+  if (!acted) errors.push('出战兽未在回合中自主行动');
+  const ind = G.Beasts.byUid(s, s.beastTeam[0]);
+  const bond0 = ind.bond, xp0 = ind.xp;
+  b.es.forEach(function (e) { e.hp = 0; });
+  b._victory();
+  if (ind.bond !== Math.min(100, bond0 + 2)) errors.push('胜利未给出战兽 +2 亲密度');
+  if (ind.xp < xp0 + 20) errors.push('胜利未给出战兽修为');
+}, 'beasts.battle.victory');
+pump(20);
+
+
 /* ---------- 自创宗门 + 散修盟悬赏契约（v0.39.0，S5） ----------
    ① 开宗三条件缺一不可（境界 / 灵石 / 声望）；**已飞升灵界可豁免境界**
    ② 开宗：扣灵石 / `sectId='own'` / 写 `meta.mySect`（跨世）/ **不占用转阵营机会**

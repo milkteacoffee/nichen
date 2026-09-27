@@ -4,6 +4,8 @@
    ─ 奖励按经济表 v0.2 §4；剧情分支 killer / wolfKing / heartDemon */
 (function () {
   var HERO_POS = { x: 122, y: 158, s: 58 };
+  /* 出战灵兽站位：主角左后侧，略小 */
+  var BEAST_POS = { x: 68, y: 168, s: 46 };
 
   /* 敌方槽位：索引 0 = 前排（离主角最近），越靠后越远 */
   var E_SLOTS = [
@@ -28,6 +30,14 @@
     '赤炎狼王': 'wolfking', '杀手': 'killer', '心魔': 'heartDemon',
     /* M1：血煞教（设计 M1 v1.0 §5.3）。心魔残影与心魔同形象（本就是它的影）。 */
     '血煞教徒': 'cultist', '血蝠': 'bloodbat', '血面': 'xuemian', '心魔残影': 'heartDemon'
+  };
+  /* 灵兽物种 id → 程序化战斗图（无专用图时的兜底） */
+  var BEAST_UNIT_SPRITE = {
+    b_qingwenshe: 'snake', b_bilinmang: 'snake', b_qingjiao: 'snake',
+    b_chiyanlang: 'wolf', b_chiyanlangwang: 'wolfking', b_shujing: 'tree',
+    b_chiyanshi: 'wolf', b_leishou: 'wolf', b_shihunfu: 'bloodbat',
+    b_leizeju: 'wolf', b_tianma: 'wolf', b_pixiu: 'wolf',
+    b_qilin: 'wolf', b_jinchidapeng: 'wolf', b_hundunshou: 'wolf'
   };
 
   /* M0 功法装配位上限（v0.3 §10） */
@@ -468,6 +478,25 @@
         e.skills.forEach(function (s) { if (s.cdLeft == null) s.cdLeft = 0; });
       });
 
+      /* 出战灵兽（《灵兽 v1.1》§5）：取 beastTeam 首位，自主行动的友方单位 */
+      this.beast = null;
+      var bUid0 = save.beastTeam && save.beastTeam[0];
+      if (bUid0 != null) {
+        var bInd0 = G.Beasts.byUid(save, bUid0);
+        if (bInd0 && G.Data.beasts.canBattle(bInd0.id) && bInd0.gl <= (save.globalLevel || 1)) {
+          var bDsp0 = G.Data.beasts.byId(bInd0.id), bCst0 = G.Beasts.combatStat(bInd0);
+          this.beast = {
+            name: bInd0.name, side: 'left', isBeast: true,
+            species: bDsp0.n, artKey: bDsp0.id, sprite: BEAST_UNIT_SPRITE[bDsp0.id] || 'snake',
+            level: bInd0.gl, maxhp: bCst0.hp, hp: bCst0.hp,
+            atk: bCst0.atk, def: bCst0.def, spd: bCst0.spd,
+            crit: 0.05, critDmg: 1.5, elem: bDsp0.elem, im: [],
+            skills: [], buffs: { atk: 0, turns: 0 }, guard: false,
+            statuses: {}, shield: 0, charge: null, _indUid: bInd0.uid
+          };
+        }
+      }
+
       this._layout();
       this._resetTrackers();
     },
@@ -529,18 +558,21 @@
     /* ===== 单位寻址 ===== */
     _keys: function () {
       var ks = ['P'];
+      if (this.beast) ks.push('B');
       for (var i = 0; i < this.es.length; i++) ks.push('E' + i);
       return ks;
     },
     _unit: function (key) {
       if (!key) return null;
       if (key === 'P') return this.p;
+      if (key === 'B') return this.beast;
       var i = parseInt(String(key).slice(1), 10);
       if (isNaN(i)) return null;
       return this.es[i] || null;
     },
     _pos: function (key) {
       if (key === 'P') return HERO_POS;
+      if (key === 'B') return BEAST_POS;
       var u = this._unit(key);
       return (u && u.pos) || SOLO_SLOT;
     },
@@ -551,7 +583,10 @@
     },
     /* 我方存活单位（敌方全体技的目标；未来扩展队友时在此归并） */
     _alivePlayer: function () {
-      return this.p.hp > 0 ? [this.p] : [];
+      var a = [];
+      if (this.p.hp > 0) a.push(this.p);
+      if (this.beast && this.beast.hp > 0) a.push(this.beast);
+      return a;
     },
 
     /* ===== 指令区（v0.3 §10 裁剪：攻击 / 功法 / 道具 / 防御 / 逃跑） ===== */
@@ -850,6 +885,7 @@
       this._dropRect = null;
 
       var actors = [{ key: 'P', u: this.p }];
+      if (this.beast && this.beast.hp > 0) actors.push({ key: 'B', u: this.beast });
       this.es.forEach(function (e, i) {
         if (e.hp > 0) actors.push({ key: 'E' + i, u: e });
       });
@@ -875,7 +911,11 @@
         if (u.hp <= 0) { next(); return; }
         if (!canAct) { next(); return; }
 
-        if (a.key === 'P') {
+        if (a.key === 'B') {
+          var btgt = self._unit(self._beastTargetKey());
+          if (!btgt) { next(); return; }
+          self._act(u, btgt, 'B', btgt.key, self._beastPick(u), next);
+        } else if (a.key === 'P') {
           var sk = self.pSkill;
           self.pSkill = null;
           if (sk && (sk.kind === 'item' || sk.kind === 'guard')) {
@@ -897,7 +937,8 @@
           }
           self._act(self.p, tgt, 'P', tgt.key, sk, next);
         } else {
-          self._act(u, self.p, a.key, 'P', self._enemyPick(u), next);
+          var etK = self._enemyTargetKey();
+          self._act(u, self._unit(etK), a.key, etK, self._enemyPick(u), next);
         }
       }
       next();
@@ -1006,6 +1047,26 @@
         });
         this._log(boss.name + ' 双目赤红，狂暴了——大招愈发频繁！');
       }
+    },
+
+    /* 出战灵兽目标：优先打前排，无前排则打任意存活敌人 */
+    _beastTargetKey: function () {
+      var alive = this._aliveEs();
+      if (!alive.length) return null;
+      var front = alive.filter(function (e) { return e.front; });
+      var t = (front[0] || alive[0]);
+      return t.key;
+    },
+    /* 灵兽选招：约三成使出属性扑击（1.35 倍），否则普攻（1.0 倍）；不耗法力 */
+    _beastPick: function (u) {
+      if (Math.random() < 0.3)
+        return { kind: 'atk', mult: 1.35, elem: u.elem, n: u.name + '扑击' };
+      return { kind: 'atk', mult: 1.0, elem: u.elem, n: u.name + '攻击' };
+    },
+    /* 敌方单体目标：灵兽在场时约三成转火灵兽，其余打主角 */
+    _enemyTargetKey: function () {
+      if (this.beast && this.beast.hp > 0 && Math.random() < 0.3) return 'B';
+      return 'P';
     },
 
     /* 敌方选招：蓄力技先预告一回合，次回合才真正打出（给玩家防御窗口） */
@@ -1146,7 +1207,7 @@
         if (isAll) {
           var pool = aKey === 'P'
             ? self._aliveEs().map(function (e) { return { u: e, key: e.key }; })
-            : self._alivePlayer().map(function (u) { return { u: u, key: 'P' }; });
+            : self._alivePlayer().map(function (u) { return { u: u, key: u.isBeast ? 'B' : 'P' }; });
           targets = pool;
         } else targets = [{ u: def, key: dKey }];
 
@@ -1461,6 +1522,18 @@
       /* 公共记账：每场战斗耗岁 1/10 岁（轮回 v0.4 §3.2）+ 本世最高境界 */
       G.Player.agePush(save, 'battle', 1);
       save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel || 1);
+      /* 出战灵兽参战一场：亲密度 +2、修为 +20（《灵兽 v1.1》§5/§8） */
+      if (this.beast && this.beast._indUid != null) {
+        var vInd = G.Beasts.byUid(save, this.beast._indUid);
+        if (vInd) {
+          vInd.bond = Math.min(100, vInd.bond + 2);
+          vInd.xp += 20;
+          while (vInd.gl < ((G.Player.MAX_GL) || 171) && vInd.xp >= G.Beasts.need(vInd.gl)) {
+            vInd.xp -= G.Beasts.need(vInd.gl); vInd.gl += 1;
+            vInd.skills = G.Data.beasts.skillsAtGl(vInd.id, vInd.gl);
+          }
+        }
+      }
 
       /* 野外击杀计数（v0.38.0）：散修线「云游四方」要"斩妖二十只"。
          ⚠️ 只算**野外遭遇**（无 script、非副本）—— 剧情战与秘境不该算"云游"。
@@ -1791,6 +1864,7 @@
 
       /* 后排先画，前排后画；主角最后（始终在最上层） */
       for (var i = this.es.length - 1; i >= 0; i--) this._drawUnit(x, 'E' + i);
+      if (this.beast) this._drawUnit(x, 'B');
       this._drawUnit(x, 'P');
       /* 打击特效画在**单位之后**（刀光/爆发要盖在立绘上） */
       this._drawFx(x);
@@ -2004,7 +2078,7 @@
       var byy = by - s - 26 - (ph - 24);
 
       G.UI.panel(x, { x: bx, y: byy, w: bw, h: ph }, 'rgba(12,15,24,0.86)',
-        isP ? 'rgba(216,183,104,0.55)' : 'rgba(199,84,80,0.6)', 3, { shadow: false });
+        isP ? 'rgba(216,183,104,0.55)' : (u.isBeast ? 'rgba(120,170,190,0.55)' : 'rgba(199,84,80,0.6)'), 3, { shadow: false });
       x.font = G.UI.F(10);
       x.textAlign = 'left'; x.textBaseline = 'top';
       var hpTxt = Math.max(0, Math.round(this.shown[key] == null ? u.hp : this.shown[key]))
