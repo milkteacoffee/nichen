@@ -1245,8 +1245,17 @@
 
   A.gate = function (s, pal) {
     var W = s.w * 16, H = s.h * 16;
-    var im = G.Assets.img('struct.gate');
-    if (im) return { c: im, ox: 0, oy: 0, w: W, h: H };
+    var im = G.Assets.img('struct.' + (s.bk || 'gate')) || G.Assets.img('struct.gate');
+    if (im) {
+      /* **等比内含 + 底部居中**（与 `A.house` 同一条规则，v0.42.0）。
+         以前这里是 `{ ox: 0, oy: 0, w: W, h: H }` = **直接拉伸**：
+         素材 256×192（1.33:1）塞进 6×3 的框（96×48 = 2:1）→ 横向拉宽 1.5 倍，
+         牌楼的飞檐、匾额、石狮全部变形（截图里一眼就是"被压扁了"）。
+         ⚠️ 底部锚定 = 落地线对齐（`py + H` 是地面），与房子一致。 */
+      var k = Math.min(W / im.width, H / im.height);
+      var dw = im.width * k, dh = im.height * k;
+      return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
+    }
     var ox = -4, oy = -4;
     var key = 'g|' + W + '|' + H + '|' + pal.rock;
     var o = cached(key, W + 8, H + 8, function (x) {

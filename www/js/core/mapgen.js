@@ -40,6 +40,24 @@
       for (var xx = e.x0; xx <= e.x1; xx++) exitCells[xx + ',' + e.y] = e;
     });
 
+    /* ⚠️ 出口格与它**内侧那一格**必须登记为"已占用"（v0.42.0）：
+       随机散布的树/石只避开 `mark` 过的格子 —— 而出口这一侧以前**漏了 mark**
+       （门格 `mark(doorX, doorY)` 有、出口没有），于是树可以长在出口**里面那一格**，
+       把出口整个封死 → 可达性契约报「出口 (0,12) → fan5 从出生点走不到」。
+       表现是**偶发**且极难查：加/挪一个建筑会改变 rng 流 → 散落位置随之变化，
+       于是"昨天还走得到的出口"今天被一棵树封死，而代码里看不出任何关联。 */
+    (md.exits || []).forEach(function (e) {
+      for (var xx = e.x0; xx <= e.x1; xx++) {
+        mark(xx, e.y);
+        var ix = xx, iy = e.y;
+        if (e.y === 0) iy = 1;
+        else if (e.y === h - 1) iy = h - 2;
+        else if (xx === 0) ix = 1;
+        else if (xx === w - 1) ix = w - 2;
+        mark(ix, iy);
+      }
+    });
+
     /* 边界围合（室内用砖墙，野外用树/石）。bloodcave 是 cave 的换色变体 → 同样用岩壁。 */
     var isCave = md.ground === 'cave' || md.ground === 'bloodcave';
     var borderDecor = md.indoor ? 'wall'

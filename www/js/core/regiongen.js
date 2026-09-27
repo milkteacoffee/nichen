@@ -167,6 +167,18 @@
       var n = b.n2 || 1;
       for (var i = 0; i < n; i++) list.push({ k: b.k, n: n > 1 ? (b.n + '·' + '甲乙丙丁'[i] || b.n + (i + 1)) : b.n, w: b.w, h: b.h });
     });
+    /* 宗门山门（v0.42.0）：凡界 9 宗门的山门就建在它所在的区域里。
+       走和普通建筑**同一条摆放逻辑**（保证门口接得上路），只是多带 `to`/`spawn`。 */
+    if (G.Data.sectHalls) {
+      G.Data.sectHalls.gatesOfRegion(regionId).forEach(function (g) {
+        /* ⚠️ 必须**显式**带 `kind: 'gate'` —— `structKind('gate')` 返回的是 **'house'**
+           （它只认 RUIN_LIKE 那三样，其余一律当房子），于是 mapgen 会把门格登记成
+           `type:'door'`（"走进屋"）而不是 `type:'gate'`（用 `s.to` 换场景），
+           山门就退化成"进去是一间普通屋子"。契约当场抓到：7 个生成型区域的山门全部没生效。
+           `bk` 仍要写 'gate'（素材取图键），`kind` 才是画法/交互大类。 */
+        list.push({ k: 'gate', kind: 'gate', n: g.name, w: 6, h: 3, to: g.to, spawn: { x: 15, y: 14 } });
+      });
+    }
     list.forEach(function (b, idx) {
       var placed = false;
       for (var t = 0; t < 900 && !placed; t++) {
@@ -174,7 +186,8 @@
         if (!isFree(bx, by, b.w, b.h)) continue;
         var id = 'b' + (idx + 1);
         var dx = bx + Math.floor(b.w / 2), dy = by + b.h;
-        structures.push({ id: id, kind: structKind(b.k), bk: b.k, n: b.n, x: bx, y: by, w: b.w, h: b.h });
+        structures.push({ id: id, kind: b.kind || structKind(b.k), bk: b.k, n: b.n, x: bx, y: by, w: b.w, h: b.h,
+          to: b.to || null, spawn: b.spawn || null });
         reserve(bx, by, b.w, b.h);
         reserve(dx, dy, 2, 1);
         refreshRects();

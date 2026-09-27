@@ -17,6 +17,13 @@
         /* `bk`（建筑类型）= **素材取图的键**（v0.16.0）：`struct.<bk>` 优先，
            没有则退回 `struct.<kind>`。不写 `bk` 的话，药铺和民居会共用同一张图。
            ⚠️ `kind` 只管"画法大类"（house/ruin/gate），`bk` 才是"这是哪家店"。 */
+        /* 宗门山门（v0.42.0）：青溪剑馆就开在青溪镇上。
+           ⚠️ 位置（6,15）是**南侧空场**，不是北面住宅区 —— 那里已经被 `home`（x3..8,y5..9）
+              与四面围栏占满，硬塞山门会和洞府**叠在一起画**（两栋楼重叠）。
+              放在玩家出生点（18,21）往西一眼能看见的空地上。 */
+        S('gateQxj', 'gate', 6, 15, 6, 3, {
+          label: '青溪剑馆 · 山门', to: 'sect_qxj', spawn: { x: 15, y: 14 }
+        }),
         S('home', 'house', 3, 5, 6, 5, { label: '洞府', bk: 'house', roof: '#6b5a4a' }),
         S('shop', 'house', 14, 6, 6, 5, { label: '药铺', bk: 'apothecary', roof: '#5a6478' }),
         S('market', 'house', 26, 7, 5, 4, { label: '刘记杂货', bk: 'shop', roof: '#78624a' })
@@ -83,6 +90,10 @@
       ],
       structures: [
         S('temple', 'ruin', 40, 32, 5, 4, { label: '山神庙' }),
+        /* 宗门山门（v0.42.0）：翠微猎户盟就设在翠微山 */
+        S('gateCwl', 'gate', 30, 26, 6, 3, {
+          label: '翠微猎户盟 · 山门', to: 'sect_cwl', spawn: { x: 15, y: 14 }
+        }),
         S('caveIn', 'gate', 23, 2, 4, 2, {
           label: '赤牙洞', need: { globalLevel: 12 },
           to: 'cave', spawn: { x: 16, y: 24 },

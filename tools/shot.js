@@ -226,7 +226,19 @@ step(() => { save.hp = 200; }, 'hud.restore');
        会被当成格坐标，角色直接跑到地图外，相机就贴着上沿不走了。 */
     step(() => { save.pos = { x: 18, y: 11 }; G.game.changeScene('town'); }, 'town.houses');
     shot('05a_town_houses', 40);
+    /* 宗门山门特写（v0.42.0）：青溪剑馆的山门在南侧空场（x6..11, y15..17）。
+       ⚠️ 站位要选在**山门的左边**（x=4）—— 相机把山门推到画面右半边，
+          否则它会落在左侧任务追踪栏底下（那一片恒定被盖住）。 */
+    step(() => { save.pos = { x: 4, y: 18 }; G.game.changeScene('town'); }, 'town.sectgate');
+    shot('05c_town_sectgate', 40);
     step(() => { save.pos = null; G.game.changeScene('town', { toSpawn: true }); }, 'town.back');
+  }
+  /* 赤牙洞洞口特写（v0.42.0）：`A.gate` 改成等比内含之后要复看 —— 洞口是 4×2 的框，
+     素材是 4:3，等比之后会变窄；这一帧就是用来盯"有没有变得太小"。 */
+  if (m[1] === 'field') {
+    step(() => { save.pos = { x: 25, y: 7 }; G.game.changeScene('field'); }, 'field.cave');
+    shot('07b_field_cave', 30);
+    step(() => { save.pos = null; G.game.changeScene('field', { toSpawn: true }); }, 'field.back');
   }
   const sc = G.game.scene;
   if (m[1] !== 'cave') {
@@ -1040,6 +1052,14 @@ step(() => {
   G.scenes.hall._build();
 }, 'hall.ascend.dao');
 shot('39_hall_ascend_dao', 8);
+
+/* 宗门山门（v0.42.0）：凡界 9 宗门的山门室内场景 —— 拜师台 / 传功殿 / 贡献堂 / 香案 */
+step(() => {
+  const s = G.game.save;
+  s.cult = 'free'; s.sectId = null;
+  G.game.changeScene('sect_qxj', { toSpawn: true });
+}, 'secthall');
+shot('43_sect_hall', 8);
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

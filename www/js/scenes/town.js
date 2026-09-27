@@ -883,6 +883,46 @@
        玩家够不到他本人，拆开就会把 M0/M1 的主线对话整条吞掉。 */
     shenbo: function (scene) { shenBo(scene); }
   });
+  /* ===== 宗门山门（v0.42.0）=====
+     凡界 9 宗门的山门室内场景（`sect_<id>`，地图由 `data/secthalls.js` 生成）。
+     四件家具各有动作：
+       · 拜师台 → 拜入本门（开试炼战；已转阵营/修为不足会拦下）
+       · 传功殿 → 打开「势力」面板的宗门页（兑换本门功法在那儿）
+       · 贡献堂 → 打开「势力」面板的商店子视图
+       · 香案   → 打坐（复用洞府那一套）
+     ⚠️ 面板能在这里打开，是因为 `makeInterior` 共用 town 的 hooks，
+        而它的 `renderOverlay` 第一件事就是 `G.Overlays.route`（面板路由）。 */
+  function hallAct(scene, kind) {
+    var save = G.game.save;
+    var sid = (scene.map.md && scene.map.md.sectId) || null;
+    if (!sid) return;
+    if (kind === 'join') {
+      if (save.cultSwitchUsed) { G.game.toast('此世已改换门庭一次，来世再议'); return; }
+      if (save.cult === 'sect' && save.sectId === sid) { G.game.toast('你已在本门'); return; }
+      if (!G.Player.trialReady(save)) { G.game.toast('修为不足（需炼气一段），先去历练'); return; }
+      scene.clearOverlay();
+      G.game.changeScene('battle', {
+        script: 'sectTrial', mapId: scene.mapId, sectId: sid
+      });
+      return;
+    }
+    scene.sectTab = 'sect';
+    scene.sectView = (kind === 'shop') ? 'shop' : null;
+    G.Overlays.openPanel(scene, 'sect', true);
+  }
+  if (G.Data.sectHalls) {
+    G.Data.sectHalls.build();
+    G.Data.sects.ofWorld('fan').forEach(function (sc) {
+      var mid = 'sect_' + sc.id;
+      G.scenes[mid] = makeInterior(mid, {
+        join: function (scene) { hallAct(scene, 'join'); },
+        learn: function (scene) { hallAct(scene, 'learn'); },
+        shop: function (scene) { hallAct(scene, 'shop'); },
+        rest: restOnBed
+      });
+    });
+  }
+
   G.scenes.town_market = makeInterior('town_market', {
     market: function (scene) { openMarket(scene); }
   });

@@ -1873,9 +1873,29 @@ step(function () {
       const reach = bfs(mp, md.spawn);
       if (!(md.structures || []).length) errors.push(`区域 ${r.id}: 一栋建筑都没有`);
       (md.structures || []).forEach(function (st) {
-        buildingN++;
         const dx = st.x + Math.floor(st.w / 2), dy = st.y + st.h;
         const o = mp.interact[dx + ',' + dy];
+        /* 山门（v0.42.0）：门格是 `gate` 交互点 —— 它**不是"进屋"**，是"换场景"。
+           所以①不能要求它是 door/ruin；②**不能给它生成建筑内部**（那不是房间，是山门）；
+           ③要查的恰恰是 `to` 真的指向一个存在的场景。 */
+        if (st.kind === 'gate') {
+          if (!o || o.type !== 'gate') {
+            errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 门下沿 (${dx},${dy}) 不是 gate 交互点`);
+          } else {
+            if (!o.s || !o.s.to) {
+              errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 没有 to（点了进不去）`);
+            } else if (!G.Data.maps[o.s.to]) {
+              errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 指向不存在的场景 ${o.s.to}`);
+            }
+            if (!reach[dx + ',' + dy]) {
+              errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 的门 (${dx},${dy}) 从 spawn 走不到`);
+            }
+          }
+          return;
+        }
+        /* ⚠️ 计数要放在山门分支**之后**：山门不算"有内部的建筑"，
+           否则 `建筑内部数 vs 建筑数` 那条契约会直接报不平。 */
+        buildingN++;
         if (!o || (o.type !== 'door' && o.type !== 'ruin')) {
           errors.push(`区域 ${r.id}: 建筑 ${st.id}(${st.n}) 门下沿 (${dx},${dy}) 没有门交互点`);
         } else if (!reach[dx + ',' + dy]) {
@@ -2816,6 +2836,119 @@ step(function () {
   if (s4.stone !== before2 + P.BOUNTY[0].stone) errors.push('领赏灵石数额不对');
   if (s4.bounty) errors.push('领赏后应清空在身悬赏');
 }, 'sect.found.contract');
+
+/* ---------- 宗门山门契约（v0.42.0） ----------
+   用户口径：「凡界不是有 9 个宗门吗，五个小宗门，四个大宗门吗，一并孵化完成」。
+   ① 凡界 9 宗门**各有一间山门场景**（`sect_<id>`），地图与场景都要在
+   ② 山门里**必须能走出去** —— 没出口等于把玩家关在屋里（最难查的一类）
+   ③ 四件功能家具齐全：拜师台 / 传功殿 / 贡献堂 / 香案
+   ④ 每个宗门都要有山门**挂在它所在的区域里**（数据对但没摆上去 = 玩家找不到）
+   ⑤ 真的能走进去，且山门记得住自己属于哪一门 */
+step(function () {
+  const SH = G.Data.sectHalls;
+  if (!SH) { errors.push('G.Data.sectHalls 缺失'); return; }
+  const mid2Target = function (id) { return 'sect_' + id; };
+  const fan = G.Data.sects.ofWorld('fan');
+  if (fan.length !== 9) errors.push('凡界宗门应为 9，实际 ' + fan.length);
+  fan.forEach(function (s) {
+    const mid = 'sect_' + s.id;
+    const m = G.Data.maps[mid];
+    if (!m) { errors.push('缺山门地图：' + mid); return; }
+    if (!G.scenes[mid]) errors.push('缺山门场景：' + mid);
+    if (!(m.exits || []).length) errors.push(mid + ' 没有出口（玩家会被关在屋里）');
+    const acts = (m.furn || []).map(function (f) { return f.act; });
+    ['join', 'learn', 'shop', 'rest'].forEach(function (a) {
+      if (acts.indexOf(a) < 0) errors.push(mid + ' 缺功能家具：' + a);
+    });
+    /* 家具**要"走得到"才能用** —— 摆得再好看，四周全是实心/走不过去 = 白摆。
+       （第一版把「传功殿」摆在 x=4，虽然可达，但被左侧任务追踪栏整块盖住；
+         那种"看不见"是**几何**问题、这里查不出，只能靠截图 —— 已记在 secthalls.js 注释里。） */
+    const mp3 = G.MapGen.buildMap(save, mid);
+    const reach3 = bfsReach(mp3, m.spawn);
+    (m.furn || []).forEach(function (f) {
+      if (!f.act) return;
+      /* ⚠️ 只认**正交**相邻：交互是"站在旁边面向它按交互"，斜角站不住。
+         第一版用 3×3 邻域（含斜角）→ 反例验证时"把香案塞进墙角"照样通过（空断言）。 */
+      let adj = false;
+      for (let y = f.y; y < f.y + (f.h || 1); y++) {
+        for (let x = f.x; x < f.x + (f.w || 1); x++) {
+          [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+            const nx = x + d[0], ny = y + d[1];
+            if (nx < 0 || ny < 0 || nx >= mp3.w || ny >= mp3.h) return;
+            if (mp3.solid[ny][nx]) return;
+            if (reach3[nx + ',' + ny]) adj = true;
+          });
+        }
+      }
+      if (!adj) {
+        errors.push(mid + ': 家具 ' + f.id + '（' + (f.label || '') + '）四周没有可达的落脚点');
+      }
+    });
+    const gates = SH.gatesOfRegion(s.region);
+    if (!gates.some(function (g) { return g.sectId === s.id; })) {
+      errors.push('宗门 ' + s.n + ' 在区域 ' + s.region + ' 没有山门');
+    }
+    /* ⚠️ 只查 `gatesOfRegion` 是**空断言** —— 那是"数据层说该有这么一门"，
+       而玩家能不能找到，取决于**这一门有没有真的摆进那张地图**。
+       所以这里把区域地图真的建一遍，找"通往 sect_<id> 的 gate 交互点"。
+       手写图（fan1=town / fan2=field）走 `structures`，生成图走 regiongen —— 两边都得有。 */
+    const reg = G.Data.regions.byId ? G.Data.regions.byId(s.region) : null;
+    const rmap = (reg && reg.map) || s.region;
+    if (!G.Data.maps[rmap]) {
+      errors.push('宗门 ' + s.n + ' 所在区域 ' + s.region + ' 没有地图 ' + rmap);
+    } else {
+      const mp2 = G.MapGen.buildMap(save, rmap);
+      let placed = false;
+      Object.keys(mp2.interact).forEach(function (k) {
+        const o = mp2.interact[k];
+        if (o.type === 'gate' && o.s && o.s.to === mid2Target(s.id)) placed = true;
+      });
+      if (!placed) {
+        errors.push('宗门 ' + s.n + ' 的山门没摆进地图 ' + rmap
+          + '（数据有、地图上没有 = 玩家找不到）');
+      }
+    }
+  });
+  G.game.changeScene('sect_qxj', { toSpawn: true });
+  if (G.game.sceneName !== 'sect_qxj') { errors.push('进不去 sect_qxj'); return; }
+  if (G.game.scene.map.md.sectId !== 'qxj') errors.push('山门没记住是哪一门');
+
+  /* ⚠️ **"山门摆在图上" ≠ "点了能进去"** —— 真的走一遍：
+     站在门格正下方、面朝上、按交互（与 playthrough 的 interactAt 同一套动作）。
+     只查"地图上有个 gate 交互点"是**空断言**（登记了但 `_interact` 不认，
+     表现就是"点了没反应"，而它不报错）。 */
+  /* ⚠️ **必须先把 `G.game.save` 还原成这条契约用的 save** ——
+     前面的契约（quest.branch / sect.found / icon.root…）会把 `G.game.save`
+     换成克隆体，而 `explore._interact` 读的是 **`G.game.save`** 而不是这里的 `save`。
+     不还原的话：`save.pos` 设了、`G.game.save.pos` 还是老的 → 站到了别的格子上，
+     `_interact` 找不到交互点就**静默 return**（不抛异常），契约只报"没进去"。
+     这就是"点了个空气"—— 最容易误判成"游戏坏了"的一类假红。 */
+  G.game.save = save;
+  G.game.changeScene('town', { toSpawn: true });
+  const tsc = G.game.scene;
+  const gk = Object.keys(tsc.map.interact).filter(function (k) {
+    const o = tsc.map.interact[k];
+    return o.type === 'gate' && o.s && o.s.to === 'sect_qxj';
+  })[0];
+  if (!gk) { errors.push('青溪镇里找不到通往 sect_qxj 的山门交互点'); return; }
+  const gp = gk.split(',').map(Number);
+  tsc.overlay = null; tsc.dir = 'up';
+  save.pos = { x: gp[0], y: gp[1] + 1 };
+  tsc._interact();
+  if (G.game.sceneName !== 'sect_qxj') {
+    errors.push('在青溪镇点山门没有进去（当前 ' + G.game.sceneName + '）');
+  }
+  /* 进门之后要能出门（山门不是单向陷阱）。
+     ⚠️ 出口走的是 **`_onEnterTile`（踩上去即切图）**，不是"按交互"——
+     用 `_interact` 测出口是**测错了入口**（会报"出不来"的假红）。 */
+  const hsc = G.game.scene;
+  const ex = (G.Data.maps.sect_qxj.exits || [])[0];
+  if (!ex) { errors.push('sect_qxj 没有出口'); return; }
+  hsc._onEnterTile(ex.x0, ex.y);
+  if (G.game.sceneName !== 'town') {
+    errors.push('从 sect_qxj 出不来（当前 ' + G.game.sceneName + '）');
+  }
+}, 'sect.hall.contract');
 
 /* ---------- 灵根 / 材料图标接线契约（v0.40.0） ----------
    ① 属性 → 拼音是**唯一口径**：10 个属性（9 + 无）都要有映射

@@ -203,11 +203,20 @@ function fight(params, label) {
 /* 站在交互点正下方，面朝上触发 */
 function interactAt(type, label) {
   const sc = G.game.scene;
-  let hk = null;
+  /* ⚠️ label 以前**根本没被使用** —— 实现是"取第一个同类交互点"。
+     一张图只有一道门时看不出问题；v0.42.0 给野外加了第二道 gate（宗门山门）之后，
+     'gate' 的第一个交互点变成了山门，于是"入赤牙洞"这一步走进了宗门山门，
+     报出的却是一串**看不出根因**的错（未进入狼王战 / 狼王未掉落妖丹）。
+     现在按 label 匹配（双向包含，'赤牙洞入口' 能匹配到 '赤牙洞'），匹配不到才退回第一个。 */
+  let first = null, hit = null;
   Object.keys(sc.map.interact).forEach((k) => {
     const o = sc.map.interact[k];
-    if (o.type === type) hk = hk || k;
+    if (o.type !== type) return;
+    if (!first) first = k;
+    const nm = (o.s && o.s.label) || o.id || '';
+    if (!hit && label && nm && (nm.indexOf(label) >= 0 || label.indexOf(nm) >= 0)) hit = k;
   });
+  const hk = hit || first;
   if (!hk) { errors.push('找不到交互点：' + (label || type)); return false; }
   const xy = hk.split(',').map(Number);
   sc.overlay = null; sc.dir = 'up';
