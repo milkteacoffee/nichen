@@ -13,6 +13,8 @@
 > ④**闭环收尾**：通用建筑“尚未开张”改可信环境气息、突破丹兜底指向真实路径、宝箱 toast 走 itemName 防裸 ID。
 > ⑤**灵兽 B1 代码落地**：新增 `data/beasts.js`（24 物种 + 角色标签/境界成长/骑乘判定），存档升 **v7**
 >   （save 补 beasts/beastTeam/riding/rideSkill，meta 补 bestiary），smoke 加 `beasts.data.contract`。
+> ⑥**灵兽 B2 兽栏落地**：`core/beasts.js` 管理器（喂养 / 成年化形 / 出战骑乘 / 放生，字段兜底 ensure）、
+>   洞府兽栏面板 + 兽栏饲料店、M0 沈伯赠幼年青纹蛇；smoke 加 `beasts.manager.contract`，截图 47 系列。
 >
 > v0.43.0 增量（上一里程碑，保留）：
 > ①**修门派商店低级问题**：商品名曾把装备内部 ID「eq_qingfeng」裸显给玩家 ——

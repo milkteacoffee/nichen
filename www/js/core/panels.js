@@ -242,6 +242,8 @@
   PANELS.forEach(function (p) { IDS[p.id] = 1; });
   /* 功法/秘术仍是**可路由**的面板（角色子页签要切过去），只是不进底栏 */
   IDS.skills = 1; IDS.secrets = 1;
+  IDS.beasts = 1;   /* 兽栏：洞府内进入，不进底栏 */
+  IDS.beastShop = 1;
 
   /* 底栏按钮：六个等宽页签。active 传当前面板 id 时该项高亮。 */
   function barBtns(scene, active) {
@@ -401,6 +403,8 @@
     if (id === 'quest') buildQuest(btns, scene);
     if (id === 'bag') buildBag(btns, scene);
     if (id === 'cave') buildCave(btns, scene);
+    if (id === 'beasts') buildBeasts(btns, scene);
+    if (id === 'beastShop') buildBeastShop(btns, scene);
     if (id === 'sect') buildSect(btns, scene);
     if (id === 'map') buildMap(btns, scene);
     /* 角色组三个页共用同一条子页签条。外框按当前页取：
@@ -1338,6 +1342,11 @@
        ⚠️ 触发方式与寿终一致：写 `_cause` 后切 death 场景，**复用同一套结算**
        （仙力明细 / 走马灯 / 轮回档案），不另写一份 —— 两份结算必然漂。 */
     var arm = !!scene.endArm;
+    if (!arm) btns.push(new G.UI.Btn({
+      x: CV.btn.x + CV.btn.w + 8, y: CV.btn.y, w: 88, h: CV.btn.h, small: true,
+      variant: 'gold', label: '进入兽栏',
+      onClick: function () { G.Overlays.openPanel(scene, 'beasts'); }
+    }));
     btns.push(new G.UI.Btn({
       x: CV.btn.x, y: CV.btn.y, w: CV.btn.w, h: CV.btn.h, small: true,
       variant: 'danger',
@@ -2016,6 +2025,237 @@
       }));
     });
   }
+  /* ============================================================
+     兽栏 · 灵兽园（《灵兽 v1.1》§5/§6/§8）
+     左列个体名册，右列选中个体详情；底部喂养 / 化形 / 出战 / 骑乘 / 放生。
+     空兽栏给诚实空状态，不画假格子。
+     ============================================================ */
+  var BS = {
+    lx: P.x + 12, lw: 150, ly: 58, rowH: 16,
+    dx: P.x + 12 + 150 + 14, dy: 56,
+    dw: (P.x + P.w - 12) - (P.x + 12 + 150 + 14),
+    aY: 202, aH: 16
+  };
+  function beastSelOf(scene, save) {
+    var cur = G.Beasts.byUid(save, scene.beastSel);
+    if (!cur) { cur = save.beasts[0] || null; scene.beastSel = cur ? cur.uid : null; }
+    return cur;
+  }
+  function realmN(gl) { var i = G.Player.realmInfo(gl); return i ? i.n : ('' + gl); }
+  function roleTag(beast) {
+    var t = [];
+    if (G.Data.beasts.canBattle(beast.id)) t.push('战');
+    if (G.Data.beasts.canRideSpecies(beast.id)) t.push('骑');
+    return t.join('/') || '宠';
+  }
+  function drawBeasts(x, scene) {
+    var save = G.game.save;
+    shell(x, '兽栏 · 灵兽园', '第 ' + (save.life || 1) + ' 世 · ' + save.beasts.length + '/' + G.Data.beasts.CAP);
+
+    if (!save.beasts.length) {
+      G.UI.text(x, { x: BS.lx, y: 110 }, '兽栏空空，尚无灵兽相伴。', 12, G.UI.C.textDim);
+      G.UI.text(x, { x: BS.lx, y: 130 }, '可寻药铺沈伯结缘，或以御兽索在野外驯服。', 11, G.UI.C.textDim);
+      return;
+    }
+
+    /* 左：名册 */
+    G.UI.panel(x, { x: BS.lx - 6, y: BS.ly - 6, w: BS.lw + 12, h: BS.rowH * Math.min(8, save.beasts.length) + 12 },
+      G.UI.C.panelDark, G.UI.C.rule, 4, { tex: false, shadow: false });
+    save.beasts.slice(0, 8).forEach(function (b, i) {
+      var ry = BS.ly + i * BS.rowH;
+      var sel = scene.beastSel === b.uid;
+      if (sel) G.UI.panel(x, { x: BS.lx - 4, y: ry, w: BS.lw + 8, h: BS.rowH - 1 },
+        'rgba(92,124,150,0.28)', null, 3, { tex: false, shadow: false });
+      G.UI.text(x, { x: BS.lx, y: ry + 3 }, b.name, 11, sel ? G.UI.C.goldHi : G.UI.C.text);
+      G.UI.text(x, { x: BS.lx + 56, y: ry + 4 }, realmN(b.gl), 8.5, G.UI.C.textDim);
+      G.UI.textOut(x, { x: BS.lx + BS.lw - 2, y: ry + 4 },
+        (b.stage === 'young' ? '幼·' : '') + roleTag(b), 9, G.UI.C.textDim, 'right');
+    });
+
+    /* 右：详情 */
+    var b = beastSelOf(scene, save);
+    if (!b) return;
+    var sp = G.Data.beasts.byId(b.id);
+    var st = G.Beasts.combatStat(b);
+    var dx = BS.dx, y = BS.dy;
+    G.UI.text(x, { x: dx, y: y }, b.name, 15, G.UI.C.goldHi);
+    G.UI.text(x, { x: dx + 96, y: y + 3 }, (b.stage === 'adult' ? '已成年' : '尚年幼'), 10,
+      b.stage === 'adult' ? G.UI.C.jadeHi : G.UI.C.textDim);
+    y += 18;
+    var lines = [
+      '物种 ' + sp.n + '　五行 ' + sp.elem + '　' + roleTag(b),
+      '境界 ' + realmN(b.gl),
+      '资质 ' + b.qual + '（' + G.Data.beasts.qualComment(b.qual) + '）　亲密度 ' + b.bond,
+      '气血 ' + st.hp + '　攻 ' + st.atk + '　防 ' + st.def + '　速 ' + st.spd
+    ];
+    lines.forEach(function (t) { G.UI.text(x, { x: dx, y: y }, t, 10.5, G.UI.C.text); y += 14; });
+
+    /* 修为进度 */
+    var nd = G.Beasts.need(b.gl);
+    G.UI.text(x, { x: dx, y: y }, '修为 ' + b.xp + '/' + nd, 9.5, G.UI.C.textDim);
+    var barW = BS.dw - 70, ratio = Math.min(1, b.xp / nd);
+    G.UI.panel(x, { x: dx + 70, y: y + 2, w: barW, h: 7 }, 'rgba(40,52,66,0.9)', G.UI.C.rule, 2, { tex: false, shadow: false });
+    if (ratio > 0) G.UI.panel(x, { x: dx + 70, y: y + 2, w: Math.max(2, Math.round(barW * ratio)), h: 7 },
+      'rgba(122,168,196,0.85)', null, 2, { tex: false, shadow: false });
+    y += 16;
+
+    /* 技能 / 化形 */
+    G.UI.text(x, { x: dx, y: y }, '已悟 ' + (b.skills.join('、') || '无'), 9.5, G.UI.C.text);
+    y += 14;
+    if (sp.chain) {
+      var ch = sp.chain;
+      var target = ch.to ? G.Data.beasts.byId(ch.to).n : '成年';
+      G.UI.text(x, { x: dx, y: y }, '化形→' + target + '：需 ' + realmN(ch.gl) + ' · ' + ch.item +
+        (ch.place ? ' · 于' + ch.place : ''), 9, G.UI.C.textDim);
+    } else {
+      G.UI.text(x, { x: dx, y: y }, '此兽已无更高化形。', 9, G.UI.C.textDim);
+    }
+  }
+
+  function refreshBeasts(scene) { G.Storage.saveCurrent(G.game.save); G.Overlays.openPanel(scene, 'beasts'); }
+  function beastToast(t) { G.game.toast(t); }
+  function buildBeasts(btns, scene) {
+    var save = G.game.save;
+    /* 空栏：只给返回 */
+    if (!save.beasts.length) {
+      btns.push(new G.UI.Btn({ x: 190, y: 214, w: 100, h: 20, small: true,
+        label: '返回洞府', onClick: function () { G.Overlays.openPanel(scene, 'cave'); } }));
+      return;
+    }
+    var b = beastSelOf(scene, save);
+    var x0 = BS.lx, wBtn = 62, gap = 4, y = BS.aY;
+    function feedBtn(itemKey, i) {
+      var n = save.items[itemKey] || 0;
+      btns.push(new G.UI.Btn({
+        x: x0 + i * (wBtn + gap), y: y, w: wBtn, h: BS.aH, small: true,
+        label: itemKey + '×' + n, disabled: n <= 0,
+        onClick: function () {
+          var r = G.Beasts.feed(save, b.uid, itemKey);
+          if (!r.ok) { beastToast(r.reason); return; }
+          beastToast('喂养 ' + b.name + '：修为 +' + r.gainXp +
+            (r.glUps ? '，境界提升 ×' + r.glUps : ''));
+          refreshBeasts(scene);
+        }
+      }));
+    }
+    feedBtn('药渣', 0); feedBtn('灵食', 1); feedBtn('妖丹', 2);
+
+    /* 化形 / 出战 / 骑乘 */
+    var xA = x0 + 3 * (wBtn + gap);
+    var sp = G.Data.beasts.byId(b.id);
+    btns.push(new G.UI.Btn({
+      x: xA, y: y, w: wBtn, h: BS.aH, small: true, variant: 'gold',
+      label: sp.chain ? (sp.chain.to ? '化形' : '成年') : '无化形',
+      disabled: !!G.Beasts.matureBlock(save, b.uid),
+      onClick: function () {
+        var r = G.Beasts.mature(save, b.uid);
+        if (!r.ok) { beastToast(r.reason); return; }
+        beastToast(r.evolved ? '化形成功：' + r.to : (b.name + ' 已成年'));
+        refreshBeasts(scene);
+      }
+    }));
+    var battling = G.Beasts.isBattling(save, b.uid);
+    btns.push(new G.UI.Btn({
+      x: xA + (wBtn + gap), y: y, w: wBtn, h: BS.aH, small: true,
+      variant: battling ? 'gold' : 'default',
+      label: battling ? '出战中' : '出战',
+      disabled: !!G.Data.beasts.battleBlockReason(b.id),
+      onClick: function () {
+        var r = G.Beasts.setBattle(save, b.uid);
+        if (!r.ok) { beastToast(r.reason); return; }
+        beastToast(r.active ? b.name + ' 随你出战' : b.name + ' 退回兽栏');
+        refreshBeasts(scene);
+      }
+    }));
+    var riding = G.Beasts.isRiding(save, b.uid);
+    btns.push(new G.UI.Btn({
+      x: xA + 2 * (wBtn + gap), y: y, w: wBtn, h: BS.aH, small: true,
+      variant: riding ? 'gold' : 'default',
+      label: riding ? '骑乘中' : '骑乘',
+      disabled: !riding && !!G.Data.beasts.rideBlockReason(b),
+      onClick: function () {
+        if (riding) { G.Beasts.dismount(save); beastToast('已下马'); refreshBeasts(scene); return; }
+        var r = G.Beasts.setRide(save, b.uid);
+        if (!r.ok) { beastToast(r.reason); return; }
+        beastToast('跨上 ' + b.name);
+        refreshBeasts(scene);
+      }
+    }));
+
+    /* 第二行：名册选择 / 放生 / 返回 */
+    var y2 = y + BS.aH + 4;
+    save.beasts.slice(0, 8).forEach(function (bb, i) {
+      btns.push(new G.UI.Btn({
+        x: BS.lx + i * 18, y: y2, w: 16, h: 14, small: true,
+        variant: bb.uid === scene.beastSel ? 'gold' : 'default',
+        label: '' + (i + 1),
+        onClick: function () { scene.beastSel = bb.uid; refreshBeasts(scene); }
+      }));
+    });
+    var relArmed = scene.beastRelArm === b.uid;
+    btns.push(new G.UI.Btn({
+      x: BS.dx, y: y2, w: 86, h: 14, small: true, variant: 'danger',
+      label: relArmed ? '再点确认放生' : '放生',
+      onClick: function () {
+        if (!relArmed) { scene.beastRelArm = b.uid; G.Overlays.openPanel(scene, 'beasts'); return; }
+        var r = G.Beasts.release(save, b.uid);
+        if (!r.ok) { beastToast(r.reason); return; }
+        scene.beastRelArm = null; scene.beastSel = null;
+        beastToast('已放生 ' + b.name);
+        refreshBeasts(scene);
+      }
+    }));
+    btns.push(new G.UI.Btn({
+      x: BS.dx + 94, y: y2, w: 86, h: 14, small: true,
+      label: '返回洞府',
+      onClick: function () { G.Overlays.openPanel(scene, 'cave'); }
+    }));
+    btns.push(new G.UI.Btn({
+      x: BS.dx + 188, y: y2, w: 46, h: 14, small: true, variant: 'gold',
+      label: '购饲料',
+      onClick: function () { G.Overlays.openPanel(scene, 'beastShop'); }
+    }));
+  }
+
+  var BEAST_GOODS = [
+    { id: '药渣', n: '药渣', price: 5, d: '喂养灵兽，略增修为' },
+    { id: '灵食', n: '灵食', price: 18, d: '喂养灵兽，增修为' },
+    { id: '御兽丹·青纹', n: '御兽丹·青纹', price: 150, d: '青纹蛇化形所需' }
+  ];
+  function drawBeastShop(x, scene) {
+    var save = G.game.save;
+    shell(x, '兽栏 · 购置饲料', '灵石 ' + (save.stone || 0));
+    BEAST_GOODS.forEach(function (g, i) {
+      var yy = 64 + i * 30;
+      G.UI.text(x, { x: BS.lx, y: yy }, g.n, 13, G.UI.C.text);
+      G.UI.text(x, { x: BS.lx + 110, y: yy + 1 }, g.d, 10, G.UI.C.textDim);
+      G.UI.textOut(x, { x: BS.lx + BS.lw + 120, y: yy + 1 }, g.price + ' 灵石', 11,
+        G.UI.C.gold, 'right');
+    });
+  }
+  function buildBeastShop(btns, scene) {
+    var save = G.game.save;
+    BEAST_GOODS.forEach(function (g, i) {
+      var yy = 64 + i * 30;
+      btns.push(new G.UI.Btn({
+        x: BS.lx + BS.lw + 130, y: yy - 2, w: 60, h: 18, small: true,
+        label: '购买', disabled: (save.stone || 0) < g.price,
+        onClick: function () {
+          save.stone -= g.price;
+          save.items[g.id] = (save.items[g.id] || 0) + 1;
+          G.Storage.saveCurrent(save);
+          G.game.toast(g.n + ' ×1　灵石 −' + g.price);
+          G.Overlays.openPanel(scene, 'beastShop');
+        }
+      }));
+    });
+    btns.push(new G.UI.Btn({
+      x: BS.lx, y: 170, w: 96, h: 20, small: true,
+      label: '返回兽栏',
+      onClick: function () { G.Overlays.openPanel(scene, 'beasts'); }
+    }));
+  }
+
   var DRAW = {
     /* 角色面板要读 scene.charTab（子页签），所以把 scene 透传下去 */
     char: function (x, scene) { G.Overlays.renderChar(x, scene); },
@@ -2024,6 +2264,8 @@
     quest: drawQuest,
     bag: drawBag,
     cave: drawCave,
+    beasts: drawBeasts,
+    beastShop: drawBeastShop,
     sect: drawSect,
     map: drawMap
   };

@@ -917,6 +917,26 @@ step(() => { G.Overlays.openPanel(G.game.scene, 'bag'); }, 'panel.bag');
 shot('33_panel_bag', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'cave'); }, 'panel.cave');
 shot('35_panel_cave', 6);
+/* 兽栏面板（B2，《灵兽 v1.1》）：空态 / 有兽 / 饲料店 */
+step(() => {
+  const s = G.game.save;
+  s.beasts = []; s.beastTeam = []; s.riding = null; s.beastSeq = 0;
+  G.Overlays.openPanel(G.game.scene, 'beasts');
+}, 'panel.beasts.empty');
+shot('47_panel_beasts_empty', 6);
+step(() => {
+  const s = G.game.save;
+  s.beasts = []; s.beastSeq = 0;
+  G.Beasts.add(s, 'b_qingwenshe', { gl: 6, stage: 'young' });
+  G.Beasts.add(s, 'b_huangzongma', { gl: 8, stage: 'adult' });
+  G.Beasts.add(s, 'b_chiyanlang', { gl: 7, stage: 'adult' });
+  s.items = { '药渣': 8, '灵食': 3, '妖丹': 2 };
+  G.game.scene.beastSel = s.beasts[0].uid;
+  G.Overlays.openPanel(G.game.scene, 'beasts');
+}, 'panel.beasts');
+shot('47b_panel_beasts', 6);
+step(() => { G.Overlays.openPanel(G.game.scene, 'beastShop'); }, 'panel.beastshop');
+shot('47c_panel_beastshop', 6);
 /* 宗门面板（《宗门与散修体系设计 v1.0》）：散修态应看到「拜入 XX」按钮 */
 step(() => {
   const s = G.game.save;

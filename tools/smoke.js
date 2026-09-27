@@ -2896,6 +2896,63 @@ step(function () {
   if (migM.version !== 7 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
 }, 'beasts.data.contract');
 
+/* ---------- 灵兽管理器契约（v0.44.0，B2，《灵兽 v1.1》） ----------
+   入栏/喂养/成年/化形/出战/骑乘/放生 全门禁 + 兽栏面板与空状态渲染。 */
+step(function () {
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.globalLevel = 1; s2.items = {}; s2.beasts = []; s2.beastTeam = [];
+  s2.riding = null; s2.rideSkill = { land: false, air: false }; s2.beastSeq = 0;
+  G.game.save = s2;
+  if (!G.game.meta) G.game.meta = {};
+  G.game.meta.bestiary = G.game.meta.bestiary || {};
+
+  let r = G.Beasts.add(s2, 'b_qingwenshe', { gl: 1, stage: 'young' });
+  if (!r.ok) errors.push('add snake 失败 ' + r.reason);
+  const snake = r.beast;
+  if (G.Beasts.add(s2, 'b_chiyanlangwang').ok) errors.push('boss 不应可收服');
+
+  if (G.Beasts.feed(s2, snake.uid, '药渣').ok) errors.push('无药渣不应喂养成功');
+  s2.items['药渣'] = 10;
+  r = G.Beasts.feed(s2, snake.uid, '药渣');
+  if (!r.ok || r.gainXp !== 14) errors.push('药渣喂养异常');
+
+  if (G.Beasts.mature(s2, snake.uid).ok) errors.push('蛇未到门槛不应化形');
+
+  r = G.Beasts.setBattle(s2, snake.uid);
+  if (!r.ok || !r.active) errors.push('蛇出战异常 ' + (r.reason || ''));
+  const hi = G.Beasts.add(s2, 'b_leishou', { gl: 64, stage: 'adult' });
+  if (G.Beasts.setBattle(s2, hi.beast.uid).ok) errors.push('高境界兽不应可出战');
+
+  const hm = G.Beasts.add(s2, 'b_huangzongma', { gl: 8, stage: 'young' });
+  const horse = hm.beast;
+  if (G.Beasts.setRide(s2, horse.uid).ok) errors.push('幼马不应可骑');
+  s2.items['饲灵草料'] = 1;
+  r = G.Beasts.mature(s2, horse.uid);
+  if (!r.ok || horse.stage !== 'adult') errors.push('马成年异常 ' + (r.reason || ''));
+  r = G.Beasts.setRide(s2, horse.uid);
+  if (!r.ok || !s2.riding || !s2.rideSkill.land) errors.push('成年马骑乘异常 ' + (r.reason || ''));
+  if (G.Beasts.setRide(s2, snake.uid).ok) errors.push('战种不应可骑');
+
+  snake.gl = 10; s2.items['御兽丹·青纹'] = 1;
+  r = G.Beasts.mature(s2, snake.uid);
+  if (!r.ok || snake.id !== 'b_bilinmang' || snake.stage !== 'adult') errors.push('蛇化形碧鳞蟒异常 ' + (r.reason || ''));
+  snake.gl = 19; s2.items['御兽丹·青蟒'] = 1;
+  if (G.Beasts.mature(s2, snake.uid).ok) errors.push('碧鳞蟒化形青蛟应被地点要求拦截');
+
+  G.Beasts.release(s2, horse.uid);
+  if (s2.riding) errors.push('放生坐骑未清骑乘');
+
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  G.Overlays.openPanel(sc, 'beasts');
+  const tp = textSpy(); sc.render(tp);
+  if (!(tp.__seen || []).some(function (x) { return x.indexOf('碧鳞蟒') >= 0; })) errors.push('兽栏详情未渲染（个体名应可见）');
+  s2.beasts = []; sc.beastSel = null;
+  G.Overlays.openPanel(sc, 'beasts');
+  const tp2 = textSpy(); sc.render(tp2);
+  if (!(tp2.__seen || []).some(function (x) { return x.indexOf('尚无灵兽') >= 0; })) errors.push('空兽栏空状态未渲染');
+}, 'beasts.manager.contract');
+
 /* ---------- 自创宗门 + 散修盟悬赏契约（v0.39.0，S5） ----------
    ① 开宗三条件缺一不可（境界 / 灵石 / 声望）；**已飞升灵界可豁免境界**
    ② 开宗：扣灵石 / `sectId='own'` / 写 `meta.mySect`（跨世）/ **不占用转阵营机会**

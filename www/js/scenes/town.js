@@ -58,14 +58,22 @@
   var SIDE_PORTRAIT = { washer: 'villager', woodman: 'villager', market: 'keeper' };
 
   var DIALOGS = {
-    shenbo1: {
-      title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
-      lines: [
-        '“你既在我药铺学徒，”',
-        '“总不能不识山中险恶。”',
-        '“从镇口往南上翠微山，打赢一头妖兽，”',
-        '“便算出师第一步。”'
-      ]
+    shenbo1: function (save) {
+      var got = save.quest.flags.gotSnake;
+      var d = {
+        title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
+        lines: got ? [
+          '“从镇口往南上翠微山，打赢一头妖兽，便算出师第一步。”',
+          '“蛇崽且带去作个伴，洞府兽栏里能喂养。”'
+        ] : [
+          '“你既在我药铺学徒，总不能不识山中险恶。”',
+          '“这窝青纹蛇幼崽与你有缘，带去作个伴。”',
+          '“从镇口往南上翠微山，打赢一头妖兽，便算出师第一步。”',
+          '“洞府里有兽栏，喂些药渣便能养大。”'
+        ]
+      };
+      if (!got) d.reward = '幼年青纹蛇 ×1　药渣 ×5';
+      return d;
     },
     shenboIdle: function (save) {
       var t;
@@ -576,6 +584,12 @@
     }
 
     if (q.step === 'm0-1' && !q.flags.won1) {
+      if (!q.flags.gotSnake) {
+        q.flags.gotSnake = true;
+        var giftR = G.Beasts.add(save, 'b_qingwenshe', { gl: 1, stage: 'young' });
+        save.items['药渣'] = (save.items['药渣'] || 0) + 5;
+        if (giftR.ok) G.game.toast('沈伯赠你幼年青纹蛇，药渣 ×5');
+      }
       scene.setOverlay('shenbo1', [
         new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
           variant: 'gold', label: '知道了',
