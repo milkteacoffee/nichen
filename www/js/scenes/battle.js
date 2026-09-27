@@ -321,7 +321,14 @@
     '回春丹': { heal: 0.40, d: '回复四成气血' },
     '大还丹': { heal: 0.75, d: '回复七成五气血' },
     '聚气散': { qi: 500, d: '灵气 +500' },
-    '醒神散': { cure: true, d: '解除异常状态' }
+     '醒神散': { cure: true, d: '解除异常状态' }
+  };
+  /* 妖囊收服系数（《御兽 v0.2》§2） */
+  var CAPTURE_BAGS = { '木囊': 1.0, '玄囊': 1.5, '宝囊': 2.0 };
+  /* 野外敌人 species（中文名）→ 灵兽物种 id；人形/Boss 不在此列即不可收服 */
+  var CAPTURABLE = {
+    '青纹蛇': 'b_qingwenshe', '赤炎狼': 'b_chiyanlang', '树精': 'b_shujing',
+    '赤眼豕': 'b_chiyanshi', '雷兽': 'b_leishou'
   };
 
   var scene = {
@@ -785,8 +792,8 @@
       var self = this;
       var save = G.game.save;
       var names = Object.keys(save.items || {}).filter(function (k) {
-        return CONSUM[k] && save.items[k] > 0;
-      }).slice(0, 5);
+        return (CONSUM[k] || CAPTURE_BAGS[k]) && save.items[k] > 0;
+      }).slice(0, 8);
       if (!names.length) { this._log('囊中并无可用之物。'); return; }
 
       /* 下拉挂在 道具 按钮正上方（道具按钮已被替换为「关闭」），与功法下拉同一形态（v0.11.2） */
@@ -796,7 +803,7 @@
         dropdown.push(new G.UI.Btn({
           x: x0, y: y0 + i * 22, w: w, h: 20, small: true, variant: 'battle',
           label: nm + ' ×' + save.items[nm],
-          onClick: function () { self._useItem(nm); }
+          onClick: function () { if (CAPTURE_BAGS[nm]) self._useBag(nm); else self._useItem(nm); }
         }));
       });
       dropdown.push(new G.UI.Btn({
@@ -864,6 +871,79 @@
         steps.push([0.3, function () { self.p.statuses = {}; self._log('服下 ' + nm + '，异常尽解。'); }]);
       }
       this._cut(steps, function () { self._resolve(); });
+    },
+
+    /* ===== 妖囊收服（design B3 第一块，《御兽 v0.2》§2） ===== */
+    _useBag: function (nm) {
+      var self = this;
+      var alive = this._aliveEs();
+      if (!alive.length) { this._log('已无可收服之敌。'); return; }
+      var btns = [];
+      alive.forEach(function (e) {
+        var can = !!CAPTURABLE[e.species] && !e.boss;
+        btns.push(new G.UI.Btn({
+          x: 22, y: 58 + (btns.length) * 26, w: 206, h: 24, small: true,
+          label: e.name + '　' + Math.max(0, Math.round(e.hp)) + '/' + e.maxhp + (can ? '' : '·不可收服'),
+          disabled: !can,
+          onClick: function () { self._doCapture(e.key, nm); }
+        }));
+      });
+      btns.push(new G.UI.Btn({
+        x: 190, y: 164, w: 100, h: 22, small: true, variant: 'ghost', label: '返回',
+        onClick: function () { self.phase = 'command'; self._buildCommand(); }
+      }));
+      this.buttons = btns; this.phase = 'target';
+    },
+    _doCapture: function (targetKey, nm) {
+      var self = this, save = G.game.save, meta = G.game.meta || {};
+      var tgt = this._unit(targetKey);
+      var speciesId = tgt && CAPTURABLE[tgt.species];
+      var back = function () { self.phase = 'command'; self._buildCommand(); };
+      if (!tgt || !speciesId || tgt.boss) {
+        this._log('此非可收服之兽。'); this._cut([[0.4, function () {}]], back); return;
+      }
+      if (save.beasts.length >= G.Data.beasts.CAP) {
+        this._log('兽栏已满，收服不得。'); this._cut([[0.4, function () {}]], back); return;
+      }
+      var stc = 1.0, sm = { '毒': 1.1, '烧': 1.1, '封': 1.2, '麻': 1.3, '睡': 1.5 };
+      Object.keys(tgt.statuses || {}).forEach(function (k) { if (sm[k]) stc = Math.max(stc, sm[k]); });
+      var bg = CAPTURE_BAGS[nm];
+      var miss = 1 - tgt.hp / tgt.maxhp;
+      var rate = Math.max(0.06 * bg * stc, 0.30 * miss * bg * stc);
+      rate = Math.min(0.95, Math.max(0.01, rate));
+      save.items[nm] = (save.items[nm] || 0) - 1;
+      if (save.items[nm] <= 0) delete save.items[nm];
+      var ok = Math.random() < rate;
+      var steps = [[0.35, function () {
+        self._log('你掷出「' + nm + '」，妖囊将 ' + tgt.name + ' 罩住……');
+      }]];
+      if (ok) {
+        var first = !(meta.bestiary && meta.bestiary[speciesId]);
+        var gl = tgt.level, mGl = G.Data.beasts.matureGl(speciesId);
+        var stage = (mGl == null || gl >= mGl) ? 'adult' : 'young';
+        var res = G.Beasts.add(save, speciesId, { gl: gl, stage: stage });
+        if (res.ok) {
+          tgt.hp = 0; tgt._captured = true;
+          steps.push([0.4, function () {
+            self.shake = 3;
+            self._log('妖囊三晃 —— 收服成功！' + res.beast.name + ' 入了兽栏。');
+            if (first) {
+              save.stone = (save.stone || 0) + 50;
+              self._log('图鉴首录「' + G.Data.beasts.byId(speciesId).n + '」，灵石 +50。');
+            }
+          }]);
+        } else {
+          steps.push([0.3, function () { self._log(res.reason + '，妖囊空耗。'); }]);
+        }
+      } else {
+        steps.push([0.4, function () { self._log(tgt.name + ' 奋力挣破妖囊，跌了出来！'); }]);
+      }
+      this._cut(steps, function () {
+        G.Storage.saveCurrent(save);
+        self.pSkill = { n: nm, kind: 'item' };
+        self.pTarget = 'P';
+        self._resolve();
+      });
     },
 
     /* ===== 行动流程 =====
@@ -1982,6 +2062,7 @@
       var isP = key === 'P';
       var u = this._unit(key);
       if (!u) return;
+      if (u._captured) return;
       var pos = this._pos(key);
       var lunge = this.lunge[key] || 0;
       var cx = pos.x + lunge;

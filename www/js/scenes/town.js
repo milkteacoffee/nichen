@@ -69,10 +69,11 @@
           '“你既在我药铺学徒，总不能不识山中险恶。”',
           '“这窝青纹蛇幼崽与你有缘，带去作个伴。”',
           '“从镇口往南上翠微山，打赢一头妖兽，便算出师第一步。”',
-          '“洞府里有兽栏，喂些药渣便能养大。”'
+          '“洞府里有兽栏，喂些药渣便能养大。”',
+          '“山里妖兽打残了，掷个木囊便能收服，且去试试。”'
         ]
       };
-      if (!got) d.reward = '幼年青纹蛇 ×1　药渣 ×5';
+      if (!got) d.reward = '幼年青纹蛇 ×1　药渣 ×5　木囊 ×2';
       return d;
     },
     shenboIdle: function (save) {
@@ -588,7 +589,8 @@
         q.flags.gotSnake = true;
         var giftR = G.Beasts.add(save, 'b_qingwenshe', { gl: 1, stage: 'young' });
         save.items['药渣'] = (save.items['药渣'] || 0) + 5;
-        if (giftR.ok) G.game.toast('沈伯赠你幼年青纹蛇，药渣 ×5');
+        save.items['木囊'] = (save.items['木囊'] || 0) + 2;
+        if (giftR.ok) G.game.toast('沈伯赠你幼年青纹蛇，药渣 ×5，木囊 ×2');
       }
       scene.setOverlay('shenbo1', [
         new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,

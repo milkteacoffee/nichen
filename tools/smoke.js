@@ -239,6 +239,7 @@ sandbox.window.removeEventListener = () => {};
 sandbox.globalThis = sandbox;
 
 vm.createContext(sandbox);
+vm.runInContext('this.Math = Math;', sandbox);
 
 /* ---------- 加载脚本（顺序与 index.html 一致） ---------- */
 const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
@@ -2962,6 +2963,8 @@ step(() => {
   if (!G.Beasts.setBattle(s, rr.beast.uid).ok) { errors.push('赤炎狼出战失败'); return; }
   G.game.save = s;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 1, '青纹蛇'), mapId: 'field' });
+  /* 测试蛇撑过首回合，避免玩家+灵兽将其打死提前跳场景导致 b.beast 丢失；胜利由 victory 步骤显式触发。 */
+  G.game.scene.es.forEach(function (e) { e.maxhp = 99999; e.hp = 99999; });
 }, 'beasts.battle.enter');
 pump(10);
 step(() => {
@@ -2984,6 +2987,62 @@ step(() => {
   if (ind.bond !== Math.min(100, bond0 + 2)) errors.push('胜利未给出战兽 +2 亲密度');
   if (ind.xp < xp0 + 20) errors.push('胜利未给出战兽修为');
 }, 'beasts.battle.victory');
+pump(20);
+
+/* ---------- 妖囊野外收服契约（design B3，《御兽 v0.2》§2） ----------
+   ① 打残+妖囊收服入栏写图鉴；② 人形不可收服；③ 栏满不耗囊；④ 成败耗囊 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.beasts = []; s.beastTeam = []; s.riding = null; s.beastSeq = 0;
+  s.items = { '木囊': 3 };
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 1, '青纹蛇'), mapId: 'field' });
+}, 'beasts.capture.setup');
+pump(8);
+step(() => {
+  const b = G.game.scene;
+  b.es[0].hp = 1;
+  if (!sandbox.Math) { errors.push('沙箱无 Math，无法对收服打桩'); return; }
+  const realR = sandbox.Math.random;
+  sandbox.Math.random = () => 0;
+  b._doCapture(b.es[0].key, '木囊');
+  sandbox.Math.random = realR;
+}, 'beasts.capture.roll');
+pump(60, 'beasts.capture.run');
+step(() => {
+  const b = G.game.scene, s = G.game.save;
+  if (s.beasts.length !== 1) errors.push('收服成功未入栏（' + s.beasts.length + '）');
+  if (b.es[0]._captured !== true) errors.push('被收服敌人未标记离场');
+  if (!(G.game.meta.bestiary && G.game.meta.bestiary['b_qingwenshe'] === 'got')) errors.push('收服未写图鉴');
+  if (s.stone < 50) errors.push('图鉴首录应 +50 灵石');
+  if (s.items['木囊'] !== 2) errors.push('收服应耗 1 木囊，余 ' + s.items['木囊']);
+}, 'beasts.capture.ok');
+pump(10);
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.beasts = []; s.beastTeam = []; s.beastSeq = 0;
+  s.items = { '木囊': 2 };
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('血煞教徒', 5, '散修'), mapId: 'field' });
+  const b = G.game.scene;
+  b._useBag('木囊');
+  const tb = b.buttons.filter((x) => /散修/.test(x.label || ''));
+  if (!tb.length || !tb.every((x) => x.disabled)) errors.push('人形敌人不应可收服（应置灰）');
+  if (s.items['木囊'] !== 2) errors.push('不可收服不应耗囊');
+}, 'beasts.capture.human');
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.beasts = []; s.beastTeam = []; s.beastSeq = 0;
+  for (let i = 0; i < G.Data.beasts.CAP; i++) G.Beasts.add(s, 'b_chiyanlang', { gl: 1, stage: 'adult' });
+  s.items = { '木囊': 2 };
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 1, '青纹蛇'), mapId: 'field' });
+  const b = G.game.scene;
+  b.es[0].hp = 1;
+  b._doCapture(b.es[0].key, '木囊');
+  if (s.items['木囊'] !== 2) errors.push('栏满收服不应耗囊');
+  if (s.beasts.length !== G.Data.beasts.CAP) errors.push('栏满不应再增兽');
+}, 'beasts.capture.full');
 pump(20);
 
 

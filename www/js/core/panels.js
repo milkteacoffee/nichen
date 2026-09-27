@@ -2217,40 +2217,49 @@
     }));
   }
 
-  var BEAST_GOODS = [
-    { id: '药渣', n: '药渣', price: 5, d: '喂养灵兽，略增修为' },
-    { id: '灵食', n: '灵食', price: 18, d: '喂养灵兽，增修为' },
+  var FEED_GOODS = [
+    { id: '药渣', n: '药渣', price: 5, d: '喂养，略增修为' },
+    { id: '灵食', n: '灵食', price: 18, d: '喂养，增修为' },
     { id: '御兽丹·青纹', n: '御兽丹·青纹', price: 150, d: '青纹蛇化形所需' }
   ];
+  var BAG_GOODS = [
+    { id: '木囊', n: '木囊', price: 30, d: '收服妖兽 · 系数1.0' },
+    { id: '玄囊', n: '玄囊', price: 120, d: '收服妖兽 · 系数1.5' },
+    { id: '宝囊', n: '宝囊', price: 400, d: '收服妖兽 · 系数2.0' }
+  ];
+  function shopRow(x, g, yy) {
+    G.UI.text(x, { x: BS.lx, y: yy }, g.n, 12, G.UI.C.text);
+    G.UI.text(x, { x: BS.lx + 78, y: yy + 1 }, g.d, 9.5, G.UI.C.textDim);
+    G.UI.textOut(x, { x: BS.lx + BS.lw + 118, y: yy + 1 }, g.price + ' 灵石', 10,
+      G.UI.C.gold, 'right');
+  }
   function drawBeastShop(x, scene) {
     var save = G.game.save;
-    shell(x, '兽栏 · 购置饲料', '灵石 ' + (save.stone || 0));
-    BEAST_GOODS.forEach(function (g, i) {
-      var yy = 64 + i * 30;
-      G.UI.text(x, { x: BS.lx, y: yy }, g.n, 13, G.UI.C.text);
-      G.UI.text(x, { x: BS.lx + 110, y: yy + 1 }, g.d, 10, G.UI.C.textDim);
-      G.UI.textOut(x, { x: BS.lx + BS.lw + 120, y: yy + 1 }, g.price + ' 灵石', 11,
-        G.UI.C.gold, 'right');
-    });
+    shell(x, '兽栏 · 饲料与妖囊', '灵石 ' + (save.stone || 0));
+    G.UI.text(x, { x: BS.lx, y: 52 }, '— 饲料 —', 10, G.UI.C.textDim);
+    FEED_GOODS.forEach(function (g, i) { shopRow(x, g, 66 + i * 22); });
+    G.UI.text(x, { x: BS.lx, y: 132 }, '— 妖囊（战中收服）—', 10, G.UI.C.textDim);
+    BAG_GOODS.forEach(function (g, i) { shopRow(x, g, 146 + i * 22); });
+  }
+  function shopBuyBtn(btns, scene, g, yy) {
+    var save = G.game.save;
+    btns.push(new G.UI.Btn({
+      x: BS.lx + BS.lw + 128, y: yy - 2, w: 58, h: 18, small: true,
+      label: '购买', disabled: (save.stone || 0) < g.price,
+      onClick: function () {
+        save.stone -= g.price;
+        save.items[g.id] = (save.items[g.id] || 0) + 1;
+        G.Storage.saveCurrent(save);
+        G.game.toast(g.n + ' ×1　灵石 −' + g.price);
+        G.Overlays.openPanel(scene, 'beastShop');
+      }
+    }));
   }
   function buildBeastShop(btns, scene) {
-    var save = G.game.save;
-    BEAST_GOODS.forEach(function (g, i) {
-      var yy = 64 + i * 30;
-      btns.push(new G.UI.Btn({
-        x: BS.lx + BS.lw + 130, y: yy - 2, w: 60, h: 18, small: true,
-        label: '购买', disabled: (save.stone || 0) < g.price,
-        onClick: function () {
-          save.stone -= g.price;
-          save.items[g.id] = (save.items[g.id] || 0) + 1;
-          G.Storage.saveCurrent(save);
-          G.game.toast(g.n + ' ×1　灵石 −' + g.price);
-          G.Overlays.openPanel(scene, 'beastShop');
-        }
-      }));
-    });
+    FEED_GOODS.forEach(function (g, i) { shopBuyBtn(btns, scene, g, 66 + i * 22); });
+    BAG_GOODS.forEach(function (g, i) { shopBuyBtn(btns, scene, g, 146 + i * 22); });
     btns.push(new G.UI.Btn({
-      x: BS.lx, y: 170, w: 96, h: 20, small: true,
+      x: BS.lx, y: 216, w: 96, h: 20, small: true,
       label: '返回兽栏',
       onClick: function () { G.Overlays.openPanel(scene, 'beasts'); }
     }));
