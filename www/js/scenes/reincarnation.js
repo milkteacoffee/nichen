@@ -295,6 +295,12 @@
           /* 生成型区域还得把**场景**也注册出来，否则 changeScene 会撞上
              "场景未开放"（地图注册 ≠ 场景注册，两件事）。 */
           if (G.RegionGen.sceneFor) G.RegionGen.sceneFor(firstR.id);
+          /* 把**本界全部**生成型区域注册成场景（v0.41.0）。
+             ⚠️ `registerWorld` 之前全项目无人调用 —— 只建首区的话，
+                其余区域在走到出口时才会被懒创建（见 explore._transition 的兜底）。 */
+          if (G.RegionGen.registerWorld) {
+            G.RegionGen.registerWorld(G.Player.activeWorldId(G.game.meta));
+          }
         }
         var startId = G.Data.regions.mapIdOf(firstR.id);
         var smd = G.Data.maps[startId];

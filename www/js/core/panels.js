@@ -231,7 +231,9 @@
     { id: 'char', n: '角色' },
     { id: 'quest', n: '任务' },
     { id: 'bag', n: '储物' },
-    { id: 'sect', n: '宗门' },
+    /* 底栏叫「势力」而不是「宗门」（v0.41.0）：面板里散修与宗门**并列**，
+       叫「宗门」会让散修玩家以为这一页与自己无关。 */
+    { id: 'sect', n: '势力' },
     { id: 'cave', n: '洞府' },
     { id: 'map', n: '地图' }
   ];
@@ -1378,136 +1380,133 @@
     if (!G.Data.sects || !save.sectId) return null;
     return G.Data.sects.byId(save.sectId);
   }
+  /* ===== 势力面板（v0.41.0 重构）=====
+     用户口径：「散修的任务和宗门重叠在一起了，可以在宗门的界面里面新增散修/宗门两个子界面，
+     宗门底部的功能名称改成势力」。
+     两件事一起做：
+      ① 底栏那一项改名「**势力**」—— 面板里散修与宗门**并列**，叫"宗门"会让散修玩家以为与自己无关；
+      ② 面板内加**散修 / 宗门 两个子页签**，各自独占一屏 —— 原先两套内容挤在同一屏，
+         悬赏文案与"拜入"按钮直接叠在一起（截图反馈）。
+     ⚠️ 子页签状态存 `scene.sectTab`（默认按当前阵营：散修玩家看散修页、宗门弟子看宗门页）。 */
+  var SECT_TAB_Y = P.y + 30, SECT_TAB_W = 64, SECT_TAB_H = 20;
+  function sectTabOf(scene, save) {
+    if (scene.sectTab) return scene.sectTab;
+    return (save.cult === 'sect') ? 'sect' : 'free';
+  }
+
   function drawSect(x, scene) {
     var save = G.game.save || {};
-    /* 门派商店子视图（S3）：贡献换丹药/符箓/材料。
-       单开一屏而不是挤在主页 —— 宗门页已经有阵营/贡献/功法三块，
-       再塞商店必然压到「退门帖」按钮（版面越界是静默的）。 */
-    /* 自创宗门：开宗立派的取名子视图（v0.39.0） */
+    var tab = sectTabOf(scene, save);
+
+    /* 自创宗门：取名子视图 */
     if (scene.sectView === 'found') {
-      shell(x, '宗门', '开宗立派');
-      G.UI.text(x, { x: P.x + 14, y: P.y + 34 }, '为自己立一个名号', 12, G.UI.C.goldHi);
-      G.UI.text(x, { x: P.x + 14, y: P.y + 54 },
+      shell(x, '势力', '开宗立派');
+      G.UI.text(x, { x: P.x + 14, y: P.y + 58 }, '为自己立一个名号', 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
         '镇派功法取你已习得的第一门。开宗后仍可收徒。', 10, G.UI.C.textDim);
       return;
     }
+    /* 门派商店子视图 */
     if (scene.sectView === 'shop') {
-      shell(x, '宗门', '贡献 ' + (save.sectRep || 0));
-      G.UI.text(x, { x: P.x + 14, y: P.y + 34 }, '门派商店 · 以贡献换取', 12, G.UI.C.goldHi);
-      G.UI.text(x, { x: P.x + 14, y: P.y + 54 },
+      shell(x, '势力', '贡献 ' + (save.sectRep || 0));
+      G.UI.text(x, { x: P.x + 14, y: P.y + 58 }, '门派商店 · 以贡献换取', 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
         '贡献来自副本通关（首杀 +20 / 刷取 +8）。', 10, G.UI.C.textDim);
       var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
-      SH.forEach(function (it, i) {
-        G.UI.text(x, { x: P.x + 22, y: SP.y + 86 + i * 24 },
-          it.item + ' ×' + it.n + '　　' + it.cost + ' 贡献', 11,
+      SH.slice(0, 5).forEach(function (it, i) {
+        G.UI.text(x, { x: P.x + 22, y: P.y + 100 + i * 18 },
+          it.item + ' ×' + it.n + '　　' + it.cost + ' 贡献', 10.5,
           (save.sectRep || 0) >= it.cost ? G.UI.C.text : G.UI.C.textDim);
       });
       return;
     }
-    shell(x, '宗门', '第 ' + (save.life || 1) + ' 世');
-    var s = sectOf(save);
-    var isSect = (save.cult === 'sect');
 
-    G.UI.text(x, { x: P.x + 14, y: P.y + 32 },
-      '当前阵营：' + (isSect ? ((s && s.n) || '宗门弟子') : '散修'), 12, G.UI.C.goldHi);
-    G.UI.text(x, { x: P.x + 14, y: P.y + 50 },
-      /* 位阶**由贡献推导**（S4）—— 面板与 Player.rankOf 同源，不读 save.sectRank
-         （那个字段已退化为"迁移用"，留着只会两处真相源分叉）。 */
-      isSect ? ('位阶 ' + (G.Player.RANK_N[G.Player.rankOf(save)] || '外门')
-        + '　贡献 ' + (save.sectRep || 0))
-             : ('散修声望 ' + (save.sectRep || 0)), 11, G.UI.C.textDim);
-    G.UI.text(x, { x: P.x + 14, y: P.y + 70 },
-      isSect ? '宗门功法与散修功法互不相通；本门弟子以贡献兑换本门功法。'
-             : '散修功法靠副本与野怪自寻；宗门功法与你无缘。', 10, G.UI.C.textDim);
+    shell(x, '势力', '第 ' + (save.life || 1) + ' 世');
+    /* 子页签由按钮画，这里只画内容 */
+    if (tab === 'free') {
+      G.UI.text(x, { x: P.x + 14, y: P.y + 58 },
+        '当前阵营：散修　　声望 ' + (save.sectRep || 0), 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
+        '散修功法靠副本与野怪自寻；宗门功法与你无缘。', 10, G.UI.C.textDim);
 
-    /* 功法池：宗门态看"本门"（4 行）；散修态底部让给拜师按钮，不铺功法表 */
-    if (isSect) {
-      G.UI.text(x, { x: P.x + 14, y: P.y + 92 }, '本门功法', 11, G.UI.C.gold);
-      /* 自家宗门（S5）：没有功法池，显示镇派功法与弟子数 */
-      if (save.sectId === 'own') {
-        var os = save.ownSect || { name: '无名宗', disciples: 0 };
-        G.UI.text(x, { x: P.x + 14, y: P.y + 92 }, '本门', 11, G.UI.C.gold);
-        G.UI.text(x, { x: P.x + 22, y: SEC.listY }, os.name + '（自创）', 10.5, G.UI.C.goldHi);
-        G.UI.text(x, { x: P.x + 22, y: SEC.listY + 16 },
-          '镇派：' + ((G.Data.skills[os.skill] || {}).n || '—'), 10, G.UI.C.text);
-        G.UI.text(x, { x: P.x + 22, y: SEC.listY + 32 },
-          '弟子 ' + (os.disciples || 0) + ' / ' + G.Player.DISCIPLE_MAX
-          + '　（每人 +2% 攻防血）', 10, G.UI.C.jadeHi);
-        G.UI.text(x, { x: P.x + 14, y: SEC.sectNoteY },
-          save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
-                              : '退门即散（自家宗门也可以散）。', 10, G.UI.C.textDim);
-        return;
-      }
-      var pool = (s && s.skills) || [];
-      pool.slice(0, 4).forEach(function (id, i) {
-        var sk = G.Data.skills[id];
-        if (!sk) return;
-        var own = save.skills && save.skills[id];
-        var cost = (sk.tier === '灵') ? 150 : 50;
-        var st, col;
-        if (own && !own.voided) { st = 'Lv' + own.lv; col = G.UI.C.jadeHi; }
-        else if (own && own.voided) { st = '已废功 · 需 ' + cost; col = 'rgba(180,120,120,0.9)'; }
-        else { st = '未习 · 需 ' + cost + ' 贡献'; col = G.UI.C.textDim; }
-        G.UI.text(x, { x: P.x + 22, y: SEC.listY + i * 15 }, sk.n + '　' + st, 10, col);
-      });
-      G.UI.text(x, { x: P.x + 14, y: SEC.sectNoteY },
-        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
-                            : '可递退门帖，转为散修（宗门功法将废功）。', 10, G.UI.C.textDim);
-    } else {
-      G.UI.text(x, { x: P.x + 14, y: SEC.freeNoteY },
-        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
-                            : '拜入本界任一宗门（散修功法将废功）。', 10, G.UI.C.textDim);
-    }
-    /* 散修盟悬赏（S4 另一半）：散修侧唯一的"接活换钱"路径 */
-    if (save.cult !== 'sect') {
+      /* 散修盟悬赏 */
       var b = save.bounty;
-      G.UI.text(x, { x: P.x + 14, y: P.y + 156 }, '散修盟 · 悬赏', 11, G.UI.C.gold);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 102 }, '散修盟 · 悬赏', 11, G.UI.C.gold);
       if (b) {
-        G.UI.text(x, { x: P.x + 22, y: P.y + 172 },
+        G.UI.text(x, { x: P.x + 22, y: P.y + 118 },
           '在身：斩妖 ' + b.need + ' 只（还差 ' + G.Player.bountyLeft(save) + '）· 赏 ' + b.stone + ' 灵石',
           10, G.UI.C.text);
       } else {
-        G.UI.text(x, { x: P.x + 22, y: P.y + 172 }, '未接悬赏 —— 接一件换灵石。', 10, G.UI.C.textDim);
+        G.UI.text(x, { x: P.x + 22, y: P.y + 118 }, '未接悬赏 —— 接一件换灵石。', 10, G.UI.C.textDim);
       }
+      /* 拜入宗门 */
+      G.UI.text(x, { x: P.x + 14, y: P.y + 144 }, '拜入宗门', 11, G.UI.C.gold);
+      G.UI.text(x, { x: P.x + 22, y: P.y + 160 },
+        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
+                            : '拜入后散修功法将废功。', 10, G.UI.C.textDim);
+      return;
     }
+
+    /* ---- 宗门页 ---- */
+    var s = sectOf(save);
+    if (save.sectId === 'own') {
+      var os = save.ownSect || { name: '无名宗', disciples: 0 };
+      G.UI.text(x, { x: P.x + 14, y: P.y + 58 },
+        '当前宗门：' + os.name + '（自创）', 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
+        '镇派：' + ((G.Data.skills[os.skill] || {}).n || '—')
+        + '　　贡献 ' + (save.sectRep || 0), 10.5, G.UI.C.text);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 100 }, '弟子', 11, G.UI.C.gold);
+      G.UI.text(x, { x: P.x + 22, y: P.y + 116 },
+        (os.disciples || 0) + ' / ' + G.Player.DISCIPLE_MAX + '　每人 +2% 攻防血', 10, G.UI.C.jadeHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 144 },
+        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。' : '退门即散（自家宗门也可以散）。',
+        10, G.UI.C.textDim);
+      return;
+    }
+    G.UI.text(x, { x: P.x + 14, y: P.y + 58 },
+      '当前宗门：' + ((s && s.n) || '散修'), 12, G.UI.C.goldHi);
+    G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
+      '位阶 ' + (G.Player.RANK_N[G.Player.rankOf(save)] || '外门')
+      + '　　贡献 ' + (save.sectRep || 0), 11, G.UI.C.textDim);
+    G.UI.text(x, { x: P.x + 14, y: P.y + 102 }, '本门功法', 11, G.UI.C.gold);
+    var pool = (s && s.skills) || [];
+    pool.slice(0, 4).forEach(function (id, i) {
+      var sk = G.Data.skills[id];
+      if (!sk) return;
+      var own = save.skills && save.skills[id];
+      var cost = (sk.tier === '灵') ? 150 : 50;
+      var st, col;
+      if (own && !own.voided) { st = 'Lv' + own.lv; col = G.UI.C.jadeHi; }
+      else if (own && own.voided) { st = '已废功 · 需 ' + cost; col = 'rgba(180,120,120,0.9)'; }
+      else { st = '未习 · 需 ' + cost + ' 贡献'; col = G.UI.C.textDim; }
+      G.UI.text(x, { x: P.x + 22, y: P.y + 120 + i * 15 }, sk.n + '　' + st, 10, col);
+    });
+    G.UI.text(x, { x: P.x + 14, y: P.y + 186 },
+      save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。' : '贡献来自副本通关。', 10, G.UI.C.textDim);
   }
 
   function buildSect(btns, scene) {
     var save = G.game.save;
-    var isSect = (save.cult === 'sect');
+    var tab = sectTabOf(scene, save);
 
-    /* 商店子视图 */
-    if (scene.sectView === 'shop') {
-      var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
-      SH.forEach(function (it, i) {
-        var can = (save.sectRep || 0) >= it.cost;
-        btns.push(new G.UI.Btn({
-          x: SP.x + SP.w - 96, y: SP.y + 82 + i * 24 - 4, w: 92, h: 20, small: true, fs: 10,
-          variant: can ? 'gold' : 'ghost',
-          label: can ? ('换取 ' + it.cost) : '贡献不足',
-          onClick: function () {
-            var r = G.Player.buySectItem(save, i);
-            G.game.toast(r.ok ? ('得 ' + r.item.item + ' ×' + r.item.n + '　贡献 -' + r.item.cost)
-              : ('无法换取：' + r.reason));
-            if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
-          }
-        }));
-      });
+    /* 子页签（散修 / 宗门）—— 两个页签都常驻，玩家能看见"还有另一半" */
+    [['free', '散修'], ['sect', '宗门']].forEach(function (t, i) {
       btns.push(new G.UI.Btn({
-        x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'ghost',
-        label: '返　回',
-        onClick: function () { scene.sectView = null; G.Overlays.openPanel(scene, 'sect', true); }
+        x: P.x + 14 + i * (SECT_TAB_W + 6), y: SECT_TAB_Y, w: SECT_TAB_W, h: SECT_TAB_H,
+        small: true, variant: 'subtab', active: tab === t[0], label: t[1],
+        onClick: function () {
+          scene.sectTab = t[0]; scene.sectView = null;
+          G.Overlays.openPanel(scene, 'sect', true);
+        }
       }));
-      return;
-    }
-    scene.sectView = null;
+    });
 
-    /* 取名子视图：三个候选名（游戏没有文本输入 UI，用候选名代替"命名"） */
+    /* 取名子视图 */
     if (scene.sectView === 'found') {
-      var cand = ['青云宗', '问道斋', '不孤峰'];
-      cand.forEach(function (nm, i) {
+      ['青云宗', '问道斋', '不孤峰'].forEach(function (nm, i) {
         btns.push(new G.UI.Btn({
-          x: P.x + 14 + i * 128, y: P.y + 90, w: 120, h: 26, small: true, fs: 11,
+          x: P.x + 14 + i * 128, y: P.y + 108, w: 120, h: 26, small: true, fs: 11,
           variant: i === 0 ? 'gold' : 'default', label: nm,
           onClick: function () {
             var chk = G.Player.canFoundSect(save, G.game.meta);
@@ -1525,133 +1524,149 @@
       }));
       return;
     }
+    /* 商店子视图 */
+    if (scene.sectView === 'shop') {
+      var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
+      SH.slice(0, 5).forEach(function (it, i) {
+        var can = (save.sectRep || 0) >= it.cost;
+        btns.push(new G.UI.Btn({
+          x: P.x + P.w - 110, y: P.y + 96 + i * 18, w: 100, h: 16, small: true, fs: 9.5,
+          variant: can ? 'gold' : 'ghost',
+          label: can ? ('换取 ' + it.cost) : '贡献不足',
+          onClick: function () {
+            var r = G.Player.buySectItem(save, i);
+            G.game.toast(r.ok ? ('得 ' + r.item.item + ' ×' + r.item.n + '　贡献 -' + r.item.cost)
+              : ('无法换取：' + r.reason));
+            if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
+          }
+        }));
+      });
+      btns.push(new G.UI.Btn({
+        x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true, variant: 'ghost',
+        label: '返　回',
+        onClick: function () { scene.sectView = null; G.Overlays.openPanel(scene, 'sect', true); }
+      }));
+      return;
+    }
 
-    if (!save.cultSwitchUsed) {
-      if (!isSect) {
-        /* 拜入：列出**当前界**的宗门（大宗门优先），点一个即**开试炼战**（S2）。
-           试炼是一场切磋，胜利才算入门；门槛 = 炼气一段（`Player.trialReady`）。 */
-        var wid = G.Player.activeWorldId(G.game.meta);
-        var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
-        list.sort(function (a, b) {
-          return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1);
-        });
-        /* 散修盟悬赏（S4 另一半）：接单 / 领赏 */
-        var b0 = save.bounty;
-        if (b0) {
-          var left = G.Player.bountyLeft(save);
-          btns.push(new G.UI.Btn({
-            x: P.x + 14, y: P.y + 184, w: 176, h: 22, small: true,
-            variant: left > 0 ? 'ghost' : 'gold',
-            label: left > 0 ? ('悬赏进行中（还差 ' + left + '）') : ('领赏 · 灵石 +' + b0.stone),
-            onClick: function () {
-              var r = G.Player.claimBounty(save);
-              G.game.toast(r.ok ? ('悬赏了结 · 灵石 +' + r.stone) : ('无法领赏：' + r.reason));
-              if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
-            }
-          }));
-        } else {
-          G.Player.BOUNTY.forEach(function (bb, i) {
-            btns.push(new G.UI.Btn({
-              x: P.x + 196 + i * 96, y: P.y + 184, w: 90, h: 22, small: true, fs: 9.5,
-              variant: 'default', label: bb.n + ' ' + bb.need,
-              onClick: function () {
-                var r = G.Player.acceptBounty(save, i);
-                G.game.toast(r.ok ? ('接下悬赏：' + bb.n + '（斩妖 ' + bb.need + '）')
-                  : ('无法接单：' + r.reason));
-                if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
-              }
-            }));
-          });
-        }
-        var ready = G.Player.trialReady(save);
-        list.slice(0, 6).forEach(function (s, i) {
-          var col = i % 3, row = Math.floor(i / 3);
-          btns.push(new G.UI.Btn({
-            x: P.x + 14 + col * (SEC.rowW + SEC.rowGap),
-            y: (row === 0 ? SEC.rowY : SEC.row2Y),
-            w: SEC.rowW, h: SEC.rowH, small: true, fs: 11,
-            variant: ready ? 'default' : 'ghost',
-            label: '拜入 ' + s.n,
-            onClick: function () {
-              if (!ready) { G.game.toast('修为不足（需炼气一段），先去历练'); return; }
-              scene.clearOverlay();
-              G.game.changeScene('battle', {
-                script: 'sectTrial', mapId: G.game.sceneName, sectId: s.id
-              });
-            }
-          }));
-        });
+    /* ---- 散修页 ---- */
+    if (tab === 'free') {
+      var b0 = save.bounty;
+      if (b0) {
+        var left = G.Player.bountyLeft(save);
+        btns.push(new G.UI.Btn({
+          x: P.x + P.w - 150, y: P.y + 96, w: 140, h: 22, small: true,
+          variant: left > 0 ? 'ghost' : 'gold',
+          label: left > 0 ? ('悬赏中（还差 ' + left + '）') : ('领赏 · 灵石 +' + b0.stone),
+          onClick: function () {
+            var r = G.Player.claimBounty(save);
+            G.game.toast(r.ok ? ('悬赏了结 · 灵石 +' + r.stone) : ('无法领赏：' + r.reason));
+            if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
+          }
+        }));
       } else {
-        /* 宗门态：本门功法的**兑换**按钮（每门 2 本，落在功法行右侧） */
-        var s2 = sectOf(save);
-        var pool = (s2 && s2.skills) || [];
-        pool.slice(0, 2).forEach(function (id, i) {
-          var sk = G.Data.skills[id];
-          if (!sk) return;
-          var own = save.skills && save.skills[id];
-          var cost = (sk.tier === '灵') ? 150 : 50;
-          var can = !(own && !own.voided) && (save.sectRep || 0) >= cost;
+        G.Player.BOUNTY.forEach(function (bb, i) {
           btns.push(new G.UI.Btn({
-            x: SP.x + SP.w - 74, y: SEC.listY + i * 15 - 6, w: 70, h: 14,
-            small: true, fs: 10,
-            variant: can ? 'gold' : 'ghost',
-            label: can ? '兑换 ' + cost : '贡献不足',
+            x: P.x + P.w - 290 + i * 96, y: P.y + 96, w: 90, h: 22, small: true, fs: 9.5,
+            variant: 'default', label: bb.n + ' ' + bb.need,
             onClick: function () {
-              var r = G.Player.learnSectSkill(save, id);
-              G.game.toast(r.ok ? ('习得《' + sk.n + '》　贡献 -' + r.cost)
-                : ('无法兑换：' + r.reason));
+              var r = G.Player.acceptBounty(save, i);
+              G.game.toast(r.ok ? ('接下悬赏：' + bb.n + '（斩妖 ' + bb.need + '）')
+                : ('无法接单：' + r.reason));
               if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
             }
           }));
         });
-        /* 自家宗门：收徒（S5）。不是自家宗门：满足条件时给「开宗立派」入口。 */
-        if (save.sectId === 'own') {
-          var os2 = save.ownSect || { disciples: 0 };
-          var full = (os2.disciples || 0) >= G.Player.DISCIPLE_MAX;
-          var rich = (save.stone || 0) >= G.Player.DISCIPLE_COST;
-          btns.push(new G.UI.Btn({
-            x: P.x + 14, y: P.y + 184, w: 128, h: 22, small: true,
-            variant: (!full && rich) ? 'gold' : 'ghost',
-            label: full ? '弟子已满' : ('收徒 · ' + G.Player.DISCIPLE_COST),
-            onClick: function () {
-              var r = G.Player.recruitDisciple(save);
-              G.game.toast(r.ok ? ('收得弟子一名（共 ' + r.n + '）') : ('无法收徒：' + r.reason));
-              if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
-            }
-          }));
-        } else {
-          var fc = G.Player.canFoundSect(save, G.game.meta);
-          btns.push(new G.UI.Btn({
-            x: P.x + 14, y: P.y + 184, w: 128, h: 22, small: true,
-            variant: fc.ok ? 'gold' : 'ghost',
-            label: fc.ok ? '开宗立派' : '开宗立派（未足）',
-            onClick: function () {
-              var chk = G.Player.canFoundSect(save, G.game.meta);
-              if (!chk.ok) { G.game.toast('尚不能开宗：' + chk.reason); return; }
-              scene.sectView = 'found';
-              G.Overlays.openPanel(scene, 'sect', true);
-            }
-          }));
-        }
-        btns.push(new G.UI.Btn({
-          x: P.x + 246, y: P.y + 184, w: 96, h: 22, small: true, variant: 'default',
-          label: '门派商店',
-          onClick: function () {
-            scene.sectView = 'shop';
-            G.Overlays.openPanel(scene, 'sect', true);
-          }
-        }));
-        btns.push(new G.UI.Btn({
-          x: P.x + 148, y: P.y + 184, w: 96, h: 22, small: true, variant: 'danger',
-          label: '退　门',
-          onClick: function () {
-            var n = G.Player.switchCult(save, false, null);
-            G.Storage.saveCurrent(save);
-            G.game.toast('退出门墙　宗门功法废功 ×' + n);
-            G.Overlays.openPanel(scene, 'sect', true);
-          }
-        }));
       }
+      /* 拜入按钮：两行 × 三列 */
+      var wid = G.Player.activeWorldId(G.game.meta);
+      var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
+      list.sort(function (a, b) { return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1); });
+      var ready = G.Player.trialReady(save);
+      list.slice(0, 6).forEach(function (sc2, i) {
+        var col = i % 3, row = Math.floor(i / 3);
+        btns.push(new G.UI.Btn({
+          x: P.x + 14 + col * (SEC.rowW + SEC.rowGap),
+          y: (row === 0 ? P.y + 176 : P.y + 202),
+          w: SEC.rowW, h: SEC.rowH, small: true, fs: 10,
+          variant: ready ? 'default' : 'ghost',
+          label: '拜入 ' + sc2.n,
+          onClick: function () {
+            if (!ready) { G.game.toast('修为不足（需炼气一段），先去历练'); return; }
+            scene.clearOverlay();
+            G.game.changeScene('battle', {
+              script: 'sectTrial', mapId: G.game.sceneName, sectId: sc2.id
+            });
+          }
+        }));
+      });
+      return;
+    }
+
+    /* ---- 宗门页 ---- */
+    if (save.sectId === 'own') {
+      var os2 = save.ownSect || { disciples: 0 };
+      var full = (os2.disciples || 0) >= G.Player.DISCIPLE_MAX;
+      var rich = (save.stone || 0) >= G.Player.DISCIPLE_COST;
+      btns.push(new G.UI.Btn({
+        x: P.x + 14, y: P.y + 176, w: 150, h: 22, small: true,
+        variant: (!full && rich) ? 'gold' : 'ghost',
+        label: full ? '弟子已满' : ('收徒 · ' + G.Player.DISCIPLE_COST),
+        onClick: function () {
+          var r = G.Player.recruitDisciple(save);
+          G.game.toast(r.ok ? ('收得弟子一名（共 ' + r.n + '）') : ('无法收徒：' + r.reason));
+          if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
+        }
+      }));
+    } else {
+      var pool2 = (sectOf(save) && sectOf(save).skills) || [];
+      pool2.slice(0, 4).forEach(function (id, i) {
+        var sk = G.Data.skills[id];
+        if (!sk) return;
+        var own = save.skills && save.skills[id];
+        var cost = (sk.tier === '灵') ? 150 : 50;
+        var can = !(own && !own.voided) && (save.sectRep || 0) >= cost;
+        btns.push(new G.UI.Btn({
+          x: P.x + P.w - 110, y: P.y + 114 + i * 15, w: 100, h: 15, small: true, fs: 9.5,
+          variant: can ? 'gold' : 'ghost',
+          label: can ? ('兑换 ' + cost) : '—',
+          onClick: function () {
+            var r = G.Player.learnSectSkill(save, id);
+            G.game.toast(r.ok ? ('习得《' + sk.n + '》　贡献 -' + r.cost) : ('无法兑换：' + r.reason));
+            if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
+          }
+        }));
+      });
+      var fc = G.Player.canFoundSect(save, G.game.meta);
+      btns.push(new G.UI.Btn({
+        x: P.x + 14, y: P.y + 176, w: 128, h: 22, small: true,
+        variant: fc.ok ? 'gold' : 'ghost',
+        label: fc.ok ? '开宗立派' : '开宗立派（未足）',
+        onClick: function () {
+          var chk = G.Player.canFoundSect(save, G.game.meta);
+          if (!chk.ok) { G.game.toast('尚不能开宗：' + chk.reason); return; }
+          scene.sectView = 'found';
+          G.Overlays.openPanel(scene, 'sect', true);
+        }
+      }));
+    }
+    /* 商店 / 退门（两页共用） */
+    btns.push(new G.UI.Btn({
+      x: P.x + 148, y: P.y + 176, w: 128, h: 22, small: true, variant: 'default',
+      label: '门派商店',
+      onClick: function () { scene.sectView = 'shop'; G.Overlays.openPanel(scene, 'sect', true); }
+    }));
+    if (!save.cultSwitchUsed) {
+      btns.push(new G.UI.Btn({
+        x: P.x + 282, y: P.y + 176, w: 126, h: 22, small: true, variant: 'danger',
+        label: '退　门',
+        onClick: function () {
+          var n = G.Player.switchCult(save, false, null);
+          G.Storage.saveCurrent(save);
+          G.game.toast('退出门墙　宗门功法废功 ×' + n);
+          G.Overlays.openPanel(scene, 'sect', true);
+        }
+      }));
     }
   }
 
@@ -1804,6 +1819,39 @@
     return w;
   }
 
+  /* 地图节点悬浮说明（v0.41.0）—— 用户口径：「鼠标放到这些地点名称上面要有悬浮说明，
+     这些地方是否存在宗门、副本、境界信息、野怪信息、界门信息等等」。
+     **全部从已有数据拼**，不新造字段：
+       · 境界 / 野怪 ← 区域的 `zones`（野怪等级区间 + 种群）
+       · 宗门        ← `G.Data.sects.ofWorld(w)` 按 region 过滤
+       · 秘境        ← `save.entrances[w]`（落位表）
+       · 界门        ← 区域的 `gate`
+       · 是否到访    ← `save.visited` */
+  function mapNodeInfo(r, save, meta, w, visited) {
+    var L = [];
+    var z = (r.zones || [])[0];
+    if (z && z.enc) {
+      var ra = G.Player.realmInfo ? G.Player.realmInfo(z.enc.min) : null;
+      var rb = G.Player.realmInfo ? G.Player.realmInfo(z.enc.max) : null;
+      L.push('境界　' + (ra ? ra.n : ('L' + z.enc.min))
+        + (z.enc.max !== z.enc.min ? (' ~ ' + (rb ? rb.n : ('L' + z.enc.max))) : ''));
+      var sp = Object.keys(z.sp || {});
+      if (sp.length) L.push('野怪　' + sp.join(' · '));
+    } else {
+      L.push('境界　安全区（无野怪）');
+    }
+    var sc = (G.Data.sects ? G.Data.sects.ofWorld(w) : []).filter(function (x) {
+      return x.region === r.id;
+    });
+    L.push('宗门　' + (sc.length ? sc.map(function (x) { return x.n; }).join(' · ') : '无'));
+    var ent = (save.entrances && save.entrances[w]) || [];
+    var mine = ent.filter(function (e) { return e.region === r.id; });
+    L.push('秘境　' + (mine.length ? ('有入口 ×' + mine.length) : '无'));
+    L.push('界门　' + (r.gate ? '有' : '无'));
+    L.push(visited[r.id] ? '已到访' : '未曾至');
+    return { title: r.n + '　' + (r.theme || ''), text: L.join('\n') };
+  }
+
   function drawMap(x, scene) {
     var save = G.game.save, meta = G.game.meta || {};
     var Rg = G.Data.regions;
@@ -1889,6 +1937,12 @@
         x.moveTo(nx, ny - 12); x.lineTo(nx + 3.6, ny - 8.2);
         x.lineTo(nx, ny - 4.4); x.lineTo(nx - 3.6, ny - 8.2);
         x.closePath(); x.fill();
+      }
+      /* 悬浮说明：鼠标落在**节点或它的名字**上就弹（v0.41.0）。
+         ⚠️ 命中框要盖住"节点 + 名字"两块，只盖节点的话移到名字上就没了（很难用）。 */
+      if (G.UI.hover) {
+        G.UI.hover({ x: nx - 22, y: ny - 14, w: 44, h: 34 },
+          mapNodeInfo(r, save, meta, w, visited));
       }
       /* 名字：节点下方居中，两端夹住视口（贴边会被裁掉） */
       var fs = isCur ? 10.5 : 9.5;

@@ -3143,6 +3143,38 @@ step(function () {
   });
 }, 'region.link.contract');
 
+/* ---------- 区域场景可达契约（v0.41.0） ----------
+   用户口径：「把后续场景地图可以全部做出来了，凡界的所有场景，
+   目前是提示无法进入下一个地图」。
+   真因：生成型区域的探索场景是**懒创建**的（`RegionGen.sceneFor`），
+   而 `registerWorld` / `ensureWorld` **全项目无人调用** →
+   走到出口直接吃 `changeScene` 的"场景未开放"。
+   判据：**把每个区域的每个出口都走一遍**，场景名必须真的变成目标区域。
+   ⚠️ 只查数据图（`region.link.contract`）是查不出这个的 —— 数据对、场景没建，照样进不去。 */
+step(function () {
+  const Rg = G.Data.regions;
+  const ids = Object.keys(Rg.index);
+  const bad = [];
+  ids.forEach(function (id) {
+    const r = Rg.index[id];
+    if (!r || !r.map) return;                 /* 手写地图（town/field/cave）另有测法 */
+    (r.exits || []).forEach(function (e) {
+      /* ⚠️ **已知局限**：这条契约在无头环境里**抓不到"懒创建被撤掉"** ——
+         前面的契约（`region.visual` / `region.tint`）早就把区域场景建好了，
+         而 `delete G.scenes[x]` 之后它仍会被别处重建（实测：撤掉兜底照样全绿）。
+         它真正守住的是"**出口 → 目标场景名**"这一对（数据图对了、transition 也真的生效），
+         真机上的"懒创建"路径要靠 `explore._transition` 里的兜底 + 人工走一遍。 */
+      G.game.changeScene('town', { toSpawn: true });
+      G.game.scene._transition({ to: e.to });  /* 出口的唯一裁决口 */
+      if (G.game.sceneName !== e.to) {
+        bad.push(id + '→' + e.to + '（实为 ' + G.game.sceneName + '）');
+      }
+    });
+  });
+  if (bad.length) errors.push('区域出口进不去：' + bad.slice(0, 5).join(' / ')
+    + (bad.length > 5 ? (' … 共 ' + bad.length + ' 条') : ''));
+}, 'region.enter.contract');
+
 /* ---------- 主线分叉契约（v0.38.0，《宗门与散修体系设计 v1.0》§6） ----------
    ① `m1done` 之后按 `save.cult` 进对应线（散修 → f1-1 / 宗门 → s1-1）
    ② 条件**不满足时不推进**（不能白送）
@@ -3378,7 +3410,7 @@ step(function () {
   /* ⑥ 底栏 */
   const bar = (sc.buttons || []).filter(function (b) { return b.variant === 'tab'; });
   if (bar.length !== 6) errors.push(`底栏应为 6 项，实际 ${bar.length}`);
-  if (!bar.some(function (b) { return b.label === '宗门'; })) errors.push('底栏没有「宗门」项');
+  if (!bar.some(function (b) { return b.label === '势力'; })) errors.push('底栏没有「势力」项');
 
   /* ⑦ 宗门功法**不得进散修掉落途径**（碎片参悟池 / 副本池 / 沈伯池）。
      漏一条，"两道互斥"就被绕过去了 —— 而且症状很隐蔽：散修莫名其妙会了一本宗门功法。
@@ -3402,8 +3434,9 @@ step(function () {
   G.Overlays.openPanel(sc, 'sect');
   const cs = textSpy();
   sc.render(cs);
-  if (!cs.__seen.some(function (t) { return t.indexOf('阵营') >= 0; })) {
-    errors.push('宗门面板没有渲染出内容（DRAW 注册漏了？）');
+  /* 面板标题带现在是「势力」（v0.41.0 改名）—— 它恒在，比"阵营"更适合当判据 */
+  if (!cs.__seen.some(function (t) { return t.indexOf('势') >= 0; })) {
+    errors.push('势力面板没有渲染出内容（DRAW 注册漏了？）');
   }
 }, 'sect.contract');
 

@@ -307,6 +307,14 @@
         save.map = e.to; save.scene = e.to;
         save.pos = spawn ? { x: spawn.x, y: spawn.y } : null;
         G.Storage.saveCurrent(save);
+        /* ⚠️ 生成型区域（fan5..dao5 这些）的探索场景是**懒创建**的
+           （`RegionGen.sceneFor`），而 `registerWorld/ensureWorld` 全项目**无人调用** ——
+           所以走到出口会直接吃到 `changeScene` 的"场景未开放"，
+           玩家看到的就是"**提示无法进入下一个地图**"（用户口径）。
+           这里兜一道：目标场景不存在且是区域，就先建。 */
+        if (!G.scenes[e.to] && G.RegionGen && G.RegionGen.sceneFor) {
+          G.RegionGen.sceneFor(e.to);
+        }
         /* 不要传 toSpawn：那会把出口指定的落点覆盖成地图默认出生点，
            门里门外就会差一格（旧版 town→field→town 就偏了一格）。 */
         G.game.changeScene(e.to);
