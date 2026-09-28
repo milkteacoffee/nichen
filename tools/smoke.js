@@ -7547,6 +7547,113 @@ step(function () {
   G.game.changeScene('town', { toSpawn: true });
 }, 'map.view.contract');
 
+/* ---------- 主线章节链 + 三结局契约（v0.63.0，用户第 6 点 +「三结局场景」） ----------
+   用户口径：「主线任务太少了，需要新增主线任务到道祖境，完整闭环」。
+   断言：① 章节从筑基铺到道祖、gl 单调递增、每章留活路；
+        ② **按顺序**推进（前章未了不跳章）、看过不再重复；
+        ③ 道心三档分界（+4 / -4）与三条结局都在；
+        ④ 结局场景**真跑一帧**（新增绘制分支只验数据结构 = 空断言，G56）。 */
+step(function () {
+  const C = G.Data.Chapters;
+  if (!C) { errors.push('G.Data.Chapters 未载入'); return; }
+  const L = C.list;
+  if (L.length < 8) errors.push('章节链太短（' + L.length + ' 章），不足以"铺到道祖境"');
+  let prevGl = 0;
+  L.forEach(function (c, i) {
+    if (!c.n || !c.title) errors.push('章节 ' + c.id + ' 缺名称/标题');
+    if (!(c.gl > 0)) errors.push('章节 ' + c.id + ' 缺 gl 门槛');
+    if (c.gl < prevGl) errors.push('章节 gl 必须单调不减（' + c.id + ' 掉头了）');
+    prevGl = c.gl;
+    if (!(c.choices && c.choices.length >= 2)) {
+      errors.push('章节 ' + c.id + ' 至少要两个选项（只有一个 = 不是抉择）');
+    }
+    (c.choices || []).forEach(function (ch) {
+      if (typeof ch.run !== 'function') errors.push('章节 ' + c.id + ' 的选项「' + ch.t + '」缺 run');
+    });
+    if (!(c.lines && c.lines.length)) errors.push('章节 ' + c.id + ' 没有正文');
+  });
+  /* 末章必须到道祖门槛，且挂结局钩子 */
+  const last = L[L.length - 1];
+  if (last && typeof last.after !== 'function') {
+    errors.push('末章 ' + last.id + ' 没有 after 钩子 —— 走到头进不了结局场景（闭环断了）');
+  }
+  if (last && last.gl < 649) {
+    errors.push('末章门槛应到道祖境（gl ≥ 649），实为 ' + last.gl);
+  }
+
+  /* ② 顺序推进 + 一次性 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 1; s.chapters = []; s.daoHeart = 0;
+  s.quest = s.quest || { step: 'm1done', flags: {} };
+  if (C.pendingFor(s)) errors.push('淬体境不该弹出任何章节');
+  s.globalLevel = 700;
+  const first = C.pendingFor(s);
+  if (!first || first.id !== L[0].id) {
+    errors.push('境界拉满时应从第一章开始，实为 ' + (first && first.id));
+  }
+  /* 只标第 1 章完成 → 下一章应是第 2 章（不能跳） */
+  C.markDone(s, L[0].id);
+  const second = C.pendingFor(s);
+  if (!second || second.id !== L[1].id) {
+    errors.push('第 1 章完成后应轮到第 2 章，实为 ' + (second && second.id));
+  }
+  /* 把第 2 章也标了 → 再调一次不会重复给第 2 章 */
+  C.markDone(s, L[1].id);
+  const third = C.pendingFor(s);
+  if (third && third.id === L[1].id) errors.push('章节 ' + L[1].id + ' 完成后仍在重复触发');
+  /* markDone 幂等 */
+  C.markDone(s, L[0].id);
+  if (s.chapters.filter(function (x) { return x === L[0].id; }).length !== 1) {
+    errors.push('markDone 不是幂等的（同一章记了两次）');
+  }
+  const pr = C.progressOf(s);
+  if (pr.done !== 2 || pr.total !== L.length) {
+    errors.push('progressOf 应报 2/' + L.length + '，实为 ' + pr.done + '/' + pr.total);
+  }
+
+  /* ③ 道心三档分界 + 三条结局都在 */
+  const E = C.ENDINGS;
+  ['zheng', 'fan', 'ni'].forEach(function (id) {
+    if (!E[id]) errors.push('缺结局 ' + id);
+    else if (!E[id].lines || !E[id].lines.length) errors.push('结局 ' + id + ' 没有正文');
+  });
+  if (C.endingOf({ daoHeart: 4 }).id !== 'zheng') errors.push('道心 +4 应判「证道」');
+  if (C.endingOf({ daoHeart: 3 }).id !== 'fan') errors.push('道心 +3 应判「化凡」（证道门槛是 +4）');
+  if (C.endingOf({ daoHeart: -4 }).id !== 'ni') errors.push('道心 -4 应判「逆天」');
+  if (C.endingOf({ daoHeart: -3 }).id !== 'fan') errors.push('道心 -3 应判「化凡」');
+  if (C.endingOf({}).id !== 'fan') errors.push('无道心字段（老档）应兜底判「化凡」');
+
+  /* ④ 结局场景真跑一帧 */
+  if (!G.scenes.ending) { errors.push('没有 ending 场景'); return; }
+  const metaBak = G.game.meta, saveBak = G.game.save;
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.pos = { x: 5, y: 5 }; s2.items = s2.items || {}; s2.beasts = s2.beasts || [];
+  s2.chapters = L.map(function (c) { return c.id; });
+  s2.daoHeart = 6;                        /* → 证道 */
+  s2.chronicle = s2.chronicle || [];
+  G.game.save = s2;
+  G.game.meta = { endings: {} };
+  G.game.changeScene('ending');
+  if (G.game.sceneName !== 'ending') errors.push('changeScene(\'ending\') 失败');
+  if (!G.game.meta.endings.zheng) errors.push('结局成就未写进 meta.endings（跨世记录）');
+  if (s2.ending !== 'zheng') errors.push('本世结局未写进 save.ending');
+  if (!(G.game.scene.buttons || []).length) errors.push('结局场景没有按钮（出不去）');
+  /* 真跑几帧渲染（新增场景最容易漏的是"能建不能画"） */
+  try { G.game.scene.render(G.game.ctx); } catch (e) {
+    errors.push('结局场景渲染抛异常：' + e.message);
+  }
+  /* 换成逆天再跑一次（三条结局的配色/文案分支都要能画） */
+  G.game.meta = { endings: {} };
+  G.game.save.daoHeart = -9;
+  G.game.changeScene('ending');
+  if (!G.game.meta.endings.ni) errors.push('逆天结局未写进 meta.endings');
+  try { G.game.scene.render(G.game.ctx); } catch (e) {
+    errors.push('逆天结局渲染抛异常：' + e.message);
+  }
+  G.game.meta = metaBak; G.game.save = saveBak;
+  G.game.changeScene('town', { toSpawn: true });
+}, 'chapter.contract');
+
 /* ---------- 天道多协议契约（v0.8.0） ----------
    缺口：天道原先只认 OpenAI 兼容的 /chat/completions。
    现在要支持 Claude（/messages，system 在顶层、x-api-key）与原生 Response

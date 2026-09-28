@@ -237,12 +237,15 @@
       }
       return null;
     },
-    /* 弹出：建选择按钮 */
+    /* 弹出：建选择按钮。
+       `ev.after`（可选）是"结果页点完之后"的钩子 —— 章节链用它进结局场景。
+       ⚠️ 放在**结果页之后**而不是选项之后：玩家得先读完"为什么走到这一步"。 */
     show: function (scene, ev) {
       var self = this;
       scene._storyEv = ev;
       scene._storyResult = null;
       scene._storyDead = false;
+      scene._storyAfter = ev.after || null;
       /* 选项多于 3 个时按钮要收窄，否则 4 个 116px 的按钮会顶出 480 宽的屏 */
       var n = ev.choices.length;
       var bw = Math.min(116, Math.floor((400 - (n - 1) * 10) / n));
@@ -255,6 +258,9 @@
             var r = c.run(G.game.save);
             var flags = G.game.save.quest.flags;
             flags['se_' + ev.id] = true;
+            /* 章节链的完成记录走**自己的字段**（`save.chapters`）——
+               塞进 quest.flags 会和机缘混在一起，任务面板分不出"这是主线章节"。 */
+            if (ev.chapter && G.Data.Chapters) G.Data.Chapters.markDone(G.game.save, ev.id);
             scene._storyDead = !!c.dead;
             G.Storage.saveCurrent(G.game.save);
             self._showResult(scene, r);
@@ -271,13 +277,15 @@
           variant: dead ? 'battle' : 'ghost',
           label: dead ? '……' : '知道了',
           onClick: function () {
-            scene._storyEv = null; scene._storyResult = null;
+            var after = scene._storyAfter;
+            scene._storyEv = null; scene._storyResult = null; scene._storyAfter = null;
             scene.clearOverlay();
             /* 惩罚死亡（用户第 7 点"或者惩罚死亡"）：**在结果页点完之后**才收命 ——
                让玩家先读完"为什么死"，再进天道拦魂。直接 die() 会把文案吞掉。
                ⚠️ 走 `G.game.die('event')`，复用统一死亡入口（天道拦魂 → 死亡结算），
                   不另写一份（两份结算必然漂）。 */
-            if (dead && G.game.die) G.game.die('event');
+            if (dead && G.game.die) { G.game.die('event'); return; }
+            if (after) after(scene);
           } })
       ];
     },

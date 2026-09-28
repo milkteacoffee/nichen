@@ -912,15 +912,21 @@
     var order = questOrderOf(save);
     var idx = order.indexOf(q.step);
     if (idx < 0) idx = order.length - 1;
+    /* 主线章节（v0.63.0，用户第 6 点）：列表末尾挂**当前待推进的那一章**（只挂一章）。
+       ⚠️ 挂全部十章会顶出面板（rowH 15 × maxRows 9 已经顶到 y=225，面板底 238）——
+          所以有章节时主线窗口少放一行（`cap2 = CAP - 1`）。 */
+    var ch = (G.Data.Chapters ? G.Data.Chapters.pendingFor(save) : null);
     var CAP = QP.maxRows;
+    var cap2 = ch ? CAP - 1 : CAP;
     var win0 = 0;
-    if (order.length > CAP) {
-      win0 = Math.max(0, Math.min(idx - Math.floor(CAP / 2), order.length - CAP));
+    if (order.length > cap2) {
+      win0 = Math.max(0, Math.min(idx - Math.floor(cap2 / 2), order.length - cap2));
     }
-    var rows = order.slice(win0, win0 + CAP).map(function (id, i) {
+    var rows = order.slice(win0, win0 + cap2).map(function (id, i) {
       return { id: id, gi: win0 + i, s: QUEST[id] };
     });
-    return { rows: rows, win0: win0, total: order.length };
+    if (ch) rows.push({ id: 'ch:' + ch.id, ch: ch });
+    return { rows: rows, win0: win0, total: order.length, chapter: ch };
   }
 
   function drawQuest(x, scene) {
@@ -935,17 +941,32 @@
        ⚠️ 两边的字段名不同，**兜底也必须分叉**。曾经兜底统一取 `.s`，
        支线页于是永远取不到选中项 → `return` → **面板整块不画、只剩按钮浮在场景上**
        （截图反馈踩过；这类"换了数据源但兜底没跟上"只有真渲染一帧才看得见）。 */
-    var sel = null, selGi = -1, selSide = null;
+    var sel = null, selGi = -1, selSide = null, selCh = null;
     function pick(r) {
       if (!r) return;
-      if (r.sq) { sel = r.sq; selSide = r.sq; }
+      if (r.ch) {
+        /* 章节行（v0.63.0）：它不是 QUEST 条目，字段也不一样 —— 自己拼一份"详情视图" */
+        selCh = r.ch;
+        sel = {
+          t: '第 ' + (G.Data.Chapters.list.indexOf(r.ch) + 1) + ' 章 · ' + r.ch.n,
+          d: r.ch.lines ? r.ch.lines[0] : '',
+          subs: []
+        };
+        selGi = -1;
+      } else if (r.sq) { sel = r.sq; selSide = r.sq; }
       else { sel = r.s; selGi = r.gi; }
     }
     view.rows.forEach(function (r) { if (r.id === selId) pick(r); });
     if (!sel) pick(view.rows[0]);
     if (!sel) return;
 
-    shell(x, '任　务', tab === 'main' ? '主线' : '支线');
+    /* 右上角：主线页顺带报**章节进度**（v0.63.0）—— 用户第 6 点说"主线太少了"，
+       光加内容不报进度，玩家在面板上还是看不出主线有多长。 */
+    var chProg = (tab === 'main' && G.Data.Chapters)
+      ? G.Data.Chapters.progressOf(save) : null;
+    shell(x, '任　务', tab === 'main'
+      ? ('主线 · 章节 ' + (chProg ? (chProg.done + '/' + chProg.total) : '—'))
+      : '支线');
 
     /* ---- 左栏：可点列表 ---- */
     var chev = function (cx, cy, up) {
@@ -958,7 +979,9 @@
     view.rows.forEach(function (r, i) {
       var on = (r.id === selId);
       var done;
-      if (r.sq) {
+      if (r.ch) {
+        done = false;                    /* 章节行 = 还没做完的那一章 */
+      } else if (r.sq) {
         done = (G.Data.sideQuests.stepOf(save, r.sq.id) >= 3);
       } else {
         done = (r.gi < idx);
@@ -977,7 +1000,8 @@
 
     /* ---- 右栏：详情 ---- */
     var dx = QP.detX, dy = QP.detY;
-    G.UI.text(x, { x: dx, y: dy - 16 }, selSide ? '支线' : '主线', 10, G.UI.C.gold);
+    G.UI.text(x, { x: dx, y: dy - 16 }, selCh ? '主线 · 章节' : (selSide ? '支线' : '主线'),
+      10, G.UI.C.gold);
     G.UI.text(x, { x: dx, y: dy + 2 }, selSide ? selSide.n : sel.t, 13.5, G.UI.C.goldHi);
     var sideDesc = '';
     if (selSide) {
@@ -1052,12 +1076,13 @@
        `panels.bounds.contract` 直接判"文字压在按钮上"。 */
     questRows(save, scene).rows.forEach(function (r, i) {
       var on = (r.id === selId);
-      var done = r.sq ? (G.Data.sideQuests.stepOf(save, r.sq.id) >= 3) : (r.gi < idxOf(q.step));
+      var done = r.ch ? false
+        : (r.sq ? (G.Data.sideQuests.stepOf(save, r.sq.id) >= 3) : (r.gi < idxOf(q.step)));
       btns.push(new G.UI.Btn({
         x: QP.listX, y: QP.listY + i * QP.rowH - 5, w: QP.listW, h: QP.rowH - 1,
         small: true, fs: 10.5, lalign: true,
         variant: on ? 'gold' : 'ghost',
-        label: r.sq ? r.sq.n : r.s.t,
+        label: r.ch ? ('章 · ' + r.ch.n) : (r.sq ? r.sq.n : r.s.t),
         onClick: function () {
           scene.questSel = r.id;
           G.Overlays.openPanel(scene, 'quest', true);

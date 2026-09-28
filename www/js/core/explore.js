@@ -313,6 +313,12 @@
               `map` 触发的那一类会**永远不弹**（且不报错）。 */
         if (!this.moving && !this.path.length && !this.pendingAct && G.Data.StoryEvents) {
           var _ev = G.Data.StoryEvents.pendingFor(save, this);
+          /* 主线章节（v0.63.0，用户第 6 点）：**排在机缘之后**，而且同帧只弹一个 ——
+             两者都设 `overlay`，同时弹的话后一个会盖掉前一个，玩家只看到最后一章。 */
+          if (!_ev && G.Data.Chapters) {
+            _ev = G.Data.Chapters.pendingFor(save);
+            if (_ev) _ev.chapter = true;      /* 标记：完成记录写进 `save.chapters` 而不是 quest.flags */
+          }
           if (_ev) G.Data.StoryEvents.show(this, _ev);
         }
       },

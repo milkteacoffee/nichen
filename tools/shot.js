@@ -1453,6 +1453,41 @@ step(() => {
 }, 'encounter.se8');
 shot('50_encounter_bandit', 2);
 
+/* ③ 主线章节链（v0.63.0，用户第 6 点）：任务面板「主线」页要能看见章节行与进度 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 200; s.maxGlobalLevel = 200;
+  s.chapters = ['c1', 'c2'];            /* 已完成两章 → 列表挂出第三章 */
+  s.daoHeart = 2;
+  s.quest.step = 'm1done';
+  G.game.changeScene('town', { toSpawn: true });
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc.questTab = 'main';
+  sc.questSel = 'ch:c3';
+  G.Overlays.openPanel(sc, 'quest', true);
+  clearStoryModal();
+}, 'panel.quest.chapter');
+shot('51_panel_quest_chapter', 2);
+
+/* ④ 三结局场景（v0.63.0）：证道 / 逆天各拍一张（配色与文案是两条分支） */
+step(() => {
+  const s = G.game.save;
+  s.chapters = G.Data.Chapters.list.map((c) => c.id);
+  s.daoHeart = 7;                       /* → 证道 */
+  s.chronicle = s.chronicle || [];
+  G.game.changeScene('ending');
+  clearStoryModal();
+}, 'ending.zheng');
+shot('52_ending_zheng', 3);
+
+step(() => {
+  G.game.save.daoHeart = -8;            /* → 逆天 */
+  G.game.changeScene('ending');
+  clearStoryModal();
+}, 'ending.ni');
+shot('53_ending_ni', 3);
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n渲染期间异常 (' + errors.length + ')：');
