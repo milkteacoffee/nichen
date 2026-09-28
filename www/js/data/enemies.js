@@ -78,17 +78,20 @@
 
   function makeEnemy(speciesKey, L, name) {
     var d = species[speciesKey];
+    /* 数值与技能解锁按**压缩阶**（大境×九重）生长；传入的 L 是新 gl（36 阶/境），
+       同一重内初/中/后/巅四阶实力相近。level 字段保留新 gl 供界面显示境界。 */
+    var Ls = (G.Player && G.Player.scaleLevel) ? G.Player.scaleLevel(L) : L;
     var skills = [];
     d.skills.forEach(function (k) {
-      if (L >= k.lv) skills.push(Object.assign({ cdLeft: 0 }, k.s));
+      if (Ls >= k.lv) skills.push(Object.assign({ cdLeft: 0 }, k.s));
     });
     return {
       name: name || d.base, species: speciesKey, elem: d.elem, level: L,
       /* artKey / sprite 透传给 beastResolve：前者查素材（battle.enemy.<artKey>），
          后者是程序化兜底键。老物种两者都没登记 → null，行为与以前逐字一致。 */
       artKey: d.artKey || null, sprite: d.sprite || null,
-      maxhp: stat(d.hp, L), hp: stat(d.hp, L),
-      atk: stat(d.atk, L), def: stat(d.def, L), spd: stat(d.spd, L),
+      maxhp: stat(d.hp, Ls), hp: stat(d.hp, Ls),
+      atk: stat(d.atk, Ls), def: stat(d.def, Ls), spd: stat(d.spd, Ls),
       skills: skills, statuses: {}, buffs: {}, side: 'right'
     };
   }
@@ -96,7 +99,7 @@
   /* Boss：赤炎狼王（名字随浮世替换） */
   function makeWolfKing(name) {
     return {
-      name: name || '赤炎狼王', species: '赤炎狼王', elem: '火', level: 9, boss: true,
+      name: name || '赤炎狼王', species: '赤炎狼王', elem: '火', level: 36, boss: true,
       maxhp: 320, hp: 320, atk: 30, def: 14, spd: 16,
       skills: [
         Object.assign({ cdLeft: 0 }, sp('撕咬', 1.0)),
@@ -111,7 +114,7 @@
   /* q1 杀手 */
   function makeKiller() {
     return {
-      name: '血煞教杀手', species: '杀手', elem: '无', level: 3,
+      name: '血煞教杀手', species: '杀手', elem: '无', level: 12,
       maxhp: 90, hp: 90, atk: 16, def: 8, spd: 12,
       skills: [
         Object.assign({ cdLeft: 0 }, sp('血煞斩', 1.3, { cd: 2 })),
@@ -142,7 +145,7 @@
   /* 执事·血面：固定 L19 面板。HP<40% 狂暴（攻击 +25%，并把「血河咒」CD 压到 2）。 */
   function makeXuemian() {
     return {
-      name: '血面', species: '血面', elem: '暗', level: 19, boss: true,
+      name: '血面', species: '血面', elem: '暗', level: 73, boss: true,
       artKey: 'xuemian', sprite: 'xuemian',
       maxhp: 480, hp: 480, atk: 38, def: 18, spd: 18,
       skills: [

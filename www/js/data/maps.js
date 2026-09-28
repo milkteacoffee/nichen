@@ -22,7 +22,7 @@
               与四面围栏占满，硬塞山门会和洞府**叠在一起画**（两栋楼重叠）。
               放在玩家出生点（18,21）往西一眼能看见的空地上。 */
         S('gateQxj', 'gate', 6, 15, 6, 3, {
-          label: '青溪剑馆 · 山门', to: 'sect_qxj', spawn: { x: 15, y: 14 }
+          label: '青溪剑馆 · 山门', to: 'sect.qxj.gate', spawn: { x: 15, y: 14 }
         }),
         S('home', 'house', 3, 5, 6, 5, { label: '洞府', bk: 'house', roof: '#6b5a4a' }),
         S('shop', 'house', 14, 6, 6, 5, { label: '药铺', bk: 'apothecary', roof: '#5a6478' }),
@@ -80,24 +80,24 @@
       zones: [
         /* sp = 单只遭遇的相对权重；pair = 双只组出现概率（%，灵根切片 v0.3 §11）
            bias = 该物种在本区的等级偏移（前坡狼比蛇高一段） */
-        { id: 'front', y0: 28, y1: 39, enc: { min: 2, max: 4 },
+        { id: 'front', y0: 28, y1: 39, enc: { min: 5, max: 16 },
           sp: { 青纹蛇: 60, 赤炎狼: 30 }, pair: 10, pairWith: '青纹蛇',
           bias: { 赤炎狼: 1 } },
-        { id: 'mid', y0: 15, y1: 27, enc: { min: 4, max: 6 },
+        { id: 'mid', y0: 15, y1: 27, enc: { min: 13, max: 24 },
           sp: { 赤炎狼: 50, 青纹蛇: 20 }, pair: 30, pairWith: '赤炎狼' },
-        { id: 'back', y0: 2, y1: 14, enc: { min: 5, max: 8 },
+        { id: 'back', y0: 2, y1: 14, enc: { min: 17, max: 32 },
           sp: { 树精: 50, 赤炎狼: 25 }, pair: 25, pairWith: '树精' }
       ],
       structures: [
         S('temple', 'ruin', 40, 32, 5, 4, { label: '山神庙' }),
         /* 宗门山门（v0.42.0）：翠微猎户盟就设在翠微山 */
         S('gateCwl', 'gate', 30, 26, 6, 3, {
-          label: '翠微猎户盟 · 山门', to: 'sect_cwl', spawn: { x: 15, y: 14 }
+          label: '翠微猎户盟 · 山门', to: 'sect.cwl.gate', spawn: { x: 15, y: 14 }
         }),
         S('caveIn', 'gate', 23, 2, 4, 2, {
-          label: '赤牙洞', need: { globalLevel: 12 },
+          label: '赤牙洞', need: { globalLevel: 16 },
           to: 'cave', spawn: { x: 16, y: 24 },
-          closedText: '落石封路，需炼气三段以上修为。'
+          closedText: '落石封路，需淬体四重以上修为。'
         })
       ],
       paths: [ path('v', 24, 4, 35), path('h', 24, 20, 26) ],
@@ -120,7 +120,7 @@
     cave: {
       id: 'cave', w: 32, h: 26, ground: 'cave', tex: 'fan3',
       spawn: { x: 16, y: 24 },
-      zones: [ { id: 'cave', y0: 4, y1: 25, enc: { min: 6, max: 9 },
+      zones: [ { id: 'cave', y0: 4, y1: 25, enc: { min: 21, max: 36 },
         sp: { 青纹蛇: 40, 赤炎狼: 35, 树精: 25 }, pair: 35, pairWith: '青纹蛇' } ],
       structures: [],
       paths: [], fences: [],
@@ -149,12 +149,12 @@
       scatter: { rocks: 14 },
       special: [
         { kind: 'scriptBattle', id: 'hallGate', x: 14, y: 18,
-          enemies: [ { sp: '血煞教徒', lv: 17 } ],
+          enemies: [ { sp: '血煞教徒', lv: 65 } ],
           skipFlag: { key: 'probe', val: 'spare' } },
         { kind: 'scriptBattle', id: 'hallHall', x: 14, y: 12,
-          enemies: [ { sp: '血煞教徒', lv: 16 }, { sp: '血蝠', lv: 17 } ] },
+          enemies: [ { sp: '血煞教徒', lv: 61 }, { sp: '血蝠', lv: 65 } ] },
         { kind: 'scriptBattle', id: 'hallRevenge', x: 21, y: 9,
-          enemies: [ { sp: '血煞教徒', lv: 17 }, { sp: '血煞教徒', lv: 17 } ],
+          enemies: [ { sp: '血煞教徒', lv: 65 }, { sp: '血煞教徒', lv: 65 } ],
           onlyFlag: { key: 'probe', val: 'kill' } },
         { kind: 'boss', id: 'xuemian', x: 15, y: 5 }
       ],
@@ -208,7 +208,7 @@
       /* 沈伯站在柜台之后（y=5，柜台 y=6）。室内 y<5 的话头顶会被顶部 HUD 压住，
          连任务标记都会藏进 HUD 里，所以掌柜一律摆到 y≥5。 */
       npcs: [
-        { id: 'shenbo', kind: 'elder', name: '沈伯', portrait: 'shenbo', gl: 27,
+        { id: 'shenbo', kind: 'elder', name: '沈伯', portrait: 'shenbo', gl: 105,
           x: 13, y: 5, act: 'shenbo' }
       ],
       exits: [ { x0: 14, x1: 15, y: 16, to: 'town', spawn: { x: 17, y: 12 }, label: '出门' } ]
@@ -234,7 +234,7 @@
         { id: 'shelf', kind: 'shelf', x: 25, y: 13, w: 3, h: 1 }
       ],
       npcs: [
-        { id: 'keeper', kind: 'keeper', name: '刘掌柜', portrait: 'keeper', gl: 5,
+        { id: 'keeper', kind: 'keeper', name: '刘掌柜', portrait: 'keeper', gl: 17,
           x: 12, y: 6, act: 'market' }
       ],
       exits: [ { x0: 14, x1: 15, y: 16, to: 'town', spawn: { x: 28, y: 12 }, label: '出门' } ]

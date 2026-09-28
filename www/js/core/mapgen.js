@@ -11,6 +11,12 @@
 
   function buildMap(save, mapId) {
     var md = G.Data.maps[mapId];
+    if (!md && mapId.indexOf('sect.') === 0 && G.SectGen && G.SectGen.liveOf) {
+      var parts = mapId.split('.');
+      var cluster = G.SectGen.liveOf(save, parts[1]);
+      if (cluster) cluster.rooms.forEach(function (r) { if (r.id === mapId) md = r; });
+    }
+    if (!md) throw new Error('MapGen: 未知地图 ' + mapId);
     var w = md.w, h = md.h;
     var rng = new G.RNG(hashStr(save.worldSeed + ':' + mapId));
 
@@ -241,10 +247,14 @@
     if (sc.trees) scatterN('tree', sc.trees);
     if (sc.rocks) scatterN('rock', sc.rocks);
 
+    var gatherNodes = (G.Gather && G.Gather.buildNodes)
+      ? G.Gather.buildNodes(save, mapId, { md: md, w: w, h: h, solid: solid, ground: ground })
+      : {};
     return {
       md: md, w: w, h: h, solid: solid, ground: ground,
       decor: decor, interact: interact, exitCells: exitCells,
-      chests: chests, boss: boss, rng: rng, npcs: npcs, scriptBattles: scriptBattles
+      chests: chests, boss: boss, rng: rng, npcs: npcs, scriptBattles: scriptBattles,
+      gatherNodes: gatherNodes
     };
   }
 

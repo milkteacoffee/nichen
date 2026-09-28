@@ -13,11 +13,11 @@
   /* key 与 meta.perfusion 的字段一一对应；body 已被 Player.computeStats 消费，
      其余四项在 reincarnation.finish() 里折算为开局资源。 */
   var PERFUSE = [
-    { key: 'body', n: '仙躯', d: '攻防气血速度', apply: '每级 攻+2 防+1 气血+12 速度+1' },
-    { key: 'qi', n: '灵息', d: '开局灵气', apply: '每级 开局灵气 +120' },
-    { key: 'po', n: '魂力', d: '开局灵力', apply: '每级 开局灵力 +12' },
-    { key: 'stone', n: '财禄', d: '开局灵石', apply: '每级 开局灵石 +60' },
-    { key: 'rescue', n: '遁法', d: '遁走次数', apply: '每级 开局遁走次数 +1' }
+    { key: 'body', n: '仙躯', d: '攻防气血速度', apply: '每点 攻+2 防+1 气血+12 速度+1' },
+    { key: 'qi', n: '灵息', d: '开局灵气', apply: '每点 开局灵气 +120' },
+    { key: 'po', n: '魂力', d: '开局灵力', apply: '每点 开局灵力 +12' },
+    { key: 'stone', n: '财禄', d: '开局灵石', apply: '每点 开局灵石 +60' },
+    { key: 'rescue', n: '遁法', d: '遁走次数', apply: '每点 开局遁走次数 +1' }
   ];
 
   var WN = { fan: '凡界', ling: '灵界', xian: '仙界', dao: '道界' };

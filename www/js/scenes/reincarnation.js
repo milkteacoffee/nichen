@@ -312,6 +312,10 @@
         }
       }
 
+      /* R5 伴生仙兽：槽中仙兽随轮回同行，境界折算到降世起点（不原样继承） */
+      if (meta.companionBeast && meta.companionBeast.id && G.Beasts) {
+        try { G.Beasts.add(save, meta.companionBeast.id, { gl: startGL }); } catch (e) {}
+      }
       if (addQi || addPo || addStone || addRescue || (pf.body || 0)) {
         var gains = [];
         if (pf.body) gains.push('仙躯 ' + pf.body + ' 层');

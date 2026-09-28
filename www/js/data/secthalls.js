@@ -74,7 +74,7 @@
       if (!FAN) build();
       return FAN.filter(function (x) { return x.region === regionId; })
         .map(function (x) {
-          return { sectId: x.id, name: x.n + ' · 山门', to: 'sect_' + x.id };
+          return { sectId: x.id, name: x.n + ' · 山门', to: 'sect.' + x.id + '.gate' };
         });
     }
   };

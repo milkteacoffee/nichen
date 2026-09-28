@@ -132,7 +132,8 @@ function shot(name, frames, draw) {
   }
   log('  … ' + name);
   const file = path.join(OUT, name + '.png');
-  fs.writeFileSync(file, gameCanvas.toBuffer('image/png'));
+  const _buf = gameCanvas.toBuffer('image/png');
+  fs.writeFileSync(file, _buf);
   n++;
   log('  · ' + name + '.png');
 }
@@ -175,6 +176,10 @@ shot('01_title', 40);
 step(() => G.scenes.title._openAbout(), 'title.about');
 shot('02_title_about', 10);
 step(() => { G.scenes.title.about = false; G.scenes.title._buildMenu(); }, 'title.menu');
+
+/* 1b) 难度选择（新游戏首入：标题 → 难度 → 转世） */
+step(() => G.game.changeScene('difficulty'), 'difficulty');
+shot('02c_difficulty', 12);
 
 /* 2) 转世 */
 step(() => G.game.changeScene('reincarnation'), 'reincarnation');
@@ -958,6 +963,109 @@ step(() => {
   G.game.changeScene('field', { toSpawn: true });
 }, 'ride.field');
 shot('49_field_ride', 30);
+/* 采集点（四大技艺批1）：野外图上的草药/矿石节点 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.gather = {}; s.day = 1; s.pos = null;
+  G.game.save = s;
+  G.game.changeScene('field', { toSpawn: true });
+}, 'shot.field.gather');
+shot('56_field_gather', 30);
+/* 丹房面板（四大技艺批2）：配方 + 材料 have/need + 炼制 */
+step(() => {
+  const s = G.game.save;
+  s.items = Object.assign({}, s.items, { '凝血草': 5, '灵泉水': 3, '妖丹': 1, '回春丹': 2, '百年灵芝': 1 });
+  s.globalLevel = 37;
+  G.Overlays.openPanel(G.game.scene, 'alchemy');
+}, 'panel.alchemy');
+shot('57_panel_alchemy', 5);
+/* 器坊面板（四大技艺批3） */
+step(() => {
+  const s = G.game.save;
+  s.items = Object.assign({}, s.items, { '玄铁': 6, '精钢': 5, '兽皮': 3, '灵羽': 2, '妖骨': 1, '道纹矿': 3, '道纹草': 2 });
+  s.globalLevel = 73;
+  G.Overlays.openPanel(G.game.scene, 'forge');
+}, 'panel.forge');
+shot('58_panel_forge', 5);
+/* 阵台面板（四大技艺批4）：含已布与各界分际 */
+step(() => {
+  const s = G.game.save;
+  s.stone = 30000; s.sectId = 'qxj'; s.sectRep = 800;
+  s.formations = { jubao: true };
+  G.Overlays.openPanel(G.game.scene, 'array');
+}, 'panel.formation');
+shot('59_panel_formation', 5);
+/* 宗门后山（四大技艺批5）：灵田/药圃/矿脉 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.cult = 'free'; s.sectId = null; s.pos = null;
+  G.game.save = s;
+  const rid = G.SectGen.roomId('qxj', 'houshan');
+  G.SectGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+}, 'shot.60_sect_qxj_houshan');
+shot('60_sect_qxj_houshan', 24);
+/* R3 区域建筑服务：坊市买入/卖出、铁匠铺炼器面板 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null; s.stone = 2000; G.game.meta = {};
+  G.game.save = s;
+  G.RegionGen.ensure(s, 'fan4');
+  const rmd = G.Data.maps['fan4'];
+  const st = rmd.structures.filter((x) => x.bk === 'shop')[0];
+  const iid = 'int.fan4.' + st.id;
+  G.InteriorGen.ensure(s, iid, st, G.Data.regions.byId('fan4'));
+  G.game.changeScene(iid, { toSpawn: true });
+  G.ShopService.open(G.game.scene, 'shop');
+}, 'r3.shop.buy');
+shot('61_interior_shop_buy', 6);
+step(() => {
+  const s = G.game.save;
+  s.items = Object.assign({}, s.items, { '玄铁': 2, '回春丹': 3, '兽皮': 1 });
+  G.ShopService.open(G.game.scene, 'shop');
+  G.game.scene.buttons.filter((b) => b.label.replace(/\s/g,'') === '卖出')[0].onClick();
+}, 'r3.shop.sell');
+shot('62_interior_shop_sell', 6);
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = null; G.game.meta = {}; G.game.save = s;
+  G.RegionGen.ensure(s, 'fan4');
+  const rmd = G.Data.maps['fan4'];
+  const st = rmd.structures.filter((x) => x.bk === 'smithy')[0];
+  const iid = 'int.fan4.' + st.id;
+  G.InteriorGen.ensure(s, iid, st, G.Data.regions.byId('fan4'));
+  G.game.changeScene(iid, { toSpawn: true });
+  G.RegionServices.openForge(G.game.scene);
+}, 'r3.smithy');
+shot('63_interior_smithy_forge', 6);
+/* R5 伴生仙兽：道钥解锁，兽栏详情可设为伴生（随轮回同行） */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s; G.game.meta = { progress: { daoKey: true } };
+  G.Beasts.add(s, 'b_bilinmang', { gl: 109, stage: 'adult' });
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  G.Overlays.openPanel(sc, 'beasts');
+  const setb = sc.buttons.filter((b) => (b.label || '').indexOf('设为伴生') >= 0)[0];
+  if (setb) setb.onClick();
+}, 'r5.companion');
+shot('64_beasts_companion', 6);
+
+
+
+/* B4 骑乘作战：骑成年碧鳞蟒进战斗，人车一体 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.beasts = []; s.beastTeam = []; s.riding = null; s.beastSeq = 0;
+  s.globalLevel = 37;
+  const r = G.Beasts.add(s, 'b_bilinmang', { gl: 37, stage: 'adult' });
+  const rd = G.Beasts.setRide(s, r.beast.uid);
+  if (!rd.ok) throw new Error('骑乘作战截图设置失败：' + rd.reason);
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 37, '青纹蛇'), mapId: 'field' });
+}, 'battle.mount');
+shot('50_battle_mount', 30);
+
 /* 宗门面板（《宗门与散修体系设计 v1.0》）：散修态应看到「拜入 XX」按钮 */
 step(() => {
   const s = G.game.save;
@@ -980,6 +1088,57 @@ step(() => {
   G.Overlays.openPanel(G.game.scene, 'sect', true);
 }, 'panel.sect.shop');
 shot('34c_panel_sect_shop', 6);
+/* R1 宗门小世界房间 qxj/gate */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.cult = 'free'; s.sectId = null; s.pos = null;
+  G.game.save = s;
+  const rid = G.SectGen.roomId('qxj', 'gate');
+  G.SectGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+}, 'shot.51_sect_qxj_gate');
+shot('51_sect_qxj_gate', 24);
+/* R1 宗门小世界房间 qxj/hall */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.cult = 'free'; s.sectId = null; s.pos = null;
+  G.game.save = s;
+  const rid = G.SectGen.roomId('qxj', 'hall');
+  G.SectGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+}, 'shot.52_sect_qxj_hall');
+shot('52_sect_qxj_hall', 24);
+/* R1 宗门小世界房间 qxj/chuangong */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.cult = 'free'; s.sectId = null; s.pos = null;
+  G.game.save = s;
+  const rid = G.SectGen.roomId('qxj', 'chuangong');
+  G.SectGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+}, 'shot.53_sect_qxj_chuangong');
+shot('53_sect_qxj_chuangong', 24);
+/* R1 宗门小世界房间 txjz/gate */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.cult = 'free'; s.sectId = null; s.pos = null;
+  G.game.save = s;
+  const rid = G.SectGen.roomId('txjz', 'gate');
+  G.SectGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+}, 'shot.54_sect_txjz_gate');
+shot('54_sect_txjz_gate', 24);
+/* R1 宗门小世界房间 txjz/gongxian */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.cult = 'free'; s.sectId = null; s.pos = null;
+  G.game.save = s;
+  const rid = G.SectGen.roomId('txjz', 'gongxian');
+  G.SectGen.sceneFor(rid);
+  G.game.changeScene(rid, { toSpawn: true });
+}, 'shot.55_sect_txjz_gongxian');
+shot('55_sect_txjz_gongxian', 24);
+
 step(() => { G.Overlays.openPanel(G.game.scene, 'map'); }, 'panel.map');
 shot('36_panel_map', 6);
 /* 灵根页（v0.40.0）：九宫格改用**文生图灵珠**，未激活的压暗 */
@@ -1007,11 +1166,11 @@ step(() => { G.scenes.title._buildMenu(); G.game.changeScene('town', { toSpawn: 
    反过来写的话截图里的**页签高亮会停在上一个子页**（真实点击流程就是先设后建）。 */
 step(() => { const sc = G.game.scene; sc.charTab = 'overview'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.overview');
 shot('34b_char_overview', 6);
-step(() => { const sc = G.game.scene; sc.charTab = 'linggen'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.linggen');
+step(() => { const sc = G.game.scene; sc.charTab = 'linggen'; G.Overlays.openPanel(sc, 'char', true); }, 'panel.char.linggen');
 shot('34c_char_linggen', 6);
-step(() => { const sc = G.game.scene; sc.charTab = 'attr'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.attr');
+step(() => { const sc = G.game.scene; sc.charTab = 'attr'; G.Overlays.openPanel(sc, 'char', true); }, 'panel.char.attr');
 shot('34d_char_attr', 6);
-step(() => { const sc = G.game.scene; sc.charTab = 'realm'; G.Overlays.openPanel(sc, 'char'); }, 'panel.char.realm');
+step(() => { const sc = G.game.scene; sc.charTab = 'realm'; G.Overlays.openPanel(sc, 'char', true); }, 'panel.char.realm');
 shot('34e_char_realm', 6);
 
 step(() => {

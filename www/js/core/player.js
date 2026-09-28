@@ -34,56 +34,50 @@
     Object.keys(src).forEach(function (k) { dst[k] = (dst[k] || 0) + src[k]; });
   }
 
-  /* ===== 境界体系（19 境，gl 1–171）=====
-     淬体九段 + 炼气…道祖 各九重；全局境界等级 gl 范围 1—171。
-     所需灵气 = 100 × 升级门槛系数 × 当前段数²
-     新手境校准（经济表 v0.2 §5）：淬体境全部突破灵气 ×0.4
-       → 淬体 1→9 合计 8,160（8 次小突破），淬体 9→10 = 8,100×0.4 = 3,240
-     同界大境界切换（如 9→10、18→19）：另需一枚对应「突破丹」，并触发「问心魔劫」剧情战。
-     跨界边界（63→64 / 90→91 / 144→145）：不由破境走，由「通关第5副本·飞升接引」完成（见 ascend）。 */
+  /* ===== 境界体系（19 境，gl 1–684）=====
+     每个**大境界**含 **九重**，每重又分 **初期 / 中期 / 后期 / 巅峰** 四个小境界，
+     即每大境 36 小阶（gl），19 境共 684。统一以「重」称，不再有段/层/转等异称。
+     小阶所需灵气按"境进度"平滑增长（见 needQi），使每大境总灵气与旧九段版相当。
+     大境界切换（如 36→37、72→73）：另需一枚对应「突破丹」，并触发「问心魔劫」剧情战。
+     跨界边界（252→253 / 360→361 / 576→577）：不由破境走，由「通关第5副本·飞升接引」完成（见 ascend）。 */
   var REALMS = [
-    { n: '淬体', y0: 1, y1: 9, gate: 1, calib: .4 },
-    { n: '炼气', y0: 10, y1: 18, gate: 2, calib: 1 },
-    { n: '筑基', y0: 19, y1: 27, gate: 4, calib: 1 },
-    { n: '金丹', y0: 28, y1: 36, gate: 8, calib: 1 },
-    { n: '元婴', y0: 37, y1: 45, gate: 16, calib: 1 },
-    { n: '化神', y0: 46, y1: 54, gate: 32, calib: 1 },
-    { n: '炼虚', y0: 55, y1: 63, gate: 64, calib: 1 },
-    { n: '合体', y0: 64, y1: 72, gate: 128, calib: 1 },
-    { n: '大乘', y0: 73, y1: 81, gate: 256, calib: 1 },
-    { n: '渡劫', y0: 82, y1: 90, gate: 512, calib: 1 },
-    { n: '人仙', y0: 91, y1: 99, gate: 1024, calib: 1 },
-    { n: '地仙', y0: 100, y1: 108, gate: 2048, calib: 1 },
-    { n: '天仙', y0: 109, y1: 117, gate: 4096, calib: 1 },
-    { n: '金仙', y0: 118, y1: 126, gate: 8192, calib: 1 },
-    { n: '太乙金仙', y0: 127, y1: 135, gate: 16384, calib: 1 },
-    { n: '大罗金仙', y0: 136, y1: 144, gate: 32768, calib: 1 },
-    { n: '准圣', y0: 145, y1: 153, gate: 65536, calib: 1 },
-    { n: '圣人', y0: 154, y1: 162, gate: 131072, calib: 1 },
-    { n: '道祖', y0: 163, y1: 171, gate: 262144, calib: 1 }
+    { n: '淬体', y0: 1, y1: 36, gate: 1, calib: .4 },
+    { n: '炼气', y0: 37, y1: 72, gate: 2, calib: 1 },
+    { n: '筑基', y0: 73, y1: 108, gate: 4, calib: 1 },
+    { n: '金丹', y0: 109, y1: 144, gate: 8, calib: 1 },
+    { n: '元婴', y0: 145, y1: 180, gate: 16, calib: 1 },
+    { n: '化神', y0: 181, y1: 216, gate: 32, calib: 1 },
+    { n: '炼虚', y0: 217, y1: 252, gate: 64, calib: 1 },
+    { n: '合体', y0: 253, y1: 288, gate: 128, calib: 1 },
+    { n: '大乘', y0: 289, y1: 324, gate: 256, calib: 1 },
+    { n: '渡劫', y0: 325, y1: 360, gate: 512, calib: 1 },
+    { n: '人仙', y0: 361, y1: 396, gate: 1024, calib: 1 },
+    { n: '地仙', y0: 397, y1: 432, gate: 2048, calib: 1 },
+    { n: '天仙', y0: 433, y1: 468, gate: 4096, calib: 1 },
+    { n: '金仙', y0: 469, y1: 504, gate: 8192, calib: 1 },
+    { n: '太乙金仙', y0: 505, y1: 540, gate: 16384, calib: 1 },
+    { n: '大罗金仙', y0: 541, y1: 576, gate: 32768, calib: 1 },
+    { n: '准圣', y0: 577, y1: 612, gate: 65536, calib: 1 },
+    { n: '圣人', y0: 613, y1: 648, gate: 131072, calib: 1 },
+    { n: '道祖', y0: 649, y1: 684, gate: 262144, calib: 1 }
   ];
-  var MAX_GL = 171;
+  var MAX_GL = 684;
   var CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
-  /* 阶段单位（境界 v3.2 §1.1）：默认「重」，例外如下 */
-  var REALM_UNIT = { 淬体: '段', 炼虚: '层', 准圣: '转', 圣人: '转', 道祖: '转' };
-  /* 这三境用「初期/中期/后期/圆满」而非数序 */
-  var PHASE_REALMS = { 筑基: 1, 金丹: 1, 元婴: 1 };
+  /* 每重的四个小境界（初/中/后/巅）；全 19 境统一。 */
+  var CH_PHASE = ['初期', '中期', '后期', '巅峰'];
   function stageName(t, stage) {
-    if (PHASE_REALMS[t.n]) {
-      if (stage <= 3) return t.n + '初期';
-      if (stage <= 6) return t.n + '中期';
-      if (stage <= 8) return t.n + '后期';
-      return t.n + (t.n === '元婴' ? '大圆满' : '圆满');
-    }
-    return t.n + CN[stage - 1] + (REALM_UNIT[t.n] || '重');
+    var st = Math.max(1, Math.min(36, stage));
+    var chong = Math.floor((st - 1) / 4);
+    var phase = (st - 1) % 4;
+    return t.n + CN[chong] + '重' + CH_PHASE[phase];
   }
 
-  /* ===== 四界天花板（境界 v3.2 / 副本 v3.3）===== */
+  /* ===== 四界天花板（境界 v3.6 / 副本 v3.3）===== */
   var WORLDS = [
-    { id: 'fan',  n: '凡界', start: 1,   cap: 63 },
-    { id: 'ling', n: '灵界', start: 64,  cap: 90 },
-    { id: 'xian', n: '仙界', start: 91,  cap: 144 },
-    { id: 'dao',  n: '道界', start: 145, cap: 171 }
+    { id: 'fan',  n: '凡界', start: 1,   cap: 252 },
+    { id: 'ling', n: '灵界', start: 253, cap: 360 },
+    { id: 'xian', n: '仙界', start: 361, cap: 576 },
+    { id: 'dao',  n: '道界', start: 577, cap: 684 }
   ];
 
   /* ===== 寿元（境界 v3.2 §3）=====
@@ -216,8 +210,8 @@
        击杀仙力 30×首领击杀数｜年岁仙力 (年龄−15)×2
        善终修正：寿终坐化 ×1.1 */
     ACHIEVE: [
-      { id: 'A1', n: '初踏仙途', d: '首次修至炼气', xianli: 50, hit: function (s) { return (s.globalLevel || 1) >= 10; } },
-      { id: 'A2', n: '道基初成', d: '首次修至筑基', xianli: 150, hit: function (s) { return (s.globalLevel || 1) >= 19; } },
+      { id: 'A1', n: '初踏仙途', d: '首次修至炼气', xianli: 50, hit: function (s) { return (s.globalLevel || 1) >= 37; } },
+      { id: 'A2', n: '道基初成', d: '首次修至筑基', xianli: 150, hit: function (s) { return (s.globalLevel || 1) >= 73; } },
       { id: 'A3', n: '手刃狼王', d: '首次击杀赤炎狼王', xianli: 100, hit: function (s) { return !!s.bossKilled; } },
       { id: 'A4', n: '功法小成', d: '任一功法首次修至 L5', xianli: 50, hit: function (s) {
         var sk = s.skills || {};
@@ -268,7 +262,7 @@
         return s._cause === 'self';
       } },
       { id: 'A18', n: '大乘之境', d: '首次修至大乘', xianli: 900, hit: function (s) {
-        return (s.globalLevel || 1) >= 100;
+        return (s.globalLevel || 1) >= 289;
       } }
     ],
 
@@ -277,6 +271,7 @@
     xianliOf: function (save, meta) {
       var meta = meta || G.game.meta || {};
       var gl = save.maxGlobalLevel || save.globalLevel || 1;
+      var gls = this.scaleLevel(gl);
       var lvSum = 0;
       Object.keys(save.skills || {}).forEach(function (k) {
         lvSum += (save.skills[k] && save.skills[k].lv) || 0;
@@ -286,7 +281,7 @@
       var cause = this.deathCause(save);
 
       var d = {
-        realm: 10 * gl,
+        realm: 10 * gls,
         skill: 2 * lvSum,
         kill: 30 * kills,
         age: Math.max(0, age - 15) * 2,
@@ -319,13 +314,14 @@
        轮回成就那部分只有身故结算时才知道，本来也不该出现在"本世进行中"的读数里。 */
     xianliLive: function (save) {
       var gl = save.maxGlobalLevel || save.globalLevel || 1;
+      var gls = this.scaleLevel(gl);
       var lvSum = 0;
       Object.keys(save.skills || {}).forEach(function (k) {
         lvSum += (save.skills[k] && save.skills[k].lv) || 0;
       });
       var kills = save.bossKills || (save.bossKilled ? 1 : 0);
       var age = save.age || 16;
-      return 10 * gl + 2 * lvSum + 30 * kills + Math.max(0, age - 15) * 2;
+      return 10 * gls + 2 * lvSum + 30 * kills + Math.max(0, age - 15) * 2;
     },
 
     /* 死因分类（§3.1）：M0 只做战死与寿终坐化 */
@@ -394,6 +390,33 @@
       return REALMS[REALMS.length - 1];
     },
 
+    /* 大境界内的细分坐标。
+       返回 { r:大境序号0..18, stage:小阶1..36, chong:重1..9, phase:阶段0..3 }。 */
+    realmPos: function (gl) {
+      gl = Math.max(1, Math.min(MAX_GL, gl || 1));
+      var r = 0;
+      for (var i = 0; i < REALMS.length; i++) {
+        if (gl >= REALMS[i].y0 && gl <= REALMS[i].y1) { r = i; break; }
+      }
+      var stage = gl - REALMS[r].y0 + 1;
+      return {
+        r: r,
+        stage: stage,
+        chong: Math.floor((stage - 1) / 4) + 1,
+        phase: (stage - 1) % 4
+      };
+    },
+
+    /* 压缩缩放阶（敌人/Boss 数值成长用）：
+       新 gl 每大境有 36 小阶，但同一"重"内的初/中/后/巅四阶**实力相近**
+       （四阶主要是称谓与晋级节奏），所以数值只按"大境×九重"生长 ——
+       scaleLevel = r×9 + chong，范围 1..171，正好等价于旧版 gl 刻度。
+       这样在不推翻既有线性数值的前提下实现 36 阶的细粒度。 */
+    scaleLevel: function (gl) {
+      var p = this.realmPos(gl);
+      return p.r * 9 + p.chong;
+    },
+
     /* 突破灵气折扣（天赋/世界特质；br 为负值即减免） */
     breakCut: function (save) {
       var te = this.talentEffects(save), we = this.worldEffects(save);
@@ -402,12 +425,15 @@
       return Math.max(-0.6, Math.min(0.6, cut));
     },
 
-    /* 当前境界 → 下一段所需灵气 */
+    /* 当前境界 → 下一**小阶**所需灵气 */
     needQi: function (save, gl) {
       gl = gl || save.globalLevel || 1;
       var t = this.realmOf(gl);
-      var stage = gl - t.y0 + 1;
-      var base = 100 * t.gate * stage * stage * t.calib;
+      var stage = gl - t.y0 + 1;                 /* 1..36（九重×四阶） */
+      var u = stage / 36;                         /* 境进度 0.028..1 */
+      /* 36 小阶按境进度 u² 平滑增长；系数 22.8 使每大境总灵气与旧九段版相当
+         （Σ22.8·u² ≈ 285，与旧 Σstage²=285 同基准），不改变整体修炼节奏。 */
+      var base = 100 * t.gate * 22.8 * u * u * t.calib;
       return Math.max(1, Math.round(base * (1 + this.breakCut(save))));
     },
 
@@ -416,7 +442,7 @@
        例外表：炼气九段圆满 → 筑基这一段，丹名用仙侠通行的「筑基丹」
        （《M1 剧情与内容设计 v1.0》§4 全篇这么写；§8 商店表里写的"炼气突破丹"是同一件东西，
        以本表为准）。别名按"当前境界名"查，所以只有 gl=18 那一次大突破会真的用上。 */
-    BREAK_PILL_ALIAS: { '炼气': '筑基丹' },
+    BREAK_PILL_ALIAS: { '炼气': '筑基丹', '筑基': '结丹丹' },
     /* 突破丹的获取途径（v0.15.0）：破境失败时**必须告诉玩家去哪拿**。
        原来只报「需「淬体突破丹」」—— 玩家翻遍面板也不知道在哪买（截图反馈）。
        ⚠️ 文案长度按**面板可用宽 334px / 9.5px 字**算：超过约 30 个全角字就会越界。
@@ -434,16 +460,18 @@
     },
 
     /* 是否已入道界三境（准圣/圣人/道祖）。道界**无破境之说** ——
-       境界只由「道则回廊」九关试炼推进（境界 v3.2 §5–§7），
-       所以灵气突破在 gl≥145 一律拦截，避免玩家刷灵气跳过三境试炼。 */
-    isDaoRealm: function (gl) { return (gl || 1) >= 145; },
+       境界只由「道则回廊」九关试炼推进（境界 v3.6 §5–§7），
+       所以灵气突破在 gl≥577 一律拦截，避免玩家刷灵气跳过三境试炼。 */
+    isDaoRealm: function (gl) { return (gl || 1) >= 577; },
 
     /* 突破按钮/面板状态 */
     breakState: function (save) {
       var gl = save.globalLevel || 1;
       var t = this.realmOf(gl);
       var stage = gl - t.y0 + 1;
-      var big = stage >= 9;
+      /* 仅本大境最后一小阶（九重巅峰 → 下一境）才是"大突破"：需破境丹+心魔劫；
+         其余 35 小阶（重内四阶、跨重）皆为灵气小进。 */
+      var big = stage >= 36;
       var need = this.needQi(save, gl);
       var have = Math.floor(save.qi || 0);
       var pill = this.breakPill(gl);
@@ -776,7 +804,7 @@
          （自创是独立事件，与"改换门庭"不是一回事）。
        · 镇派功法从**自己已习得**的功法里选 —— 把散修功法收编为镇派，
          这是唯一"跨道"的口子，且要付出创建成本。 */
-    FOUND: { gl: 54, stone: 50000, rep: 300 },
+    FOUND: { gl: 216, stone: 50000, rep: 300 },
     canFoundSect: function (save, meta) {
       if (!save) return { ok: false, reason: '无存档' };
       if (save.sectId === 'own') return { ok: false, reason: '你已自创宗门' };
@@ -904,7 +932,7 @@
 
     /* 入门试炼的**门槛**（试炼本身是一场切磋战，见 battle.js: sectTrial） */
     trialReady: function (save) {
-      return (save.globalLevel || 1) >= 10;       /* 炼气一段起 */
+      return (save.globalLevel || 1) >= 37;       /* 炼气一重初期起 */
     },
 
     /* 兑换本门功法：扣贡献 → 习得（未习得才给换；已习得返回原因） */
@@ -975,8 +1003,8 @@
       var r = G.rng.next() * tot, pick = T[T.length - 1];
       for (var i = 0; i < T.length; i++) { r -= T[i].w; if (r < 0) { pick = T[i]; break; } }
 
-      /* 数额随境界走：越高的境，赏罚越大 */
-      var lvl = Math.max(1, Math.round((save.globalLevel || 1) / 8));
+      /* 数额随境界走：越高的境，赏罚越大（按压缩阶，与经济口径一致） */
+      var lvl = Math.max(1, Math.round(this.scaleLevel(save.globalLevel || 1) / 8));
       var n = 0;
       if (pick.id === 'bless') {
         n = 1 + Math.floor(G.rng.next() * 5);              /* 1~5 */
@@ -1001,16 +1029,19 @@
     computeStats: function (save, meta) {
       meta = meta || G.game.meta;
       var gl = save.globalLevel || 1;
+      /* 基础属性按**压缩阶**（大境×九重，1..171）生长：同一重内初/中/后/巅四阶
+         实力相近，与敌人/Boss 的缩放口径一致 —— 不直接用 36 阶的 gl 数值。 */
+      var Ls = this.scaleLevel(gl);
       /* 存档兜底：残缺/损坏档不应让 HUD 直接白屏 */
       var lg = save.linggen || { elems: ['无'], coef: {}, stoneBonus: 0 };
       var coef = lg.coef || {};
       if (!lg.elems || !lg.elems.length) lg.elems = ['无'];
-      var atk = 10 + gl * 2, def = 5 + gl * 1.5;
-      var hp = 100 + gl * 20, spd = 10 + gl * .5;
+      var atk = 10 + Ls * 2, def = 5 + Ls * 1.5;
+      var hp = 100 + Ls * 20, spd = 10 + Ls * .5;
       /* 法力上限（v0.14.0）：释放主动技的代价，战斗内每回合回 MP_REGEN 点。
          基础随境界涨；仙术类功法额外贡献（与"仙术→气血"同一条分支）——
          不新增"第六个来源"，仍走「境界成长 + 功法」这两条老口径。 */
-      var mp = 20 + gl * 2;
+      var mp = 20 + Ls * 2;
 
       /* 功法 */
       Object.keys(save.skills || {}).forEach(function (id) {
@@ -1065,6 +1096,12 @@
       atk *= 1 + sp2.a; def *= 1 + sp2.f;
       hp *= 1 + sp2.h; spd *= 1 + sp2.s;
 
+      /* 道纹阵：道界内全属性 +5%（《四大技艺 v1.0》§3.5） */
+      if (G.Formations && G.Formations.has(save, 'daowen')
+          && this.activeWorldId(meta) === 'dao') {
+        atk *= 1.05; def *= 1.05; hp *= 1.05; spd *= 1.05;
+      }
+
       var st = {
         maxhp: Math.round(hp), atk: Math.round(atk), def: Math.round(def),
         spd: Math.round(spd), crit: crit, critDmg: critDmg,
@@ -1088,8 +1125,9 @@
     rates: function (save) {
       var te = this.talentEffects(save), we = this.worldEffects(save);
       var bonus = save.bonus || {};
+      var fQi = (G.Formations && G.Formations.has(save, 'juling')) ? 0.15 : 0;
       return {
-        qi: te.qi + we.qi + (bonus.qi || 0),
+        qi: te.qi + we.qi + (bonus.qi || 0) + fQi,
         po: te.po + we.po + (bonus.po || 0),
         st: te.st + we.st
           + ((save.linggen && save.linggen.stoneBonus) || 0)
@@ -1129,7 +1167,7 @@
       return Math.max(1, Math.min(12, Math.round(i / Math.max(1, n - 1) * 11) + 1));
     },
     /* 筑基的 gl（"失败累计道基"从这一刻起才生效 —— 用户口径"筑基之后才有"） */
-    BASE_GL: 19,
+    BASE_GL: 73,
     breakChance: function (save, meta) {
       var st = this.breakState(save);
       var gl = st.gl;
@@ -1140,10 +1178,11 @@
       var pill = this.PILL_QUALITY[q - 1].add;
       var b = (meta && meta.blessing) || 0;
       var bless = b > 0 ? Math.max(1, Math.min(5, b)) : 0;
+      var jing = (G.Formations && G.Formations.has(save, 'jingxin')) ? 10 : 0;
       var core = Math.min(95, base + dao + pill);        /* 「天衍四九」：前三项封顶 95 */
       return {
-        base: base, dao: dao, pill: pill, bless: bless,
-        core: core, total: Math.min(100, core + bless),
+        base: base, dao: dao, pill: pill, bless: bless, jing: jing,
+        core: core, total: Math.min(100, core + bless + jing),
         q: q, pillName: this.PILL_QUALITY[q - 1].n, fails: save.breakFails || 0
       };
     },

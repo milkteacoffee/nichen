@@ -285,6 +285,8 @@
             if (hooks.onScriptBattle(sb, this)) return;
           }
         }
+        var gn = this.map.gatherNodes && this.map.gatherNodes[key];
+        if (gn && G.Gather) G.Gather.gatherAt(save, this.mapId, gn, this);
         if (this.map.md.safe) return;
         /* 御剑飞行时**不触发暗雷** —— 这是"飞"最直观的收益 */
         if (this._flying()) return;
@@ -321,6 +323,9 @@
            这里兜一道：目标场景不存在且是区域，就先建。 */
         if (!G.scenes[e.to] && G.RegionGen && G.RegionGen.sceneFor) {
           G.RegionGen.sceneFor(e.to);
+        }
+        if (!G.scenes[e.to] && e.to.indexOf('sect.') === 0 && G.SectGen && G.SectGen.sceneFor) {
+          G.SectGen.sceneFor(e.to);
         }
         /* 不要传 toSpawn：那会把出口指定的落点覆盖成地图默认出生点，
            门里门外就会差一格（旧版 town→field→town 就偏了一格）。 */
@@ -666,6 +671,9 @@
         (this.map.npcs || []).forEach(function (n) {
           list.push({ npc: n, x: n.x, y: n.y });
         });
+        Object.keys(this.map.gatherNodes || {}).forEach(function (gk) {
+          list.push({ gather: self.map.gatherNodes[gk], x: self.map.gatherNodes[gk].x, y: self.map.gatherNodes[gk].y });
+        });
         var pp = this._px();
         list.push({ player: true, x: pp.x / 16, y: pp.y / 16 });
         list.sort(function (a, b) { return a.y - b.y; });
@@ -673,6 +681,7 @@
           if (o.player) self._drawPlayer(x, camX, camY);
           else if (o.furn) self._drawFurn(x, o.furn, camX, camY);
           else if (o.npc) self._drawNpc(x, o.npc, camX, camY);
+          else if (o.gather) self._drawGather(x, o.gather, camX, camY);
           else self._drawDecor(x, o, camX, camY);
         });
 
@@ -1041,6 +1050,36 @@
         G.UI.text(x, { x: px0 + pw / 2, y: py0 + 2 }, label, fs, G.UI.C.goldHi, 'center');
       },
 
+      _drawGather: function (x, o, camX, camY) {
+        var done = (G.Gather && G.Gather.gatheredToday)
+          ? G.Gather.gatheredToday(G.game.save, this.mapId, o) : false;
+        var px = Math.round(o.x * 16 - camX), py = Math.round(o.y * 16 - camY);
+        var HERB_C = { "凝血草": "#d9534f", "灵泉水": "#7fd4e8", "百年灵芝": "#d8a657", "道纹草": "#b58ce0" };
+        var ORE_C = { "玄铁": "#9aa0ad", "精钢": "#c3c8d2", "灵玉": "#7fc6e0", "道纹矿": "#b58ce0" };
+        x.save();
+        x.globalAlpha = done ? 0.25 : 1;
+        x.fillStyle = o.cat === 'herb' ? 'rgba(127,196,122,0.28)' : 'rgba(150,160,175,0.28)';
+        x.beginPath(); x.ellipse(px + 8, py + 11, 8, 6, 0, 0, 7); x.fill();
+        x.fillStyle = 'rgba(0,0,0,0.22)';
+        x.beginPath(); x.ellipse(px + 8, py + 13, 5, 2, 0, 0, 7); x.fill();
+        if (o.cat === 'herb') {
+          x.fillStyle = '#3f7d46';
+          x.fillRect(px + 5, py + 8, 2, 5); x.fillRect(px + 8, py + 7, 2, 6); x.fillRect(px + 10, py + 9, 2, 4);
+          x.fillStyle = HERB_C[o.mat] || '#cfe6a0';
+          x.beginPath(); x.arc(px + 5, py + 7, 1.8, 0, 7); x.arc(px + 9, py + 6, 1.8, 0, 7); x.arc(px + 11, py + 8, 1.6, 0, 7); x.fill();
+          x.fillStyle = 'rgba(255,255,255,0.8)'; x.fillRect(px + 8, py + 5, 1, 1);
+        } else {
+          x.fillStyle = ORE_C[o.mat] || '#8a8f9c';
+          x.beginPath();
+          x.moveTo(px + 4, py + 13); x.lineTo(px + 7, py + 5); x.lineTo(px + 12, py + 6); x.lineTo(px + 13, py + 13);
+          x.closePath(); x.fill();
+          x.fillStyle = 'rgba(255,255,255,0.4)';
+          x.beginPath(); x.moveTo(px + 7, py + 5); x.lineTo(px + 9, py + 8); x.lineTo(px + 7, py + 9); x.closePath(); x.fill();
+          x.fillStyle = 'rgba(255,255,255,0.85)'; x.fillRect(px + 8, py + 6, 1, 1);
+        }
+        x.restore();
+      },
+
       _drawDecor: function (x, o, camX, camY) {
         var px = o.x * 16 - camX, py = o.y * 16 - camY;
         var h1 = (((o.x * 73856093) ^ (o.y * 19349663)) >>> 0);
@@ -1265,6 +1304,13 @@
         var bst = G.Beasts.byUid(save, save.riding.uid);
         return bst && G.Data.beasts.canRide(bst) ? bst : null;
       },
+      /* 骑乘飞行坐骑（ride.terrains 含 air）：可如御剑般越过软障 */
+      _mountAir: function () {
+        var bst = this._riding();
+        if (!bst) return false;
+        var ri = G.Data.beasts.rideInfo(bst.id);
+        return !!(ri && ri.terrains && ri.terrains.indexOf('air') >= 0);
+      },
       /* 可越过的低矮物：只有这几类。`wall`/`wallrock` 是墙，绝不可越 */
       _ensureFlyGrid: function () {
         if (this._flyKey === this.mapId) return;
@@ -1281,7 +1327,7 @@
       _blocked: function (x, y) {
         if (x < 0 || y < 0 || x >= this.map.w || y >= this.map.h) return true;
         if (!this.map.solid[y][x]) return false;
-        if (!this._flying()) return true;
+        if (!this._flying() && !this._mountAir()) return true;
         this._ensureFlyGrid();
         return !this._flyOver[y][x];
       },
@@ -1325,9 +1371,11 @@
            2D 俯视没法真的表现高度，能用的只有三条线索，全用上：
              · 抬高 6px   · 影子变小变淡   · 脚下一道剑光（程序化，零出图） */
         var flying = this._flying();
+        var mountAir = !flying && this._mountAir();
         if (flying) bob -= 6;
+        else if (mountAir) bob -= 4;
 
-        var shk = (1 + bob / 8) * (flying ? 0.72 : 1);
+        var shk = (1 + bob / 8) * ((flying || mountAir) ? 0.78 : 1);
         x.save();
         x.globalAlpha = Math.max(0.06, (0.30 + bob / 40) * (flying ? 0.7 : 1));
         x.fillStyle = '#000';
@@ -1488,9 +1536,14 @@
         /* --- 左：圆形头像 --- */
         G.UI.avatar(x, 26, 24, 18, 'luchen');
 
-        /* --- 左：境界 · 第N世 --- */
+        /* --- 左：境界 · 第N世 ---
+           新境界名为「{境}{X}重{初/中/后/巅}」（最长如「太乙金仙九重巅峰」8 字），
+           「第N世」不能再写死 x114 —— 否则会与境界名末尾叠字（旧 bug）。
+           按境界名实测宽度顺延 8px 摆放；textOut 已把 x.font 设为该字号，可直接量。 */
         G.UI.textOut(x, { x: 52, y: 4 }, ri.n, 14, G.UI.C.goldHi);
-        G.UI.textOut(x, { x: 114, y: 7.5 }, '第 ' + save.life + ' 世', 10.5, G.UI.C.textDim);
+        var nameW = x.measureText(ri.n).width;
+        G.UI.textOut(x, { x: 52 + nameW + 8, y: 7.5 }, '第 ' + save.life + ' 世',
+          10.5, G.UI.C.textDim);
 
         /* --- 气血 --- */
         var ratio = st.maxhp ? save.hp / st.maxhp : 0;
@@ -1544,7 +1597,7 @@
           }],
           ['po', save.po, '#e8c08a', {
             title: '灵力',
-            text: '功法精进的经验（功法升级）。在功法面板「精进」消耗，部分秘术也要花它。'
+            text: '功法精进所用的修为。在功法面板「精进」消耗，部分秘术也要花它。'
           }],
           ['crystal', G.Player.xianliLive(save), '#d8c0f0', {
             title: '仙晶',

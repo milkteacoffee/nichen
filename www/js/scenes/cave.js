@@ -8,7 +8,7 @@
   hooks.onInteract = function (o, scene) {
     var save = G.game.save, q = save.quest;
     if (o.type === 'boss') {
-      if (q.step === 'm0-5' && save.globalLevel >= 12) {
+      if (q.step === 'm0-5' && save.globalLevel >= 16) {
         G.game.changeScene('battle', {
           script: 'wolfKing', after: 'm0-5', mapId: 'cave'
         });

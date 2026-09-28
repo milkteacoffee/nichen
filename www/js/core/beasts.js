@@ -6,9 +6,14 @@
 (function () {
   var B = G.Data.beasts;
 
-  /* 升到下一段所需修为（随境界抬升） */
-  function need(gl) { return 60 + gl * 8; }
-  function maxGl() { return (G.Player && G.Player.MAX_GL) || 171; }
+  /* 升到下一**小阶**所需修为（随境界抬升）。
+     36 阶/境后每小阶粒度为旧 1/4：按压缩阶 Ls 求旧值再 /4，
+     使每大境喂养总投入与旧九段版相当（4 小阶×1/4 = 1 旧步）。 */
+  function need(gl) {
+    var Ls = (G.Player && G.Player.scaleLevel) ? G.Player.scaleLevel(gl) : gl;
+    return Math.max(1, Math.round((60 + Ls * 8) / 4));
+  }
+  function maxGl() { return (G.Player && G.Player.MAX_GL) || 684; }
 
   /* 喂养表：日常培育，不是化形道具（化形走 species.chain.item）。 */
   var FOOD = {

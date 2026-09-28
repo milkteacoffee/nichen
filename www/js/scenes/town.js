@@ -13,7 +13,7 @@
     { id: '甘霖丹', n: '甘霖丹', price: 20, d: '解除灼烧' },
     { id: '舒筋丹', n: '舒筋丹', price: 20, d: '解除麻痹' },
     { id: '解封符', n: '解封符', price: 25, d: '解除封印' },
-    { id: '淬体突破丹', n: '淬体突破丹', price: 200, d: '淬体九段破境所需' }
+    { id: '淬体突破丹', n: '淬体突破丹', price: 200, d: '淬体九重巅峰破境所需' }
   ];
 
   var SHOP_ITEMS = [
@@ -230,10 +230,10 @@
     return pick;
   }
 
-  /* m1-4 门槛（设计 §4）：炼气六段 = gl 15 */
-  var M1_4_GATE = 15;
-  /* m1-5 门槛（设计 §4）：炼气九段圆满 = gl 18 */
-  var M1_5_GATE = 18;
+  /* m1-4 门槛（设计 §4）：炼气六重初期 = gl 57 */
+  var M1_4_GATE = 57;
+  /* m1-5 门槛（设计 §4）：炼气九重巅峰 = gl 72 */
+  var M1_5_GATE = 72;
 
   /* 抉择 1：三个选项各自记因果，然后统一推进到 m1-3。
      因果写在 save.karma（本世内有效）与 chronicle（跨世走马灯）。 */
@@ -383,7 +383,7 @@
     }
     if (npc.act !== 'shenbo') return null;
     if (q.step === 'm0-1') return q.flags.won1 ? '?' : '!';
-    if (q.step === 'm0-4' && save.globalLevel >= 9 && !q.flags.gotBreakPill) return '?';
+    if (q.step === 'm0-4' && save.globalLevel >= 36 && !q.flags.gotBreakPill) return '?';
     /* —— M1 —— */
     if (step === 'm1-1') return '!';                       /* 辨丹 */
     if (step === 'm1-3') return '?';                       /* 旧账 */
@@ -434,6 +434,7 @@
   function restOnBed(scene) {
     var save = G.game.save, st = G.Player.computeStats(save);
     save.hp = st.maxhp;
+    if (G.Gather) G.Gather.advanceDay(save);
     G.Storage.saveCurrent(save);
     G.game.toast('榻上安歇，气血全复');
   }
@@ -617,7 +618,7 @@
       scene.clearOverlay();
       return;
     }
-    if (q.step === 'm0-4' && save.globalLevel >= 9 && !q.flags.gotBreakPill) {
+    if (q.step === 'm0-4' && save.globalLevel >= 36 && !q.flags.gotBreakPill) {
       save.items['淬体突破丹'] = (save.items['淬体突破丹'] || 0) + 1;
       save.stone += 200;
       q.flags.gotBreakPill = true;

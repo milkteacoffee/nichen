@@ -1690,7 +1690,8 @@
   var FURN_SIZE = {
     bed: [3, 2], table: [3, 2], cushion: [2, 2], shelf: [3, 1],
     counter: [5, 1], crate: [1, 1], jar: [1, 1], altar: [3, 2],
-    lantern: [1, 2], screen: [4, 1], vessel: [2, 2]
+    lantern: [1, 2], screen: [4, 1], vessel: [2, 2],
+    ltian: [8, 5], yaopu: [8, 5], kuangmai: [6, 4]
   };
   var FURN_PROC = {};
 
@@ -2017,6 +2018,55 @@
     x.stroke();
   };
 
+  /* 灵田（宗门后山）：翻土垄 + 青苗 */
+  FURN_PROC.ltian = function (x, pal, W, H) {
+    x.fillStyle = '#3a2c1e'; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#6b5138'; x.fillRect(2, 2, W - 4, H - 4);
+    for (var ry = 6; ry < H - 4; ry += 13) {
+      x.fillStyle = '#5a442d'; x.fillRect(2, ry, W - 4, 7);
+      x.fillStyle = 'rgba(0,0,0,0.18)'; x.fillRect(2, ry + 6, W - 4, 1);
+    }
+    x.lineWidth = 1.4;
+    for (var sy = 9; sy < H - 6; sy += 13) {
+      for (var sx = 8; sx < W - 6; sx += 15) {
+        x.strokeStyle = '#7fbf5a'; x.beginPath();
+        x.moveTo(sx, sy); x.lineTo(sx - 3, sy - 5); x.moveTo(sx, sy); x.lineTo(sx + 3, sy - 5); x.stroke();
+        x.strokeStyle = '#9fd876'; x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx, sy - 6); x.stroke();
+      }
+    }
+    x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 1; x.strokeRect(0.5, 0.5, W - 1, H - 1);
+  };
+
+  /* 药圃：叶簇 + 偶有点点小花 */
+  FURN_PROC.yaopu = function (x, pal, W, H) {
+    x.fillStyle = '#33291d'; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#62503a'; x.fillRect(2, 2, W - 4, H - 4);
+    for (var ry = 9; ry < H - 6; ry += 15) {
+      for (var rx = 9; rx < W - 6; rx += 16) {
+        x.fillStyle = '#5fae86'; x.beginPath(); x.ellipse(rx, ry, 4, 2.6, 0, 0, 6.2832); x.fill();
+        x.fillStyle = '#7fd0a4'; x.beginPath(); x.ellipse(rx - 1, ry - 1, 2.4, 1.6, 0, 0, 6.2832); x.fill();
+        if (((rx * 3 + ry) % 4) === 0) { x.fillStyle = '#cfe8ff'; x.beginPath(); x.arc(rx + 3, ry - 3, 1.6, 0, 6.2832); x.fill(); }
+      }
+    }
+    x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 1; x.strokeRect(0.5, 0.5, W - 1, H - 1);
+  };
+
+  /* 矿脉：岩块 + 矿石晶点 */
+  FURN_PROC.kuangmai = function (x, pal, W, H) {
+    x.fillStyle = '#2e2c28'; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#4a4740'; x.fillRect(2, 2, W - 4, H - 4);
+    var rocks = [[12, 20, 9], [32, 28, 11], [56, 18, 10], [74, 32, 12], [42, 46, 9], [86, 20, 8]];
+    rocks.forEach(function (r) {
+      var cx = r[0], cy = r[1], rr = r[2];
+      x.fillStyle = '#5b574f'; x.beginPath();
+      for (var a = 0; a < 7; a++) { var ang = a / 7 * 6.2832; var rad = rr * (0.8 + ((a * 13) % 5) / 12); var px = cx + Math.cos(ang) * rad, py = cy + Math.sin(ang) * rad * 0.8; if (a === 0) x.moveTo(px, py); else x.lineTo(px, py); }
+      x.closePath(); x.fill();
+      x.fillStyle = 'rgba(255,255,255,0.10)'; x.beginPath(); x.ellipse(cx - rr * 0.2, cy - rr * 0.3, rr * 0.4, rr * 0.22, 0, 0, 6.2832); x.fill();
+      x.fillStyle = '#8fd0e6'; x.beginPath(); x.moveTo(cx, cy - rr * 0.5); x.lineTo(cx + 3, cy - rr * 0.1); x.lineTo(cx, cy + 1); x.lineTo(cx - 3, cy - rr * 0.1); x.closePath(); x.fill();
+      x.fillStyle = '#bfeaf5'; x.beginPath(); x.moveTo(cx, cy - rr * 0.5); x.lineTo(cx + 1.5, cy - rr * 0.15); x.lineTo(cx, cy - rr * 0.05); x.lineTo(cx - 1.5, cy - rr * 0.15); x.closePath(); x.fill();
+    });
+    x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 1; x.strokeRect(0.5, 0.5, W - 1, H - 1);
+  };
   A.furn = function (kind, pal) {
     var sz = FURN_SIZE[kind] || [1, 1];
     var w = sz[0] * 16, h = sz[1] * 16;

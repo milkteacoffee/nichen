@@ -179,7 +179,7 @@
 
     return {
       id: interiorId, interiorId: interiorId, indoor: true, safe: true,
-      n: structure.n, label: structure.n,
+      n: structure.n, label: structure.n, bk: structure.bk,
       w: w, h: h, ground: 'floor',
       furn: furn, npcs: npcs, exits: exits,
       spawn: { x: cx, y: h - 2 }
@@ -203,6 +203,10 @@
       onInteract: function (o, s) {
         if (!o || o.type !== 'furn') return;
         var act = o.act || '';
+        if (act === 'trade') { var _md = G.Data.maps[s.mapId]; if (G.ShopService) G.ShopService.open(s, (_md && _md.bk === 'apothecary') ? 'apothecary' : 'shop'); return; }
+        if (act === 'inn') { if (G.RegionServices) G.RegionServices.innRest(s); return; }
+        if (act === 'forge') { if (G.RegionServices) G.RegionServices.openForge(s); return; }
+        if (act === 'brew') { if (G.RegionServices) G.RegionServices.openAlchemy(s); return; }
         /* 通用建筑为环境向（活生生的世界）：给可信的生活气息，不出现"尚未开张"这类缺失承诺。
            真正的交易/休息/打造服务随"区域建筑服务系统"开放（见全案闭环审计）。 */
         var LINE = {
@@ -219,6 +223,7 @@
         if (LINE[act]) G.game.toast(LINE[act]);
       },
       renderOverlay: function (x, s) {
+        if (G.ShopService && G.ShopService.render(x, s)) return;
         G.Overlays.route(x, s);
       }
     };

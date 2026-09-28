@@ -321,7 +321,10 @@
     '回春丹': { heal: 0.40, d: '回复四成气血' },
     '大还丹': { heal: 0.75, d: '回复七成五气血' },
     '聚气散': { qi: 500, d: '灵气 +500' },
-     '醒神散': { cure: true, d: '解除异常状态' }
+     '醒神散': { cure: true, d: '解除异常状态' },
+    '解毒丹': { cure: true, d: '解除异常状态' },
+    '解封符': { cure: true, d: '解除封印控制' },
+    '道纹丹': { heal: 0.60, d: '回复六成气血' }
   };
   /* 妖囊收服系数（《御兽 v0.2》§2） */
   var CAPTURE_BAGS = { '木囊': 1.0, '玄囊': 1.5, '宝囊': 2.0 };
@@ -451,7 +454,7 @@
       } else if (p.script === 'probe') {
         /* M1 §4 m1-2：外堂探子撕下伪装。L = 本世 gl+1，上限 17
            （设计明写"上限 17" —— 别让高境界玩家把这场的等级抬到荒谬）。 */
-        list = [G.Data.makeEnemy('血煞教徒', Math.min(17, (save.globalLevel || 1) + 1), '血煞教探子')];
+        list = [G.Data.makeEnemy('血煞教徒', Math.min(68, (save.globalLevel || 1) + 1), '血煞教探子')];
       } else if (p.script === 'sectTrial') {
         /* 宗门入门试炼（《宗门与散修体系设计 v1.0》S2）：一场切磋。
            用人形敌人换名；等级取主角 gl−2（过得去但不白给）。 */
@@ -487,6 +490,7 @@
 
       /* 出战灵兽（《灵兽 v1.1》§5）：取 beastTeam 首位，自主行动的友方单位 */
       this.beast = null;
+      var yb = (G.Formations && G.Formations.has(save, 'yushou')) ? 1.2 : 1;
       var bUid0 = save.beastTeam && save.beastTeam[0];
       if (bUid0 != null) {
         var bInd0 = G.Beasts.byUid(save, bUid0);
@@ -495,12 +499,45 @@
           this.beast = {
             name: bInd0.name, side: 'left', isBeast: true,
             species: bDsp0.n, artKey: bDsp0.id, sprite: BEAST_UNIT_SPRITE[bDsp0.id] || 'snake',
-            level: bInd0.gl, maxhp: bCst0.hp, hp: bCst0.hp,
-            atk: bCst0.atk, def: bCst0.def, spd: bCst0.spd,
+            level: bInd0.gl, maxhp: Math.round(bCst0.hp * yb), hp: Math.round(bCst0.hp * yb),
+            atk: Math.round(bCst0.atk * yb), def: Math.round(bCst0.def * yb), spd: bCst0.spd,
             crit: 0.05, critDmg: 1.5, elem: bDsp0.elem, im: [],
             skills: [], buffs: { atk: 0, turns: 0 }, guard: false,
             statuses: {}, shield: 0, charge: null, _indUid: bInd0.uid
           };
+        }
+      }
+
+      /* ===== B4 骑乘作战（《灵兽 v1.1》§6.4）===== */
+      this.mount = null; this._mountDown = false; this._mountBonus = null;
+      this._chargeUsed = false; this._cavalryFirst = false;
+      var rUid = save.riding && save.riding.uid;
+      if (rUid != null) {
+        var rInd = G.Beasts.byUid(save, rUid);
+        if (rInd && G.Data.beasts.canRide(rInd)) {
+          var rSp = G.Data.beasts.byId(rInd.id);
+          if (rSp.role === 'both') {
+            /* 战骑：人车一体（若同时占独立出战位，骑乘优先；一体时不单独行动） */
+            this.beast = null;
+            var rCst = G.Beasts.combatStat(rInd);
+            this.mount = {
+              name: rInd.name, level: rInd.gl, artKey: rSp.id,
+              maxhp: Math.round(rCst.hp * yb), hp: Math.round(rCst.hp * yb), atk: Math.round(rCst.atk * yb), def: Math.round(rCst.def * yb),
+              sprite: BEAST_UNIT_SPRITE[rSp.id] || 'snake', _indUid: rInd.uid
+            };
+            /* ① 主人得灵兽 20% 攻防血 */
+            var mBH = Math.round(rCst.hp * 0.2 * yb), mBA = Math.round(rCst.atk * 0.2 * yb),
+                mBD = Math.round(rCst.def * 0.2 * yb);
+            this.p.maxhp += mBH; this.p.hp += mBH;
+            this.p.atk += mBA; this.p.def += mBD;
+            this._mountBonus = { hp: mBH, atk: mBA, def: mBD };
+            this._cavalryFirst = true;
+          } else {
+            /* 普通坐骑：阵前自动下马，保留第 1 回合冲锋红利 */
+            G.Beasts.dismount(save);
+            this._cavalryFirst = true;
+            this._log('坐骑在阵前止步，你翻身下马，借势冲锋。');
+          }
         }
       }
 
@@ -573,6 +610,7 @@
       if (!key) return null;
       if (key === 'P') return this.p;
       if (key === 'B') return this.beast;
+      if (key === 'M') return this.mount;
       var i = parseInt(String(key).slice(1), 10);
       if (isNaN(i)) return null;
       return this.es[i] || null;
@@ -580,6 +618,7 @@
     _pos: function (key) {
       if (key === 'P') return HERO_POS;
       if (key === 'B') return BEAST_POS;
+      if (key === 'M') return { x: HERO_POS.x + 6, y: HERO_POS.y + 14, s: HERO_POS.s + 14 };
       var u = this._unit(key);
       return (u && u.pos) || SOLO_SLOT;
     },
@@ -948,8 +987,11 @@
 
     /* ===== 行动流程 =====
        一回合 = 我方 + 存活敌方的有效速度归并排序 → 各自"行动开始结算" → 出手 → 回合结束 */
-    _effSpd: function (u) {
-      return (u.spd || 0) * (u.statuses && u.statuses['麻'] ? 0.7 : 1);
+    _effSpd: function (u, order) {
+      var v = (u.spd || 0) * (u.statuses && u.statuses['麻'] ? 0.7 : 1);
+      /* B4 骑兵：仅排序时加先手权重，显示数字走基础速度 */
+      if (order !== false && u === this.p && this.round === 1 && this._cavalryFirst) v += 100000;
+      return v;
     },
 
     _playerAction: function (skill, targetKey) {
@@ -1015,7 +1057,17 @@
             self.p.mp = Math.max(0, self.p.mp - sk.cost);
             self._float('P', '法力 -' + sk.cost, '#9ab8ff');
           }
-          self._act(self.p, tgt, 'P', tgt.key, sk, next);
+          /* B4 冲阵：首轮第一次出手 1.5×（先手已在排序里保证） */
+          var chargeSk = sk;
+          if (self.mount && !self._chargeUsed && self.round === 1
+            && (!sk || sk.kind === 'atk' || sk.mult != null)) {
+            chargeSk = {};
+            if (sk) { for (var kc in sk) chargeSk[kc] = sk[kc]; }
+            chargeSk.mult = (sk && sk.mult != null ? sk.mult : 1) * 1.5;
+            self._chargeUsed = true;
+            self._log('战马冲阵，势如奔雷！');
+          }
+          self._act(self.p, tgt, 'P', tgt.key, chargeSk, next);
         } else {
           var etK = self._enemyTargetKey();
           self._act(u, self._unit(etK), a.key, etK, self._enemyPick(u), next);
@@ -1157,6 +1209,12 @@
         ready.cdLeft = ready.cd || 2;
         return ready;
       }
+      /* B4 绊马/束兽：对阵骑兵时，人形敌偶有绊马索 */
+      if (this.mount && !this._mountDown
+        && /教徒|修士|傀儡|天兵|杀手|执事|弟子|守卫/.test(u.name)
+        && Math.random() < 0.18) {
+        return { n: '绊马索', elem: '无', kind: 'snare' };
+      }
       var usable = u.skills.filter(function (s) { return s.cdLeft <= 0; });
       if (usable.length && Math.random() < 0.55) {
         var s = usable[Math.floor(Math.random() * usable.length)];
@@ -1184,6 +1242,19 @@
         steps.push([0.28, function () {
           self._log('—— 下回合务必守御或速攻。');
         }]);
+        this._cut(steps, done);
+        return;
+      }
+
+      if (skill.kind === 'snare') {
+        steps.push([0.3, function () {
+          self._log(atk.name + ' 抖出「' + skill.n + '」！');
+          if (self.mount && !self._mountDown) {
+            self._float('P', '束兽', '#d8b888');
+            self._forceDismount('坐骑被绊马索缠住，你被迫下马！');
+          } else self._log('—— 却无马可绊。');
+        }]);
+        steps.push([0.2, function () {}]);
         this._cut(steps, done);
         return;
       }
@@ -1218,7 +1289,7 @@
           self.miss[mkey] = 0;
           if (skill.status) {
             var chance = skill.status.chance || 0;
-            if (def.level != null && atk.level != null && def.level > atk.level + 5) chance *= .5;
+            if (def.level != null && atk.level != null && def.level > atk.level + 20) chance *= .5;
             if (Math.random() < chance) self._applyStatus(def, dKey, skill.status.t);
           }
         }]);
@@ -1321,7 +1392,7 @@
             if (si < segs - 1) continue;
             if (skill.status) {
               var chance = skill.status.chance || 0;
-              if (t.u.level != null && atk.level != null && t.u.level > atk.level + 5) chance *= 0.5;
+              if (t.u.level != null && atk.level != null && t.u.level > atk.level + 20) chance *= 0.5;
               if (Math.random() < chance) self._applyStatus(t.u, t.key, skill.status.t);
             }
             if (aKey === 'P' && atk._zhuxie && t.u.hp > 0
@@ -1370,7 +1441,10 @@
       var rage = atk._rage || 1;
       var defTerm = def.def * 0.55;
       if (skill.pierce) defTerm *= (1 - skill.pierce);
-      var base = Math.max(1, atk.atk * mult * buff * rage - defTerm);
+      /* 聚煞阵：玩家首回合攻击 +25%（《四大技艺 v1.0》§3.5） */
+      var jusha = (atk === this.p && this.round === 1
+        && G.Formations && G.Formations.has(G.game.save, 'jusha')) ? 0.25 : 0;
+      var base = Math.max(1, atk.atk * mult * buff * rage * (1 + jusha) - defTerm);
       var ec = G.Data.elem.coef(skill.elem, def.elem);
       base *= ec;
       var guard = def.guard ? 0.55 : 1;
@@ -1414,6 +1488,7 @@
         }
         u.guard = false;
       });
+      this._cavalryFirst = false;
       /* 芒山聚灵：每回合回复灵力（写回 save.po） */
       var save = G.game.save;
       if (this.p._mangshan) {
@@ -1472,6 +1547,14 @@
         u.shield -= ab; dmg -= ab;
         if (ab > 0) this._float(key, '护盾 -' + ab, '#9ac8ff');
       }
+      /* B4 骑乘作战：坐骑承担 20% 伤害（独立 HP），归零强制下马 */
+      if (key === 'P' && this.mount && !this._mountDown && dmg > 0) {
+        var shareD = Math.round(dmg * 0.2);
+        dmg -= shareD;
+        this.mount.hp = Math.max(0, this.mount.hp - shareD);
+        this._float('M', '-' + shareD, '#bfe3ff');
+        if (this.mount.hp <= 0) this._forceDismount('坐骑力竭，翻身落马！');
+      }
       u.hp = Math.max(0, u.hp - dmg);
       /* 睡眠：受直接气血伤害即醒（DOT 不醒，护盾全挡也不醒，v0.2 §8.1） */
       if (dmg > 0 && u.statuses && u.statuses['睡']) {
@@ -1508,6 +1591,34 @@
       if (!u) return;
       u.hp = Math.max(min == null ? 0 : min, u.hp - amt);
       this._float(key, '-' + amt, '#ff9a7a', true);
+    },
+
+    /* B4 骑乘作战：画人车一体的坐骑（在主角之前画，主角叠在其上） */
+    _drawMount: function (x) {
+      var m = this.mount;
+      if (!m) return;
+      var pos = this._pos('M');
+      var spr = G.Sprites.beastResolve(m.artKey, m.sprite || 'snake');
+      x.save();
+      x.fillStyle = 'rgba(0,0,0,0.40)';
+      x.beginPath();
+      x.ellipse(pos.x, pos.y + 2, pos.s * 0.34, pos.s * 0.10, 0, 0, 6.2832);
+      x.fill();
+      x.drawImage(spr, Math.round(pos.x - pos.s / 2), Math.round(pos.y - pos.s), pos.s, pos.s);
+      x.restore();
+    },
+
+    /* B4 强制下马：移除坐骑、收回 20% 加成、存档下马 */
+    _forceDismount: function (why) {
+      if (!this.mount || this._mountDown) return;
+      this._mountDown = true;
+      var b = this._mountBonus || { hp: 0, atk: 0, def: 0 };
+      this.p.atk -= b.atk; this.p.def -= b.def;
+      this.p.maxhp -= b.hp;
+      this.p.hp = Math.max(1, Math.min(this.p.hp, this.p.maxhp));
+      this.mount = null;
+      G.Beasts.dismount(G.game.save);
+      if (why) this._log(why);
     },
 
     /* ===== 打击特效（v0.30.0）=====
@@ -1744,7 +1855,7 @@
           var dqi = 0, dpo = 0, dst = 0, dcut = false;
           this.es.forEach(function (e) {
             var L = e.level;
-            var gap = ((save.globalLevel || 1) - L) > 5 ? .5 : 1;
+            var gap = ((save.globalLevel || 1) - L) > 20 ? .5 : 1;
             if (gap < 1) dcut = true;
             dqi += Math.round(80 * L * dlgCoef * (1 + (dr.qi || 0)) * gap * G.Player.realmQiCoef(L));
             dpo += Math.round(8 * L * (1 + (dr.po || 0)) * gap);
@@ -1755,6 +1866,8 @@
           this._loot('战利：灵气 +' + dqi + '　灵力 +' + dpo + '　灵石 +' + dst
             + (dcut ? '（境界压制，收益减半）' : ''));
         }
+        var spDrops = G.Gather.rollDrops(save, this.es, { elite: dtype === 'elite' });
+        spDrops.forEach((function (self) { return function (g) { self._loot('拾得「' + g.item + '」×' + g.n, true); }; })(this));
         G.Storage.saveCurrent(save);
         this._finishDungeon();
         return;
@@ -1770,7 +1883,7 @@
       var qi = 0, po = 0, st = 0, cut = false;
       this.es.forEach(function (e) {
         var L = e.level;
-        var gap = ((save.globalLevel || 1) - L) > 5 ? 0.5 : 1;
+        var gap = ((save.globalLevel || 1) - L) > 20 ? 0.5 : 1;
         if (gap < 1) cut = true;
         qi += Math.round(80 * L * lgCoef * (1 + (r.qi || 0)) * gap * G.Player.realmQiCoef(L));
         po += Math.round(8 * L * (1 + (r.po || 0)) * gap);
@@ -1803,6 +1916,8 @@
           + (cut ? '（境界压制，收益减半）' : ''));
       }
       if (shardGot > 0) this._loot('拾得「' + shardItem + '」×' + shardGot, true);
+      var spDrops2 = G.Gather.rollDrops(save, this.es, { dao: aw === 'dao' });
+      spDrops2.forEach(function (g) { this._loot('拾得「' + g.item + '」×' + g.n, true); }, this);
       G.Storage.saveCurrent(save);
       this._finish(true, this.mapId);
     },
@@ -1944,6 +2059,7 @@
 
       /* 后排先画，前排后画；主角最后（始终在最上层） */
       for (var i = this.es.length - 1; i >= 0; i--) this._drawUnit(x, 'E' + i);
+      if (this.mount) this._drawMount(x);
       if (this.beast) this._drawUnit(x, 'B');
       this._drawUnit(x, 'P');
       /* 打击特效画在**单位之后**（刀光/爆发要盖在立绘上） */
@@ -2229,19 +2345,20 @@
       }
 
       var alive = this._aliveEs();
-      var sum = 0, fastest = 0;
+      var sumD = 0, fastestD = 0, fastestO = 0;
       for (var i = 0; i < alive.length; i++) {
-        var v = this._effSpd(alive[i]);
-        sum += v;
-        if (v > fastest) fastest = v;
+        var vd = this._effSpd(alive[i], false), vo = this._effSpd(alive[i]);
+        sumD += vd;
+        if (vd > fastestD) fastestD = vd;
+        if (vo > fastestO) fastestO = vo;
       }
-      var avg = alive.length ? sum / alive.length : 0;
-      var my = this._effSpd(this.p);
+      var avg = alive.length ? sumD / alive.length : 0;
+      var my = this._effSpd(this.p, false), myO = this._effSpd(this.p);
       var txt = '速度 ' + Math.round(my) + ' : ' + Math.round(avg)
         + (alive.length > 1 ? '(均×' + alive.length + ')' : '')
-        + '　' + (my >= fastest ? '先手' : '后手');
+        + '　' + (myO >= fastestO ? '先手' : '后手');
       G.UI.textOut(x, { x: 468, y: 6 }, this.auto ? '自动战斗中' : txt, 12,
-        this.auto ? '#f5e3a8' : (my >= fastest ? '#a8dcc4' : '#e0a080'), 'right');
+        this.auto ? '#f5e3a8' : (myO >= fastestO ? '#a8dcc4' : '#e0a080'), 'right');
     },
 
     _drawFloaters: function (x) {

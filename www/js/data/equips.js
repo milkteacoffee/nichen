@@ -69,7 +69,15 @@
       d: '照见本相，破幻除魅。', fx: { c: 0.05, a: 0.06 } },
     { id: 'eq_hulu', n: '药王葫芦', slot: 'accessory', tier: '凡',
       grade: '中品',
-      d: '葫芦里装的不知是什么药。', fx: { h: 0.14 } }
+      d: '葫芦里装的不知是什么药。', fx: { h: 0.14 } },
+    /* 炼器产物（四大技艺批3，《四大技艺 v1.0》§3.4）—— 自炼法宝，走同一套三槽与 te 加成 */
+    { id: 'fq_hanyue', n: '寒月刀', slot: 'weapon', tier: '锻', grade: '自炼', d: '寒铁锻成，刀光如月。', fx: { a: 0.14, c: 0.02 } },
+    { id: 'fq_huxin', n: '护心镜', slot: 'armor', tier: '锻', grade: '自炼', d: '悬于胸前，护住心脉。', fx: { f: 0.10 } },
+    { id: 'fq_xuangui', n: '玄龟甲', slot: 'armor', tier: '锻', grade: '自炼', d: '仿玄龟背甲锻制，坚厚。', fx: { f: 0.16, h: 0.08 } },
+    { id: 'fq_juling', n: '聚灵珠', slot: 'accessory', tier: '锻', grade: '自炼', d: '珠内聚灵，气机绵长。', fx: { h: 0.12, s: 0.05 } },
+    { id: 'fq_jifeng', n: '疾风靴', slot: 'armor', tier: '锻', grade: '自炼', d: '履之如御风，身法见长。', fx: { s: 0.12 } },
+    { id: 'fq_daowen', n: '道纹剑', slot: 'weapon', tier: '道', grade: '道纹', d: '剑身铭道纹，锋芒内敛。', fx: { a: 0.20, c: 0.05 } },
+    { id: 'fq_daowenjia', n: '道纹甲', slot: 'armor', tier: '道', grade: '道纹', d: '甲刻道纹，万法难侵。', fx: { f: 0.20, h: 0.12 } }
   ];
 
   var index = {};

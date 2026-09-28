@@ -244,6 +244,9 @@
   IDS.skills = 1; IDS.secrets = 1;
   IDS.beasts = 1;   /* 兽栏：洞府内进入，不进底栏 */
   IDS.beastShop = 1;
+  IDS.alchemy = 1;  /* 丹房：洞府炼丹子页，不进底栏 */
+  IDS.forge = 1;    /* 器坊：洞府炼器子页，不进底栏 */
+  IDS.array = 1;    /* 阵台：洞府阵法子页，不进底栏 */
 
   /* 底栏按钮：六个等宽页签。active 传当前面板 id 时该项高亮。 */
   function barBtns(scene, active) {
@@ -403,6 +406,9 @@
     if (id === 'quest') buildQuest(btns, scene);
     if (id === 'bag') buildBag(btns, scene);
     if (id === 'cave') buildCave(btns, scene);
+    if (id === 'alchemy') buildAlchemy(btns, scene);
+    if (id === 'forge') buildForge(btns, scene);
+    if (id === 'array') buildArray(btns, scene);
     if (id === 'beasts') buildBeasts(btns, scene);
     if (id === 'beastShop') buildBeastShop(btns, scene);
     if (id === 'sect') buildSect(btns, scene);
@@ -1325,8 +1331,7 @@
       G.UI.textOut(x, { x: bx + 10, y: by + 7 }, a.n, 13, G.UI.C.goldHi);
       G.UI.text(x, { x: bx + 10 + 30, y: by + 10 }, a.by, 10, G.UI.C.textDim);
       G.UI.text(x, { x: bx + 10, y: by + 26 }, a.d, 9.5, G.UI.C.textDim);
-      /* 状态一律"未启"，不画假的进度条 —— 有就有，没有就说没有 */
-      G.UI.textOut(x, { x: bx + CV.cardW - 10, y: by + 7 }, '未启', 10,
+      if (a.id !== 'alchemy' && a.id !== 'forge' && a.id !== 'array') G.UI.textOut(x, { x: bx + CV.cardW - 10, y: by + 7 }, '未启', 10,
         'rgba(200,160,110,0.85)', 'right');
     });
     G.UI.text(x, { x: P.x + 14, y: CV.noteY },
@@ -1341,6 +1346,18 @@
        且失败面为零（第二次点击就是确认，没有第三个状态）。
        ⚠️ 触发方式与寿终一致：写 `_cause` 后切 death 场景，**复用同一套结算**
        （仙力明细 / 走马灯 / 轮回档案），不另写一份 —— 两份结算必然漂。 */
+    btns.push(new G.UI.Btn({
+      x: CV.x0 + CV.cardW - 36, y: CV.y0 + 3, w: 32, h: 16, small: true, variant: 'gold', label: '进入',
+      onClick: function () { scene._craftFrom = 'cave'; G.Overlays.openPanel(scene, 'alchemy'); }
+    }));
+    btns.push(new G.UI.Btn({
+      x: CV.x0 + CV.cardW + CV.gapX + CV.cardW - 36, y: CV.y0 + 3, w: 32, h: 16, small: true, variant: 'gold', label: '进入',
+      onClick: function () { scene._craftFrom = 'cave'; G.Overlays.openPanel(scene, 'forge'); }
+    }));
+    btns.push(new G.UI.Btn({
+      x: CV.x0 + CV.cardW - 36, y: CV.y0 + CV.cardH + CV.gapY + 3, w: 32, h: 16, small: true, variant: 'gold', label: '进入',
+      onClick: function () { scene._craftFrom = 'cave'; G.Overlays.openPanel(scene, 'array'); }
+    }));
     var arm = !!scene.endArm;
     if (!arm) btns.push(new G.UI.Btn({
       x: CV.btn.x + CV.btn.w + 8, y: CV.btn.y, w: 88, h: CV.btn.h, small: true,
@@ -1366,6 +1383,110 @@
         onClick: function () { scene.endArm = false; G.Overlays.openPanel(scene, 'cave'); }
       }));
     }
+  }
+
+  /* 丹房（四大技艺批2）：列出炼丹配方，材料足即可炼制。 */
+  var AL = { lx: P.x + 12, y0: P.y + 34, rowH: 14, btnX: P.x + P.w - 70 };
+  function drawAlchemy(x, scene) {
+    var save = G.game.save;
+    shell(x, '丹房 · 炼丹', '第 ' + (save.life || 1) + ' 世');
+    G.Alchemy.recipes.forEach(function (r, i) {
+      var y = AL.y0 + i * AL.rowH, c = G.Alchemy.canCraft(save, r);
+      G.UI.textOut(x, { x: AL.lx, y: y - 1 }, r.n, 11, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
+      G.UI.text(x, { x: AL.lx + 58, y: y - 1 }, G.Alchemy.matsText(save, r), 8.5,
+        c.ok ? G.UI.C.text : G.UI.C.textDim);
+    });
+  }
+  function buildAlchemy(btns, scene) {
+    var save = G.game.save;
+    G.Alchemy.recipes.forEach(function (r, i) {
+      var y = AL.y0 + i * AL.rowH, c = G.Alchemy.canCraft(save, r);
+      btns.push(new G.UI.Btn({
+        x: AL.btnX, y: y - 3, w: 58, h: 16, small: true,
+        variant: c.ok ? 'gold' : 'ghost', label: '炼制', disabled: !c.ok,
+        onClick: function () {
+          var res = G.Alchemy.craft(save, r);
+          G.game.toast(res.ok ? ('炼成 ' + r.n + ' ×' + res.n) : res.reason);
+          G.Overlays.openPanel(scene, 'alchemy');
+        }
+      }));
+    });
+    btns.push(new G.UI.Btn({
+      x: AL.lx, y: 212, w: 96, h: 20, small: true,
+      label: scene._craftFrom === 'cave' ? '返回洞府' : '关　闭',
+      onClick: function () { if (scene._craftFrom === 'cave') G.Overlays.openPanel(scene, 'cave'); else scene.clearOverlay(); }
+    }));
+  }
+
+  /* 器坊（四大技艺批3）：列出炼器配方，材料足即可锻造，产物走三槽法宝。 */
+  var FG = { lx: P.x + 12, y0: P.y + 34, rowH: 15, btnX: P.x + P.w - 70 };
+  function drawForge(x, scene) {
+    var save = G.game.save;
+    shell(x, '器坊 · 炼器', '第 ' + (save.life || 1) + ' 世');
+    G.Forge.recipes.forEach(function (r, i) {
+      var y = FG.y0 + i * FG.rowH, c = G.Forge.canForge(save, r);
+      G.UI.textOut(x, { x: FG.lx, y: y - 1 }, G.Forge.outName(r), 11, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
+      G.UI.text(x, { x: FG.lx + 46, y: y - 1 }, r.d, 8, G.UI.C.textDim);
+      G.UI.text(x, { x: FG.lx + 118, y: y - 1 }, G.Forge.matsText(save, r), 8.5, c.ok ? G.UI.C.text : G.UI.C.textDim);
+    });
+  }
+  function buildForge(btns, scene) {
+    var save = G.game.save;
+    G.Forge.recipes.forEach(function (r, i) {
+      var y = FG.y0 + i * FG.rowH, c = G.Forge.canForge(save, r);
+      btns.push(new G.UI.Btn({
+        x: FG.btnX, y: y - 3, w: 58, h: 16, small: true,
+        variant: c.ok ? 'gold' : 'ghost', label: '锻造', disabled: !c.ok,
+        onClick: function () {
+          var res = G.Forge.forge(save, r);
+          G.game.toast(res.ok ? ('锻成 ' + G.Forge.outName(r)) : res.reason);
+          G.Overlays.openPanel(scene, 'forge');
+        }
+      }));
+    });
+    btns.push(new G.UI.Btn({
+      x: FG.lx, y: 212, w: 96, h: 20, small: true,
+      label: scene._craftFrom === 'cave' ? '返回洞府' : '关　闭',
+      onClick: function () { if (scene._craftFrom === 'cave') G.Overlays.openPanel(scene, 'cave'); else scene.clearOverlay(); }
+    }));
+  }
+
+  /* 阵台（四大技艺批4）：阵法只能主城/宗门交易（道纹阵道界），经营长线投资。 */
+  var FM = { lx: P.x + 12, y0: P.y + 34, rowH: 22, btnX: P.x + P.w - 70 };
+  function curName(cur) { return cur === 'stone' ? '灵石' : cur === 'sectRep' ? '贡献' : '道晶'; }
+  function drawArray(x, scene) {
+    var save = G.game.save, meta = G.game.meta;
+    shell(x, '阵台 · 阵法', '第 ' + (save.life || 1) + ' 世');
+    G.Formations.list.forEach(function (f, i) {
+      var y = FM.y0 + i * FM.rowH, owned = G.Formations.has(save, f.id);
+      var av = owned ? { ok: true } : G.Formations.availability(save, meta, f);
+      G.UI.textOut(x, { x: FM.lx, y: y }, f.n + (owned ? '（已布）' : ''), 11,
+        owned ? G.UI.C.goldHi : (av.ok ? G.UI.C.text : G.UI.C.textDim));
+      G.UI.text(x, { x: FM.lx + 78, y: y }, f.src, 8.5, G.UI.C.textDim);
+      G.UI.text(x, { x: FM.lx, y: y + 10 }, f.d + '　价 ' + f.cost + curName(f.cur), 8.5,
+        av.ok ? G.UI.C.text : G.UI.C.textDim);
+    });
+  }
+  function buildArray(btns, scene) {
+    var save = G.game.save, meta = G.game.meta;
+    G.Formations.list.forEach(function (f, i) {
+      var y = FM.y0 + i * FM.rowH, owned = G.Formations.has(save, f.id);
+      var av = owned ? { ok: true } : G.Formations.availability(save, meta, f);
+      btns.push(new G.UI.Btn({
+        x: FM.btnX, y: y - 2, w: 58, h: 16, small: true,
+        variant: owned ? 'ghost' : (av.ok ? 'gold' : 'ghost'), label: owned ? '已布' : '购置', disabled: owned || !av.ok,
+        onClick: function () {
+          var res = G.Formations.buy(save, meta, f.id);
+          G.game.toast(res.ok ? ('布下 ' + f.n) : res.reason);
+          G.Overlays.openPanel(scene, 'array');
+        }
+      }));
+    });
+    btns.push(new G.UI.Btn({
+      x: FM.lx, y: 212, w: 96, h: 20, small: true,
+      label: scene._craftFrom === 'cave' ? '返回洞府' : '关　闭',
+      onClick: function () { if (scene._craftFrom === 'cave') G.Overlays.openPanel(scene, 'cave'); else scene.clearOverlay(); }
+    }));
   }
 
   /* ============================================================
@@ -1397,7 +1518,9 @@
     rowY: P.y + 160, row2Y: P.y + 188,
     rowW: 124, rowH: 22, rowGap: 6,
     listY: P.y + 108,
-    sectNoteY: P.y + 172
+    sectNoteY: P.y + 172,
+    /* 未入门「本界全部宗门」3 列网格（凡界 9 宗正好 3×3） */
+    gridW: 126, gridGap: 8, gridH: 26, gridGapY: 8
   };
   function sectOf(save) {
     if (!G.Data.sects || !save.sectId) return null;
@@ -1476,15 +1599,27 @@
       } else {
         G.UI.text(x, { x: P.x + 22, y: P.y + 118 }, '未接悬赏 —— 接一件换灵石。', 10, G.UI.C.textDim);
       }
-      /* 拜入宗门 */
-      G.UI.text(x, { x: P.x + 14, y: P.y + 144 }, '拜入宗门', 11, G.UI.C.gold);
-      G.UI.text(x, { x: P.x + 22, y: P.y + 160 },
+      /* 拜入入口已移至「宗门」子页（用户口径） */
+      G.UI.text(x, { x: P.x + 14, y: P.y + 144 }, '欲拜入宗门？切到「宗门」子页择一。', 10.5, G.UI.C.gold);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 162 },
         save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
-                            : '拜入后散修功法将废功。', 10, G.UI.C.textDim);
+                            : '拜入后散修自悟功法将废功。', 10, G.UI.C.textDim);
       return;
     }
 
     /* ---- 宗门页 ---- */
+    /* 未入门：列出**本界全部宗门**（拜入入口在此；钮由 buildSect 建）。 */
+    if (!save.sectId) {
+      var wid0 = G.Player.activeWorldId(G.game.meta);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 58 },
+        (WN[wid0] || '凡界') + '宗门 · 择一拜入', 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
+        '通过入门试炼即入；拜入后散修自悟功法将废功。', 10, G.UI.C.textDim);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 204 },
+        save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
+          : '每世仅一次改换门庭；宗门功法靠贡献兑换。', 10, G.UI.C.textDim);
+      return;
+    }
     var s = sectOf(save);
     if (save.sectId === 'own') {
       var os = save.ownSect || { name: '无名宗', disciples: 0 };
@@ -1519,8 +1654,9 @@
       else { st = '未习 · 需 ' + cost + ' 贡献'; col = G.UI.C.textDim; }
       G.UI.text(x, { x: P.x + 22, y: P.y + 120 + i * 15 }, sk.n + '　' + st, 10, col);
     });
-    G.UI.text(x, { x: P.x + 14, y: P.y + 186 },
-      save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。' : '贡献来自副本通关。', 10, G.UI.C.textDim);
+    /* 说明下移到按钮行（y+176、高22 止于198）之下 y+204，消除叠影。 */
+    G.UI.text(x, { x: P.x + 14, y: P.y + 204 },
+      save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。' : '贡献来自副本通关；首杀 +20 / 刷取 +8。', 10, G.UI.C.textDim);
   }
 
   function buildSect(btns, scene) {
@@ -1620,32 +1756,35 @@
           }));
         });
       }
-      /* 拜入按钮：两行 × 三列 */
-      var wid = G.Player.activeWorldId(G.game.meta);
-      var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
-      list.sort(function (a, b) { return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1); });
-      var ready = G.Player.trialReady(save);
-      list.slice(0, 6).forEach(function (sc2, i) {
+      /* 拜入按钮已移至「宗门」子页 */
+      return;
+    }
+
+    /* ---- 宗门页：未入门 → 本界全部宗门，3 列网格拜入 ---- */
+    if (!save.sectId) {
+      var wid2 = G.Player.activeWorldId(G.game.meta);
+      var list2 = (G.Data.sects ? G.Data.sects.ofWorld(wid2) : []).slice();
+      list2.sort(function (a, b) { return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1); });
+      var ready2 = G.Player.trialReady(save);
+      list2.forEach(function (sc3, i) {
         var col = i % 3, row = Math.floor(i / 3);
         btns.push(new G.UI.Btn({
-          x: P.x + 14 + col * (SEC.rowW + SEC.rowGap),
-          y: (row === 0 ? P.y + 176 : P.y + 202),
-          w: SEC.rowW, h: SEC.rowH, small: true, fs: 10,
-          variant: ready ? 'default' : 'ghost',
-          label: '拜入 ' + sc2.n,
+          x: P.x + 14 + col * (SEC.gridW + SEC.gridGap),
+          y: P.y + 96 + row * (SEC.gridH + SEC.gridGapY),
+          w: SEC.gridW, h: SEC.gridH, small: true, fs: 10,
+          variant: ready2 ? 'default' : 'ghost',
+          label: '拜入 ' + sc3.n,
           onClick: function () {
-            if (!ready) { G.game.toast('修为不足（需炼气一段），先去历练'); return; }
+            if (!ready2) { G.game.toast('修为不足（需炼气一重初期），先去历练'); return; }
             scene.clearOverlay();
             G.game.changeScene('battle', {
-              script: 'sectTrial', mapId: G.game.sceneName, sectId: sc2.id
+              script: 'sectTrial', mapId: G.game.sceneName, sectId: sc3.id
             });
           }
         }));
       });
       return;
     }
-
-    /* ---- 宗门页 ---- */
     if (save.sectId === 'own') {
       var os2 = save.ownSect || { disciples: 0 };
       var full = (os2.disciples || 0) >= G.Player.DISCIPLE_MAX;
@@ -2182,6 +2321,20 @@
       }
     }));
 
+    /* R5 伴生仙兽槽：取得道之钥匙（地狱级通关仙界）后解锁 */
+    var meta = G.game.meta || {};
+    var slotOn = !!(meta.progress && meta.progress.daoKey);
+    var cbOn = meta.companionBeast && meta.companionBeast.id === b.id;
+    btns.push(new G.UI.Btn({
+      x: BS.dx, y: 180, w: BS.dw, h: 16, small: true,
+      variant: cbOn ? 'gold' : 'default',
+      label: !slotOn ? '伴生槽未启 · 需道之钥匙' : cbOn ? '★ 伴生仙兽（点击解除）' : '设为伴生仙兽 · 随轮回同行',
+      disabled: !slotOn,
+      onClick: function () {
+        if (cbOn) { delete meta.companionBeast; G.Storage.saveMeta(meta); beastToast('已解除伴生仙兽'); refreshBeasts(scene); }
+        else { meta.companionBeast = { id: b.id }; G.Storage.saveMeta(meta); beastToast(b.name + ' 已设为伴生仙兽'); refreshBeasts(scene); }
+      }
+    }));
     /* 第二行：名册选择 / 放生 / 返回 */
     var y2 = y + BS.aH + 4;
     save.beasts.slice(0, 8).forEach(function (bb, i) {
@@ -2217,6 +2370,7 @@
     }));
   }
 
+  var AIR_RIDE_COST = 300;
   var FEED_GOODS = [
     { id: '药渣', n: '药渣', price: 5, d: '喂养，略增修为' },
     { id: '灵食', n: '灵食', price: 18, d: '喂养，增修为' },
@@ -2235,11 +2389,16 @@
   }
   function drawBeastShop(x, scene) {
     var save = G.game.save;
-    shell(x, '兽栏 · 饲料与妖囊', '灵石 ' + (save.stone || 0));
-    G.UI.text(x, { x: BS.lx, y: 52 }, '— 饲料 —', 10, G.UI.C.textDim);
-    FEED_GOODS.forEach(function (g, i) { shopRow(x, g, 66 + i * 22); });
-    G.UI.text(x, { x: BS.lx, y: 132 }, '— 妖囊（战中收服）—', 10, G.UI.C.textDim);
-    BAG_GOODS.forEach(function (g, i) { shopRow(x, g, 146 + i * 22); });
+    shell(x, '兽栏 · 饲料、妖囊与骑术', '灵石 ' + (save.stone || 0));
+    G.UI.text(x, { x: BS.lx, y: 50 }, '— 饲料 —', 10, G.UI.C.textDim);
+    FEED_GOODS.forEach(function (g, i) { shopRow(x, g, 62 + i * 18); });
+    G.UI.text(x, { x: BS.lx, y: 116 }, '— 妖囊（战中收服）—', 10, G.UI.C.textDim);
+    BAG_GOODS.forEach(function (g, i) { shopRow(x, g, 128 + i * 18); });
+    G.UI.text(x, { x: BS.lx, y: 182 }, '— 骑术 —', 10, G.UI.C.textDim);
+    G.UI.text(x, { x: BS.lx, y: 195 }, '御空骑术', 12, G.UI.C.text);
+    G.UI.text(x, { x: BS.lx + 78, y: 196 }, '金丹可学，驭飞骑代步', 9.5, G.UI.C.textDim);
+    G.UI.textOut(x, { x: BS.lx + BS.lw + 118, y: 196 }, AIR_RIDE_COST + ' 灵石', 10,
+      G.UI.C.gold, 'right');
   }
   function shopBuyBtn(btns, scene, g, yy) {
     var save = G.game.save;
@@ -2256,8 +2415,26 @@
     }));
   }
   function buildBeastShop(btns, scene) {
-    FEED_GOODS.forEach(function (g, i) { shopBuyBtn(btns, scene, g, 66 + i * 22); });
-    BAG_GOODS.forEach(function (g, i) { shopBuyBtn(btns, scene, g, 146 + i * 22); });
+    FEED_GOODS.forEach(function (g, i) { shopBuyBtn(btns, scene, g, 62 + i * 18); });
+    BAG_GOODS.forEach(function (g, i) { shopBuyBtn(btns, scene, g, 128 + i * 18); });
+    /* 御空骑术：金丹可学（与御剑同门槛），学会才能骑飞行坐骑 */
+    var save0 = G.game.save;
+    var airLearned = !!(save0.rideSkill && save0.rideSkill.air);
+    var canLearnAir = !airLearned && G.Player.canFly(save0) && (save0.stone || 0) >= AIR_RIDE_COST;
+    btns.push(new G.UI.Btn({
+      x: BS.lx + BS.lw + 128, y: 193, w: 58, h: 18, small: true,
+      variant: canLearnAir ? 'gold' : 'ghost',
+      label: airLearned ? '已习得' : (G.Player.canFly(save0) ? '学习' : '需金丹'),
+      disabled: !canLearnAir,
+      onClick: function () {
+        save0.stone -= AIR_RIDE_COST;
+        save0.rideSkill = save0.rideSkill || { land: false, air: false };
+        save0.rideSkill.air = true;
+        G.Storage.saveCurrent(save0);
+        G.game.toast('习得御空骑术 —— 可驭飞骑');
+        G.Overlays.openPanel(scene, 'beastShop');
+      }
+    }));
     btns.push(new G.UI.Btn({
       x: BS.lx, y: 216, w: 96, h: 20, small: true,
       label: '返回兽栏',
@@ -2273,6 +2450,9 @@
     quest: drawQuest,
     bag: drawBag,
     cave: drawCave,
+    alchemy: drawAlchemy,
+    forge: drawForge,
+    array: drawArray,
     beasts: drawBeasts,
     beastShop: drawBeastShop,
     sect: drawSect,

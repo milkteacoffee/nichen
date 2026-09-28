@@ -785,8 +785,14 @@
         '第 ' + save.life + ' 世', 11, G.UI.C.textDim, 'right');
 
       G.UI.textOut(x, { x: LX, y: P.y + 54 }, ri.n, 16, G.UI.C.goldHi);
+      /* 去等级化：不显示数字"全境第 N 级"，改为世界名 + 将证的下一**大境界**（志向指引）。 */
+      var realmIdx = -1;
+      (G.Player.REALMS || []).forEach(function (rr, i) { if (rr.n === ri.realm) realmIdx = i; });
+      var nextBig = realmIdx >= 0 && realmIdx < G.Player.REALMS.length - 1
+        ? G.Player.REALMS[realmIdx + 1].n : null;
       G.UI.textOut(x, { x: LX + 130, y: P.y + 58 },
-        (world ? world.n : '') + '　全境第 ' + gl + ' 级', 11, G.UI.C.textDim);
+        (world ? world.n : '') + (nextBig ? '　将证 ' + nextBig : '　道途已极'),
+        11, G.UI.C.textDim);
 
       /* 灵气进度：**数值一律排到条的右侧**（绝不压在条上 —— 项目铁律） */
       var pr = bs.need ? Math.min(1, bs.have / bs.need) : 1;

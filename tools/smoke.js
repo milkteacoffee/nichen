@@ -717,9 +717,9 @@ step(function () {
   want({ step: 'm0-1', flags: {} }, 5, '!', 'm0-1 未打首战');
   want({ step: 'm0-1', flags: { won1: true } }, 5, '?', 'm0-1 已打首战待领赏');
   want({ step: 'm0-4', flags: {} }, 5, null, 'm0-4 未到淬体九段');
-  want({ step: 'm0-4', flags: {} }, 9, '?', 'm0-4 淬体九段待领丹');
-  want({ step: 'm0-4', flags: { gotBreakPill: true } }, 9, null, 'm0-4 已领丹');
-  want({ step: 'free', flags: {} }, 9, null, '自由游玩期');
+  want({ step: 'm0-4', flags: {} }, 36, '?', 'm0-4 淬体九重巅峰待领丹');
+  want({ step: 'm0-4', flags: { gotBreakPill: true } }, 36, null, 'm0-4 已领丹');
+  want({ step: 'free', flags: {} }, 36, null, '自由游玩期');
   want({ step: 'm0-5', flags: {} }, 12, null, 'm0-5 已出镇');
 
   /* 村民任何时候都不挂标记 */
@@ -732,16 +732,16 @@ step(function () {
   const mk = G.scenes.town_market;
   s.quest = { step: 'm0-5', flags: {} };
   if (keeper && mk.npcMarkOf(keeper) !== null) errors.push('任务标记错：M0 期间刘掌柜不应挂标记');
-  s.quest = { step: 'm1-4', flags: {} }; s.globalLevel = 14;
+  s.quest = { step: 'm1-4', flags: {} }; s.globalLevel = 56;
   if (keeper && mk.npcMarkOf(keeper) !== null) errors.push('任务标记错：m1-4 未到门槛时刘掌柜不应挂标记');
-  s.quest = { step: 'm1-4', flags: {} }; s.globalLevel = 15;
+  s.quest = { step: 'm1-4', flags: {} }; s.globalLevel = 57;
   if (keeper && mk.npcMarkOf(keeper) !== '?') errors.push('任务标记错：m1-4 到门槛时刘掌柜应挂 ？');
-  s.quest = { step: 'm1-4', flags: { foundPill: true } }; s.globalLevel = 15;
+  s.quest = { step: 'm1-4', flags: { foundPill: true } }; s.globalLevel = 57;
   if (keeper && mk.npcMarkOf(keeper) !== null) errors.push('任务标记错：已得丹后刘掌柜不应再挂标记');
 
   /* M1 各步的标记（沈伯 / 探子）—— 与任务链契约里的运行时断言互为冗余：
      这里只查"标记函数"，那边查"整条链真的走通"，两边都过才算数。 */
-  s.globalLevel = 15;
+  s.globalLevel = 57;
   const probeN = (G.Data.maps.town.npcs || []).filter((n) => n.act === 'probe')[0];
   const tm = G.scenes.town;
   const wantShen = (quest, mark, label) => {
@@ -754,9 +754,9 @@ step(function () {
   wantShen({ step: 'm1-3', flags: {} }, '?', 'm1-3 待听旧账');
   wantShen({ step: 'm1-4', flags: {} }, '?', 'm1-4 待备丹');
   wantShen({ step: 'm1-4', flags: { foundPill: true } }, null, 'm1-4 已得丹');
-  s.globalLevel = 14;
+  s.globalLevel = 56;
   wantShen({ step: 'm1-4', flags: {} }, null, 'm1-4 未到门槛');
-  s.globalLevel = 15;
+  s.globalLevel = 57;
   if (probeN) {
     s.quest = { step: 'm1-2', flags: {} };
     if (tm.npcMarkOf(probeN) !== '!') errors.push('M1 探子标记错：m1-2 应挂 ！');
@@ -927,14 +927,14 @@ step(function () {
   if (bk.disabled) errors.push('灵气充足时突破按钮不应禁用');
   const q0 = s.qi;
   bk.onClick();
-  if (s.globalLevel !== 2) errors.push('点突破后应为淬体二段，实为 ' + s.globalLevel);
-  if (s.qi !== q0 - 40) errors.push('突破未按公式扣除灵气（' + q0 + ' → ' + s.qi + '）');
+  if (s.globalLevel !== 2) errors.push('点突破后应为淬体一重中期(gl2)，实为 ' + s.globalLevel);
+  if (s.qi !== q0 - 1) errors.push('突破未按公式扣除灵气（' + q0 + ' → ' + s.qi + '）');
 }, 'quest.dream');
 pump(8, 'quest.dream.render');
 
 step(function () {
   const s = G.game.save;
-  s.quest.step = 'm0-4'; s.globalLevel = 9; s.items = {}; s.stone = 0;
+  s.quest.step = 'm0-4'; s.globalLevel = 36; s.items = {}; s.stone = 0;
   s.quest.flags = {};
   s.pos = null;
   G.game.changeScene('town', { toSpawn: true });
@@ -951,7 +951,7 @@ pump(8, 'quest.shop.render');
 step(function () {
   const sc = G.game.scene, s = G.game.save;
   if (!standBefore(sc, 'furn', 'shenbo', 'up')) { errors.push('药铺里找不到沈伯的柜台'); return; }
-  if (!s.items['淬体突破丹']) errors.push('m0-4 淬体9 与沈伯对话未赠突破丹');
+  if (!s.items['淬体突破丹']) errors.push('m0-4 淬体九重巅峰 与沈伯对话未赠突破丹');
   if (s.stone !== 200) errors.push('m0-4 赠丹应附 200 灵石，实为 ' + s.stone);
 }, 'quest.shenbo');
 
@@ -1277,16 +1277,16 @@ step(function () {
 step(function () {
   const P = G.Player;
   const bare = { globalLevel: 1, linggen: { elems: ['木'], coef: { 木: 1.2 } }, talents: [], world: { traits: [] } };
-  if (P.needQi(bare, 1) !== 40) errors.push('淬体1→2 应为 40，实为 ' + P.needQi(bare, 1));
+  if (P.needQi(bare, 1) !== 1) errors.push('淬体一重初期→中期 应为 1，实为 ' + P.needQi(bare, 1));
   let sum = 0;
-  for (let gl = 1; gl <= 8; gl++) sum += P.needQi(bare, gl);
-  if (sum !== 8160) errors.push('淬体 1→9 合计应为 8,160，实为 ' + sum);
-  if (P.needQi(bare, 9) !== 3240) errors.push('淬体9→10 应为 3,240，实为 ' + P.needQi(bare, 9));
-  if (P.needQi(bare, 10) !== 200) errors.push('炼气1→2 应为 200，实为 ' + P.needQi(bare, 10));
-  if (P.needQi(bare, 11) !== 800) errors.push('炼气2→3 应为 800，实为 ' + P.needQi(bare, 11));
-  /* 天赋/世界折扣 */
-  const disc = { globalLevel: 1, linggen: bare.linggen, talents: [], world: { traits: ['W13'] } };
-  if (P.needQi(disc, 1) !== 36) errors.push('洞天福地 -10% 未生效：' + P.needQi(disc, 1));
+  for (let gl = 1; gl <= 35; gl++) sum += P.needQi(bare, gl);
+  if (sum !== 10489) errors.push('淬体 35 小阶合计应为 10,489，实为 ' + sum);
+  if (P.needQi(bare, 36) !== 912) errors.push('淬体九重巅峰破境 应为 912，实为 ' + P.needQi(bare, 36));
+  if (P.needQi(bare, 37) !== 4) errors.push('炼气一重初期→中期 应为 4，实为 ' + P.needQi(bare, 37));
+  if (P.needQi(bare, 38) !== 14) errors.push('炼气一重中期→后期 应为 14，实为 ' + P.needQi(bare, 38));
+  /* 天赋/世界折扣（在大阶 gl36 才看得出 -10%） */
+  const disc = { globalLevel: 36, linggen: bare.linggen, talents: [], world: { traits: ['W13'] } };
+  if (P.needQi(disc, 36) !== 821) errors.push('洞天福地 -10% 未生效：' + P.needQi(disc, 36) + '（bare 912）');
 }, 'break.formula');
 
 step(function () {
@@ -1294,24 +1294,24 @@ step(function () {
   const s = JSON.parse(JSON.stringify(save));
   s.globalLevel = 1; s.qi = 100; s.items = {};
   s.talents = []; s.world.traits = [];
-  /* 正常：灵气 100 → 突破 → 淬体2、灵气归零 */
+  /* 正常：灵气 100 → 突破 → 淬体一重中期(gl2)，耗 needQi(1)=1 → 灵气 99 */
   let r = P.breakthrough(s);
-  if (!r.ok) errors.push('灵气 100 未能突破淬体1→2：' + r.reason);
-  else if (s.globalLevel !== 2) errors.push('突破后境界应为 2，实为 ' + s.globalLevel);
-  else if (s.qi !== 60) errors.push('突破后灵气应为 100-40=60，实为 ' + s.qi);
-  /* 失败：灵气不足不升级不扣灵气 */
-  s.qi = 10;
+  if (!r.ok) errors.push('灵气 100 未能突破淬体一重初期→中期：' + r.reason);
+  else if (s.globalLevel !== 2) errors.push('突破后境界应为 gl2，实为 ' + s.globalLevel);
+  else if (s.qi !== 99) errors.push('突破后灵气应为 100-1=99，实为 ' + s.qi);
+  /* 失败：灵气不足不升级不扣灵气（gl2 需 3，给 0） */
+  s.qi = 0;
   const before = s.qi, gl0 = s.globalLevel;
   r = P.breakthrough(s);
   if (r.ok) errors.push('灵气不足却突破成功');
   if (s.qi !== before || s.globalLevel !== gl0) errors.push('灵气不足时不应改动灵气/境界');
   if (!/还需/.test(r.reason)) errors.push('灵气不足提示文案异常：' + r.reason);
-  /* 边界：淬体9 无丹 → 提示需突破丹，不进心魔战 */
-  s.globalLevel = 9; s.qi = 3240; s.items = {};
+  /* 边界：淬体九重巅峰(gl36) 无丹 → 提示需突破丹，不进心魔战 */
+  s.globalLevel = 36; s.qi = 999999; s.items = {};
   const st = P.breakState(s);
-  if (!st.big) errors.push('淬体9 未识别为大境界突破');
+  if (!st.big) errors.push('淬体九重巅峰(gl36) 未识别为大境界突破');
   if (!/淬体突破丹/.test(st.reason)) errors.push('缺丹提示文案异常：' + st.reason);
-  if (P.breakthrough(s).big !== true) errors.push('淬体9 点击突破未走大境界分支');
+  if (P.breakthrough(s).big !== true) errors.push('淬体九重巅峰 点击突破未走大境界分支');
   const bb = P.startBigBreak(s);
   if (bb.ok) errors.push('无突破丹却开始了心魔战');
   /* 有丹 → 扣丹 + 进心魔战；胜利 → 炼气1 */
@@ -1326,13 +1326,13 @@ step(function () {
   if (!bb2.ok) errors.push('持丹却无法开始大境界突破（重试 6 次仍失败）：' + bb2.reason);
   if (s.items['淬体突破丹']) errors.push('心魔战开始时未消耗突破丹');
   const info = P.winBigBreak(s);
-  if (s.globalLevel !== 10) errors.push('心魔战胜利后应为炼气1（10），实为 ' + s.globalLevel);
-  if (info.n !== '炼气一重') errors.push('境界名异常：' + info.n);
-  if (s.qi !== 0) errors.push('突破后灵气应为 3240-3240=0，实为 ' + s.qi);
+  if (s.globalLevel !== 37) errors.push('心魔战胜利后应为炼气一重初期(gl37)，实为 ' + s.globalLevel);
+  if (info.n !== '炼气一重初期') errors.push('境界名异常：' + info.n);
+  if (s.qi !== 999087) errors.push('突破后灵气应为 999999-912=999087，实为 ' + s.qi);
   /* 失败：不降级、灵气保留 80% */
-  s.globalLevel = 9; s.qi = 1000;
+  s.globalLevel = 36; s.qi = 1000;
   const left = P.loseBigBreak(s);
-  if (s.globalLevel !== 9) errors.push('心魔战失败不应降级');
+  if (s.globalLevel !== 36) errors.push('心魔战失败不应降级');
   if (left !== 800) errors.push('心魔战失败灵气应保留 80%（800），实为 ' + left);
 }, 'break.rules');
 
@@ -1360,7 +1360,7 @@ pump(20, 'reward.result');
 /* 4d) 心魔战：走通战斗场景分支（胜利 → 炼气1 + 任务 m0-5） */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));
-  s.globalLevel = 9; s.qi = 3240; s.items = { 淬体突破丹: 1 };
+  s.globalLevel = 36; s.qi = 999999; s.items = { 淬体突破丹: 1 };
   s.quest = { step: 'm0-4', flags: {} };
   G.game.save = s;
   /* ⚠️ 破境是**概率事件**（(基础+道基+丹) 封顶 95%）→ 单次 5% 失败会让这条契约**偶发假红**，
@@ -1388,7 +1388,7 @@ step(function () {
   if (run && !run.disabled) errors.push('问心魔劫不应允许逃跑');
   b.es[0].hp = 0;
   b._victory();
-  if (s.globalLevel !== 10) errors.push('心魔战胜利后境界应为 10，实为 ' + s.globalLevel);
+  if (s.globalLevel !== 37) errors.push('心魔战胜利后境界应为 gl37，实为 ' + s.globalLevel);
   if (s.quest.step !== 'm0-5') errors.push('心魔战胜利后任务应推进到 m0-5，实为 ' + s.quest.step);
   if (s.hp !== G.Player.computeStats(s).maxhp) {
     errors.push('突破后气血应回满，实为 ' + s.hp + ' / ' + G.Player.computeStats(s).maxhp);
@@ -1399,7 +1399,7 @@ pump(20, 'battle.heartDemon.result');
 /* 4e) 心魔战失败：不降级、灵气 80%、回镇（不进死亡） */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));
-  s.globalLevel = 9; s.qi = 3000; s.items = {};
+  s.globalLevel = 36; s.qi = 3000; s.items = {};
   s.quest = { step: 'm0-4', flags: {} };
   G.game.save = s;
   G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town' });
@@ -1409,7 +1409,7 @@ step(function () {
   const b = G.game.scene, s = G.game.save;
   b.p.hp = 0;
   b._defeat();
-  if (s.globalLevel !== 9) errors.push('心魔战失败不应降级');
+  if (s.globalLevel !== 36) errors.push('心魔战失败不应降级');
   if (s.qi !== 2400) errors.push('心魔战失败灵气应保留 80%（2400），实为 ' + s.qi);
   if (b.resultWin !== false) errors.push('心魔战失败结果标记异常');
   if (!(s.hp > 0)) errors.push('心魔战失败回镇气血不应为 0，实为 ' + s.hp);
@@ -1419,9 +1419,9 @@ pump(20, 'battle.heartDemon.lose.result');
 /* 4f) 蓄力预告：敌方蓄力技必须先预告一回合 */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));
-  s.globalLevel = 8; s.hp = 999;
+  s.globalLevel = 13; s.hp = 999;
   G.game.save = s;
-  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field' });
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 13, '苍鬃狼'), mapId: 'field' });
 }, 'battle.charge.enter');
 pump(10, 'battle.charge.enter');
 step(function () {
@@ -1593,7 +1593,7 @@ pump(400, 'battle.boss.run');
 step(function () {
   const P = G.Player;
   const s = {
-    globalLevel: 20, maxGlobalLevel: 20, age: 33,
+    globalLevel: 77, maxGlobalLevel: 77, age: 33,
     skills: { 甲: { lv: 5 }, 乙: { lv: 3 } },
     bossKills: 2, bossKilled: true
   };
@@ -1638,12 +1638,12 @@ step(function () {
 /* 5b-3) 寿元上限与年龄推进（境界 v3.2 §3） */
 step(function () {
   const P = G.Player;
-  [['淬体', 1, 100], ['炼气', 10, 150], ['筑基', 19, 200], ['金丹', 28, 300],
-   ['元婴', 37, 500], ['化神', 46, 800], ['炼虚', 55, 1000], ['合体', 64, 1500],
-   ['大乘', 73, 2000], ['渡劫', 82, 3000], ['人仙', 91, 5000], ['地仙', 100, 8000],
-   ['天仙', 109, 12000], ['金仙', 118, 20000], ['太乙金仙', 127, 30000],
-   ['大罗金仙', 136, 50000], ['准圣', 145, 100000], ['圣人', 154, 200000],
-   ['道祖', 163, Infinity]]
+  [['淬体', 1, 100], ['炼气', 37, 150], ['筑基', 73, 200], ['金丹', 109, 300],
+   ['元婴', 145, 500], ['化神', 181, 800], ['炼虚', 217, 1000], ['合体', 253, 1500],
+   ['大乘', 289, 2000], ['渡劫', 325, 3000], ['人仙', 361, 5000], ['地仙', 397, 8000],
+   ['天仙', 433, 12000], ['金仙', 469, 20000], ['太乙金仙', 505, 30000],
+   ['大罗金仙', 541, 50000], ['准圣', 577, 100000], ['圣人', 613, 200000],
+   ['道祖', 649, Infinity]]
     .forEach(function (c) {
       if (P.lifespanOf(c[1]) !== c[2]) {
         errors.push(c[0] + ' 寿元应为 ' + c[2] + '，实为 ' + P.lifespanOf(c[1]));
@@ -1806,10 +1806,10 @@ step(function () {
   }
   if (G.game.sceneName !== s.scene) errors.push(`降世后应进入 ${s.scene}，实际 ${G.game.sceneName}`);
 
-  /* 指定灵界 → gl64 + 雷泽荒原 */
+  /* 指定灵界 → gl253 + 雷泽荒原 */
   s = descend('ling', false);
   if (G.Player.activeWorldId(G.game.meta) !== 'ling') errors.push('指定灵界降世未生效');
-  if (s.globalLevel !== 64) errors.push(`灵界降世起始 gl 应为 64，实际 ${s.globalLevel}`);
+  if (s.globalLevel !== 253) errors.push(`灵界降世起始 gl 应为 253，实际 ${s.globalLevel}`);
   if (s.scene !== G.Data.regions.mapIdOf('ling1')) errors.push(`灵界降世落点应为 ling1，实际 ${s.scene}`);
   if (s.entrances.ling.length !== 5) errors.push('灵界降世未抽 5 处副本落位');
 
@@ -1817,10 +1817,10 @@ step(function () {
   s = descend('dao', false);
   if (G.Player.activeWorldId(G.game.meta) === 'dao') errors.push('没钥匙却降世到了道界');
 
-  /* 有钥匙 → 道界可选：gl145 + 道则回廊（dao1），且只有 1 处入口 */
+  /* 有钥匙 → 道界可选：gl577 + 道则回廊（dao1），且只有 1 处入口 */
   s = descend('dao', true);
   if (G.Player.activeWorldId(G.game.meta) !== 'dao') errors.push('有钥匙时道界降世未生效');
-  if (s.globalLevel !== 145) errors.push(`道界降世起始 gl 应为 145，实际 ${s.globalLevel}`);
+  if (s.globalLevel !== 577) errors.push(`道界降世起始 gl 应为 577，实际 ${s.globalLevel}`);
   if (s.scene !== G.Data.regions.mapIdOf('dao1')) errors.push(`道界降世落点应为 dao1，实际 ${s.scene}`);
   if (!Array.isArray(s.daoCleared) || s.daoCleared.length !== 0) errors.push('道界降世应初始化 daoCleared');
   if (s.daoCrystal !== 0) errors.push('道界降世道晶应从 0 起');
@@ -1906,8 +1906,14 @@ step(function () {
           } else {
             if (!o.s || !o.s.to) {
               errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 没有 to（点了进不去）`);
-            } else if (!G.Data.maps[o.s.to]) {
-              errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 指向不存在的场景 ${o.s.to}`);
+            } else {
+              let known = !!G.Data.maps[o.s.to];
+              if (!known && o.s.to.indexOf('sect.') === 0 && G.SectGen && G.SectGen.liveOf) {
+                const pp = o.s.to.split('.');
+                const clx = G.SectGen.liveOf(save, pp[1]);
+                known = !!(clx && clx.rooms.some(function (r2) { return r2.id === o.s.to; }));
+              }
+              if (!known) errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 指向不存在的场景 ${o.s.to}`);
             }
             if (!reach[dx + ',' + dy]) {
               errors.push(`区域 ${r.id}: 山门 ${st.id}(${st.n}) 的门 (${dx},${dy}) 从 spawn 走不到`);
@@ -2566,13 +2572,13 @@ step(function () {
   }
 
   /* ③ 御剑 */
-  if (G.Player.canFly({ globalLevel: 27 })) errors.push('金丹之前不该能御剑（gl27）');
-  if (!G.Player.canFly({ globalLevel: 28 })) errors.push('金丹起应能御剑（gl28）');
-  if (!G.Player.canFly({ globalLevel: 60 })) errors.push('高境界也应能御剑');
+  if (G.Player.canFly({ globalLevel: 108 })) errors.push('金丹之前不该能御剑（gl108）');
+  if (!G.Player.canFly({ globalLevel: 109 })) errors.push('金丹起应能御剑（gl109）');
+  if (!G.Player.canFly({ globalLevel: 200 })) errors.push('高境界也应能御剑');
 
   /* 移速：同样 dt，飞行时 mt 推进更快 */
   function advance(fly) {
-    const sx = mkSave(30, fly);
+    const sx = mkSave(120, fly);
     G.game.save = sx;
     G.game.changeScene('field', { toSpawn: true });
     const s3 = G.game.scene;
@@ -2591,7 +2597,7 @@ step(function () {
   }
 
   /* 不遇敌 + 可越树 + 室内禁飞 */
-  const sf = mkSave(30, true);
+  const sf = mkSave(120, true);
   G.game.save = sf;
   G.game.changeScene('field', { toSpawn: true });
   const fsc = G.game.scene;
@@ -2608,13 +2614,13 @@ step(function () {
     if (!fsc._flying() || fsc._blocked(treeCell.x, treeCell.y)) {
       errors.push('御剑时应能越过树木');
     }
-    const sw = mkSave(30, false);
+    const sw = mkSave(120, false);
     G.game.save = sw;
     G.game.changeScene('field', { toSpawn: true });
     if (!G.game.scene._blocked(treeCell.x, treeCell.y)) errors.push('步行时树应当挡路');
   }
   /* 室内禁飞 */
-  const si = mkSave(30, true);
+  const si = mkSave(120, true);
   G.game.save = si;
   G.game.changeScene('town_home', { toSpawn: true });
   if (G.game.scene._flying()) errors.push('室内不该能御剑');
@@ -2924,7 +2930,7 @@ step(function () {
   const hi = G.Beasts.add(s2, 'b_leishou', { gl: 64, stage: 'adult' });
   if (G.Beasts.setBattle(s2, hi.beast.uid).ok) errors.push('高境界兽不应可出战');
 
-  const hm = G.Beasts.add(s2, 'b_huangzongma', { gl: 8, stage: 'young' });
+  const hm = G.Beasts.add(s2, 'b_huangzongma', { gl: 29, stage: 'young' });
   const horse = hm.beast;
   if (G.Beasts.setRide(s2, horse.uid).ok) errors.push('幼马不应可骑');
   s2.items['饲灵草料'] = 1;
@@ -2934,10 +2940,10 @@ step(function () {
   if (!r.ok || !s2.riding || !s2.rideSkill.land) errors.push('成年马骑乘异常 ' + (r.reason || ''));
   if (G.Beasts.setRide(s2, snake.uid).ok) errors.push('战种不应可骑');
 
-  snake.gl = 10; s2.items['御兽丹·青纹'] = 1;
+  snake.gl = 37; s2.items['御兽丹·青纹'] = 1;
   r = G.Beasts.mature(s2, snake.uid);
   if (!r.ok || snake.id !== 'b_bilinmang' || snake.stage !== 'adult') errors.push('蛇化形碧鳞蟒异常 ' + (r.reason || ''));
-  snake.gl = 19; s2.items['御兽丹·青蟒'] = 1;
+  snake.gl = 73; s2.items['御兽丹·青蟒'] = 1;
   if (G.Beasts.mature(s2, snake.uid).ok) errors.push('碧鳞蟒化形青蛟应被地点要求拦截');
 
   G.Beasts.release(s2, horse.uid);
@@ -2981,13 +2987,98 @@ step(() => {
   const acted = b.logs.slice(b.__logs0 || 0).some(function (l) { return l.indexOf(b.beast.name) >= 0; });
   if (!acted) errors.push('出战兽未在回合中自主行动');
   const ind = G.Beasts.byUid(s, s.beastTeam[0]);
-  const bond0 = ind.bond, xp0 = ind.xp;
+  const bond0 = ind.bond, xp0 = ind.xp, gl0 = ind.gl;
   b.es.forEach(function (e) { e.hp = 0; });
   b._victory();
   if (ind.bond !== Math.min(100, bond0 + 2)) errors.push('胜利未给出战兽 +2 亲密度');
-  if (ind.xp < xp0 + 20) errors.push('胜利未给出战兽修为');
+  /* +20 修为在早期小阶会立即转成 gl 增长（消耗 xp），按 gl/xp 任一增长判定 */
+  if (ind.gl <= gl0 && ind.xp < xp0 + 20) errors.push('胜利未给出战兽修为（gl/xp 均未增）');
 }, 'beasts.battle.victory');
 pump(20);
+
+/* ---------- B4 骑乘作战契约（《灵兽 v1.1》§6.4） ----------
+   ① 战骑 both：人车一体（+20% 攻防血、首轮冲阵 1.5×、坐骑承担 20% 伤害、独立 HP）；
+   ② 坐骑 HP 归零强制下马、加成收回；③ 普通 mount：阵前自动下马、保留首轮骑兵先手。 */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 37;
+  const rr = G.Beasts.add(s, 'b_bilinmang', { gl: 37, stage: 'adult' });
+  if (!rr.ok) { errors.push('测试碧鳞蟒未能入栏：' + rr.reason); return; }
+  const rd = G.Beasts.setRide(s, rr.beast.uid);
+  if (!rd.ok) { errors.push('碧鳞蟒骑乘失败：' + rd.reason); return; }
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 37, '青纹蛇'), mapId: 'field' });
+  G.game.scene.es.forEach(function (e) { e.maxhp = 99999; e.hp = 99999; });
+}, 'beasts.mount.enter');
+pump(10);
+step(() => {
+  const b = G.game.scene;
+  if (!b.mount) { errors.push('战骑未进骑乘作战（mount 为空）'); return; }
+  if (b.beast) errors.push('骑乘优先时不该再有独立出战兽');
+  const cst = G.Beasts.combatStat(G.Beasts.byUid(G.game.save, G.game.save.riding.uid));
+  const wantA = Math.round(cst.atk * 0.2), wantD = Math.round(cst.def * 0.2), wantH = Math.round(cst.hp * 0.2);
+  if (b._mountBonus.atk !== wantA || b._mountBonus.def !== wantD || b._mountBonus.hp !== wantH)
+    errors.push('骑乘 20% 加成数值不对');
+  if (!(b._effSpd(b.p) > 10000)) errors.push('首轮骑兵未取得先手');
+  b._playerAction({ kind: 'atk', mult: 1.0, elem: b.p.elem, n: '攻击', cost: 0 }, b.es[0].key);
+}, 'beasts.mount.charge');
+pump(160, 'beasts.mount.resolve');
+step(() => {
+  const b = G.game.scene;
+  if (!b.mount) { errors.push('冲阵后坐骑仍应在场'); return; }
+  if (!b._chargeUsed) errors.push('首轮冲阵未被标记/触发');
+  const mhp0 = b.mount.hp;
+  b._impact('P', { dmg: 100, crit: false, ec: 1 });
+  if (!b.mount) { errors.push('100 伤害不该直接打死坐骑'); return; }
+  const share = mhp0 - b.mount.hp;
+  if (share !== Math.round(100 * 0.2)) errors.push('坐骑应承担 20% 伤害（20），实际 ' + share);
+}, 'beasts.mount.share');
+pump(20);
+step(() => {
+  const b = G.game.scene;
+  const atk0 = b.p.atk, def0 = b.p.def, mhpP = b.p.maxhp;
+  b.mount.hp = 1;
+  b._impact('P', { dmg: 10, crit: false, ec: 1 });
+  if (b.mount) errors.push('坐骑 HP 归零应强制下马');
+  if (G.game.save.riding) errors.push('强制下马应清存档 riding');
+  if (!(b.p.atk < atk0 && b.p.def < def0 && b.p.maxhp < mhpP))
+    errors.push('下马后 20% 加成应收回');
+}, 'beasts.mount.dismount');
+pump(20);
+
+/* ---------- 普通坐骑阵前自动下马契约 ---------- */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 29;
+  const rr = G.Beasts.add(s, 'b_huangzongma', { gl: 29, stage: 'adult' });
+  const rd = G.Beasts.setRide(s, rr.beast.uid);
+  if (!rd.ok) { errors.push('成年马骑乘失败：' + rd.reason); return; }
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 1, '青纹蛇'), mapId: 'field' });
+  const b = G.game.scene;
+  if (b.mount) errors.push('普通坐骑不该进入骑乘作战');
+  if (s.riding) errors.push('普通坐骑遇敌应自动下马');
+  if (!b._cavalryFirst) errors.push('自动下马应保留首轮骑兵先手');
+}, 'beasts.mount.autodown');
+pump(10);
+
+/* ---------- B5 御空骑术门禁契约（金丹可学；飞行坐骑需御空） ---------- */
+step(() => {
+  const s = JSON.parse(JSON.stringify(save));
+  s.rideSkill = { land: false, air: false };
+  s.globalLevel = 108;
+  if (G.Player.canFly(s)) errors.push('gl108 未到金丹，不可飞/不可学御空');
+  s.globalLevel = 109;
+  if (!G.Player.canFly(s)) errors.push('金丹 gl109 应可飞/可学御空');
+  const rr = G.Beasts.add(s, 'b_yundingxianhe', { gl: 377, stage: 'adult' });
+  if (!rr.ok) { errors.push('云顶仙鹤入栏失败：' + rr.reason); return; }
+  s.rideSkill.air = false;
+  if (G.Beasts.setRide(s, rr.beast.uid).ok) errors.push('未习御空不应骑飞行坐骑');
+  s.rideSkill.air = true;
+  const okr = G.Beasts.setRide(s, rr.beast.uid);
+  if (!okr.ok) errors.push('习御空后应可骑飞行坐骑：' + okr.reason);
+}, 'beasts.air.gate');
+pump(10);
 
 /* ---------- 妖囊野外收服契约（design B3，《御兽 v0.2》§2） ----------
    ① 打残+妖囊收服入栏写图鉴；② 人形不可收服；③ 栏满不耗囊；④ 成败耗囊 */
@@ -3111,10 +3202,10 @@ step(function () {
   };
   const meta0 = { progress: { worlds: {} } };
   if (P.canFoundSect(mk({}), meta0).ok) errors.push('条件全不满足时不该能开宗');
-  if (P.canFoundSect(mk({ globalLevel: 54, stone: 50000, sectRep: 0 }), meta0).ok) {
+  if (P.canFoundSect(mk({ globalLevel: 216, stone: 50000, sectRep: 0 }), meta0).ok) {
     errors.push('声望不足时不该能开宗');
   }
-  if (!P.canFoundSect(mk({ globalLevel: 54, stone: 50000, sectRep: 300 }), meta0).ok) {
+  if (!P.canFoundSect(mk({ globalLevel: 216, stone: 50000, sectRep: 300 }), meta0).ok) {
     errors.push('三条件满足时应能开宗');
   }
   if (!P.canFoundSect(mk({ stone: 50000, sectRep: 300 }),
@@ -3122,7 +3213,7 @@ step(function () {
     errors.push('已飞升灵界时应可豁免境界门槛');
   }
 
-  const s2 = mk({ globalLevel: 54, stone: 50000, sectRep: 300 });
+  const s2 = mk({ globalLevel: 216, stone: 50000, sectRep: 300 });
   const meta2 = { progress: { worlds: {} } };
   G.game.save = s2;
   const r = P.foundSect(s2, meta2, '青云宗', '缠藤指');
@@ -3159,118 +3250,322 @@ step(function () {
   if (s4.bounty) errors.push('领赏后应清空在身悬赏');
 }, 'sect.found.contract');
 
-/* ---------- 宗门山门契约（v0.42.0） ----------
-   用户口径：「凡界不是有 9 个宗门吗，五个小宗门，四个大宗门吗，一并孵化完成」。
-   ① 凡界 9 宗门**各有一间山门场景**（`sect_<id>`），地图与场景都要在
-   ② 山门里**必须能走出去** —— 没出口等于把玩家关在屋里（最难查的一类）
-   ③ 四件功能家具齐全：拜师台 / 传功殿 / 贡献堂 / 香案
-   ④ 每个宗门都要有山门**挂在它所在的区域里**（数据对但没摆上去 = 玩家找不到）
-   ⑤ 真的能走进去，且山门记得住自己属于哪一门 */
+/* ---------- 采集点契约（四大技艺批1，《四大技艺 v1.0》§3.1/§3.2） ----------
+   ① 室外图有采集点、材料名合法；② 当日采集入包一次、再踩不重复；③ 跨日重置。 */
 step(function () {
-  const SH = G.Data.sectHalls;
-  if (!SH) { errors.push('G.Data.sectHalls 缺失'); return; }
-  const mid2Target = function (id) { return 'sect_' + id; };
+  const s = JSON.parse(JSON.stringify(save));
+  s.items = {}; s.gather = {}; s.day = 1;
+  G.game.save = s;
+  const map = G.MapGen.buildMap(s, 'field');
+  const nodes = Object.keys(map.gatherNodes || {}).map(function (k) { return map.gatherNodes[k]; });
+  if (nodes.length !== 4) { errors.push('野外图应有 4 采集点，实际 ' + nodes.length); return; }
+  nodes.forEach(function (n) { if (!G.Gather.byName(n.mat)) errors.push('采集点材料名非法：' + n.mat); });
+  const n0 = nodes[0];
+  G.Gather.gatherAt(s, 'field', n0);
+  if ((s.items[n0.mat] || 0) !== 1) errors.push('采集未入包');
+  G.Gather.gatherAt(s, 'field', n0);
+  if ((s.items[n0.mat] || 0) !== 1) errors.push('当日重复采集了');
+  if (!G.Gather.gatheredToday(s, 'field', n0)) errors.push('当日应标记已采');
+  G.Gather.advanceDay(s);
+  if (G.Gather.gatheredToday(s, 'field', n0)) errors.push('跨日应重置采集点');
+}, 'gather.contract');
+
+/* ---------- 炼丹契约（四大技艺批2，《四大技艺 v1.0》§3.3） ----------
+   材料/境界双门槛、炼制扣材料、丹药入包。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.items = {}; s.globalLevel = 37;
+  G.game.save = s;
+  const r1 = G.Alchemy.recipes.filter(function (r) { return r.n === '回春丹'; })[0];
+  if (G.Alchemy.canCraft(s, r1).ok) errors.push('无材料不该可炼');
+  s.items['凝血草'] = 2; s.items['灵泉水'] = 1;
+  if (!G.Alchemy.canCraft(s, r1).ok) errors.push('材料足应可炼');
+  const before = s.items['凝血草'];
+  const res = G.Alchemy.craft(s, r1);
+  if (!res.ok) errors.push('炼制失败：' + res.reason);
+  if ((s.items['凝血草'] || 0) !== before - 2) errors.push('炼制未扣材料');
+  if (!(s.items['回春丹'] >= 1)) errors.push('丹药未入包');
+  const rDao = G.Alchemy.recipes.filter(function (r) { return r.n === '道纹丹'; })[0];
+  s.globalLevel = 37; s.items['道纹草'] = 5; s.items['道纹矿'] = 5;
+  if (G.Alchemy.canCraft(s, rDao).ok) errors.push('境界不足不该炼道纹丹');
+}, 'alchemy.contract');
+
+/* ---------- 炼器契约（四大技艺批3，《四大技艺 v1.0》§3.4/§3.5/§3.7） ----------
+   锻造扣材料、产物为三槽法宝、未装备0加成、装备后进 te；配方材料皆有来源；掉落率。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.items = {}; s.globalLevel = 37; s.equip = { weapon: null, armor: null, accessory: null };
+  G.game.save = s;
+  const rQing = G.Forge.recipes.filter(function (r) { return r.out === 'eq_qingfeng'; })[0];
+  if (G.Forge.canForge(s, rQing).ok) errors.push('无材料不该可锻');
+  s.items['玄铁'] = 3; s.items['精钢'] = 2;
+  const base = G.Player.computeStats(s).atk;
+  const res = G.Forge.forge(s, rQing);
+  if (!res.ok) errors.push('锻造失败：' + res.reason);
+  if ((s.items['eq_qingfeng'] || 0) !== 1) errors.push('法宝未入包');
+  if (G.Player.computeStats(s).atk !== base) errors.push('未装备的锻造法宝不该加属性');
+  s.equip.weapon = 'eq_qingfeng';
+  if (!(G.Player.computeStats(s).atk > base)) errors.push('装备锻造武器后攻击应提升');
+  G.Forge.recipes.forEach(function (r) {
+    Object.keys(r.mats).forEach(function (m) {
+      const isDrop = ['妖丹','兽皮','妖骨','灵羽','血精','道纹残片'].indexOf(m) >= 0;
+      if (!G.Gather.byName(m) && !isDrop) errors.push('炼器材料无来源：' + m);
+    });
+  });
+  let got = 0;
+  for (let i = 0; i < 2000; i++) { const t = { items: {} };
+    G.Gather.rollDrops(t, [{ species: '青狼', name: '青狼' }], {}).forEach(function (g) { if (g.item === '兽皮') got += g.n; }); }
+  if (got < 100) errors.push('兽皮掉落率异常：' + got);
+  let fly = 0;
+  for (let i = 0; i < 2000; i++) { const t = { items: {} };
+    G.Gather.rollDrops(t, [{ species: '苍鹰', name: '苍鹰' }], {}).forEach(function (g) { if (g.item === '灵羽') fly += g.n; }); }
+  if (fly < 50) errors.push('灵羽掉落率异常：' + fly);
+  let dao = 0;
+  for (let i = 0; i < 1000; i++) { const t = { items: {} };
+    G.Gather.rollDrops(t, [{ species: '道兽', name: '道兽' }], { dao: true }).forEach(function (g) { if (g.item === '道纹残片') dao += g.n; }); }
+  if (dao < 100) errors.push('道纹残片掉落率异常：' + dao);
+}, 'forge.contract');
+
+/* ---------- 阵法契约（四大技艺批4，《四大技艺 v1.0》§3.5） ----------
+   主城/宗门/仙界/道界分际获取、购阵扣财、聚宝采集+1、聚灵灵气、静心破境、道纹仅道界。 */
+step(function () {
+  const b0 = JSON.parse(JSON.stringify(save));
+  let s = JSON.parse(JSON.stringify(b0));
+  s.items = {}; s.formations = {}; s.stone = 200000; s.sectRep = 0; s.sectId = null;
+  const mFan = { progress: { activeWorld: 'fan' } };
+  const mLing = { progress: { activeWorld: 'ling' } };
+  const mXian = { progress: { activeWorld: 'xian' } };
+  const mDao = { progress: { activeWorld: 'dao' } };
+  if (G.Formations.availability(s, mFan, G.Formations.byId('juling')).ok) errors.push('凡界不可购聚灵阵');
+  if (!G.Formations.availability(s, mLing, G.Formations.byId('juling')).ok) errors.push('灵界灵石足应可购聚灵阵');
+  if (G.Formations.availability(s, mFan, G.Formations.byId('yushou')).ok) errors.push('无宗门不可购御兽阵');
+  s.sectId = 'qxj'; s.sectRep = 500;
+  let r = G.Formations.buy(s, mFan, 'jubao');
+  if (!r.ok) errors.push('宗门贡献足应购聚宝阵：' + r.reason);
+  s.gather = {}; s.day = 1;
+  G.Gather.gatherAt(s, 'field', { idx: 9, mat: '凝血草' });
+  if ((s.items['凝血草'] || 0) !== 2) errors.push('聚宝阵应使采集 +1，实 ' + (s.items['凝血草'] || 0));
+  if (G.Formations.buy(s, mFan, 'jubao').ok) errors.push('已持有不可再购');
+  s.sectRep = 2000;
+  if (G.Formations.availability(s, mLing, G.Formations.byId('jusha')).ok) errors.push('聚煞阵需仙界');
+  if (!G.Formations.availability(s, mXian, G.Formations.byId('jusha')).ok) errors.push('仙界贡献足应可购聚煞阵');
+  let s2 = JSON.parse(JSON.stringify(b0)); s2.items = {}; s2.formations = { juling: true }; s2.globalLevel = 37;
+  let s3 = JSON.parse(JSON.stringify(s2)); s3.formations = {};
+  if (!(G.Player.rates(s2).qi > G.Player.rates(s3).qi)) errors.push('聚灵阵应提升灵气获取');
+  let s4 = JSON.parse(JSON.stringify(b0)); s4.formations = { jingxin: true }; s4.globalLevel = 72; s4.items = { 筑基丹: 1 };
+  let s5 = JSON.parse(JSON.stringify(s4)); s5.formations = {};
+  if (!(G.Player.breakChance(s4, mFan).total > G.Player.breakChance(s5, mFan).total)) errors.push('静心阵应提升破境成功率');
+  let s6 = JSON.parse(JSON.stringify(b0)); s6.formations = { daowen: true }; s6.globalLevel = 600;
+  if (!(G.Player.computeStats(s6, mDao).atk > G.Player.computeStats(s6, mFan).atk)) errors.push('道纹阵应仅在道界加属性');
+}, 'formation.contract');
+
+/* ---------- 灵田矿脉契约（四大技艺批5，《四大技艺 v1.0》§3.5） ----------
+   地块当日一次、按类别/界出产、跨日重置；道界药圃产道纹草。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.items = {}; s.gather = {}; s.day = 1; s.sectId = 'qxj';
+  G.game.save = s;
+  const r1 = G.Gather.harvestPlot(s, 'plot1', ['herb'], 'fan');
+  if (!r1.ok) errors.push('凡界药圃应可收');
+  if (G.Gather.harvestPlot(s, 'plot1', ['herb'], 'fan').ok) errors.push('当日同地块不应重复收');
+  if (!G.Gather.harvestPlot(s, 'plot2', ['ore'], 'fan').ok) errors.push('凡界矿脉应可收');
+  let oreOk = false;
+  Object.keys(s.items).forEach(function (k) { const m = G.Gather.byName(k); if (m && m.cat === 'ore') oreOk = true; });
+  if (!oreOk) errors.push('矿脉应产出矿石类材料');
+  s.day = 2;
+  if (!G.Gather.harvestPlot(s, 'plot1', ['herb'], 'fan').ok) errors.push('跨日应可再收');
+  const s2 = JSON.parse(JSON.stringify(save)); s2.items = {}; s2.gather = {}; s2.day = 1;
+  for (let i = 0; i < 60; i++) G.Gather.harvestPlot(s2, 'p' + i, ['herb'], 'dao');
+  if (!s2.items['道纹草']) errors.push('道界药圃应产道纹草');
+}, 'fields.contract');
+
+/* ---------- R3 区域建筑服务契约（路线图 R3） ---------- */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s; G.game.meta = {};
+  s.globalLevel = 1; s.stone = 100; s.day = 3; s.hp = 1;
+  if (G.RegionServices.innPrice(s) !== 30) errors.push('凡界初境房资应为 30');
+  const cap = G.Player.computeStats(s).maxhp;
+  G.RegionServices.innRest({});
+  if (s.hp !== cap) errors.push('投宿应气血全复');
+  if (s.day !== 4) errors.push('投宿应跨游戏日');
+  if (s.stone !== 70) errors.push('投宿应扣 30 灵石');
+  s.stone = 5; G.RegionServices.innRest({});
+  if (s.stone !== 5) errors.push('灵石不足不应扣费');
+  G.game.meta = { progress: { activeWorld: 'ling' } };
+  if (G.RegionServices.innPrice(s) !== 300) errors.push('灵界房资应为 300');
+}, 'inn.contract');
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s; G.game.meta = {};
+  G.RegionGen.ensure(s, 'fan4');
+  const rmd = G.Data.maps['fan4'];
+  const st = rmd.structures.filter(function (x) { return x.bk === 'shop'; })[0];
+  const iid = 'int.fan4.' + st.id;
+  G.InteriorGen.ensure(s, iid, st, G.Data.regions.byId('fan4'));
+  const sc = G.scenes[iid];
+  G.ShopService.open(sc, 'shop');
+  if (sc.overlay !== 'shop.buy') errors.push('商店应进入买入态');
+  if (!G.Data.shops.catalog('fan','shop').some(function (x) { return x.id === '回春丹'; })) errors.push('凡界坊市应有回春丹');
+  if (!G.Data.shops.catalog('fan','apothecary').some(function (x) { return x.id === '凝血草'; })) errors.push('凡界药铺应有凝血草');
+  if (!G.Data.shops.catalog('dao','shop').some(function (x) { return x.id === '道纹丹'; })) errors.push('道界坊市应有道纹丹');
+  if (G.Data.shops.sellValue('回春丹') !== 20) errors.push('回收价应为目录半价');
+  s.stone = 1000; G.ShopService.open(sc, 'shop');
+  const before = s.items['回春丹'] || 0;
+  sc.buttons.filter(function (b) { return b.label === '购买'; })[0].onClick();
+  if ((s.items['回春丹'] || 0) !== before + 1) errors.push('购买应 +1');
+  if (s.stone !== 960) errors.push('购买应扣 40 灵石');
+  s.items['玄铁'] = 2;
+  sc.buttons.filter(function (b) { return b.label.replace(/\s/g,'') === '卖出'; })[0].onClick();
+  if (sc.overlay !== 'shop.sell') errors.push('应进入卖出态');
+  const val = G.Data.shops.sellValue('玄铁'), st0 = s.stone;
+  const sidx = Object.keys(s.items).indexOf('玄铁');
+  sc.buttons.filter(function (b) { return b.label === '售出'; })[sidx].onClick();
+  if (s.stone !== st0 + val) errors.push('售出应加 ' + val);
+  if (s.items['玄铁'] !== 1) errors.push('售出应 -1');
+}, 'shop.contract');
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s; G.game.meta = {};
+  G.RegionGen.ensure(s, 'fan4');
+  const rmd = G.Data.maps['fan4'];
+  const st = rmd.structures.filter(function (x) { return x.bk === 'smithy'; })[0];
+  const iid = 'int.fan4.' + st.id;
+  G.InteriorGen.ensure(s, iid, st, G.Data.regions.byId('fan4'));
+  const sc = G.scenes[iid];
+  G.RegionServices.openForge(sc);
+  if (sc.overlay !== 'forge') errors.push('铁匠铺应开炼器面板，实际 ' + sc.overlay);
+}, 'forgeopen.contract');
+
+/* ---------- R5 道界伴生仙兽槽契约（路线图 R5） ---------- */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s; G.game.meta = {};
+  G.Beasts.add(s, 'b_qingwenshe', { gl: 1 });
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  G.Overlays.openPanel(sc, 'beasts');
+  let cb = sc.buttons.filter((b) => (b.label || '').indexOf('伴生') >= 0);
+  if (!cb.length) errors.push('兽栏详情应有伴生按钮');
+  else if (!cb[0].disabled) errors.push('无道之钥匙时伴生槽应锁定');
+  G.game.meta.progress = { daoKey: true };
+  G.Overlays.openPanel(sc, 'beasts');
+  cb = sc.buttons.filter((b) => (b.label || '').indexOf('设为伴生') >= 0);
+  if (!cb.length) errors.push('有道钥后应可设为伴生');
+  else cb[0].onClick();
+  if (!(G.game.meta.companionBeast && G.game.meta.companionBeast.id)) errors.push('点击应写入 meta.companionBeast');
+  const s2 = JSON.parse(JSON.stringify(save));
+  G.Beasts.add(s2, 'b_qingwenshe', { gl: 1 });
+  if (!s2.beasts.length) errors.push('境界折算到降世起点应能加入仙兽');
+}, 'companion.contract');
+
+/* ---------- 宗门小世界契约（R1，《宗门小世界 v1.0》） ----------
+   ① 凡界 9 宗门 live 集群：大宗 4 栋（山门/主殿/传功/贡献）、小宗 3 栋（山门/主殿/传功）；
+   ② 从山门 BFS 经门可达全部 live 房间；山门有通往外界的门；
+   ③ 每栋焦点家具可达；④ 山门真的摆进所在区域，走得进去、穿到主殿、也出得来。 */
+step(function () {
+  const SG = G.SectGen;
+  if (!SG || !SG.liveOf) { errors.push('G.SectGen.liveOf 缺失'); return; }
   const fan = G.Data.sects.ofWorld('fan');
   if (fan.length !== 9) errors.push('凡界宗门应为 9，实际 ' + fan.length);
-  fan.forEach(function (s) {
-    const mid = 'sect_' + s.id;
-    const m = G.Data.maps[mid];
-    if (!m) { errors.push('缺山门地图：' + mid); return; }
-    if (!G.scenes[mid]) errors.push('缺山门场景：' + mid);
-    if (!(m.exits || []).length) errors.push(mid + ' 没有出口（玩家会被关在屋里）');
-    const acts = (m.furn || []).map(function (f) { return f.act; });
-    ['join', 'learn', 'shop', 'rest'].forEach(function (a) {
-      if (acts.indexOf(a) < 0) errors.push(mid + ' 缺功能家具：' + a);
+
+  fan.forEach(function (sc) {
+    const cl = SG.liveOf(save, sc.id);
+    if (!cl) { errors.push('缺 live 集群：' + sc.id); return; }
+    const expectRoles = sc.size === 'big'
+      ? ['gate', 'hall', 'chuangong', 'gongxian', 'houshan']
+      : ['gate', 'hall', 'chuangong', 'houshan'];
+    if (cl.roles.length !== expectRoles.length)
+      errors.push(sc.n + ' live 房间数应为 ' + expectRoles.length + '，实际 ' + cl.roles.length);
+    expectRoles.forEach(function (r) {
+      if (cl.roles.indexOf(r) < 0) errors.push(sc.n + ' 缺 live 房间：' + r);
     });
-    /* 家具**要"走得到"才能用** —— 摆得再好看，四周全是实心/走不过去 = 白摆。
-       （第一版把「传功殿」摆在 x=4，虽然可达，但被左侧任务追踪栏整块盖住；
-         那种"看不见"是**几何**问题、这里查不出，只能靠截图 —— 已记在 secthalls.js 注释里。） */
-    const mp3 = G.MapGen.buildMap(save, mid);
-    const reach3 = bfsReach(mp3, m.spawn);
-    (m.furn || []).forEach(function (f) {
-      if (!f.act) return;
-      /* ⚠️ 只认**正交**相邻：交互是"站在旁边面向它按交互"，斜角站不住。
-         第一版用 3×3 邻域（含斜角）→ 反例验证时"把香案塞进墙角"照样通过（空断言）。 */
-      let adj = false;
-      for (let y = f.y; y < f.y + (f.h || 1); y++) {
-        for (let x = f.x; x < f.x + (f.w || 1); x++) {
-          [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
-            const nx = x + d[0], ny = y + d[1];
-            if (nx < 0 || ny < 0 || nx >= mp3.w || ny >= mp3.h) return;
-            if (mp3.solid[ny][nx]) return;
-            if (reach3[nx + ',' + ny]) adj = true;
-          });
+
+    const gateId = SG.roomId(sc.id, 'gate');
+    const adj = {};
+    cl.rooms.forEach(function (rm) {
+      const mp = G.MapGen.buildMap(save, rm.id);
+      (rm.exits || []).forEach(function (e) {
+        for (let x = e.x0; x <= e.x1; x++) {
+          if (mp.solid[e.y][x]) errors.push(rm.id + ': 门格 (' + x + ',' + e.y + ') 被堵');
         }
-      }
-      if (!adj) {
-        errors.push(mid + ': 家具 ' + f.id + '（' + (f.label || '') + '）四周没有可达的落脚点');
-      }
+        adj[rm.id] = adj[rm.id] || [];
+        if (e.to.indexOf('sect.') === 0) adj[rm.id].push(e.to);
+      });
+      const reach = bfsReach(mp, rm.spawn);
+      (rm.furn || []).filter(function (f) { return f.act; }).forEach(function (f) {
+        let ok = false;
+        for (let yy = f.y; yy < f.y + (f.h || 1); yy++) {
+          for (let xx = f.x; xx < f.x + (f.w || 1); xx++) {
+            [[1,0],[-1,0],[0,1],[0,-1]].forEach(function (d) {
+              const nx = xx + d[0], ny = yy + d[1];
+              if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) return;
+              if (mp.solid[ny][nx]) return;
+              if (reach[nx + ',' + ny]) ok = true;
+            });
+          }
+        }
+        if (!ok) errors.push(rm.id + ': 焦点 ' + (f.label || f.id) + ' 无可达落脚点');
+      });
     });
-    const gates = SH.gatesOfRegion(s.region);
-    if (!gates.some(function (g) { return g.sectId === s.id; })) {
-      errors.push('宗门 ' + s.n + ' 在区域 ' + s.region + ' 没有山门');
+
+    const seen = {}; const qq = [gateId]; seen[gateId] = 1;
+    while (qq.length) {
+      const cur = qq.shift();
+      (adj[cur] || []).forEach(function (nx) { if (!seen[nx]) { seen[nx] = 1; qq.push(nx); } });
     }
-    /* ⚠️ 只查 `gatesOfRegion` 是**空断言** —— 那是"数据层说该有这么一门"，
-       而玩家能不能找到，取决于**这一门有没有真的摆进那张地图**。
-       所以这里把区域地图真的建一遍，找"通往 sect_<id> 的 gate 交互点"。
-       手写图（fan1=town / fan2=field）走 `structures`，生成图走 regiongen —— 两边都得有。 */
-    const reg = G.Data.regions.byId ? G.Data.regions.byId(s.region) : null;
-    const rmap = (reg && reg.map) || s.region;
-    if (!G.Data.maps[rmap]) {
-      errors.push('宗门 ' + s.n + ' 所在区域 ' + s.region + ' 没有地图 ' + rmap);
-    } else {
-      const mp2 = G.MapGen.buildMap(save, rmap);
+    cl.rooms.forEach(function (rm) { if (!seen[rm.id]) errors.push(sc.n + ': ' + rm.id + ' 从山门不可达'); });
+
+    const gateRm = cl.rooms.filter(function (r) { return r.sectRoom === 'gate'; })[0];
+    const reg = G.Data.regions.byId ? G.Data.regions.byId(sc.region) : null;
+    const outside = (reg && reg.map) || sc.region;
+    if (!(gateRm.exits || []).some(function (e) { return e.to === outside; }))
+      errors.push(sc.n + ' 山门缺通往外界（' + outside + '）的门');
+
+    if (G.Data.maps[outside]) {
+      const mp2 = G.MapGen.buildMap(save, outside);
       let placed = false;
       Object.keys(mp2.interact).forEach(function (k) {
         const o = mp2.interact[k];
-        if (o.type === 'gate' && o.s && o.s.to === mid2Target(s.id)) placed = true;
+        if (o.type === 'gate' && o.s && o.s.to === gateId) placed = true;
       });
-      if (!placed) {
-        errors.push('宗门 ' + s.n + ' 的山门没摆进地图 ' + rmap
-          + '（数据有、地图上没有 = 玩家找不到）');
-      }
+      if (!placed) errors.push(sc.n + ' 的山门没摆进地图 ' + outside);
     }
   });
-  G.game.changeScene('sect_qxj', { toSpawn: true });
-  if (G.game.sceneName !== 'sect_qxj') { errors.push('进不去 sect_qxj'); return; }
-  if (G.game.scene.map.md.sectId !== 'qxj') errors.push('山门没记住是哪一门');
 
-  /* ⚠️ **"山门摆在图上" ≠ "点了能进去"** —— 真的走一遍：
-     站在门格正下方、面朝上、按交互（与 playthrough 的 interactAt 同一套动作）。
-     只查"地图上有个 gate 交互点"是**空断言**（登记了但 `_interact` 不认，
-     表现就是"点了没反应"，而它不报错）。 */
-  /* ⚠️ **必须先把 `G.game.save` 还原成这条契约用的 save** ——
-     前面的契约（quest.branch / sect.found / icon.root…）会把 `G.game.save`
-     换成克隆体，而 `explore._interact` 读的是 **`G.game.save`** 而不是这里的 `save`。
-     不还原的话：`save.pos` 设了、`G.game.save.pos` 还是老的 → 站到了别的格子上，
-     `_interact` 找不到交互点就**静默 return**（不抛异常），契约只报"没进去"。
-     这就是"点了个空气"—— 最容易误判成"游戏坏了"的一类假红。 */
   G.game.save = save;
   G.game.changeScene('town', { toSpawn: true });
   const tsc = G.game.scene;
   const gk = Object.keys(tsc.map.interact).filter(function (k) {
     const o = tsc.map.interact[k];
-    return o.type === 'gate' && o.s && o.s.to === 'sect_qxj';
+    return o.type === 'gate' && o.s && o.s.to === 'sect.qxj.gate';
   })[0];
-  if (!gk) { errors.push('青溪镇里找不到通往 sect_qxj 的山门交互点'); return; }
+  if (!gk) { errors.push('青溪镇找不到通往小世界的山门交互点'); return; }
   const gp = gk.split(',').map(Number);
   tsc.overlay = null; tsc.dir = 'up';
   save.pos = { x: gp[0], y: gp[1] + 1 };
   tsc._interact();
-  if (G.game.sceneName !== 'sect_qxj') {
-    errors.push('在青溪镇点山门没有进去（当前 ' + G.game.sceneName + '）');
+  if (G.game.sceneName !== 'sect.qxj.gate') {
+    errors.push('点山门没进入小世界（当前 ' + G.game.sceneName + '）'); return;
   }
-  /* 进门之后要能出门（山门不是单向陷阱）。
-     ⚠️ 出口走的是 **`_onEnterTile`（踩上去即切图）**，不是"按交互"——
-     用 `_interact` 测出口是**测错了入口**（会报"出不来"的假红）。 */
-  const hsc = G.game.scene;
-  const ex = (G.Data.maps.sect_qxj.exits || [])[0];
-  if (!ex) { errors.push('sect_qxj 没有出口'); return; }
-  hsc._onEnterTile(ex.x0, ex.y);
-  if (G.game.sceneName !== 'town') {
-    errors.push('从 sect_qxj 出不来（当前 ' + G.game.sceneName + '）');
+  const gsc = G.game.scene;
+  const toHall = (gsc.map.md.exits || []).filter(function (e) { return e.to === 'sect.qxj.hall'; })[0];
+  if (!toHall) { errors.push('山门缺通往主殿的门'); return; }
+  gsc._onEnterTile(toHall.x0, toHall.y);
+  if (G.game.sceneName !== 'sect.qxj.hall') {
+    errors.push('山门没能走进主殿（当前 ' + G.game.sceneName + '）'); return;
   }
-}, 'sect.hall.contract');
+  const hsc2 = G.game.scene;
+  const backGate = (hsc2.map.md.exits || []).filter(function (e) { return e.to === 'sect.qxj.gate'; })[0];
+  if (!backGate) { errors.push('主殿缺回山门的门'); return; }
+  hsc2._onEnterTile(backGate.x0, backGate.y);
+  if (G.game.sceneName !== 'sect.qxj.gate') { errors.push('主殿回不到山门'); return; }
+  const gsc2 = G.game.scene;
+  const out = (gsc2.map.md.exits || []).filter(function (e) { return e.to === 'town'; })[0];
+  if (!out) { errors.push('山门缺回青溪镇的门'); return; }
+  gsc2._onEnterTile(out.x0, out.y);
+  if (G.game.sceneName !== 'town') errors.push('从小世界出不来（当前 ' + G.game.sceneName + '）');
+}, 'sect.world.contract');
 
 /* ---------- 灵根 / 材料图标接线契约（v0.40.0） ----------
    ① 属性 → 拼音是**唯一口径**：10 个属性（9 + 无）都要有映射
@@ -3768,7 +4063,7 @@ step(function () {
      那样只能测到函数，测不出"入口通不通"。 */
   const s0 = JSON.parse(JSON.stringify(save));
   s0.cult = 'free'; s0.sectId = null; s0.sectRep = 0; s0.cultSwitchUsed = false;
-  s0.globalLevel = 20;                                     /* 过试炼门槛（炼气一段） */
+  s0.globalLevel = 37;                                     /* 过试炼门槛（炼气一重初期） */
   s0.skills = {}; s0.skills[freeSkill] = { lv: 2, voided: false };
   s0.skills[commonSkill] = { lv: 1, voided: false };
   s0.skillEquip = [freeSkill, commonSkill];
@@ -3778,8 +4073,12 @@ step(function () {
   const sc = G.game.scene;
   G.Overlays.openPanel(sc, 'sect');
   if (sc.overlay !== 'sect') { errors.push('宗门面板打不开'); return; }
+  /* 散修默认落在「散修」子页，先切到「宗门」子页才有拜入按钮 */
+  const sectTabBtn = (sc.buttons || []).filter(function (b) { return b.label === '宗门'; })[0];
+  if (!sectTabBtn) { errors.push('势力面板缺「宗门」子页签'); return; }
+  sectTabBtn.onClick();
   const joinBtn = (sc.buttons || []).filter(function (b) { return /拜入/.test(b.label || ''); })[0];
-  if (!joinBtn) { errors.push('宗门面板没有「拜入」按钮（散修态）'); return; }
+  if (!joinBtn) { errors.push('宗门子页没有「拜入」按钮（散修态）'); return; }
   const wantSect = joinBtn.label.replace('拜入 ', '');
   joinBtn.onClick();
   if (G.game.sceneName !== 'battle') {
@@ -4161,7 +4460,7 @@ step(function () {
   });
   /* 血面：固定 L19 面板 + 40% 狂暴 */
   const xm = E.makeXuemian();
-  if (xm.level !== 19) errors.push('血面 等级应为 19，实际 ' + xm.level);
+  if (xm.level !== 73) errors.push('血面 境界应为 gl73（筑基起点），实际 ' + xm.level);
   if (!xm.boss) errors.push('血面 应标 boss（影响立绘尺寸与「首领战」标签）');
   [['maxhp', 480], ['atk', 38], ['def', 18], ['spd', 18]].forEach(function (p) {
     if (xm[p[0]] !== p[1]) errors.push('血面 ' + p[0] + ' 应为 ' + p[1] + '，实际 ' + xm[p[0]]);
@@ -4260,7 +4559,7 @@ step(function () {
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'm1-1', flags: {} };
   s.bossKilled = true;
-  s.globalLevel = 15; s.maxGlobalLevel = 15;
+  s.globalLevel = 57; s.maxGlobalLevel = 57;
   s.stone = 3000; s.items = { 妖丹: 5, 回春丹: 2 };
   s.skills = {};                    /* 清空，好验"沈伯赠了一本灵阶功法" */
   /* 灵根设成火：沈伯池里只有「赤焰心法」是火 —— 匹配集非空，才能验"匹配优先" */
@@ -4302,9 +4601,9 @@ step(function () {
   if (!b.es || !b.es.length || b.es[0].species !== '血煞教徒') {
     errors.push('m1-2：探子战敌人应为血煞教徒，实为 ' + (b.es[0] && b.es[0].species));
   }
-  /* 等级 = 本世 gl+1、上限 17（设计 §4 明写） */
-  if (b.es[0].level !== Math.min(17, s.globalLevel + 1)) {
-    errors.push('m1-2：探子战等级应为 min(17, gl+1)=' + Math.min(17, s.globalLevel + 1)
+  /* 境界 = 本世 gl+1、上限 68（新模型 battle.js） */
+  if (b.es[0].level !== Math.min(68, s.globalLevel + 1)) {
+    errors.push('m1-2：探子战境界应为 min(68, gl+1)=' + Math.min(68, s.globalLevel + 1)
       + '，实为 ' + b.es[0].level);
   }
   if (!b._noFlee()) errors.push('m1-2：剧情战必须禁逃（_noFlee() 为假）');
@@ -4315,16 +4614,16 @@ step(function () {
   if (!R().flags.probeWin) errors.push('m1-2：胜利未写 flags.probeWin');
   if (R().step !== 'm1-2') errors.push('m1-2：胜利后任务步不该变（抉择还没选），实为 ' + R().step);
 
-  /* 等级上限：主测试存档 gl=15 → min(17,16)=16，**验不出封顶**。
-     另开一场 gl=20 的逼出上限分支（设计 §4 明写"上限 17"）。
-     放在 _victory 之后：battle 是单例，再 enter 一次会把上面那场覆盖掉。 */
+  /* 境界上限：主存档 gl=57 → min(68,58)=58，验不出封顶。
+     另开一场 gl=70 逼出上限分支（battle.js 上限 68）。
+     放在 _victory 之后：battle 单例，再 enter 会覆盖上面那场。 */
   {
     const sCap = JSON.parse(JSON.stringify(s));
-    sCap.globalLevel = 20;
+    sCap.globalLevel = 70;
     G.game.save = sCap;
     G.game.changeScene('battle', { script: 'probe', mapId: 'town' });
-    if (G.game.scene.es[0].level !== 17) {
-      errors.push('m1-2：探子战等级未封顶 17，实为 ' + G.game.scene.es[0].level);
+    if (G.game.scene.es[0].level !== 68) {
+      errors.push('m1-2：探子战境界未封顶 68，实为 ' + G.game.scene.es[0].level);
     }
     G.game.save = s;
   }
@@ -4389,17 +4688,17 @@ step(function () {
   sc = G.game.scene;
   sc.clearOverlay();
 
-  /* —— m1-4 门槛：不到炼气六段不接活 —— */
+  /* —— m1-4 门槛：不到炼气六重初期(gl57)不接活 —— */
   G.game.changeScene('town_shop', { toSpawn: true });
   sc = G.game.scene;
-  s.globalLevel = 14;
+  s.globalLevel = 56;
   const before = JSON.stringify(s.items);
   faceAndInteract(sc, sbTown);
-  if (JSON.stringify(s.items) !== before) errors.push('m1-4 门槛失效：14 级就能拿到丹');
+  if (JSON.stringify(s.items) !== before) errors.push('m1-4 门槛失效：gl56 就能拿到丹');
   if (sc.overlay) { errors.push('m1-4 门槛不足时不该开面板'); sc.clearOverlay(); }
 
   /* —— m1-4 沈伯旧方：妖丹×3 + 灵石 600 —— */
-  s.globalLevel = 15;
+  s.globalLevel = 57;
   G.game.changeScene('town_shop', { toSpawn: true });
   sc = G.game.scene;
   faceAndInteract(sc, sbTown);
@@ -4417,7 +4716,7 @@ step(function () {
   const s2 = JSON.parse(JSON.stringify(s));
   s2.quest = { step: 'm1-4', flags: {} };
   s2.stone = 3000; s2.items = { 妖丹: 0 };
-  s2.globalLevel = 15;
+  s2.globalLevel = 57;
   G.game.save = s2;
   G.game.meta = Object.assign({}, G.game.meta, { life: 1 });
   G.game.changeScene('town_market', { toSpawn: true });
@@ -4446,15 +4745,15 @@ step(function () {
   }
   G.game.meta = Object.assign({}, G.game.meta, { life: 1 });
 
-  /* —— 丹名口径：炼气九段圆满要的是「筑基丹」—— */
-  if (G.Player.breakPill(18) !== '筑基丹') {
-    errors.push('炼气九段突破丹名应为「筑基丹」，实为 ' + G.Player.breakPill(18));
+  /* —— 丹名口径：炼气九重巅峰(gl72)要的是「筑基丹」—— */
+  if (G.Player.breakPill(72) !== '筑基丹') {
+    errors.push('炼气九重巅峰突破丹名应为「筑基丹」，实为 ' + G.Player.breakPill(72));
   }
-  if (G.Player.breakPill(9) !== '淬体突破丹') errors.push('淬体九段丹名被改坏了');
-  if (G.Player.breakPill(27) !== '筑基突破丹') errors.push('筑基九段丹名被改坏了');
+  if (G.Player.breakPill(36) !== '淬体突破丹') errors.push('淬体九重巅峰丹名被改坏了');
+  if (G.Player.breakPill(108) !== '结丹丹') errors.push('筑基九重巅峰丹名应为「结丹丹」，实为 ' + G.Player.breakPill(108));
   const bs = (function () {
     const t = JSON.parse(JSON.stringify(s));
-    t.globalLevel = 18; t.qi = 999999; t.items = {};
+    t.globalLevel = 72; t.qi = 999999; t.items = {};
     return G.Player.breakState(t);
   })();
   if (bs.pill !== '筑基丹') errors.push('breakState 在炼气圆满时应点名筑基丹');
@@ -4553,18 +4852,18 @@ step(function () {
   /* ========== ② m1-5 门槛与入夜演出 ========== */
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'm1-5', flags: { foundPill: true } };
-  s.globalLevel = 17; s.maxGlobalLevel = 17; s.items = { 筑基丹: 1 };
+  s.globalLevel = 71; s.maxGlobalLevel = 71; s.items = { 筑基丹: 1 };
   s.pos = null;
   G.game.save = s;
   G.game.changeScene('town_shop', { toSpawn: true });
   let sc = G.game.scene;
-  /* 17 级（炼气八段）不够门槛 → 不该开出面板 */
+  /* gl71（炼气九重后期）不够门槛 gl72 → 不该开出面板 */
   faceAndInteract(sc, sbTown);
-  if (sc.overlay) { errors.push('m1-5 门槛失效：17 级就开出了入夜面板'); sc.clearOverlay(); }
+  if (sc.overlay) { errors.push('m1-5 门槛失效：gl71 就开出了入夜面板'); sc.clearOverlay(); }
   if (sc.npcMarkOf(sbTown) !== null) errors.push('m1-5：未到门槛时沈伯不该挂 ！');
 
-  /* 18 级（炼气九段圆满）→ 挂 ！并开出面板 */
-  s.globalLevel = 18; s.maxGlobalLevel = 18;
+  /* gl72（炼气九重巅峰）→ 挂 ！并开出面板 */
+  s.globalLevel = 72; s.maxGlobalLevel = 72;
   G.game.changeScene('town_shop', { toSpawn: true });
   sc = G.game.scene;
   if (sc.npcMarkOf(sbTown) !== '!') errors.push('m1-5：到门槛后沈伯应挂 ！，实为 ' + sc.npcMarkOf(sbTown));
@@ -4655,7 +4954,7 @@ step(function () {
   const bx = G.game.scene;
   if (bx.params.script !== 'xuemian') errors.push('血面战 script 应为 xuemian，实为 ' + bx.params.script);
   if (bx.es[0].name !== '血面') errors.push('血面战敌人应为血面，实为 ' + bx.es[0].name);
-  if (bx.es[0].level !== 19) errors.push('血面应固定 L19，实为 ' + bx.es[0].level);
+  if (bx.es[0].level !== 73) errors.push('血面应固定 gl73，实为 ' + bx.es[0].level);
   if (!bx.es[0].boss) errors.push('血面应带 boss 标记');
   if (!(bx.es[0].maxhp < 480)) {
     errors.push('护沈伯先走时血面应带伤开局（maxhp < 480），实为 ' + bx.es[0].maxhp);
@@ -4730,7 +5029,7 @@ step(function () {
   {
     const s6 = JSON.parse(JSON.stringify(sB));
     s6.quest = { step: 'm1-6', flags: { bloodNight: true, elderDead: true } };
-    s6.globalLevel = 18; s6.maxGlobalLevel = 18;
+    s6.globalLevel = 72; s6.maxGlobalLevel = 72;
     s6.qi = 999999; s6.items = { 筑基丹: 1 };
     s6.pos = null;
     G.game.save = s6;
@@ -4745,7 +5044,7 @@ step(function () {
     b6._victory();
     if (R().step !== 'm1-7') errors.push('m1-6 胜利应转 m1-7，实为 ' + R().step);
     if (!R().flags.based) errors.push('m1-6 胜利未写 flags.based');
-    if (s6.globalLevel !== 19) errors.push('筑基后境界应为 gl19，实为 ' + s6.globalLevel);
+    if (s6.globalLevel !== 73) errors.push('筑基后境界应为 gl73，实为 ' + s6.globalLevel);
     pump(80, 'm1-6.after');
   }
 
@@ -4753,7 +5052,7 @@ step(function () {
   {
     const s5 = JSON.parse(JSON.stringify(save));
     s5.quest = { step: 'm0-4', flags: {} };
-    s5.globalLevel = 9; s5.maxGlobalLevel = 9;
+    s5.globalLevel = 36; s5.maxGlobalLevel = 36;
     s5.qi = 999999; s5.items = { 淬体突破丹: 1 };
     s5.pos = null;
     G.game.save = s5;
@@ -6048,7 +6347,7 @@ step(function () {
   const T = Dg.DAO_TRIALS;
   if (!Array.isArray(T) || T.length !== 9) { errors.push(`道界应有 9 关试炼，实际 ${T && T.length}`); return; }
   const gls = T.map(function (t) { return t.gl; });
-  if (gls.join(',') !== '147,150,153,156,159,162,165,168,171') {
+  if (gls.join(',') !== '588,600,612,624,636,648,660,672,684') {
     errors.push('道界九关锚点 gl 序列错误：' + gls.join(','));
   }
   if (Dg.daoTotalCost() !== 3900) errors.push(`道晶总耗应为 3900，实际 ${Dg.daoTotalCost()}`);
@@ -6057,15 +6356,15 @@ step(function () {
     if (n !== 3) errors.push(`${r} 应有 3 关，实际 ${n}`);
   });
   if (!T[8].finale) errors.push('末关「合道」应为演出关（finale）');
-  if (Dg.DAO_ENTER_GL !== 145) errors.push('入道界起始境界应为 gl145');
+  if (Dg.DAO_ENTER_GL !== 577) errors.push('入道界起始境界应为 gl577');
   /* 道晶产出方向：地狱 > 普通（与灵石 res 相反，道则越难越凝练） */
   const dn = Dg.daoCrystalDrop('normal', 0), dh = Dg.daoCrystalDrop('hell', 0);
   if (!(dh > dn)) errors.push(`道晶产出应随难度上升：普通 ${dn} / 地狱 ${dh}`);
 
   /* ---- 造一份道界档 ---- */
   const s = JSON.parse(JSON.stringify(save));
-  s.globalLevel = 145;
-  s.maxGlobalLevel = 145;
+  s.globalLevel = 577;
+  s.maxGlobalLevel = 577;
   s.daoCrystal = 0;
   s.daoCleared = [];
   s.dungeonRun = null;
@@ -6089,7 +6388,7 @@ step(function () {
   /* ---- ② 线性开锁 ---- */
   if (!Dg.daoOpen(s, 0)) errors.push('第 1 关应默认可挑战');
   if (Dg.daoOpen(s, 1)) errors.push('第 2 关在第 1 关未历前不该开');
-  if (Dg.daoReqGL(0) !== 145 || Dg.daoReqGL(1) !== 147) errors.push('daoReqGL 口径错');
+  if (Dg.daoReqGL(0) !== 577 || Dg.daoReqGL(1) !== 588) errors.push('daoReqGL 口径错');
 
   /* ---- 面板：九关真的画出来了 ---- */
   sc.enter();
@@ -6124,14 +6423,14 @@ step(function () {
   if (!es || es.length !== 1) errors.push('道界试炼应为单 Boss 战');
   else {
     if (es[0].name !== '善念化身') errors.push(`道界 Boss 名号应为固定「善念化身」，实际 ${es[0].name}`);
-    if (es[0].level !== 147) errors.push(`斩善尸 Boss gl 应为 147，实际 ${es[0].level}`);
+    if (es[0].level !== 588) errors.push(`斩善尸 Boss gl 应为 588，实际 ${es[0].level}`);
   }
 
   /* ---- ④ 结算：通关即进境 + 得道晶 ---- */
   G.game.changeScene('dungeon', { fromBattle: true });
   if (sc.view !== 'brief') errors.push('道界战斗返回后应停在结算简报');
   if (!s.daoCleared[0]) errors.push('通关后第 1 关未记入 daoCleared');
-  if (s.globalLevel !== 147) errors.push(`斩善尸通关后 gl 应为 147，实际 ${s.globalLevel}`);
+  if (s.globalLevel !== 588) errors.push(`斩善尸通关后 gl 应为 588，实际 ${s.globalLevel}`);
   if (!(s.daoCrystal > 0)) errors.push('道界试炼通关应得道晶');
   if (!Dg.daoOpen(s, 1)) errors.push('第 1 关通关后第 2 关应开锁');
   if (s.dungeonRun !== null) errors.push('道界试炼结算后应清空 dungeonRun');
@@ -6146,7 +6445,7 @@ step(function () {
   G.game.changeScene('dungeon', { fromBattle: true });
   if (s.globalLevel !== keepGl) errors.push('重刷不该再推进境界');
 
-  /* ---- ⑤ 走完九关 → gl171 ---- */
+  /* ---- ⑤ 走完九关 → gl684 ---- */
   for (let i = 1; i < 9; i++) {
     s.daoCrystal = 99999;
     sc._showDaoHub();
@@ -6156,13 +6455,13 @@ step(function () {
     G.game.changeScene('dungeon', { fromBattle: true });
   }
   if (G.game.sceneName !== 'dungeon') { errors.push('合道演出应回到副本场景'); return; }
-  if (s.globalLevel !== 171) errors.push(`九关走完后 gl 应为 171，实际 ${s.globalLevel}`);
+  if (s.globalLevel !== 684) errors.push(`九关走完后 gl 应为 684，实际 ${s.globalLevel}`);
   if (s.daoCleared.filter(Boolean).length !== 9) errors.push('九关应全部记为已历');
-  if (!G.Player.breakState(s).maxed) errors.push('gl171 应判为已至绝顶（maxed）');
+  if (!G.Player.breakState(s).maxed) errors.push('gl684 应判为已至绝顶（maxed）');
 
-  /* ---- ⑤ 道界无破境之说：gl150 时灵气突破必须被拦 ---- */
+  /* ---- ⑤ 道界无破境之说：gl600 时灵气突破必须被拦 ---- */
   const s2 = JSON.parse(JSON.stringify(s));
-  s2.globalLevel = 150; s2.qi = 1e9;
+  s2.globalLevel = 600; s2.qi = 1e9;
   const bs = G.Player.breakState(s2);
   if (bs.ready) errors.push('道界内不该能靠灵气突破（ready 应为 false）');
   if (!bs.daoRealm) errors.push('breakState 未标记 daoRealm');
@@ -6886,16 +7185,16 @@ step(function () {
   });
   if (bands.length < 20) errors.push('遭遇带过少（' + bands.length + '），收集逻辑可能漏了生成型区域');
 
-  /* ① 覆盖 gl 2–144 */
+  /* ① 覆盖三界开放野外 gl 5–576（gl1–4 为新手引导固定遭遇，不走遭遇带） */
   const cov = {};
   bands.forEach(function (b) {
     for (let gl = b.enc.min; gl <= b.enc.max; gl++) cov[gl] = true;
   });
   const miss = [];
-  for (let gl = 2; gl <= 144; gl++) if (!cov[gl]) miss.push(gl);
+  for (let gl = 5; gl <= 576; gl++) if (!cov[gl]) miss.push(gl);
   if (miss.length) {
     errors.push('gl ' + miss[0] + '–' + miss[miss.length - 1] + ' 等 ' + miss.length
-      + ' 级没有野外遭遇带（三界内不得有空洞；U5 修过一次 91–105）');
+      + ' 阶没有野外遭遇带（三界内不得有空洞）');
   }
 
   /* ② 境界系数归一 + 单调 */
@@ -6927,7 +7226,7 @@ step(function () {
   P2.REALMS.forEach(function (t, i) {
     if (P2.isDaoRealm(t.y0)) return;                 /* 道界无破境，不参与场次验算 */
     let need = 0;
-    for (let s = 1; s <= 9; s++) need += P2.needQi(base, t.y0 + s - 1);
+    for (let s = 1; s <= 36; s++) need += P2.needQi(base, t.y0 + s - 1);
     let best = 0;
     bands.forEach(function (z) {
       if (z.enc.max < t.y0 || z.enc.min > t.y1) return;
@@ -6939,8 +7238,8 @@ step(function () {
     const budget = P2.lifespanOf(t.y0) - (prev ? P2.lifespanOf(prev.y0) : 16);
     const years = n / P2.AGE_PER_BATTLE + 9 * P2.AGE_PER_BREAK;
     ns.push(n);
-    if (n < 10 || n > 120) {
-      errors.push(t.n + ' 刷满一境需 ' + Math.round(n) + ' 场，超出合理区间 [10, 120]');
+    if (n < 2 || n > 40) {
+      errors.push(t.n + ' 刷满一境需 ' + Math.round(n) + ' 场，超出合理区间 [2, 40]');
     }
     if (years > budget) {
       errors.push(t.n + ' 刷满需 ' + Math.round(years) + ' 岁 > 寿元预算 ' + budget + ' 岁');
@@ -6957,16 +7256,16 @@ step(function () {
 /* ---------- 野怪收益曲线**差分探针** ----------
    ⚠️ G19 的教训：只断言"函数存在 / 数值自洽"抓不到**"登记了但没接线"** ——
    把 `battle.js` 里的 `* G.Player.realmQiCoef(L)` 摘掉，上面那条契约**照样全绿**。
-   所以这里必须**真的打一场 L=144 的野外战**，逐项复算期望值再比对；
+   所以这里必须**真的打一场 L=234 的野外战**，逐项复算期望值再比对；
    并反向确认收益**显著高于**"不带境界系数"的值，否则说明系数根本没生效。 */
 step(function () {
   const s = JSON.parse(JSON.stringify(G.game.save));
-  s.globalLevel = 144; s.qi = 0; s.po = 0; s.stone = 0;
+  s.globalLevel = 234; s.qi = 0; s.po = 0; s.stone = 0;
   s.linggen = { elems: ['木'], coef: { 木: 1.0 }, kind: '单灵根', stoneBonus: 0 };
   s.talents = []; s.originFx = {}; s.bonus = {}; s.world = { traits: [] };
   s.dungeonRun = null;
   G.game.save = s;
-  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 144, '青纹蛇'), mapId: 'field' });
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 234, '青纹蛇'), mapId: 'field' });
 }, 'zone.curve.probe.enter');
 pump(10, 'zone.curve.probe.enter');
 step(function () {
@@ -7414,7 +7713,7 @@ step(function () {
 
   /* ② 丹药品级随境界单调不降 */
   let prev = 0;
-  [1, 9, 19, 40, 70, 100, 145, 171].forEach(function (gl) {
+  [1, 37, 73, 109, 145, 253, 361, 577].forEach(function (gl) {
     const q = P.pillQualityIdx(gl);
     if (q < prev) errors.push('破境丹品级随境界倒退（gl ' + gl + ' → ' + q + '）');
     if (q < 1 || q > 12) errors.push('破境丹品级越界（gl ' + gl + ' → ' + q + '）');
@@ -7432,7 +7731,7 @@ step(function () {
     return { save: o, meta: meta, ch: P.breakChance(o, meta) };
   };
   let pb = 999;
-  [1, 19, 50, 100, 145, 171].forEach(function (gl) {
+  [1, 37, 109, 253, 361, 577].forEach(function (gl) {
     const ch = mk(gl, 0, 0).ch;
     if (ch.base > pb) errors.push('基础破境概率应随境界下降（gl ' + gl + ' 反而更高）');
     pb = ch.base;
@@ -7451,21 +7750,22 @@ step(function () {
   if (mk(1, 0, -3).ch.bless !== 0) errors.push('无赐福时应为 0（不是负数）');
 
   /* ⑤ 道基：**筑基之前为 0**，筑基之后按失败次数累积、封顶 20 */
-  if (mk(9, 5, 0).ch.dao !== 0) errors.push('淬体期不该有"失败累计道基"（用户口径：筑基之后才有）');
-  if (mk(19, 1, 0).ch.dao !== 6) errors.push('筑基后 1 次失败应累计 6%，实为 ' + mk(19, 1, 0).ch.dao);
-  if (mk(19, 99, 0).ch.dao !== 20) errors.push('失败累计道基应封顶 20%');
+  /* 新模型：淬体大圆满在 gl36（< 筑基起点73）道基为 0；gl73 起按失败次数累计 */
+  if (mk(36, 5, 0).ch.dao !== 0) errors.push('淬体期不该有"失败累计道基"（用户口径：筑基之后才有）');
+  if (mk(73, 1, 0).ch.dao !== 6) errors.push('筑基后 1 次失败应累计 6%，实为 ' + mk(73, 1, 0).ch.dao);
+  if (mk(73, 99, 0).ch.dao !== 20) errors.push('失败累计道基应封顶 20%');
 
   /* ⑥ 真驱动：必失败 → 扣丹 + 道基 +1；必成功 → 清零 */
-  const A = mk(9, 0, 0);
-  const pillA = P.breakPill(9);
+  const A = mk(36, 0, 0);
+  const pillA = P.breakPill(36);
   const beforeA = A.save.items[pillA];
   const rf = P.startBigBreak(A.save, A.meta, 0.999);
   if (rf.ok || !rf.failed) errors.push('掷 0.999 应破境失败');
   if (A.save.items[pillA] !== beforeA - 1) errors.push('破境失败应照扣破境丹（大道五十，试错有代价）');
   if (A.save.breakFails !== 1) errors.push('破境失败应把 breakFails 记 1，实为 ' + A.save.breakFails);
 
-  const B = mk(9, 3, 0);
-  const pillB = P.breakPill(9);
+  const B = mk(36, 3, 0);
+  const pillB = P.breakPill(36);
   const beforeB = B.save.items[pillB];
   const rs = P.startBigBreak(B.save, B.meta, 0);
   if (!rs.ok) errors.push('掷 0 应破境成功，实为 ' + rs.reason);

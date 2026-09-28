@@ -75,9 +75,9 @@
         F('manger', 'counter', 11, 12, 8, 1, 'sect.beasts', '饲槽')];
     } },
     houshan: { n: '后山', act: 'sect.fields', furn: function () {
-      return [F('field', 'field', 2, 4, 8, 5, 'sect.fields', '灵田'),
-        F('herb', 'field', 18, 4, 8, 5, 'sect.fields', '药圃'),
-        F('mine', 'cave', 12, 11, 6, 4, 'sect.fields', '矿脉')];
+      return [F('field', 'ltian', 2, 4, 8, 5, 'sect.fields', '灵田'),
+        F('herb', 'yaopu', 18, 4, 8, 5, 'sect.fields', '药圃'),
+        F('mine', 'kuangmai', 12, 11, 6, 4, 'sect.fields', '矿脉')];
     } },
     biguan: { n: '闭关石室', act: 'sect.seclusion', furn: function () {
       return [F('roomA', 'cave', 3, 4, 5, 5, 'sect.seclusion', '石室·甲'),
@@ -200,6 +200,96 @@
     return cache[key];
   }
 
-  G.SectGen = { build: build, of: of, roomId: roomId, masterGl: masterGl,
-    roomTemplates: ROOM, _cache: cache };
+  /* ===== R1：live 集群（只含功能已闭环房间，《宗门小世界 v1.0》§7）===== */
+  var LIVE = {
+    big: { roles: ['gate', 'hall', 'chuangong', 'gongxian', 'houshan'],
+      links: [['gate', 'hall'], ['hall', 'chuangong'], ['hall', 'gongxian'], ['hall', 'houshan']] },
+    small: { roles: ['gate', 'hall', 'chuangong', 'houshan'],
+      links: [['gate', 'hall'], ['hall', 'chuangong'], ['hall', 'houshan']] }
+  };
+  /* live 主殿北门分位（避免多门叠同一格）：传功左 / 后山中 / 贡献右 */
+  var LIVE_NORTH = { chuangong: { x0: 3, x1: 7 }, houshan: { x0: 13, x1: 16 }, gongxian: { x0: 22, x1: 26 } };
+
+  function liveOf(save, sectId) {
+    var full = of(save, sectId);
+    if (!full) return null;
+    var sect = G.Data.sects.byId(sectId);
+    var plan = LIVE[sect.size === 'big' ? 'big' : 'small'];
+    var exitsByRole = {};
+    plan.roles.forEach(function (r) { exitsByRole[r] = []; });
+    var regionMap = sect.region;
+    if (G.Data.regions && G.Data.regions.mapIdOf) regionMap = G.Data.regions.mapIdOf(sect.region) || sect.region;
+    exitsByRole.gate.push({ x0: CX - 1, x1: CX + 1, y: H - 1, to: regionMap,
+      spawn: { x: CX, y: 12 }, label: '离开' + sect.n });
+    plan.links.forEach(function (lk) {
+      var a = lk[0], b = lk[1];
+      var nBand = (a === 'hall' && LIVE_NORTH[b]) ? LIVE_NORTH[b] : { x0: CX - 1, x1: CX + 1 };
+      exitsByRole[a].push({ x0: nBand.x0, x1: nBand.x1, y: 0, to: roomId(sectId, b),
+        spawn: { x: CX, y: H - 2 }, label: ROOM[b].n });
+      exitsByRole[b].push({ x0: CX - 1, x1: CX + 1, y: H - 1, to: roomId(sectId, a),
+        spawn: { x: CX, y: 2 }, label: ROOM[a].n });
+    });
+    var rooms = plan.roles.map(function (role) {
+      var src = null;
+      full.rooms.forEach(function (r) { if (r.sectRoom === role) src = r; });
+      var cp = JSON.parse(JSON.stringify(src));
+      cp.exits = exitsByRole[role];
+      return cp;
+    });
+    return { id: full.id, sectId: sectId, n: full.n, small: full.small,
+      entry: full.entry, hall: full.hall, roles: plan.roles.slice(),
+      rooms: rooms, links: plan.links.map(function (l) { return l.slice(); }) };
+  }
+
+  /* ===== R1：房间焦点动作分派（对接已闭环系统）===== */
+  function dispatch(act, scene, o) {
+    var save = G.game.save;
+    var sid = scene.mapId.split('.')[1];
+    if (act === 'sect.gate') {
+      if (save.cult === 'sect' && save.sectId === sid) { G.game.toast('你已在本门'); return; }
+      if (save.cultSwitchUsed) { G.game.toast('此世已改换门庭一次，来世再议'); return; }
+      if (!G.Player.trialReady(save)) { G.game.toast('修为不足（需炼气一重初期），先去历练'); return; }
+      scene.clearOverlay();
+      G.game.changeScene('battle', { script: 'sectTrial', mapId: scene.mapId, sectId: sid });
+      return;
+    }
+    if (act === 'secthall' || act === 'sect.exchange') {
+      scene.sectTab = 'sect'; scene.sectView = null;
+      G.Overlays.openPanel(scene, 'sect', true);
+      return;
+    }
+    if (act === 'sect.shop') {
+      scene.sectTab = 'sect'; scene.sectView = 'shop';
+      G.Overlays.openPanel(scene, 'sect', true);
+      return;
+    }
+    if (act === 'sect.fields') {
+      var fSid = scene.mapId.split('.')[1];
+      var fSect = G.Data.sects.byId(fSid);
+      var fWorld = fSect ? fSect.world : 'fan';
+      var fLabel = (o && o.label) || '';
+      var fCats = fLabel === '矿脉' ? ['ore'] : fLabel === '灵田' ? ['herb', 'wood'] : ['herb'];
+      G.Gather.harvestPlot(G.game.save, o && o.id, fCats, fWorld);
+      return;
+    }
+    G.game.toast('没什么可做的');
+  }
+
+  /* ===== R1：逐房间场景工厂（惰性、幂等）===== */
+  function sceneFor(roomMapId) {
+    if (G.scenes[roomMapId]) return G.scenes[roomMapId];
+    var sc = G.Explore.create(roomMapId, {
+      menu: function (s) { G.TianDao.openSettings(s); },
+      overlayTap: G.TianDao.overlayTap,
+      overlayKey: G.TianDao.overlayKey,
+      onInteract: function (o, s) { if (o && o.type === 'furn') dispatch(o.act, s, o); },
+      onNpc: function (n, s) { dispatch(n.act, s); },
+      renderOverlay: function (x, s) { G.Overlays.route(x, s); }
+    });
+    G.scenes[roomMapId] = sc;
+    return sc;
+  }
+
+  G.SectGen = { build: build, of: of, liveOf: liveOf, sceneFor: sceneFor,
+    roomId: roomId, masterGl: masterGl, roomTemplates: ROOM, LIVE: LIVE, _cache: cache };
 })();

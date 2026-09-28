@@ -24,10 +24,10 @@
      道界不抽随机池（九关固定），这一行是给 `anchorGL('dao', i)` 兜底用的：
      下标 i = 第 i 关，值 = **通关后**的境界锚点（见 DAO_TRIALS）。 */
   var SLOT_GL = {
-    fan:  [9, 27, 45, 54, 63],
-    ling: [64, 72, 81, 86, 90],
-    xian: [99, 108, 117, 135, 144],
-    dao:  [147, 150, 153, 156, 159, 162, 165, 168, 171]
+    fan:  [36, 108, 180, 216, 252],
+    ling: [256, 288, 324, 344, 360],
+    xian: [396, 432, 468, 540, 576],
+    dao:  [588, 600, 612, 624, 636, 648, 660, 672, 684]
   };
 
   /* ===== 三难度倍率 =====
@@ -348,14 +348,16 @@
     var anchor = anchorGL(worldId, slot);
     var L = (tier === 'mid') ? anchor - 2 : anchor;
     L = Math.max(1, L);
+    /* 数值按**压缩阶**（大境×九重）生长；L 是新 gl（36 阶/境），同一重四阶实力相近。 */
+    var Ls = (G.Player && G.Player.scaleLevel) ? G.Player.scaleLevel(L) : L;
     var g = GROWTH[spec.tier || tier] || GROWTH.big;
     var d = DIFF[diff] || DIFF.normal;
     var w = WORLD_COEF[worldId] || 1;
 
-    var hp  = g.hp[0]  + g.hp[1]  * (L - 1);
-    var atk = g.atk[0] + g.atk[1] * (L - 1);
-    var def = g.def[0] + g.def[1] * (L - 1);
-    var spd = g.spd[0] + g.spd[1] * (L - 1);
+    var hp  = g.hp[0]  + g.hp[1]  * (Ls - 1);
+    var atk = g.atk[0] + g.atk[1] * (Ls - 1);
+    var def = g.def[0] + g.def[1] * (Ls - 1);
+    var spd = g.spd[0] + g.spd[1] * (Ls - 1);
 
     hp  = round(hp * d.bossHp * w);
     atk = round(atk * d.bossAtk * w);
@@ -562,12 +564,12 @@
      因为三尸/道相/道则都是"道"本身的化身，不属于任何一界。 */
   var DAO_GROWTH = { hp: [260, 46], atk: [18, 2.6], def: [10, 1.5], spd: [12, .7] };
   var DAO_DROP_BASE = 80;              /* 道界每场战斗的道晶基准（× 难度 dao 系数） */
-  var DAO_ENTER_GL = 145;              /* 入道界的起始境界（准圣一重） */
+  var DAO_ENTER_GL = 577;              /* 入道界的起始境界（准圣一重初期） */
   var DAO_STAGES = 9;
 
   var DAO_TRIALS = [
     /* ---- 准圣：斩三尸（gl145–153）---- */
-    { n: '斩善尸', gl: 147, realm: '准圣', cost: 100, drop: 60,
+    { n: '斩善尸', gl: 588, realm: '准圣', cost: 100, drop: 60,
       win: '善尸已斩。慈悲亦是执，斩之方见本来。',
       boss: {
         name: '善念化身', sprite: 'heartDemon', elem: '木',
@@ -579,7 +581,7 @@
         phases: [ { kind: 'heal', trig: .45, pct: .20 } ]
       } },
 
-    { n: '斩恶尸', gl: 150, realm: '准圣', cost: 300, drop: 70,
+    { n: '斩恶尸', gl: 600, realm: '准圣', cost: 300, drop: 70,
       win: '恶尸已斩。修罗相灭，杀心归寂。',
       boss: {
         name: '恶念化身', sprite: 'heartDemon', elem: '暗',
@@ -592,7 +594,7 @@
 
     /* 自身尸 = 主角快照 ×1.1（境界 v3.2 §5：「本相：主角快照 ×1.1、全技能」），
        面板在战斗生成时现取，所以这里只留 snapshot 倍率。 */
-    { n: '斩自身尸', gl: 153, realm: '准圣', cost: 500, drop: 80,
+    { n: '斩自身尸', gl: 612, realm: '准圣', cost: 500, drop: 80,
       win: '自身尸已斩。照见执念 —— 执念即我，我即无我。',
       boss: {
         name: '执念化身', sprite: 'heartDemon', elem: '无', snapshot: 1.10,
@@ -605,7 +607,7 @@
       } },
 
     /* ---- 圣人：证道混元（gl154–162）---- */
-    { n: '三尸合一', gl: 156, realm: '圣人', cost: 250, drop: 70,
+    { n: '三尸合一', gl: 624, realm: '圣人', cost: 250, drop: 70,
       win: '三尸合一，混元道基已成。',
       boss: {
         name: '混元道基', sprite: 'heartDemon', elem: '无',
@@ -617,7 +619,7 @@
         phases: [ { kind: 'summon', trig: .55, spec: { base: '杀手', name: '尸气化身' }, n: 2 } ]
       } },
 
-    { n: '功德道相', gl: 159, realm: '圣人', cost: 350, drop: 75,
+    { n: '功德道相', gl: 636, realm: '圣人', cost: 350, drop: 75,
       win: '功德圆满，道相庄严 —— 业力不沾其身。',
       boss: {
         name: '功德道相', sprite: 'heartDemon', elem: '金',
@@ -630,7 +632,7 @@
         phases: [ { kind: 'heal', trig: .50, pct: .22 } ]
       } },
 
-    { n: '天道束缚', gl: 162, realm: '圣人', cost: 400, drop: 80,
+    { n: '天道束缚', gl: 648, realm: '圣人', cost: 400, drop: 80,
       win: '天道锁链尽断 —— 元神寄托天道，证天道圣人。',
       boss: {
         name: '天道束缚', sprite: 'heartDemon', elem: '雷',
@@ -644,7 +646,7 @@
       } },
 
     /* ---- 道祖：合道天劫（gl163–171）---- */
-    { n: '道则傀儡', gl: 165, realm: '道祖', cost: 500, drop: 70,
+    { n: '道则傀儡', gl: 660, realm: '道祖', cost: 500, drop: 70,
       win: '五行四象皆入彀中，道则傀儡伏诛。',
       boss: {
         name: '道则傀儡', sprite: 'heartDemon', elem: '无',
@@ -657,7 +659,7 @@
         phases: [ { kind: 'clone', trig: .50, pct: .45, n: 2 } ]
       } },
 
-    { n: '大道化身', gl: 168, realm: '道祖', cost: 700, drop: 80,
+    { n: '大道化身', gl: 672, realm: '道祖', cost: 700, drop: 80,
       win: '大道化身崩解 —— 万法归墟，唯道长存。',
       boss: {
         name: '大道化身', sprite: 'heartDemon', elem: '无',
@@ -673,7 +675,7 @@
       } },
 
     /* 合道 = 演出关（境界 v3.2 §7「合道演出：身合天道」），无战斗。 */
-    { n: '合道', gl: 171, realm: '道祖', cost: 800, drop: 0, finale: true,
+    { n: '合道', gl: 684, realm: '道祖', cost: 800, drop: 0, finale: true,
       win: '身合天道，言出为则。道祖境圆满 —— 此为修炼终点。',
       boss: null }
   ];
@@ -724,6 +726,8 @@
      数值按 DAO_GROWTH 生长；`snapshot` 关（执念化身）现取玩家面板 × 倍率。 */
   function makeDaoBoss(trial, diff, save, meta) {
     var b = trial.boss, d = DIFF[diff] || DIFF.normal, L = trial.gl;
+    /* 数值按压缩阶生长（道界 gl 是新 36 阶刻度）。 */
+    var Ls = (G.Player && G.Player.scaleLevel) ? G.Player.scaleLevel(L) : L;
     var hp, atk, def, spd;
     if (b.snapshot) {
       var st = G.Player.computeStats(save, meta);
@@ -732,10 +736,10 @@
       def = st.def * b.snapshot;
       spd = st.spd * b.snapshot;
     } else {
-      hp  = DAO_GROWTH.hp[0]  + DAO_GROWTH.hp[1]  * (L - 1);
-      atk = DAO_GROWTH.atk[0] + DAO_GROWTH.atk[1] * (L - 1);
-      def = DAO_GROWTH.def[0] + DAO_GROWTH.def[1] * (L - 1);
-      spd = DAO_GROWTH.spd[0] + DAO_GROWTH.spd[1] * (L - 1);
+      hp  = DAO_GROWTH.hp[0]  + DAO_GROWTH.hp[1]  * (Ls - 1);
+      atk = DAO_GROWTH.atk[0] + DAO_GROWTH.atk[1] * (Ls - 1);
+      def = DAO_GROWTH.def[0] + DAO_GROWTH.def[1] * (Ls - 1);
+      spd = DAO_GROWTH.spd[0] + DAO_GROWTH.spd[1] * (Ls - 1);
     }
     var w = WORLD_COEF.dao;
     hp  = round(hp * d.bossHp * w);
