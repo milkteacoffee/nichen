@@ -820,6 +820,126 @@
       return (sk.src === 'sect') ? '宗门功法，非本门弟子不可用' : '散修功法，宗门弟子不可用';
     },
 
+    /* ===== 激发功法（v0.69.0，用户口径「可学多本、**单本激发**、九重、按品级配置主被动」）=====
+       ⚠️ 这是**用户新需求覆盖旧设计**：归档的《战斗系统修订 v2.1》§2 写的是
+         「所有已学功法的主动技能在每场战斗中均可使用（无装配上限）」，用户明确改成激发制。
+
+       口径（三处收敛到这一个口，战斗/面板/回归都调它）：
+         · **可学多本**：`save.skills` 不限数量（本就如此）。
+         · **激发上限 = 战斗主动槽数**（`ACTIVE_SLOTS = 3`）：
+           只有 `save.skillEquip` 里的功法才进战斗技能栏。
+         · **激发顺序即出招顺序**：槽位按数组顺序排，玩家可自行调序。
+         · **被动功法不受上限约束**：它们不占主动槽，只要学会就参与角色属性
+           （`computeStats` 里按 kind 分派攻击/防御/仙术三条）——
+           这正是"按品级配置主被动"的落点：主进槽、被动常驻。
+         · `voided`（废功）与宗门归属（`canUseSkill`）在**生效期**再过滤一次：
+           面板可能停在旧世，`skillEquip` 里残留已失效的 id。 —— 见 `activeSkills()`。 */
+
+    /* 激发上限（战斗主动槽数）。**唯一口径**：战斗 `_initUnits` 与面板按钮都用它。 */
+    ACTIVE_SLOTS: 3,
+
+    /* 玩家可见的激发列表：`save.skillEquip` 里**当前真的可用**的那些，按数组顺序。
+       判据复用 `canUseSkill`（唯一授权口），不在别处重写一遍。 */
+    equippedIds: function (save) {
+      var ids = (save && save.skillEquip) || [];
+      var self = this;
+      return ids.filter(function (id) {
+        return G.Data.skills[id] && self.canUseSkill(save, id);
+      });
+    },
+
+    /* 该功法能否激发。返回 { ok, reason? }，reason 直接给 toast 用。
+       规则：不可用（废功/门派不符）→ 拒；已在激发位 → 拒（用 cancelSkill 卸下）；
+             **占槽**的功法在槽满时拒；**纯被动不占槽**，所以槽满也允许激 ——
+             这是"按品级配置主被动"的落点：主进槽（受上限约束）、被动常驻（不受）。 */
+    canActivate: function (save, id) {
+      var sk = G.Data.skills && G.Data.skills[id];
+      if (!sk) return { ok: false, reason: '无此功法' };
+      if (!save.skills || !save.skills[id]) return { ok: false, reason: '尚未习得此功法' };
+      var blocked = this.skillBlockReason(save, id);
+      if (blocked) return { ok: false, reason: blocked };
+      if (this.equippedIds(save).indexOf(id) >= 0) return { ok: false, reason: '已在激发位' };
+      /* ⚠️ 只对**占槽**的功法判上限 —— 被动功法写在激发列表里只为让玩家看得见，
+         它不出现在战斗技能栏（见 battle._initUnits 的 occupiesSlot 过滤）。 */
+      if (this.occupiesSlot(id) && this.slotsLeft(save) <= 0) {
+        return { ok: false, reason: '激发位已满（' + this.ACTIVE_SLOTS + ' 本），先卸下一本' };
+      }
+      return { ok: true };
+    },
+
+    /* 还能激发几本。**按"该功法是否占槽"算**：
+       攻击类与带主动的仙术**占槽**（它们会出现在战斗技能栏），
+       纯被动（防御类 / 无 active 的仙术）不占 —— 所以后者激发不受上限限制。 */
+    slotsLeft: function (save) {
+      var self = this;
+      var used = this.equippedIds(save).filter(function (id) {
+        return self.occupiesSlot(id);
+      }).length;
+      return Math.max(0, this.ACTIVE_SLOTS - used);
+    },
+
+    /* 该功法是否占战斗主动槽 */
+    occupiesSlot: function (id) {
+      var sk = G.Data.skills && G.Data.skills[id];
+      if (!sk) return false;
+      return sk.kind === '攻击' || !!sk.active;
+    },
+
+    /* 激发一本。成功返回 { ok:true }，并把 id 追进 `save.skillEquip`。
+       **纯数据操作，不落盘** —— 落盘由调用方（面板/场景）决定，
+       免得"面板点一下"与"入世批量激发"两条路径各落一次盘、写坏存档。 */
+    activateSkill: function (save, id) {
+      var chk = this.canActivate(save, id);
+      if (!chk.ok) return chk;
+      save.skillEquip = save.skillEquip || [];
+      save.skillEquip.push(id);
+      return { ok: true };
+    },
+
+    /* 卸下一本。纯被动也能卸（不影响其属性加成，只影响面板列表）。 */
+    cancelSkill: function (save, id) {
+      if (!save.skillEquip) return { ok: false, reason: '无激发位' };
+      var i = save.skillEquip.indexOf(id);
+      if (i < 0) return { ok: false, reason: '该功法未在激发位' };
+      save.skillEquip.splice(i, 1);
+      return { ok: true };
+    },
+
+    /* 学到新功法时**顺手激发**（槽位有空才激）。
+       为什么需要：改成激发制之后，若只写 `save.skills[id] = {lv:1}` 而不进激发位，
+       玩家会看到「学了新功法但战斗里没有它」—— 必须自己去面板点一下才生效。
+       对"战斗掉落 / 商店买到 / 宗门兑换"三条路径，**期望是立刻能用**。
+       返回 true 表示真的激上了（调用方据此决定提示文案是否提"已激发"）。
+       ⚠️ 已满槽时不强激（也不报错）：玩家的 3 个槽该由他自己编排，
+         自动顶掉某一本会让"我明明装了 X 怎么没了"。 */
+    autoEquip: function (save, id) {
+      var chk = this.canActivate(save, id);
+      if (!chk.ok) return false;
+      save.skillEquip = save.skillEquip || [];
+      save.skillEquip.push(id);
+      return true;
+    },
+
+    /* ===== 功法九重进度 → 战斗倍率（v0.69.0）=====
+       用户口径「九重」：`save.skills[id].lv` 存的就是**修炼进度 prog（1–36）**
+       （字段名叫 lv 是历史包袱，语义见 `G.Data.skillRealm`：九重 × 四阶段）。
+
+       ⚠️ 此前 prog **只在显示层**（面板写"三重·中期"、`computeStats` 按 lv 线性加属性），
+          **完全没进战斗倍率** —— 也就是说"精进"点的灵力对伤害毫无影响，
+          玩家花灵力把功法修到九重，打起来和刚学会一模一样（纯静默）。
+
+       曲线：prog 1 → ×1.00，prog 36（九重巅峰）→ ×2.15。
+         · 用 **prog/36 的幂次**而不是线性：前期精进收益明显（1→2 重看得见），
+           后期趋缓（避免九重功法一炮秒掉同阶 boss）。
+         · `1 + 1.15 * ((prog-1)/35)^0.9` —— 上凸，前期斜率略低于线性但更平滑。
+         · **只在玩家侧生效**（战斗里 `_calc` 只对 `skill._fromProg` 的条目乘）——
+           敌方 skill 是即时构造的、没有 prog，不参与。 */
+    progCoef: function (prog) {
+      var p = Math.max(1, Math.min(G.Data.SKILL_MAX_PROG, prog || 1));
+      var t = (p - 1) / (G.Data.SKILL_MAX_PROG - 1);
+      return +(1 + 1.15 * Math.pow(t, 0.9)).toFixed(4);
+    },
+
     /* ===== 法宝三槽（v0.25.0）=====
        用户口径：「这个人物少了三个法宝格子，武器、防具、饰品」。
        `save.equip = { weapon, armor, accessory }`；法宝本身存在 `save.items`（>0 即拥有）——
@@ -1118,8 +1238,10 @@
       save.skills = save.skills || {};
       /* 已废功的同类功法：重新习得视为"复功"（清掉 voided） */
       save.skills[id] = { lv: 1, voided: false };
+      /* 兑换到就激发（v0.69.0）—— 槽满则静默失败，由调用方文案提示。 */
+      var eqd = this.autoEquip(save, id);
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
-      return { ok: true, cost: cost };
+      return { ok: true, cost: cost, equipped: eqd };
     },
 
     /* ===== 问道（v0.20.0）=====
@@ -1405,9 +1527,12 @@
       var learned = !save.skills[pick];
       if (learned) save.skills[pick] = { lv: 1 };
       else save.skills[pick].lv += 1;
+      /* 参悟得到的是**新习**功法时才自动激发（若激发位有空）——
+         已有功法只是精进一级，不该悄悄改动玩家的战斗配置。 */
+      var eqd = learned ? this.autoEquip(save, pick) : false;
       return {
         ok: true, id: pick, name: (Dt.skills[pick] || {}).n || pick,
-        lv: save.skills[pick].lv, learned: learned
+        lv: save.skills[pick].lv, learned: learned, equipped: eqd
       };
     },
 

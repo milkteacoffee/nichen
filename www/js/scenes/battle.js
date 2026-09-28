@@ -38,8 +38,8 @@
     b_qilin: 'wolf', b_jinchidapeng: 'wolf', b_hundunshou: 'wolf'
   };
 
-  /* M0 功法装配位上限（v0.3 §10） */
-  var SKILL_SLOTS = 3;
+  /* ⚠️ 功法主动槽上限（原 `SKILL_SLOTS`）v0.69.0 已收敛到 `G.Player.ACTIVE_SLOTS` ——
+     面板的激发按钮与这里的装配必须读同一个数，两处各写一份迟早分叉。 */
   /* 逃跑：每场最多尝试次数（战斗规格 v0.2 §10） */
   var MAX_FLEE = 3;
 
@@ -382,33 +382,41 @@
       var save = G.game.save;
       var st = G.Player.computeStats(save);
 
-      /* 我方主动技：M0 装配上限 3（攻击功法优先，其次带主动的仙术） */
+      /* 我方主动技（v0.69.0 激活制）：**只取 `save.skillEquip` 里已激发的功法**。
+         ⚠️ 用户新需求覆盖旧设计 —— 归档《战斗系统修订 v2.1》§2 原写"所有已学功法
+           在每场战斗均可使用（无装配上限）"，用户明确改成「可学多本、**单本激发**」。
+         取数一律走 `Player.equippedIds`（它内含 canUseSkill 过滤），
+         不在战斗里重写一遍门禁 —— 面板显示与这里必须同源。
+         槽位上限 3 由 `Player.ACTIVE_SLOTS` 给（面板按钮读同一个常量）。 */
       var atkSkills = [], healSkills = [];
-      Object.keys(save.skills || {}).forEach(function (id) {
+      var equipped = (G.Player.equippedIds ? G.Player.equippedIds(save) : [])
+        .slice(0, G.Player.ACTIVE_SLOTS || 3);
+      equipped.forEach(function (id) {
         var sd = G.Data.skills[id];
         if (!sd) return;
-        /* 宗门与散修互斥（《宗门与散修体系设计 v1.0》§2.2）：不可用的功法
-           **不进技能栏** —— 只靠面板置灰是拦不住的，战斗里照样能点。 */
-        if (G.Player.canUseSkill && !G.Player.canUseSkill(save, id)) return;
         /* 法力消耗随**功法等级**涨（v0.14.0）：装配时算一次挂在技能条目上，
            结算与按钮禁用读同一个数 —— 每处各算一遍必然漂。 */
         var lv = (save.skills[id] && save.skills[id].lv) || 1;
         var cost = G.Player.manaCost(sd, lv);
+        /* 九重进度系数（v0.69.0）：prog 只在**玩家侧**乘（敌方 skill 是即时构造的，
+           没有 prog）。挂在条目上，面板显示与结算读同一个数。 */
+        var pc = G.Player.progCoef ? G.Player.progCoef(lv) : 1;
         if (sd.kind === '攻击' && sd.mult) {
-          atkSkills.push({ id: id, n: sd.n, mult: sd.mult, cd: sd.cd || 0, cdLeft: 0,
+          atkSkills.push({ id: id, n: sd.n, mult: +(sd.mult * pc).toFixed(3), cd: sd.cd || 0, cdLeft: 0,
             hit: sd.hit, elem: sd.elem, status: sd.status, target: sd.target, kind: 'atk',
-            lv: lv, cost: cost });
+            lv: lv, progCoef: pc, cost: cost });
         } else if (sd.active) {
-          healSkills.push({ id: id, n: sd.active.n, mult: 0, heal: sd.active.heal,
+          healSkills.push({ id: id, n: sd.active.n, mult: 0, heal: +(sd.active.heal * pc).toFixed(3),
             cd: sd.active.cd || 0, cdLeft: 0, hit: sd.active.hit, elem: sd.elem, kind: 'heal',
-            lv: lv, cost: cost });
+            lv: lv, progCoef: pc, cost: cost });
         }
       });
-      var skills = atkSkills.concat(healSkills).slice(0, SKILL_SLOTS);
+      /* 主动槽为空时的兜底普攻：**不耗法力**（耗了就会出现"一点法力都没有时只能站着"的死局）。
+         注意这不是"没激发功法"的惩罚 —— 普攻本来就一直存在（指令区的「攻击」）。 */
+      var skills = atkSkills.concat(healSkills).slice(0, G.Player.ACTIVE_SLOTS || 3);
       if (!skills.length) {
-        /* 兜底普攻：**不耗法力**（耗了就会出现"一点法力都没有时只能站着"的死局） */
         skills.push({ id: 'basic', n: '凝气拳', mult: 1.0, cd: 0, cdLeft: 0,
-          elem: st.attackElem, kind: 'atk', lv: 1, cost: 0 });
+          elem: st.attackElem, kind: 'atk', lv: 1, progCoef: 1, cost: 0 });
       }
 
       this.p = {
@@ -633,10 +641,16 @@
       return a;
     },
 
-    /* ===== 指令区（v0.3 §10 裁剪：攻击 / 功法 / 道具 / 防御 / 逃跑） ===== */
+    /* ===== 指令区（v0.3 §10 裁剪；v0.69.0 用户口径「取消独立防御」→ 攻击 / 功法 / 道具 / 逃跑 / 自动） =====
+       为什么去掉「防御」：玩家现在有**三个主动功法槽**（`Player.ACTIVE_SLOTS`），
+       防御型功法（铁布衫/磐石功…）走 `computeStats` 直接抬 DEF，
+       再挂一个独立「防御」按钮等于给同一条思路开两个口子 ——
+       玩家要么点它、要么装防御功法，两者互相稀释。
+       指令收敛到 5 个（3+2 布局）。`guard` 减伤机制**保留**（伤害结算仍认
+       `def.guard`，供未来的防御类主动技/ Boss 阶段使用），只是玩家侧不再有独立入口。 */
     _buildCommand: function () {
       var self = this;
-      var labels = ['攻击', '功法', '道具', '防御', '逃跑', '自动'];
+      var labels = ['攻击', '功法', '道具', '逃跑', '自动'];
       var btns = [];
       labels.forEach(function (lb, i) {
         var col = i % 3, row = Math.floor(i / 3);
@@ -700,12 +714,6 @@
         this._openSkill(); return;
       }
       if (lb === '道具') { this._openItem(); return; }
-      if (lb === '防御') {
-        this.p.guard = true;
-        this._log('陆尘凝神守御，本回合减伤。');
-        this._playerAction({ n: '防御', kind: 'guard' }, 'P');
-        return;
-      }
       if (lb === '逃跑') {
         if (this._noFlee()) { this._log('此战避无可避。'); return; }
         if (this.fleeTries >= MAX_FLEE) { this._log('已被缠住，走不脱了。'); return; }
@@ -1813,12 +1821,16 @@
         save.bossKills = (save.bossKills || 0) + 1;   /* 仙力结算按次计（v0.4 §4） */
         var drop2 = G.rng.pick(G.Data.skillDropPoolLing || G.Data.skillDropPool);
         if (!save.skills[drop2]) save.skills[drop2] = { lv: 1 };
+        /* 新学的功法**顺手激发**（v0.69.0）：改成激发制之后，只写 save.skills
+           而不进技能栏，玩家会看到"学了新功法但战斗里没有它"。
+           槽满时 autoEquip 静默失败 —— 三个槽该由玩家自己编排，不自动顶掉。 */
+        var eqd2 = G.Player.autoEquip(save, drop2);
         save.quest.flags.bloodNight = true;
         save.quest.flags.elderDead = true;
         G.Player.chronicle(save, 'bloodNight', '血夜，沈伯殁');
         if (G.TianDao) G.TianDao.notify('boss');
         this._loot('灵石 +400　灵气 +2000　妖丹 ×2');
-        this._loot('习得功法《' + G.Data.skills[drop2].n + '》', true);
+        this._loot('习得功法《' + G.Data.skills[drop2].n + '》' + (eqd2 ? '（已激发）' : ''), true);
         this._log('血面跪倒，眼里的红光散了。');
         this._finish(true, 'bloodhall');
         return;
@@ -1833,11 +1845,12 @@
         save.quest.step = 'm1-1';
         var drop = G.rng.pick(G.Data.skillDropPool);
         if (!save.skills[drop]) save.skills[drop] = { lv: 1 };
+        var eqd1 = G.Player.autoEquip(save, drop);
         G.Player.chronicle(save, 'wolfKing', '手刃赤炎狼王');
         /* 天道注视 +8（v2.7，统一走 notify；可能触发低语） */
         if (G.TianDao) G.TianDao.notify('boss');
         this._loot('灵石 +500　灵气 +3000　妖丹 ×3');
-        this._loot('习得功法《' + G.Data.skills[drop].n + '》', true);
+        this._loot('习得功法《' + G.Data.skills[drop].n + '》' + (eqd1 ? '（已激发）' : ''), true);
         this._finish(true, 'cave');
         return;
       }

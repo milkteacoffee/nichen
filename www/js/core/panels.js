@@ -609,17 +609,24 @@
   var SK = {
     head: { x: SP.x + 14, y: SP.y + 40, w: SP.w - 28, h: 24 },
     rowH: 21, maxRows: 6,
-    infoY: SP.y + 76,
-    secY: SP.y + 96,
-    effY: SP.y + 112,
-    /* 贡献行上移到 154，给下面那排按钮（172..194）与末行提示（200..210）让位 ——
-       原先 184 与按钮同一段 y，只是靠 x 错开；加了「参悟」之后两个按钮并排，
-       再靠 x 错开会变成"文字压在按钮上"（panels.bounds.contract 会直接报）。
+    infoY: SP.y + 74,
+    /* 激发状态行（v0.69.0）：紧跟 info 之下，左右两栏各一句
+       （左"已/未激发"、右"威力 ×N"），与 sec 之间留 2px 呼吸。 */
+    stateY: SP.y + 90,
+    secY: SP.y + 106,
+    effY: SP.y + 121,
+    /* 贡献行：在三行效果（121/135/149）之下、按钮行（172）之上。
        ⚠️ 提示行 y + 字号必须 ≤ 面板底 238（SP.y=26 → 偏移上限 202）。 */
-    contribY: SP.y + 154,
-    btn: { x: SP.x + SP.w - 130, y: SP.y + 172, w: 116, h: 22 },
-    /* 参悟按钮（v0.14.0）：与「精进」同一行，落在左半段（原本是空白） */
-    shardBtn: { x: SP.x + 14, y: SP.y + 172, w: 152, h: 22 },
+    contribY: SP.y + 158,
+    /* ⚠️ 三个按钮必须并排不叠（panels.bounds.contract 会判"文字压在按钮上"）。
+       可用横段 = SP.x+14 .. SP.x+SP.w-14（= 88..422，宽 334）。
+       等分三份：各 104 宽 + 10 间距 → 104×3 + 10×2 = 332，正好落在 334 内。
+       顺序按"用得最频繁的靠左"：参悟（碎片线）→ 激发（战斗配置）→ 精进（灵力线）。 */
+    btn: { x: SP.x + 242, y: SP.y + 172, w: 104, h: 22 },
+    /* 参悟按钮（v0.14.0）：与「精进」同一行，落在最左段 */
+    shardBtn: { x: SP.x + 14, y: SP.y + 172, w: 104, h: 22 },
+    /* 激发/卸下按钮（v0.69.0）：同一行中段 —— 三个按钮的**唯一**横向分区。 */
+    equipBtn: { x: SP.x + 128, y: SP.y + 172, w: 104, h: 22 },
     hintY: SP.y + 200
   };
   SK.listY = SK.head.y + SK.head.h + 2;
@@ -699,17 +706,22 @@
     var sd = G.Data.skills[sel] || { n: sel, tier: '凡', elem: '无', kind: '仙术' };
     var lv = save.skills[sel].lv;
     var cost = G.Player.skillCost(sd, lv);
+    var equippedNow = G.Player.equippedIds(save);
+    var isEq = equippedNow.indexOf(sel) >= 0;
 
     /* 展开时先把列表压进数组 —— 下标小 = 命中优先，列表要盖住下面的一切 */
     if (scene.skillOpen) {
       ids.slice(0, SK.maxRows).forEach(function (id, i) {
         var d = G.Data.skills[id] || { n: id, elem: '无', tier: '凡' };
         var l = save.skills[id].lv;
+        /* 激发位的功法在行首标「激」—— 一眼看出哪几本正在战斗里用。
+           不用符号（'★' 之类）是因为字体回退会出豆腐块（项目老坑）。 */
+        var eq = equippedNow.indexOf(id) >= 0 ? '激　' : '';
         btns.push(new G.UI.Btn({
           x: SK.head.x, y: SK.listY + i * SK.rowH, w: SK.head.w, h: SK.rowH - 1,
           small: true,
-          variant: id === sel ? 'gold' : 'battle',
-          label: d.n + '　' + G.Data.skillRealm(l).short + '　' + (d.elem || '无') + '　' + (d.tier || '凡') + '阶',
+          variant: eq ? 'gold' : (id === sel ? 'gold' : 'battle'),
+          label: eq + d.n + '　' + G.Data.skillRealm(l).short + '　' + (d.elem || '无') + '　' + (d.tier || '凡') + '阶',
           onClick: function () {
             scene.skillSel = id; scene.skillOpen = false;
             G.Overlays.openPanel(scene, 'skills');
@@ -717,6 +729,45 @@
         }));
       });
     } else {
+      /* ===== 激发 / 卸下（v0.69.0）=====
+         用户在功法详情页**唯一**能改变"战斗里能用哪几本"的入口。
+         占的是原先「参悟」右侧的空白段（精进在左、参悟居中，这里放最右）——
+         ⚠️ 三个按钮必须并排不叠：x 段 14..166（精进）/ 176..296（参悟）/ 306..426（激发）。
+         按内容判：`occupiesSlot` 为真才计槽；纯被动随时可激（不占槽）。 */
+      var sk = sd;
+      var occupies = G.Player.occupiesSlot(sel);
+      var left = G.Player.slotsLeft(save);
+      var label, variant, disabled, onClick;
+      if (isEq) {
+        label = '卸下激发'; variant = 'gold'; disabled = false;
+        onClick = function () {
+          var r = G.Player.cancelSkill(save, sel);
+          if (!r.ok) { G.game.toast(r.reason); return; }
+          G.Storage.saveCurrent(save);
+          G.game.toast('已卸下「' + sd.n + '」');
+          G.Overlays.openPanel(scene, 'skills');
+        };
+      } else {
+        var chk = G.Player.canActivate(save, sel);
+        label = occupies
+          ? ('激发（余 ' + left + ' 位）')
+          : '激发（被动不占位）';
+        variant = chk.ok ? 'battle' : 'default';
+        disabled = !chk.ok;
+        onClick = function () {
+          var r = G.Player.activateSkill(save, sel);
+          if (!r.ok) { G.game.toast(r.reason); return; }
+          G.Storage.saveCurrent(save);
+          G.game.toast('已激发「' + sd.n + '」');
+          G.Overlays.openPanel(scene, 'skills');
+        };
+      }
+      btns.push(new G.UI.Btn({
+        x: SK.equipBtn.x, y: SK.equipBtn.y, w: SK.equipBtn.w, h: SK.equipBtn.h,
+        small: true, variant: variant, label: label, disabled: disabled,
+        onClick: onClick
+      }));
+
       btns.push(new G.UI.Btn({
         x: SK.btn.x, y: SK.btn.y, w: SK.btn.w, h: SK.btn.h, small: true,
         variant: (save.po >= cost && !G.Data.skillAtTop(lv)) ? 'gold' : 'default',
@@ -813,6 +864,22 @@
       + '　属性 ' + (sd.elem || '无') + '　' + G.Data.skillRealm(lv).n;
     G.UI.text(x, { x: SP.x + 14, y: SK.infoY }, info, 11.5, G.UI.C.text);
 
+    /* 激发状态 + 九重威力（v0.69.0）：
+       ① 让玩家一眼看到"这本是否在战斗里能用"（此前完全无处可看）；
+       ② 把 prog 的实际收益（伤害倍率）摊开 —— 否则"精进"对玩家是个黑箱数字。 */
+    var eqIds = G.Player.equippedIds(save);
+    var on = eqIds.indexOf(sel) >= 0;
+    var pc = G.Player.progCoef ? G.Player.progCoef(lv) : 1;
+    G.UI.text(x, { x: SP.x + 14, y: SK.stateY },
+      on ? '已激发：本功法参与战斗' : '未激发：战斗技能栏不会出现',
+      10.5, on ? G.UI.C.jadeHi : G.UI.C.textDim);
+    /* ⚠️ 用**左对齐 + 手动左移**而不是 align:'right' ——
+       `panels.bounds.contract` 的 `box()` 不认 align（按左对齐算宽度），
+       用 'right' 会被判成"文字从 x 向右越界"（项目老坑 G49 同族）。
+       "威力 ×2.15" 最长约 62px（10.5 号字），起点放在 SP 右沿内 70px 处即安全。 */
+    G.UI.text(x, { x: SP.x + SP.w - 84, y: SK.stateY },
+      '威力 ×' + pc.toFixed(2), 10.5, G.UI.C.gold);
+
     sec(x, SP.x + 14, SK.secY, '效 果');
     skillEffects(sd).slice(0, 3).forEach(function (t, i) {
       G.UI.text(x, { x: SP.x + 14, y: SK.effY + i * 14 }, t, 10.5, G.UI.C.textDim);
@@ -823,7 +890,7 @@
       skillContrib(sd, lv, save), 11, COL[sd.elem] || G.UI.C.jadeHi);
 
     G.UI.text(x, { x: SP.x + 14, y: SK.hintY },
-      '「精进」耗灵力；碎片由副本与野外掉落，10 片参悟一本。', 10, G.UI.C.textDim);
+      '激发后才进战斗技能栏（至多 3 本，被动不占位）；精进耗灵力。', 10, G.UI.C.textDim);
   }
 
 

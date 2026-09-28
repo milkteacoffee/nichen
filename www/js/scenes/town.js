@@ -237,6 +237,8 @@
     var pick = G.rng.pick(matched.length ? matched : fresh);
     if (!pick) return null;
     if (!own[pick]) save.skills[pick] = { lv: 1 };
+    /* 赠到就激发（v0.69.0）：槽满时静默失败，剧情里不打断演出。 */
+    G.Player.autoEquip(save, pick);
     return pick;
   }
 
@@ -625,8 +627,13 @@
       given.forEach(function (id) {
         if (id && !save.skills[id]) save.skills[id] = { lv: 1 };
       });
-      if (!save.skillEquip || !save.skillEquip.length) save.skillEquip = [given[0]];
-      G.game.toast('灵石 +50；沈伯传你三门入门功法');
+      /* 入门三本**全部激发**（v0.69.0）：攻击那本占槽，铁布衫/吐纳术是纯被动、不占槽。
+         全激上之后玩家一进功法页就看到"三本都在用"，不必先自己摸索激发机制。 */
+      if (!save.skillEquip || !save.skillEquip.length) {
+        save.skillEquip = [];
+        given.forEach(function (id) { if (id) G.Player.autoEquip(save, id); });
+      }
+      G.game.toast('灵石 +50；沈伯传你三门入门功法（已激发）');
       scene.clearOverlay();
       return;
     }
@@ -746,7 +753,16 @@
         disabled: save.stone < it.price || owned,
         onClick: function () {
           save.stone -= it.price;
-          if (it.skill) save.skills[it.id] = { lv: 1 };
+          if (it.skill) {
+            save.skills[it.id] = { lv: 1 };
+            /* 买到就激发（v0.69.0）—— 否则玩家会以为"买了本没用的书" */
+            var bought = G.Player.autoEquip(save, it.id);
+            G.game.toast('习得《' + (G.Data.skills[it.id] || {}).n + '》'
+              + (bought ? '，已激发' : '（激发位已满，去功法页配置）'));
+            G.Storage.saveCurrent(save);
+            openMarket(scene);
+            return;
+          }
           else if (it.m1) { finishPill(scene, save, q, '刘掌柜：郡城调来的货，不赚你钱。'); return; }
           else save.items[it.id] = (save.items[it.id] || 0) + 1;
           openMarket(scene);

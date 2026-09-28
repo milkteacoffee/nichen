@@ -1284,8 +1284,222 @@ step(function () {
     }
   });
   const labels = b.buttons.map(function (x) { return x._key; }).join(',');
-  if (labels !== '攻击,功法,道具,防御,逃跑,自动') errors.push('指令集不符 M0 裁剪：' + labels);
+  /* v0.69.0 用户口径「取消独立防御」：指令收敛到 5 个（3+2 布局）。
+     为什么断言全等而不是"不含防御"：指令集是界面契约，多一个少一个都该被看见 ——
+     放宽成 indexOf<0 会让"多加了一个未知按钮"漏过去。 */
+  if (labels !== '攻击,功法,道具,逃跑,自动') {
+    errors.push('指令集不符（v0.69.0「取消独立防御」应为 攻击,功法,道具,逃跑,自动）：' + labels);
+  }
+  /* 防御按钮必须**彻底**不在 —— 防止只是改了 labels 却留着旧按钮对象 */
+  if (b.buttons.some(function (x) { return x._key === '防御'; })) {
+    errors.push('「防御」指令按钮仍在（用户口径要取消独立防御）');
+  }
+  /* 指令区不得再出现 guard 动作：玩家侧已无独立防御入口 */
+  if (typeof b._cmd === 'function') {
+    const srcCmd = String(b._cmd);
+    if (srcCmd.indexOf('guard') >= 0) {
+      errors.push('battle._cmd 仍在处理 guard（独立防御没删干净）');
+    }
+  }
 }, 'battle.commands');
+
+/* 4b-1) 激发制 + 九重系数（v0.69.0，用户口径「可学多本、单本激发、九重」）
+   ⚠️ 用户新需求**覆盖**归档《战斗系统修订 v2.1》§2 的原文
+      「所有已学功法的主动技能在每场战斗中均可使用（无装配上限、无 CD）」——
+   所以断言的基准是"激发制"，不是"全可用"。 */
+step(function () {
+  const P = G.Player;
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+
+  /* ① 常量口径：战斗装配上限必须来自 Player.ACTIVE_SLOTS（不许第二处写 3） */
+  if (P.ACTIVE_SLOTS !== 3) errors.push('Player.ACTIVE_SLOTS 应为 3，实为 ' + P.ACTIVE_SLOTS);
+
+  /* ② 九重系数：单调递增、两端钉死、九重巅峰明显更强 */
+  const c1 = P.progCoef(1), c36 = P.progCoef(G.Data.SKILL_MAX_PROG);
+  if (Math.abs(c1 - 1) > 1e-6) errors.push('progCoef(1) 应为 1.00（刚学会=原倍率），实为 ' + c1);
+  if (c36 < 2 || c36 > 2.4) errors.push('progCoef(36) 应在 2.0–2.4（九重巅峰才配得上"巅峰"），实为 ' + c36);
+  let prev = -1, mono = true;
+  for (let p = 1; p <= G.Data.SKILL_MAX_PROG; p++) {
+    const v = P.progCoef(p);
+    if (v <= prev) mono = false;
+    prev = v;
+  }
+  if (!mono) errors.push('progCoef 必须随 prog 单调递增（否则"精进"会出现倒退）');
+  /* 前段可见：从一重到三重（prog 1→9）至少涨 15% —— 玩家点几次就该看得出差别 */
+  if (P.progCoef(9) / P.progCoef(1) < 1.15) {
+    errors.push('prog 1→9 增幅过小（' + P.progCoef(9).toFixed(2) + '），精进将"看不出效果"');
+  }
+
+  /* ③ 装配：只装已激发的；上限 3；激发顺序即出招顺序 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.globalLevel = 20; s.hp = 99999;
+  s.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 寒水诀: { lv: 1 }, 疾风诀: { lv: 1 }, 铁布衫: { lv: 1 } };
+  s.skillEquip = ['崩岩掌', '寒水诀'];           /* 只激 2 本，且顺序与 skills 的键序不同 */
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+  pump(6, 'actv.enter');
+  let b = G.game.scene;
+  if (!b || typeof b._cmd !== 'function') bail('激发契约：没能进入战斗');
+  const names = b.p.skills.map((k) => k.id);
+  if (names.indexOf('烈焰指') >= 0 || names.indexOf('疾风诀') >= 0) {
+    errors.push('未激发的功法进了战斗技能栏：' + names.join(',') + '（激发制没生效）');
+  }
+  if (names.join(',') !== '崩岩掌,寒水诀') {
+    errors.push('战斗技能栏应严格按 skillEquip 顺序 [崩岩掌,寒水诀]，实为 [' + names.join(',') + ']');
+  }
+
+  /* ④ 九重系数**真的乘进战斗倍率**（把 prog 拉高，倍率必须跟着涨） */
+  const base = b.p.skills[0].mult;
+  b.p.skills[0].cdLeft = 0;
+  const lvBefore = s.skills['崩岩掌'].lv;
+  if (lvBefore !== 1) errors.push('装配基线应是 prog=1，实为 ' + lvBefore);
+  /* 直接改存档再重进（模拟"精进到九重"） */
+  s.skills['崩岩掌'].lv = G.Data.SKILL_MAX_PROG;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+  pump(6, 'actv.top');
+  b = G.game.scene;
+  const top = b.p.skills[0].mult;
+  if (!(top > base * 1.8)) {
+    errors.push('九重进度没进战斗倍率：prog1 倍率 ' + base + ' → prog36 仍是 ' + top
+      + '（"精进"对伤害毫无影响，是纯静默）');
+  }
+
+  /* ⑤ 激发/卸下的守卫：槽满拒、重复拒、未学拒、被动不占槽 */
+  const s2 = JSON.parse(JSON.stringify(save));
+  s2.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 寒水诀: { lv: 1 }, 疾风诀: { lv: 1 }, 铁布衫: { lv: 1 } };
+  s2.skillEquip = [];
+  if (!P.activateSkill(s2, '烈焰指').ok) errors.push('空激发位应能激上「烈焰指」');
+  if (!P.activateSkill(s2, '崩岩掌').ok) errors.push('第 2 本应能激上');
+  if (!P.activateSkill(s2, '寒水诀').ok) errors.push('第 3 本应能激上');
+  const full = P.activateSkill(s2, '疾风诀');
+  if (full.ok) errors.push('激发位满（3）后仍能激上第 4 本 —— 上限失效');
+  if (!full.reason) errors.push('激满被拒时应给出原因文案');
+  const dup = P.activateSkill(s2, '烈焰指');
+  if (dup.ok) errors.push('重复激发同一本应被拒');
+  if (P.slotsLeft(s2) !== 0) errors.push('槽满时 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
+  /* 被动功法：不占槽 → 槽满也能激 —— 这是"按品级配置主被动"的落点 */
+  const pas = P.activateSkill(s2, '铁布衫');
+  if (!pas.ok) errors.push('被动功法（铁布衫）不占主动槽，槽满时也应能激，实被拒：' + pas.reason);
+  if (!P.occupiesSlot('崩岩掌')) errors.push('攻击功法必须占槽');
+  if (P.occupiesSlot('铁布衫')) errors.push('纯被动功法不该占槽');
+  if (!P.cancelSkill(s2, '崩岩掌').ok) errors.push('卸下已激发的功法应成功');
+  if (P.slotsLeft(s2) !== 1) errors.push('卸下一本后应空出 1 位，实为 ' + P.slotsLeft(s2));
+  if (P.cancelSkill(s2, '从未学过的').ok) errors.push('卸下未激发的功法应被拒');
+
+  /* ⑥ 未习得 / 被废功的功法不能激发 */
+  const s3 = JSON.parse(JSON.stringify(save));
+  s3.skills = { 烈焰指: { lv: 1 } }; s3.skillEquip = [];
+  s3.skillEquip = ['烈焰指'];
+  s3.skills['烈焰指'].voided = true;
+  if (P.canActivate(s3, '烈焰指').ok) errors.push('已废功的功法不该能激发');
+  if (P.equippedIds(s3).length) errors.push('equippedIds 应滤掉废功条目（战斗栏会带进废功）');
+
+  /* ⑦ 源码闸：战斗装配必须走 equippedIds，不许自己遍历 save.skills 全装 */
+  const bs2 = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+  const asm = bs2.slice(bs2.indexOf('_initUnits: function'), bs2.indexOf('this.p = {'));
+  if (asm.indexOf('equippedIds') < 0) {
+    errors.push('源码闸：battle._initUnits 未走 Player.equippedIds（激发制会退回"全装"）');
+  }
+  if (asm.indexOf('ACTIVE_SLOTS') < 0) {
+    errors.push('源码闸：battle._initUnits 未读 Player.ACTIVE_SLOTS（上限会各写一份）');
+  }
+  if (asm.indexOf('progCoef') < 0) {
+    errors.push('源码闸：battle._initUnits 未接 progCoef（九重进度不进战斗倍率）');
+  }
+
+  /* ⑧ 源码闸：**所有"学到功法"的落点都必须跟一句 autoEquip**。
+     这是"路径遗漏"型缺口的标准解法 —— 新增一条获取途径（活动、任务、奇遇）时，
+     只写 `save.skills[id] = {lv:1}` 而不激发，玩家会看到"学了功法但战斗里没有"。
+     判据：扫全仓 `save.skills[<非字面量>] = { lv: 1` 的每一行，
+     其后 6 行内必须出现 `autoEquip`（或注释显式说明为何不激发）。 */
+  {
+    /* ⚠️ 这里的路径是**相对 WWW**（下面还会 path.join(WWW, rel)）——
+       写成 'www/js/...' 会拼成 www/www/... → existsSync 全 false → 静默扫到 0 处。
+       本轮就踩了这个：闸门"通过"了，其实一个文件都没读。 */
+    const files = ['js/scenes/town.js', 'js/scenes/battle.js',
+      'js/scenes/dungeon.js', 'js/scenes/reincarnation.js', 'js/core/player.js'];
+    const learnRe = /save\.skills\[[^\]]+\]\s*=\s*\{\s*lv:\s*1/;
+    let seenLearn = 0, missing = [];
+    files.forEach(function (rel) {
+      const p = path.join(WWW, rel);
+      if (!fs.existsSync(p)) return;
+      const src = stripC(fs.readFileSync(p, 'utf8')).split('\n');
+      src.forEach(function (line, i) {
+        if (!learnRe.test(line)) return;
+        seenLearn++;
+        const near = src.slice(i, i + 7).join('\n');
+        if (near.indexOf('autoEquip') < 0) {
+          missing.push(rel + ':' + (i + 1));
+        }
+      });
+    });
+    if (seenLearn < 3) {
+      errors.push('源码闸：只扫到 ' + seenLearn + ' 处"学到功法"落点（应 ≥3），正则可能过时了');
+    }
+    if (missing.length) {
+      errors.push('源码闸：这些"学到功法"的落点没跟 autoEquip（玩家学了却不在技能栏）：'
+        + missing.join('、'));
+    }
+  }
+
+  /* ⑨ 端到端：**走真实的"学到功法"入口**（碎片参悟），验证自动激发 → 战斗栏真出现。
+     ⑧ 是静态扫源码，只能证明"写了 autoEquip 这句"；这里证的是"这句真的有用"。
+     为什么单挑 inscribe：它是唯一**由 G.rng 决定学到哪本**的路径 ——
+     门市部/宗门兑换/主线赠书的 id 都是外部传入的，只有参悟是内部掷骰，
+     最容易出现"掷到 A 却激发了 B"这类漂移。 */
+  {
+    const s9 = JSON.parse(JSON.stringify(save));
+    s9.skills = {}; s9.skillEquip = [];
+    s9.items = {};
+    /* 喂够任意一品的碎片，保证 inscribe 一定成功 */
+    const tier9 = Object.keys(G.Data.shardByTier)[0];
+    s9.items[G.Data.shardByTier[tier9]] = (G.Data.shardCost || 10) + 5;
+    const pool9 = G.Data.shardPool(tier9);
+    const r9 = P.inscribe(s9, tier9);
+    if (!r9.ok) {
+      errors.push('端到端：碎片参悟应成功（碎片足够），实为 ' + r9.reason);
+    } else {
+      if (!r9.learned) errors.push('端到端：新档首次参悟应为"新习"（learned=true）');
+      if (s9.skills[r9.id] == null) errors.push('端到端：参悟后功法未进 save.skills');
+      /* 核心断言：参悟到的那本，**必须**同时在激发位里 */
+      if ((s9.skillEquip || []).indexOf(r9.id) < 0) {
+        errors.push('端到端：参悟得到「' + r9.id + '」却没自动激发（'
+          + '战斗栏会是空的 —— 玩家看到"学了功法但不能用"）');
+      }
+      /* 再证一步：进战斗后技能栏里真的有这本 */
+      s9.quest = { step: 'free', flags: {} };
+      s9.globalLevel = 20; s9.hp = 99999;
+      G.game.save = s9;
+      G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+      pump(6, 'actv.e2e');
+      const b9 = G.game.scene;
+      if (!b9 || typeof b9._cmd !== 'function') {
+        errors.push('端到端：参悟后没能进入战斗');
+      } else {
+        const inBar = b9.p.skills.map((k) => k.id);
+        if (inBar.indexOf(r9.id) < 0) {
+          errors.push('端到端：参悟到的「' + r9.id + '」没出现在战斗技能栏（实为 ['
+            + inBar.join(',') + ']）');
+        }
+      }
+      if (pool9.indexOf(r9.id) < 0) {
+        errors.push('端到端：参悟到的「' + r9.id + '」不属于该品阶池（数据串了）');
+      }
+    }
+    G.game.save = save;
+  }
+
+  G.game.changeScene('title');
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('激发契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 激发制：只装已激发的 / 上限 3 / 被动不占位 / 九重进倍率 / 参悟得功即入栏');
+}, 'skill.activate.contract');
 
 /* 4b-2) 多敌战斗（v0.3 §7「1v1-3」+ 战斗规格 v0.2 §5/§6.2） */
 step(() => {
@@ -5541,11 +5755,13 @@ step(function () {
   /* 进场后已经跑过几帧，倒计时在往下走 —— 断言"在 (0, 30] 区间且确实在递减" */
   if (!(b.cmdTimer > 0 && b.cmdTimer <= 30)) errors.push('初始思考倒计时应在 (0,30]，实为 ' + b.cmdTimer);
 
-  /* 指令按钮变体：防御/道具走 battle，攻击走 gold，逃跑走 danger */
+  /* 指令按钮变体：道具走 battle，攻击走 gold，逃跑走 danger。
+     v0.69.0 取消「防御」后，这里改判「功法」（同属 battle 变体的普通指令）。 */
   const byKey = (k) => b.buttons.filter((x) => x._key === k)[0];
-  if (byKey('防御') && byKey('防御').variant !== 'battle') {
-    errors.push('「防御」应为 battle 变体，实为 ' + byKey('防御').variant);
+  if (byKey('功法') && byKey('功法').variant !== 'battle') {
+    errors.push('「功法」应为 battle 变体，实为 ' + byKey('功法').variant);
   }
+  if (byKey('防御')) errors.push('「防御」指令应已取消（v0.69.0 取消独立防御）');
   if (byKey('攻击') && byKey('攻击').variant !== 'gold') errors.push('「攻击」应仍为 gold 变体');
 
   /* 功法下拉：buttons[0] 必须是主动技 */
@@ -6181,6 +6397,10 @@ step(function () {
   s.quest = { step: 'free', flags: {} };
   s.globalLevel = 14;
   s.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 3 } };
+  /* ⚠️ v0.69.0 起战斗技能栏**只装已激发的功法**（用户口径「单本激发」）——
+     老 fixture 没写 skillEquip，装配出 0 条 → 落到兜底普攻 → 契约直接崩。
+     这正是"激发制真的生效了"的反证，所以这里补上而不是放宽契约。 */
+  s.skillEquip = ['烈焰指', '崩岩掌'];
   s.hp = 99999;
   G.game.save = s;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });

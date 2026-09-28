@@ -472,8 +472,15 @@ step(() => G.game.scene._cmd('道具'), 'battle.item');
 shot('13_battle_item', 8);
 step(() => G.game.scene._cmd('攻击'), 'battle.attack');
 shot('14_battle_attack', 60);
-step(() => G.game.scene._cmd('防御'), 'battle.guard');
-shot('15_battle_guard', 60);
+step(() => G.game.scene._cmd('逃跑'), 'battle.flee');
+shot('15_battle_flee', 60);
+/* v0.69.0 取消独立防御：指令区改为 5 个（3+2）。补拍一张收起态，
+   确认新版式不空不挤（原 15_battle_guard 已删 —— 那个按钮不存在了）。 */
+step(() => {
+  const b = G.game.scene;
+  if (b._buildCommand) b._buildCommand();
+}, 'battle.cmd5');
+shot('15_battle_cmd5', 6);
 
 /* 5b) 蓄力预告（敌方蓄力技：必须提前一回合提示） */
 step(() => {
@@ -947,7 +954,12 @@ step(() => {
 }, 'hud.bar');
 shot('29_hud_bar', 12);
 
-step(() => { G.Overlays.openPanel(G.game.scene, 'skills'); }, 'panel.skills');
+step(() => {
+  /* 上一段「忆起」演出会留一个 modal（G.Story._cur），不清掉会整个盖住面板 ——
+     第一次拍 30_panel_skills 拍到的就是忆起卡而不是功法面板。 */
+  if (G.Story) { G.Story._cur = null; G.Story._queue.length = 0; G.Story.closeCodex(); }
+  G.Overlays.openPanel(G.game.scene, 'skills');
+}, 'panel.skills');
 shot('30_panel_skills', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'secrets'); }, 'panel.secrets');
 shot('31_panel_secrets', 6);
