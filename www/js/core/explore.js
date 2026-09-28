@@ -303,6 +303,13 @@
           }
           this.frame = 0;
         }
+        /* 主线插曲·旅途际遇（v0.60，用户第 3 点）：野外静止、非城镇洞穴时按 gl 触发 */
+        if (!this.moving && !this.path.length && !this.pendingAct && G.Data.StoryEvents
+            && !this.map.md.indoor && !this.map.md.safe && this._baseType() !== 'cave'
+            && this._baseType() !== 'bloodcave') {
+          var _ev = G.Data.StoryEvents.pending(save);
+          if (_ev) G.Data.StoryEvents.show(this, _ev);
+        }
       },
 
       _front: function (p, d) {
@@ -791,6 +798,8 @@
         /* 天劫是**核心覆盖层**（不属于任何场景的 hooks），优先分派 */
         if (this.overlay === 'tribulation' && G.Overlays.renderTribulation) {
           G.Overlays.renderTribulation(x, this);
+        } else if (this.overlay === 'storyevent' && G.Data.StoryEvents) {
+          G.Data.StoryEvents.render(x, this);
         } else if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
         if (_popen) x.restore();
@@ -972,13 +981,61 @@
           for (var ox = 0; ox < w; ox += TS)
             g.drawImage(base, ox, oy, TS, TS);
 
-        /* 2) 路格与路缘：只占少数格子，逐格补画 */
-        for (var ty = 0; ty < m.h; ty++)
-          for (var tx = 0; tx < m.w; tx++)
-            if (m.ground[ty][tx].t === 'path') this._drawPathTile(g, tx, ty);
+        /* 2) 道路：整片软蒙版 + 噪声羽化，路面像被踩进土里（v0.60，用户第 5 点） */
+        this._softRoads(m, g, K, pal);
 
         this._groundLayer = c;
         this._groundKey = key;
+      },
+
+      /* 软道路：路面层按噪声羽化的覆盖率与基础地面逐像素混合。
+         边缘只向路面内侧磨损（不向外铺），噪声取世界像素坐标 → 长路边连续、不重复。 */
+      _softRoads: function (m, g, K, pal) {
+        var wl = m.w * 16, hl = m.h * 16;
+        var W = Math.round(wl * K), H = Math.round(hl * K);
+        var TS = G.Art.GROUND_TS;
+        /* 路面层（周期平铺，与基础同对齐） */
+        var pc = document.createElement('canvas'); pc.width = W; pc.height = H;
+        var pctx = pc.getContext('2d');
+        pctx.setTransform(K, 0, 0, K, 0, 0); pctx.imageSmoothingEnabled = false;
+        var ptex = G.Art.groundTex('path', pal);
+        for (var yy = 0; yy < hl; yy += TS)
+          for (var xx = 0; xx < wl; xx += TS) pctx.drawImage(ptex, xx, yy, TS, TS);
+        /* 二元蒙版：透明底 + 白色路块 */
+        var bc = document.createElement('canvas'); bc.width = W; bc.height = H;
+        var bctx = bc.getContext('2d');
+        bctx.fillStyle = '#ffffff';
+        for (var ty = 0; ty < m.h; ty++)
+          for (var tx = 0; tx < m.w; tx++)
+            if (m.ground[ty][tx].t === 'path') bctx.fillRect(tx * 16 * K, ty * 16 * K, 16 * K, 16 * K);
+        /* 路缘不规则侵蚀：草/土啃进路面（destination-out 软黑斑） */
+        var ERSIDES = [['N', 0, -1], ['S', 0, 1], ['W', -1, 0], ['E', 1, 0]];
+        bctx.globalCompositeOperation = 'destination-out';
+        for (var ey = 0; ey < m.h; ey++)
+          for (var ex = 0; ex < m.w; ex++) {
+            if (m.ground[ey][ex].t !== 'path') continue;
+            for (var es = 0; es < 4; es++) {
+              var edf = ERSIDES[es], enx = ex + edf[1], eny = ey + edf[2];
+              var outN = enx < 0 || eny < 0 || enx >= m.w || eny >= m.h || m.ground[eny][enx].t !== 'path';
+              if (!outN) continue;
+              var ev = (Math.imul(ex, 73856093) ^ Math.imul(ey, 19349663) ^ Math.imul(es, 83492791)) >>> 0;
+              var stamp = G.Art.edgeErode(edf[0], ev % 3, K);
+              bctx.drawImage(stamp, ex * 16 * K, ey * 16 * K);
+            }
+          }
+        bctx.globalCompositeOperation = 'source-over';
+        /* 羽化（blur，仅 drawImage，不读像素 → file:// 不污染）；无 filter 时退回硬边 */
+        var fc = document.createElement('canvas'); fc.width = W; fc.height = H;
+        var fctx = fc.getContext('2d');
+        fctx.filter = 'blur(' + Math.round(2.6 * K) + 'px)';
+        fctx.drawImage(bc, 0, 0); fctx.filter = 'none';
+        /* 蒙版裁路面（destination-in 用 alpha），再叠到基础地面 */
+        pctx.setTransform(1, 0, 0, 1, 0, 0);
+        pctx.globalCompositeOperation = 'destination-in';
+        pctx.drawImage(fc, 0, 0, W, H);
+        pctx.globalCompositeOperation = 'source-over';
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.drawImage(pc, 0, 0);
       },
 
       /* 每帧的地面：从预烘好的整图层里取视口这一块（1 次 blit） */
@@ -1092,28 +1149,25 @@
         var done = (G.Gather && G.Gather.gatheredToday)
           ? G.Gather.gatheredToday(G.game.save, this.mapId, o) : false;
         var px = Math.round(o.x * 16 - camX), py = Math.round(o.y * 16 - camY);
-        var HERB_C = { "凝血草": "#d9534f", "灵泉水": "#7fd4e8", "百年灵芝": "#d8a657", "道纹草": "#b58ce0" };
-        var ORE_C = { "玄铁": "#9aa0ad", "精钢": "#c3c8d2", "灵玉": "#7fc6e0", "道纹矿": "#b58ce0" };
+        var id = G.Overlays.itemIconId ? G.Overlays.itemIconId(o.mat) : o.mat;
+        var SZ = 22;
+        var ic = G.Art.itemIcon(id, SZ);
+        var ph = o.x * 0.9 + o.y * 0.5;
+        var bob = done ? 0 : Math.sin(G.game.time * 2.2 + ph) * 1.1;
         x.save();
-        x.globalAlpha = done ? 0.25 : 1;
-        x.fillStyle = o.cat === 'herb' ? 'rgba(127,196,122,0.28)' : 'rgba(150,160,175,0.28)';
-        x.beginPath(); x.ellipse(px + 8, py + 11, 8, 6, 0, 0, 7); x.fill();
-        x.fillStyle = 'rgba(0,0,0,0.22)';
-        x.beginPath(); x.ellipse(px + 8, py + 13, 5, 2, 0, 0, 7); x.fill();
-        if (o.cat === 'herb') {
-          x.fillStyle = '#3f7d46';
-          x.fillRect(px + 5, py + 8, 2, 5); x.fillRect(px + 8, py + 7, 2, 6); x.fillRect(px + 10, py + 9, 2, 4);
-          x.fillStyle = HERB_C[o.mat] || '#cfe6a0';
-          x.beginPath(); x.arc(px + 5, py + 7, 1.8, 0, 7); x.arc(px + 9, py + 6, 1.8, 0, 7); x.arc(px + 11, py + 8, 1.6, 0, 7); x.fill();
-          x.fillStyle = 'rgba(255,255,255,0.8)'; x.fillRect(px + 8, py + 5, 1, 1);
-        } else {
-          x.fillStyle = ORE_C[o.mat] || '#8a8f9c';
-          x.beginPath();
-          x.moveTo(px + 4, py + 13); x.lineTo(px + 7, py + 5); x.lineTo(px + 12, py + 6); x.lineTo(px + 13, py + 13);
-          x.closePath(); x.fill();
-          x.fillStyle = 'rgba(255,255,255,0.4)';
-          x.beginPath(); x.moveTo(px + 7, py + 5); x.lineTo(px + 9, py + 8); x.lineTo(px + 7, py + 9); x.closePath(); x.fill();
-          x.fillStyle = 'rgba(255,255,255,0.85)'; x.fillRect(px + 8, py + 6, 1, 1);
+        x.globalAlpha = done ? 0.22 : 1;
+        if (!done) {
+          var glow = o.cat === 'herb' ? 'rgba(120,200,140,0.20)' : 'rgba(150,180,220,0.20)';
+          x.fillStyle = glow;
+          x.beginPath(); x.ellipse(px + 8, py + 14, 8, 3.2, 0, 0, 7); x.fill();
+        }
+        var bx = px + 8 - SZ / 2, by = py + 15 - SZ + bob;
+        x.drawImage(ic.c, bx + ic.ox, by + ic.oy, ic.w, ic.h);
+        if (!done) {
+          var sp = (G.game.time * 0.8 + ph) % 2.2;
+          x.globalAlpha = (1 - sp / 2.2) * 0.7;
+          x.fillStyle = o.cat === 'herb' ? '#cfeecb' : '#cfe0f5';
+          x.fillRect(px + 8 + Math.sin(ph) * 3, py + 12 - sp * 7, 1.4, 1.4);
         }
         x.restore();
       },
@@ -1647,24 +1701,8 @@
         G.UI.textOut(x, { x: 170, y: 21 }, Math.round(save.hp) + ' / ' + st.maxhp, 10.5,
           low ? '#ff9a92' : G.UI.C.text);
 
-        /* --- 灵气（突破进度）---
-           标签是**灵气**不是「修为」：这个条画的 `breakState.have/need` 就是
-           `save.qi` 与该级所需灵气，修为是境界本身、不是这个数（v0.11.4 更正）。
-           数值列与「可突破」**互斥**：灵气满时数值会变成 1200 / 100 这种超宽串，
-           两个都画就会糊在一起（首版实测 "1200 / 100可突破" 连成一片）。
-           灵气余额右边资源格里一直看得见，所以这里让位给可操作信息。 */
-        var pr = bs.need ? Math.min(1, bs.have / bs.need) : 1;
-        G.UI.text(x, { x: 52, y: 36 }, '灵气', 10.5, G.UI.C.textDim);
-        G.UI.bar(x, { x: 80, y: 37.5, w: 84, h: 7 }, pr, bs.ready ? '#f5e3a8' : G.UI.C.qi);
-        if (bs.ready) {
-          x.save();
-          x.globalAlpha = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t / 260));
-          G.UI.textOut(x, { x: 170, y: 35.5 }, '可突破', 11.5,
-            bs.big ? '#ff9a7a' : '#8fe0a0');
-          x.restore();
-        } else {
-          G.UI.textOut(x, { x: 170, y: 36 }, bs.have + ' / ' + bs.need, 10.5, G.UI.C.textDim);
-        }
+        /* v0.60.0 移除顶部「灵气」进度条 —— 灵气=修炼经验，右侧资源芯片已显示同值，
+           重复展示（用户第 6 点）。"可突破"并入右侧灵气芯片：就绪时该芯片金边脉动。 */
 
         /* --- 右：资源（四格等宽，图标 + 右对齐数值）---
            背板要够暗：顶栏渐变到这一行已经快透明了，格子底压不住的话
@@ -1697,6 +1735,15 @@
           var cell = { x: sx, y: 27, w: 54, h: 17 };
           G.UI.panel(x, cell, 'rgba(8,11,19,0.86)',
             'rgba(216,183,104,0.32)', 4, { tex: false, shadow: false });
+          /* 灵气满可破境：该芯片金边脉动（替代被移除的顶部灵气条上的"可突破"）。 */
+          if (s[0] === 'qi' && bs.ready) {
+            var pq = 0.5 + 0.5 * Math.sin((G.game.time || 0) * 3.2);
+            x.save();
+            G.UI.rr(x, { x: cell.x - 1, y: cell.y - 1, w: cell.w + 2, h: cell.h + 2 }, 4);
+            x.strokeStyle = 'rgba(245,227,168,' + (0.45 + 0.5 * pq).toFixed(3) + ')';
+            x.lineWidth = 1.4; x.stroke();
+            x.restore();
+          }
           G.UI.icon(x, s[0], sx + 10, 35.5, 6.2);
           G.UI.textOut(x, { x: sx + 49, y: 29.5 }, num(s[1]), 11.5, s[2], 'right');
           /* 面板打开时 HUD 被压暗，此时不该再挂提示（否则提示会浮在暗罩之上） */

@@ -1034,6 +1034,30 @@
     return o.c;
   };
 
+  /* 路缘侵蚀贴片：透明底 + 沿边分布的软黑斑（destination-out 时把路面啃出不规则缺口）。
+     side 为该路面朝外的那一边；缺口集中在边线上、向路面内侵入 0~5px。 */
+  var ERODE = {};
+  A.edgeErode = function (side, variant, K) {
+    var key = 'e|' + side + '|' + variant + '|' + K;
+    if (ERODE[key]) return ERODE[key];
+    var S = 16 * K, o = cv(S, S), x = o.x;
+    var r = rnd(side.charCodeAt(0) * 131 + variant * 977 + 17);
+    for (var i = 0; i < 11; i++) {
+      var along = r() * 16;
+      var dep = Math.pow(r(), 1.5) * 5.4;
+      var rad = 0.9 + r() * 1.8, px, py;
+      if (side === 'N') { px = along; py = dep; }
+      else if (side === 'S') { px = along; py = 16 - dep; }
+      else if (side === 'W') { px = dep; py = along; }
+      else { px = 16 - dep; py = along; }
+      var a = 0.9 * (1 - dep / 7.5); if (a < 0.12) a = 0.12;
+      x.fillStyle = alpha('#000000', a);
+      blob(x, px * K, py * K, rad * K, 1);
+    }
+    ERODE[key] = o.c;
+    return o.c;
+  };
+
   /* ============================================================
      四、建筑
      ============================================================ */

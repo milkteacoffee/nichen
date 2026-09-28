@@ -136,9 +136,9 @@ D.ARCH.forEach(function (a) {
   const mid = D.makeBoss(a, 'fan', 0, 'normal', 'mid');
   const s1 = D.archById('S1');
   const leader = D.makeBoss(s1, 'fan', 0, 'normal', 'leader');
-  if (big.level !== 9) errors.push('大Boss gl 应为锚9，实为 ' + big.level);
-  if (mid.level !== 7) errors.push('小Boss gl 应为锚−2=7，实为 ' + mid.level);
-  if (leader.level !== 9) errors.push('头领 gl 应为锚9，实为 ' + leader.level);
+  if (big.level !== 36) errors.push('大Boss gl 应为锚36，实为 ' + big.level);
+  if (mid.level !== 34) errors.push('小Boss gl 应为锚−2=34，实为 ' + mid.level);
+  if (leader.level !== 36) errors.push('头领 gl 应为锚36，实为 ' + leader.level);
 })();
 
 /* ===== 真实开局：难度 → 转世 finish ===== */
@@ -171,13 +171,15 @@ function winBattle() {
 /* 清空指定槽位副本（含休整/通关/飞升） */
 function clearDungeon(slot) {
   const d = G.scenes.dungeon;
-  step(() => d._startOrResume(slot), 'start-slot-' + slot);
+  step(() => { G.game.changeScene('dungeon'); d._startOrResume(slot); }, 'start-slot-' + slot);
   pump(5);
   let guard = 0;
   while (guard++ < 300) {
     if (G.game.sceneName === 'battle') { winBattle(); continue; }
     if (G.game.sceneName === 'dungeon') {
       const sc = G.game.scene;
+      /* 小世界开场（v0.60）：踏入后才进第一关 */
+      if (sc.view === 'worldintro') { step(() => sc._enterStage(), 'worldintro'); pump(8); continue; }
       if (sc.view === 'brief') { step(() => sc._continue(), 'continue'); pump(8); continue; }
       /* 每层三选一（v0.23.0）：非终层通关后会先出这个视图。
          测试必须跟着新流程走 —— 不处理的话循环直接 break，整条链路假死。 */
@@ -216,7 +218,7 @@ for (let i = 0; i < 5; i++) {
 /* 第5槽通关即触发飞升：slot 已随飞升重置为0，世界转为灵界 */
 if (G.Player.activeWorldId(G.game.meta) !== 'ling')
   errors.push('凡界通关后应飞升灵界，当前 ' + G.Player.activeWorldId(G.game.meta));
-if (save.globalLevel !== 64) errors.push('飞升灵界后 gl 应为64，实为 ' + save.globalLevel);
+if (save.globalLevel !== 253) errors.push('飞升灵界后 gl 应为253，实为 ' + save.globalLevel);
 if (!G.game.meta.progress.worlds.ling) errors.push('灵界未解锁');
 
 /* ===== 灵界 5 本 ===== */
@@ -237,7 +239,7 @@ for (let i = 0; i < 5; i++) {
 }
 if (G.Player.activeWorldId(G.game.meta) !== 'xian')
   errors.push('灵界通关后应飞升仙界，当前 ' + G.Player.activeWorldId(G.game.meta));
-if (save.globalLevel !== 91) errors.push('飞升仙界后 gl 应为91，实为 ' + save.globalLevel);
+if (save.globalLevel !== 361) errors.push('飞升仙界后 gl 应为361，实为 ' + save.globalLevel);
 if (!G.game.meta.progress.worlds.xian) errors.push('仙界未解锁');
 
 /* ===== 报告 ===== */

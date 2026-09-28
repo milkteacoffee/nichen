@@ -294,7 +294,7 @@ note('⑥ 珠内梦境 → m0-4');
 /* ---- 5) 修炼到淬体九段：走真实突破，刷怪补灵气 ---- */
 enterMap('field');
 let guard = 0;
-while (save.globalLevel < 9 && guard++ < 400) {
+while (save.globalLevel < 36 && guard++ < 1500) {
   fight({ enemy: G.Data.makeEnemy('赤炎狼', 5, '赤炎狼'), mapId: 'field' }, 'grind');
   save.hp = G.Player.computeStats(save).maxhp;
   const st = G.Player.breakState(save);
@@ -303,8 +303,8 @@ while (save.globalLevel < 9 && guard++ < 400) {
     if (!r.ok) errors.push('刷怪后突破失败：' + r.reason);
   }
 }
-if (save.globalLevel < 9) errors.push('未能修炼到淬体九段（当前 ' + save.globalLevel + '）');
-note('⑦ 淬体九段');
+if (save.globalLevel < 36) errors.push('未能修炼到淬体九重巅峰（当前 ' + save.globalLevel + '）');
+note('⑦ 淬体九重巅峰');
 
 /* 淬体9 → 进药铺找沈伯赠丹 */
 enterMap('town');
@@ -317,7 +317,7 @@ note('⑧ 沈伯赠丹');
 /* 补满灵气以突破 */
 enterMap('field');
 guard = 0;
-while (save.qi < G.Player.needQi(save, 9) && guard++ < 400) {
+while (save.qi < G.Player.needQi(save, 36) && guard++ < 1500) {
   fight({ enemy: G.Data.makeEnemy('树精', 6, '树精'), mapId: 'field' }, 'grind2');
   save.hp = G.Player.computeStats(save).maxhp;
 }
@@ -358,14 +358,14 @@ step(function () {
   b._victory();
 }, 'm0-4.heartdemon');
 pump(40);
-if (save.globalLevel !== 10) errors.push('心魔战后应为炼气一重（10），实为 ' + save.globalLevel);
+if (save.globalLevel !== 37) errors.push('心魔战后应为炼气一重初期（37），实为 ' + save.globalLevel);
 if (save.quest.step !== 'm0-5') errors.push('心魔战后未推进到 m0-5（当前 ' + save.quest.step + '）');
 note('⑩ 心魔战 → 炼气一重');
 
 /* ---- 7) 炼气 1 → 3（赤牙洞门槛） ---- */
 enterMap('field');
 guard = 0;
-while (save.globalLevel < 12 && guard++ < 400) {
+while (save.globalLevel < 45 && guard++ < 1500) {
   fight({ enemy: G.Data.makeEnemy('赤炎狼', 7, '赤炎狼'), mapId: 'field' }, 'grind3');
   save.hp = G.Player.computeStats(save).maxhp;
   const st = G.Player.breakState(save);
@@ -374,8 +374,8 @@ while (save.globalLevel < 12 && guard++ < 400) {
     if (!r.ok) errors.push('炼气期突破失败：' + r.reason);
   }
 }
-if (save.globalLevel < 12) errors.push('未能修炼到炼气三段（当前 ' + save.globalLevel + '）');
-note('⑪ 炼气三段');
+if (save.globalLevel < 45) errors.push('未能修炼到炼气三重（当前 ' + save.globalLevel + '）');
+note('⑪ 炼气三重');
 
 /* 赤牙洞门槛 */
 enterMap('field');

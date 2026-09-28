@@ -342,7 +342,7 @@ note('珠内梦境点化');
 /* ---- 刷到炼气三段（大境界用商店可购的突破丹打通，与 playthrough 一致） ---- */
 const save1 = G.game.save;
 let guard = 0;
-while (save1.globalLevel < 12 && guard++ < 400) {
+while (save1.globalLevel < 45 && guard++ < 1500) {
   fight({ enemy: G.Data.makeEnemy('赤炎狼', 7, '赤炎狼'), mapId: 'field' });
   save1.hp = G.Player.computeStats(save1).maxhp;
   const st = G.Player.breakState(save1);
@@ -360,10 +360,10 @@ while (save1.globalLevel < 12 && guard++ < 400) {
   fightCount++;
 }
 step(() => {
-  if (save1.globalLevel < 12) errors.push('未能修至炼气三段，实为 ' + save1.globalLevel);
+  if (save1.globalLevel < 45) errors.push('未能修至炼气三重，实为 ' + save1.globalLevel);
   if (save1.quest.step !== 'm0-5') errors.push('破境后任务应到 m0-5，实为 ' + save1.quest.step);
 }, 'life1.grind');
-note('修至炼气三段');
+note('修至炼气三重');
 
 /* 记录第 1 世「同等级战力」基准。
    必须放在狼王战之前：狼王会掉一本功法，而第 2 世开局没有这本，
@@ -436,7 +436,7 @@ step(() => {
   const rec = m.past[m.past.length - 1];
   const d = rec.detail;
   if (rec.cause !== 'war') errors.push('死因应为战死，实为 ' + rec.cause);
-  if (d.realm !== 10 * rec.level) errors.push('境界仙力与等级不符');
+  if (d.realm !== 10 * G.Player.scaleLevel(rec.level)) errors.push('境界仙力与等级不符');
   if (d.kill !== 30 * 1) errors.push('击杀仙力应为 30（本世斩狼王 1 次），实为 ' + d.kill);
   if (d.age !== Math.max(0, rec.age - 15) * 2) errors.push('年岁仙力与享年不符');
   if (!(d.skill > 0)) errors.push('功法仙力应 > 0（三本功法均 Lv1）');

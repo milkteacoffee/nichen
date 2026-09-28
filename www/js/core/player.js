@@ -535,10 +535,16 @@
         save.items[st.pill] -= 1;
         if (save.items[st.pill] <= 0) delete save.items[st.pill];
         save.breakFails = (save.breakFails || 0) + 1;
+        /* v0.60 失败代价加重（修仙残酷，用户第 10 点）：灵气散 15%、
+           道基受损 +3 岁、气血折半 —— 破境不是无成本的反复尝试。 */
+        save.qi = Math.floor((save.qi || 0) * 0.85);
+        save.age = (save.age == null ? 16 : save.age) + 3;
+        var _fb = this.computeStats(save);
+        save.hp = Math.max(1, Math.round(_fb.maxhp * 0.5));
         if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
         return {
           ok: false, failed: true, chance: ch, from: st.gl,
-          reason: '破境失败（成功率 ' + ch.total + '%）—— 道基受损，再寻破境丹可增胜算'
+          reason: '破境失败（成功率 ' + ch.total + '%）—— 道基受损、气血大伤，再寻破境丹可增胜算'
         };
       }
       save.items[st.pill] -= 1;
@@ -1174,7 +1180,7 @@
       var st = this.breakState(save);
       var gl = st.gl;
       var q = this.pillQualityIdx(gl);
-      var base = 90 - (q - 1) * 5;                       /* 90 / 85 / … / 35 */
+      var base = 85 - (q - 1) * 5.5;                       /* v0.60 更残酷：85 / 79.5 / … / 24.5（早期+丹仍封顶95） */
       var dao = 0;
       if (gl >= this.BASE_GL) dao = Math.min(20, (save.breakFails || 0) * 6);
       var pill = this.PILL_QUALITY[q - 1].add;
@@ -1270,6 +1276,65 @@
       var gain = Math.round(10 * minutes * coef * (1 + r.qi));
       save.qi = (save.qi || 0) + gain;
       return gain;
+    }
+  };
+
+  /* ============================================================
+     副业（技艺）拜师学习（用户第 7 点）
+     炼丹 / 炼器 / 采药 / 采矿皆**非天生即会**，须找名师拜师、付束脩、
+     满足境界（有的还需先入门、或身为宗门弟子）方可掌握。
+     技艺等级 1 入门 / 2 精通 / 3 宗师，决定能炼哪些配方、采哪些材料。
+     **本世有效，轮回清零** —— 第一世若不去寻师，便一样都不会。
+     ============================================================ */
+  var PROFESSIONS = {
+    herb: { n: '采药', lv: [
+      { master: '姜老药师', place: '药圃', cost: 0, gl: 1, note: '养父采药老人，肯学便教' },
+      { master: '宗门药圃执事', place: '宗门·药圃', cost: 800, gl: 73, sect: 1, note: '精通药性' },
+      { master: '瑶池药仙', place: '仙界·药圃', cost: 12000, gl: 361, note: '宗师·识仙药' } ] },
+    alchemy: { n: '炼丹', lv: [
+      { master: '坐堂丹师·苏玄青', place: '药铺', cost: 300, gl: 1, need: { herb: 1 }, note: '先识药，再炼丹' },
+      { master: '宗门丹堂首座', place: '宗门·炼丹房', cost: 1500, gl: 73, sect: 1, note: '精通丹火' },
+      { master: '太清丹仙', place: '仙界·丹房', cost: 20000, gl: 361, note: '宗师·炼仙丹' } ] },
+    mine: { n: '采矿', lv: [
+      { master: '老矿工·石敢当', place: '矿口', cost: 200, gl: 1, note: '辨脉开山' },
+      { master: '宗门矿脉管事', place: '宗门·矿脉', cost: 800, gl: 73, sect: 1, note: '精通寻脉' },
+      { master: '幽冥矿使', place: '仙界·矿脉', cost: 12000, gl: 361, note: '宗师·采仙矿' } ] },
+    forge: { n: '炼器', lv: [
+      { master: '铁匠·铁大', place: '铁匠铺', cost: 400, gl: 1, note: '入门锻打' },
+      { master: '宗门器堂首座', place: '宗门·炼器堂', cost: 1500, gl: 73, sect: 1, note: '精通炼器' },
+      { master: '铸仙剑师', place: '仙界·器坊', cost: 20000, gl: 361, note: '宗师·铸仙器' } ] }
+  };
+
+  G.Professions = {
+    list: PROFESSIONS,
+    levelOf: function (save, id) { return ((save && save.prof) || {})[id] || 0; },
+    known: function (save, id) { return this.levelOf(save, id) > 0; },
+    /* 能否拜第 lv 级（1-based）的师父 */
+    canLearn: function (save, meta, id, lv) {
+      var t = PROFESSIONS[id].lv[lv - 1];
+      if (!t) return { ok: false, reason: '无此师承' };
+      if (this.levelOf(save, id) >= lv) return { ok: false, reason: '已习得' };
+      if (lv > 1 && this.levelOf(save, id) < lv - 1)
+        return { ok: false, reason: '须先得前一位师父传授' };
+      if ((save.globalLevel || 1) < t.gl)
+        return { ok: false, reason: '境界不足（需 ' + Player.realmInfo(t.gl).n + '）' };
+      if (t.sect && save.cult !== 'sect') return { ok: false, reason: '需为宗门弟子' };
+      if (t.need) for (var k in t.need) {
+        if (this.levelOf(save, k) < t.need[k])
+          return { ok: false, reason: '需先习得「' + PROFESSIONS[k].n + '」' };
+      }
+      if ((save.stone || 0) < t.cost)
+        return { ok: false, reason: '灵石不足（束脩 ' + t.cost + '）' };
+      return { ok: true };
+    },
+    learn: function (save, meta, id, lv) {
+      var c = this.canLearn(save, meta, id, lv);
+      if (!c.ok) return c;
+      save.stone -= PROFESSIONS[id].lv[lv - 1].cost;
+      save.prof = save.prof || {};
+      save.prof[id] = lv;
+      if (G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+      return { ok: true };
     }
   };
 

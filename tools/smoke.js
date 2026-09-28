@@ -3261,6 +3261,10 @@ step(function () {
   if (nodes.length !== 4) { errors.push('野外图应有 4 采集点，实际 ' + nodes.length); return; }
   nodes.forEach(function (n) { if (!G.Gather.byName(n.mat)) errors.push('采集点材料名非法：' + n.mat); });
   const n0 = nodes[0];
+  var needP0 = n0.cat === 'herb' ? 'herb' : (n0.cat === 'ore' || n0.cat === 'gem') ? 'mine' : null;
+  if (needP0) { G.Gather.gatherAt(s, 'field', n0);
+    if ((s.items[n0.mat] || 0) !== 0) errors.push('未拜师不该能采集'); }
+  s.prof = { herb: 1, mine: 1 };
   G.Gather.gatherAt(s, 'field', n0);
   if ((s.items[n0.mat] || 0) !== 1) errors.push('采集未入包');
   G.Gather.gatherAt(s, 'field', n0);
@@ -3279,7 +3283,9 @@ step(function () {
   const r1 = G.Alchemy.recipes.filter(function (r) { return r.n === '回春丹'; })[0];
   if (G.Alchemy.canCraft(s, r1).ok) errors.push('无材料不该可炼');
   s.items['凝血草'] = 2; s.items['灵泉水'] = 1;
-  if (!G.Alchemy.canCraft(s, r1).ok) errors.push('材料足应可炼');
+  if (G.Alchemy.canCraft(s, r1).ok) errors.push('未拜师材料足也不该可炼');
+  s.prof = { herb: 1, alchemy: 1 };
+  if (!G.Alchemy.canCraft(s, r1).ok) errors.push('拜师后材料足应可炼');
   const before = s.items['凝血草'];
   const res = G.Alchemy.craft(s, r1);
   if (!res.ok) errors.push('炼制失败：' + res.reason);
@@ -3299,6 +3305,8 @@ step(function () {
   const rQing = G.Forge.recipes.filter(function (r) { return r.out === 'eq_qingfeng'; })[0];
   if (G.Forge.canForge(s, rQing).ok) errors.push('无材料不该可锻');
   s.items['玄铁'] = 3; s.items['精钢'] = 2;
+  if (G.Forge.canForge(s, rQing).ok) errors.push('未拜师材料足也不该可锻');
+  s.prof = { forge: 1 };
   const base = G.Player.computeStats(s).atk;
   const res = G.Forge.forge(s, rQing);
   if (!res.ok) errors.push('锻造失败：' + res.reason);

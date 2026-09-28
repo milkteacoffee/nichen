@@ -5,7 +5,19 @@
   hooks.overlayTap = G.TianDao.overlayTap;
   hooks.overlayKey = G.TianDao.overlayKey;
 
+  function openRift(o, scene) {
+    var save = G.game.save, flags = (save.quest && save.quest.flags) || {};
+    if (!flags.riftKey) {
+      scene.setOverlay('riftsealed', [
+        new G.UI.Btn({ x: 190, y: 200, w: 100, h: 24, small: true, variant: 'ghost',
+          label: '知道了', onClick: function () { scene.clearOverlay(); } })
+      ]);
+      return;
+    }
+    G.game.changeScene('dungeon', { entrance: { slot: o.slot || 0, arch: o.arch, region: 'field' } });
+  }
   hooks.onInteract = function (o, scene) {
+    if (o.type === 'entrance') { openRift(o, scene); return; }
     if (o.type !== 'ruin') return;
     var q = G.game.save.quest;
     if (q.step === 'm0-1') { G.game.toast('一座破败山神庙，庙门紧闭'); return; }
@@ -14,6 +26,16 @@
 
   hooks.renderOverlay = function (x, scene) {
     if (G.Overlays.route(x, scene)) return;
+    if (scene.overlay === 'riftsealed') {
+      G.Overlays.frame(x, '翠微山 · 秘境裂隙');
+      var rl = [
+        '半空裂开一道紫黑色口子，雾气翻涌，却被一层淡淡金光封住。',
+        '封印未开——需先回青溪镇，在药铺沈伯处求得「引灵符」。',
+        '（拜入药铺、修至淬体七重以后，沈伯自会相告。）'
+      ];
+      rl.forEach(function (l, i) { G.UI.text(x, { x: 64, y: 96 + i * 28 }, l, 13, G.UI.C.text); });
+      return;
+    }
     if (scene.overlay === 'temple') {
       G.Overlays.frame(x, '雪夜 · 山神庙');
       var lines = [

@@ -440,7 +440,17 @@
          102×102 硬塞进来再 clip，框里只剩脸和领口，读不出"这是谁"）。 */
       var ib = { x: box.x + 5, y: box.y + 5, w: 74, h: 74 };
       var art = G.Art.portrait('luchen');
-      if (art) x.drawImage(art.c, ib.x, ib.y, art.w, art.h);
+      if (art) {
+        /* v0.60.0 立绘不再是钉死的纸片：裁进框内，做"呼吸微缩放 + 上下轻浮"。 */
+        var pbt = (G.game && G.game.time) || 0;
+        var pbo = Math.sin(pbt * 1.8) * 0.7;
+        var pbs = 1 + Math.sin(pbt * 1.8 + 0.7) * 0.012;
+        var pdw = art.w * pbs, pdh = art.h * pbs;
+        x.save();
+        x.beginPath(); x.rect(ib.x, ib.y, ib.w, ib.h); x.clip();
+        x.drawImage(art.c, ib.x + (art.w - pdw) / 2, ib.y + (art.h - pdh) / 2 + pbo, pdw, pdh);
+        x.restore();
+      }
       var tx = box.x + 86;            /* 148 */
       G.UI.textOut(x, { x: tx, y: box.y + 7 }, ri.n, 14, G.UI.C.goldHi);
       G.UI.divider(x, tx + 40, box.y + 29, 76);
@@ -605,23 +615,7 @@
         x.lineWidth = 1;
         x.strokeStyle = on ? 'rgba(216,183,104,0.65)' : 'rgba(216,183,104,0.18)';
         x.stroke();
-        /* 灵根图标（v0.40.0）：九宫格里画**先天灵珠**，不再是干巴巴一个字。
-           ⚠️ 取不到图就退回原来的文字 —— 素材没到也不能留白。 */
-        var rp = (G.Data.elem.pinyin || {})[e];
-        var ric = rp && G.Art.itemIcon ? G.Art.itemIcon('root.' + rp, 26) : null;
-        if (ric && ric.c) {
-          x.save();
-          x.globalAlpha = on ? 1 : 0.35;      /* 未激活的灵根压暗，一眼看出点亮了哪几个 */
-          x.drawImage(ric.c, Math.round(cx + (CW - 26) / 2 + ric.ox),
-            Math.round(cy + 3 + ric.oy), ric.w, ric.h);
-          x.restore();
-        } else {
-          G.UI.text(x, { x: cx + CW / 2, y: cy + 5 }, e, 14,
-            on ? (COL[e] || G.UI.C.text) : G.UI.C.textDim, 'center');
-        }
-        G.UI.textOut(x, { x: cx + CW / 2, y: cy + 27 }, v ? ('×' + v) : '—', 9.5,
-          on ? G.UI.C.goldHi : G.UI.C.textDim, 'center');
-        /* 比例条：槽 + 填充（长度 = 系数 / 上界） */
+        /* 比例条（先画在格底，与居中的珠子不重叠）：槽 + 填充，长度 = 系数 / 上界 */
         var bx = cx + 5, bw = CW - 10, by = cy + CW - 8;
         x.fillStyle = 'rgba(255,255,255,0.07)';
         x.fillRect(bx, by, bw, 3.5);
@@ -629,6 +623,42 @@
           x.fillStyle = COL[e] || G.UI.C.gold;
           x.fillRect(bx, by, bw * Math.min(1, v / MAXC), 3.5);
         }
+        /* 灵根图标（v0.40.0）：九宫格里画**先天灵珠**，不再是干巴巴一个字。
+           ⚠️ 取不到图就退回原来的文字 —— 素材没到也不能留白。 */
+        var rp = (G.Data.elem.pinyin || {})[e];
+        var ric = rp && G.Art.itemIcon ? G.Art.itemIcon('root.' + rp, 26) : null;
+        if (ric && ric.c) {
+          var drawX = cx + (CW - 26) / 2 + ric.ox;
+          var drawY = cy + 3 + ric.oy;
+          x.save();
+          if (on) {
+            /* v0.60 点亮的灵珠是"活"的：脉动光晕 + 缓慢自转 + 一颗绕珠星火。 */
+            var ltt = (G.game && G.game.time) || 0;
+            var ocx = drawX + ric.w / 2, ocy = drawY + ric.h / 2;
+            var pulse = 0.5 + 0.5 * Math.sin(ltt * 2.1 + i * 0.9);
+            x.globalCompositeOperation = 'lighter';
+            x.fillStyle = 'rgba(226,200,120,' + (0.05 + 0.07 * pulse).toFixed(3) + ')';
+            x.beginPath(); x.arc(ocx, ocy, 13, 0, 6.2832); x.fill();
+            x.fillStyle = 'rgba(255,240,200,' + (0.08 + 0.1 * pulse).toFixed(3) + ')';
+            x.beginPath(); x.arc(ocx, ocy, 8, 0, 6.2832); x.fill();
+            x.globalCompositeOperation = 'source-over';
+            x.translate(ocx, ocy);
+            x.rotate(ltt * 0.18 + Math.sin(ltt * 0.8 + i) * 0.22);
+            x.drawImage(ric.c, -ric.w / 2, -ric.h / 2, ric.w, ric.h);
+            var sa = ltt * 1.7 + i;
+            x.fillStyle = 'rgba(255,255,255,0.85)';
+            x.beginPath(); x.arc(Math.cos(sa) * 9.5, Math.sin(sa) * 9.5, 1.05, 0, 6.2832); x.fill();
+          } else {
+            x.globalAlpha = 0.35;      /* 未激活的灵根压暗且静止 */
+            x.drawImage(ric.c, Math.round(drawX), Math.round(drawY), ric.w, ric.h);
+          }
+          x.restore();
+        } else {
+          G.UI.text(x, { x: cx + CW / 2, y: cy + 5 }, e, 14,
+            on ? (COL[e] || G.UI.C.text) : G.UI.C.textDim, 'center');
+        }
+        G.UI.textOut(x, { x: cx + CW / 2, y: cy + 27 }, v ? ('×' + v) : '—', 9.5,
+          on ? G.UI.C.goldHi : G.UI.C.textDim, 'center');
       });
       /* 格下说明：只两行、且**左栏宽度内收得住**（右栏从 RX 起，不能压过去） */
       G.UI.text(x, { x: LX, y: gy0 + 3 * (CW + GAP) + 4 },

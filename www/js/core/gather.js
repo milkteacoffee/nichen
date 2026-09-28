@@ -78,6 +78,15 @@
   /* 走到采集点上：当日未采则入包并标记；已采静默。 */
   function gatherAt(save, mapId, node, scene) {
     if (gatheredToday(save, mapId, node)) return;
+    /* v0.60 须先拜师学采药 / 采矿（用户第 7 点），木料等不设门禁 */
+    var needProf = node.cat === 'herb' ? 'herb'
+      : (node.cat === 'ore' || node.cat === 'gem') ? 'mine' : null;
+    if (needProf && !G.Professions.known(save, needProf)) {
+      G.game.toast(needProf === 'herb'
+        ? '未识采药之法（洞府→拜师·姜老药师）'
+        : '未识采矿之法（洞府→拜师·老矿工）');
+      return;
+    }
     save.items = save.items || {};
     var nGet = 1 + ((G.Formations && G.Formations.has(save, 'jubao')) ? 1 : 0);
     save.items[node.mat] = (save.items[node.mat] || 0) + nGet;

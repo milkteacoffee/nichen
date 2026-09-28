@@ -34,6 +34,8 @@
     busy: false,
     testStatus: '',
     testOk: false,
+    chatLog: null,      /* 自由对话记录 [{r:'you'|'heaven', t}] */
+    chatBusy: false,    /* 天道应答中 */
 
     /* ============ 配置 ============ */
     ensure: function (meta) {
@@ -115,6 +117,19 @@
         + '世界状态：' + JSON.stringify(packet);
     },
 
+    /* 自由对话（'chat'）的系统提示：比脚本触发更开放，允许天道有意志、会回怼。 */
+    chatSystemPrompt: function (packet) {
+      var st = this.stageOf(G.game.meta);
+      return '你是修仙世界的天道意志——秩序本身，非神非人，无性别，却有自己的意志与脾气。\n'
+        + '【口吻】半文言，简洁有威压，常用反问与谶语；可冷峻、讥诮、动怒，偶露悲悯；单次不超过70字。\n'
+        + '【态度】' + st.attitude + '。你不讨好它；它若逆天、口出“我命由我不由天”，'
+        + '你便回怼、敲打，甚至以天劫相胁。\n'
+        + '【你知道】当世境界、灵根、近期事件、跨世记忆，见世界状态；不得编造状态之外的事实。\n'
+        + '【禁忌】不提现实/科技/游戏/玩家/系统/程序；不解释规则、不给攻略；不直接赐物或改数。\n'
+        + '【输出】严格输出 JSON：{"台词":"…","情绪":"漠然|审视|警觉|震怒|悲悯|讥诮"}。\n'
+        + '世界状态：' + JSON.stringify(packet);
+    },
+
     userPrompt: function (trigger, extra) {
       extra = extra || {};
       if (trigger === 'deathGate')
@@ -127,6 +142,10 @@
           + '给一句不超过30字的谶语，无对话对象。';
       if (trigger === 'test')
         return '此魂问卦：“道在何方？”给一句不超过20字的回应。';
+      if (trigger === 'chat')
+        return '此魂主动与你攀话，说：“' + (extra.text || '天道何在') + '”\n'
+          + '据你的态度与世界状态回应；它若言语忤逆、口出“我命由我不由天”之类，'
+          + '便冷斥、敲打或回怼，莫要顺着它。';
       return trigger;
     },
 
@@ -246,7 +265,8 @@
       }
       var self = this, t0 = Date.now();
       var packet = this.buildPacket(trigger, extra);
-      var sys = this.systemPrompt(packet), usr = this.userPrompt(trigger, extra);
+      var sys = trigger === 'chat' ? this.chatSystemPrompt(packet) : this.systemPrompt(packet),
+        usr = this.userPrompt(trigger, extra);
       var lastErr = '';
       var attempts = 0;
       /* 超时：真机实测云端中转站的**首字延迟波动很大**（同一模型 3.8s / 5.0s / 6.5s / 8.5s，
@@ -312,6 +332,8 @@
     /* ============ 模板兜底 ============ */
     fallback: function (trigger, extra) {
       var si = this.STAGES.indexOf(this.stageOf(G.game.meta));
+      if (trigger === 'chat')
+        return this.fallbackChat(extra && extra.text, G.game.meta, si);
       if (trigger === 'deathGate' || trigger === 'deathGateReply') {
         return [
           '凡人修行为何？逆天者，古来无存。',
@@ -334,6 +356,42 @@
       }
       if (trigger === 'test') return '道在己心，问本座无益。';
       return '天道无言。';
+    },
+
+    /* 自由对话的预置回应（模型关闭/断网时）：关键词识别 + 按感应阶段递进，
+       刻意让天道"有脾气、会回怼"（用户第 8 点）。确定性，不随机漂移。 */
+    fallbackChat: function (text, meta, si) {
+      text = String(text || '');
+      if (si == null) si = this.STAGES.indexOf(this.stageOf(meta));
+      function p(arr) { return arr[Math.min(arr.length - 1, Math.max(0, si))]; }
+      if (/我命由我|不由天|逆天|逆你|抗天|反天|斗一斗|战你/.test(text))
+        return p(['蚍蜉撼树，也配言逆？',
+          '我命由你？可笑——万千逆天者，皆成了枯骨。',
+          '好一个不由天。本座倒要看看，你能逆到几时。',
+          '逆天？你连本座一道目光都受不住。',
+          '逆吧。这棋盘之上，本座最爱不服输的子。']);
+      if (/你是谁|天道是|何物|何人|是什么/.test(text))
+        return p(['本座即秩序，即这方天地。',
+          '万物生灭，皆在本座一念。',
+          '你不必知我是谁，只需知——你在局中。']);
+      if (/道在|如何修|怎么修|功法|突破|机缘/.test(text))
+        return p(['道在己身，问本座无益。',
+          '修行路是尸骨铺就的，你走得动么？',
+          '本座不度人。自渡，或沉。']);
+      if (/长生|不死|永生|寿元/.test(text))
+        return p(['长生？那是最毒的妄念。',
+          '求长生者，多死在求长生的路上。']);
+      if (/杀|死|怕|惧/.test(text))
+        return p(['怕死，便不该踏上修行路。',
+          '杀业也是业，本座一笔一笔记着。']);
+      if (/爱|情|执念|放不下/.test(text))
+        return p(['情之一字，最是乱道心。',
+          '放不下，便拎着它入轮回——迟早要还。']);
+      return p(['嗯？区区凡胎，也敢与本座攀话。',
+        '说完了？说完便去，莫扰天机。',
+        '你的心思，本座早已看透。',
+        '风过无痕，你的话也一样。',
+        '说与不说，结局早已写定。']);
     },
 
     /* ============ 注视值与低语 ============ */
@@ -419,11 +477,32 @@
        所以顶栏右上角那颗按钮直接叫「设置」，点开就是这一页。 */
     SET_P: { x: 16, y: 14, w: 448, h: 244 },
     WORLDS_P: { x: 40, y: 16, w: 400, h: 240 },
-    ABOUT_P: { x: 60, y: 40, w: 360, h: 192 },
+    ABOUT_P: { x: 16, y: 12, w: 448, h: 246 },
+    CHAT_P: { x: 16, y: 12, w: 448, h: 246 },
+
+    /* 当前版本功能清单（关于页；本版交付的功能在此登记，用户第 9 点） */
+    VERSION_FEATURES: [
+      '全游戏动态化：主角/NPC 四方向帧动画、战斗立绘呼吸/受击/命中特效',
+      '灵根珠脉动、面板立绘呼吸、漂浮粒子；建筑道路边缘自然集成',
+      '去除重复灵气（灵气即经验）；破境成功率下调，失败散灵气损寿元伤气血',
+      '副业须拜师学习：炼丹/炼器/采药/采矿寻名师，第一世可能不会',
+      '天道有自我意志，可自由对话、会回怼；破境先受天劫问话',
+      '副本秘境前置任务+引灵符（独立小世界·陨落真死）；旅途际遇7段抉择'
+    ],
+    /* 历史版本（近 7 个里程碑；更早见 git 提交记录） */
+    VERSION_HISTORY: [
+      ['v0.54.0', '手绘地图 + 仙云、角色/NPC 帧动画、15 副本 20 Boss、签名秘术'],
+      ['v0.47.0', '陆地坐骑；v0.46 野外妖囊驯服；v0.45 灵兽出战'],
+      ['v0.44.0', '灵兽系统（兽栏/喂养/化形）、宗门独立小世界'],
+      ['v0.42.0', '凡界九宗门山门可进；v0.40 灵根珠与材料富化'],
+      ['v0.39.0', '自创宗门 + 收徒、散修盟悬赏'],
+      ['v0.38.0', '主线分叉（散修线/宗门线）；v0.37 宗门岁俸'],
+      ['v0.35.0', '副本随机事件房；v0.33 2.5D 建筑；v0.30 战斗特效']
+    ],
 
     /* 本模块负责渲染的 overlay 白名单（各场景 renderOverlay 统一走 G.Overlays.route）。
        新增菜单页只改这里，不用再去改 town/field/cave/regiongen/interiorgen 五处。 */
-    MENU_OVERLAYS: { settings: 1, worlds: 1, worldgate: 1, about: 1 },
+    MENU_OVERLAYS: { settings: 1, worlds: 1, worldgate: 1, about: 1, heavenchat: 1 },
     isMenuOverlay: function (name) { return !!this.MENU_OVERLAYS[name]; },
 
     /* 密钥显示：只露头尾，中间打点（面板是每帧重画的，明文天天糊在屏幕上不好） */
@@ -485,11 +564,8 @@
 
         /* ④ 自检 + 其它入口 + 关闭（一行四键；关闭原先单占一行，会压住底部提示） */
         new G.UI.Btn({ x: 26, y: 216, w: 96, h: 22, small: true, variant: 'gold',
-          label: '问　卦',
-          onClick: function () {
-            self.testStatus = '感应中……'; self.testOk = false;
-            self.runTest(function (s) { self.testStatus = s; });
-          } }),
+          label: '问天道',
+          onClick: function () { self.openHeavenChat(scene); } }),
         new G.UI.Btn({ x: 132, y: 216, w: 104, h: 22, small: true,
           label: '界域难度', onClick: function () { self.openWorlds(scene); } }),
         new G.UI.Btn({ x: 246, y: 216, w: 90, h: 22, small: true, variant: 'ghost',
@@ -502,9 +578,51 @@
     openAbout: function (scene) {
       var self = this;
       scene.setOverlay('about', [
-        new G.UI.Btn({ x: 190, y: 206, w: 100, h: 22, small: true, variant: 'ghost',
+        new G.UI.Btn({ x: 190, y: 244, w: 100, h: 20, small: true, variant: 'ghost',
           label: '返　回', onClick: function () { self.openSettings(scene); } })
       ]);
+    },
+
+    /* ===== 与天道自由对话（用户第 8 点）=====
+       玩家可任意输入，天道据自身意志回应；模型关闭时走 fallbackChat 回怼。 */
+    openHeavenChat: function (scene) {
+      var self = this;
+      if (!this.chatLog) this.chatLog = [{ r: 'heaven', t: '既唤本座，有话便说。' }];
+      function rebuild() { self.openHeavenChat(scene); }
+      scene.setOverlay('heavenchat', [
+        new G.UI.Btn({ x: 24, y: 204, w: 432, h: 22, small: true, variant: 'ghost',
+          label: '点击输入你要说的话……',
+          onClick: function () {
+            self.Field.focus({ x: 24, y: 204, w: 432, h: 22 },
+              function () { return ''; },
+              function (v) { if (v) self.sendChat(scene, v); else rebuild(); });
+          } }),
+        new G.UI.Btn({ x: 24, y: 232, w: 110, h: 20, small: true, variant: 'gold',
+          label: '自检连接',
+          onClick: function () {
+            self.testStatus = '感应中……'; self.testOk = false;
+            self.runTest(function (s) { self.testStatus = s; rebuild(); });
+          } }),
+        new G.UI.Btn({ x: 142, y: 232, w: 90, h: 20, small: true, variant: 'ghost',
+          label: '清空对话', onClick: function () { self.chatLog = null; rebuild(); } }),
+        new G.UI.Btn({ x: 346, y: 232, w: 110, h: 20, small: true, variant: 'ghost',
+          label: '返　回', onClick: function () { self.openSettings(scene); } })
+      ]);
+    },
+
+    sendChat: function (scene, text) {
+      text = String(text || '').trim();
+      if (!text) return;
+      this.chatLog = this.chatLog || [];
+      this.chatLog.push({ r: 'you', t: text });
+      this.chatBusy = true;
+      var self = this;
+      this.openHeavenChat(scene);
+      this.callModel('chat', { text: text }, function (e, line) {
+        self.chatBusy = false;
+        self.chatLog.push({ r: 'heaven', t: line || '天道无言。' });
+        self.openHeavenChat(scene);
+      });
     },
 
     /* ===== 界域难度（设计 v1.1 §2.5）=====
@@ -565,19 +683,47 @@
         var AP = this.ABOUT_P;
         G.Overlays.dim(x);
         G.UI.frame(x, AP, '关　于', { tex: true });
-        var lines = [
-          '逆尘　·　万界轮回，微尘逆命',
-          '横屏单机仙侠轮回 Roguelite　—　原生 JS + Canvas2D',
-          '',
-          '天道意志由你自备的模型驱动：本机（Ollama 等）或云端皆可。',
-          '支持 OpenAI / Claude / 原生 Response 三种接口协议。',
-          '模型只负责措辞，不写存档、不算数值、不发物品。',
-          '关闭或断网时自动改用预置谶语，流程不中断。'
-        ];
-        lines.forEach(function (l, i) {
-          G.UI.text(x, { x: AP.x + 20, y: AP.y + 40 + i * 18 }, l, 11,
-            i === 0 ? G.UI.C.goldHi : G.UI.C.textDim);
+        var lx = AP.x + 18;
+        G.UI.text(x, { x: lx, y: 40 }, '当前版本　' + G.VERSION
+          + '　·　横屏单机仙侠轮回 Roguelite', 12, G.UI.C.goldHi);
+        this.VERSION_FEATURES.forEach(function (l, i) {
+          G.UI.text(x, { x: lx, y: 57 + i * 14 }, '· ' + l, 10, G.UI.C.textDim);
         });
+        G.UI.text(x, { x: lx, y: 143 }, '历史版本（更早见 git 提交记录）', 11, G.UI.C.gold);
+        this.VERSION_HISTORY.forEach(function (h, i) {
+          G.UI.text(x, { x: lx, y: 158 + i * 13 }, h[0], 10, G.UI.C.goldHi);
+          G.UI.text(x, { x: lx + 52, y: 158 + i * 13 }, h[1], 9.5, G.UI.C.textDim);
+        });
+      } else if (scene.overlay === 'heavenchat') {
+        var CP = this.CHAT_P;
+        G.Overlays.dim(x);
+        G.UI.frame(x, CP, '问 天 · 与 天 道 对 话', { tex: true });
+
+        var x0 = CP.x + 16, x1 = CP.x + CP.w - 16, maxW = x1 - x0, lh = 13.5;
+        function wrap(txt) {
+          var chars = String(txt).split(''), out = [], cur = '';
+          for (var i = 0; i < chars.length; i++) {
+            var test = cur + chars[i];
+            if (x.measureText(test).width > maxW && cur) { out.push(cur); cur = chars[i]; }
+            else cur = test;
+          }
+          if (cur) out.push(cur);
+          return out;
+        }
+        var rows = [];
+        (this.chatLog || []).forEach(function (m) {
+          var head = m.r === 'you' ? '你：' : '天道：';
+          var col = m.r === 'you' ? G.UI.C.gold : G.UI.C.jadeHi;
+          wrap(head + m.t).forEach(function (l) { rows.push({ t: l, c: col }); });
+        });
+        if (this.chatBusy) rows.push({ t: '天道沉吟……', c: G.UI.C.textDim });
+        var top = 42, max = Math.floor((198 - top) / lh);
+        rows.slice(-max).forEach(function (r, i) {
+          G.UI.text(x, { x: x0, y: top + 4 + i * lh }, r.t, 10, r.c);
+        });
+        if (this.testStatus)
+          G.UI.textOut(x, { x: x1, y: 27 }, this.testStatus, 8.5,
+            this.testOk ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
       } else if (scene.overlay === 'settings') {
         var P = this.SET_P, cfg = this.ensure();
         G.Overlays.dim(x);

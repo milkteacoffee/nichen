@@ -83,7 +83,7 @@
     '回春丹': 'pill_huichun', '大还丹': 'pill_dahuan', '聚气散': 'pill_juqi',
     '醒神散': 'pill_xingshen', '解毒丹': 'pill_jiedu', '甘霖丹': 'pill_ganlin',
     '舒筋丹': 'pill_shujin', '淬体突破丹': 'pill_cuiti', '筑基丹': 'pill_zhuji',
-    '解封符': 'talisman_jiefeng', '回城符': 'talisman_huicheng',
+    '解封符': 'talisman_jiefeng', '引灵符': 'talisman_jiefeng', '回城符': 'talisman_huicheng',
     '妖丹': 'mat_yaodan',
     '凡品功法碎片': 'shard_fan', '灵品功法碎片': 'shard_ling', '宝品功法碎片': 'shard_bao',
     '灵石': 'stone',
@@ -91,7 +91,11 @@
     '凝血草': 'mat.xuecao', '灵芝': 'mat.lingzhi', '幽兰': 'mat.youlan', '火莲': 'mat.huolian',
     '玄铁矿': 'mat.xuantie', '赤铜': 'mat.chitong', '寒玉': 'mat.hanyu', '星砂': 'mat.xingsha',
     '兽皮': 'mat.shoupi', '兽骨': 'mat.shougu', '青羽': 'mat.yumao',
-    '灵液': 'mat.lingye', '符纸': 'mat.fuzhi', '朱砂': 'mat.zhusha', '灵木': 'mat.lingmu'
+    '灵液': 'mat.lingye', '符纸': 'mat.fuzhi', '朱砂': 'mat.zhusha', '灵木': 'mat.lingmu',
+    /* 采集/掉落实际名称（v0.60） */
+    '灵泉水': 'mat.lingquan', '百年灵芝': 'mat.lingzhi', '玄铁': 'mat.xuantie', '精钢': 'mat.steel',
+    '灵玉': 'mat.hanyu', '铁木': 'mat.lingmu', '道纹草': 'mat.daoherb', '道纹矿': 'mat.daoore',
+    '道纹残片': 'mat.daoshard', '妖骨': 'mat.shougu', '灵羽': 'mat.yumao', '血精': 'mat.bloodessence'
   };
 
   /* M0 主线链：与 town/field/cave/battle 里的判定一一对应。
@@ -247,6 +251,7 @@
   IDS.alchemy = 1;  /* 丹房：洞府炼丹子页，不进底栏 */
   IDS.forge = 1;    /* 器坊：洞府炼器子页，不进底栏 */
   IDS.array = 1;    /* 阵台：洞府阵法子页，不进底栏 */
+  IDS.masters = 1;  /* 拜师：洞府寻名师习艺，不进底栏 */
 
   /* 底栏按钮：六个等宽页签。active 传当前面板 id 时该项高亮。 */
   function barBtns(scene, active) {
@@ -409,6 +414,7 @@
     if (id === 'alchemy') buildAlchemy(btns, scene);
     if (id === 'forge') buildForge(btns, scene);
     if (id === 'array') buildArray(btns, scene);
+    if (id === 'masters') buildMasters(btns, scene);
     if (id === 'beasts') buildBeasts(btns, scene);
     if (id === 'beastShop') buildBeastShop(btns, scene);
     if (id === 'sect') buildSect(btns, scene);
@@ -1337,9 +1343,9 @@
         'rgba(200,160,110,0.85)', 'right');
     });
     G.UI.text(x, { x: P.x + 14, y: CV.noteY },
-      '材料采集与四大技艺的配方将在玩法方向定稿后开启。', 10, G.UI.C.textDim);
+      '炼丹 / 炼器 / 采药 / 采矿皆须先寻名师拜师，非天生即会。', 10, G.UI.C.goldHi);
     G.UI.text(x, { x: P.x + 14, y: CV.noteY + 14 },
-      '此世若已无望，可主动坐化，早入轮回。', 10, G.UI.C.textDim);
+      '点「拜师」寻师习艺；此世若已无望，可主动坐化，早入轮回。', 10, G.UI.C.textDim);
   }
 
   function buildCave(btns, scene) {
@@ -1385,8 +1391,28 @@
         onClick: function () { scene.endArm = false; G.Overlays.openPanel(scene, 'cave'); }
       }));
     }
+    /* 拜师·习艺：寻名师学炼丹/炼器/采药/采矿（用户第 7 点） */
+    btns.push(new G.UI.Btn({
+      x: 340, y: CV.btn.y, w: 120, h: CV.btn.h, small: true,
+      variant: 'gold', label: '拜师 · 习艺',
+      onClick: function () { G.Overlays.openPanel(scene, 'masters'); }
+    }));
   }
 
+  /* 内联材料：图标 + 持有/所需，不足标红（v0.60，用户第 4 点）。 */
+  function drawMatsInline(x, save, mats, x0, y) {
+    var cp = x0;
+    Object.keys(mats).forEach(function (nm) {
+      var need = mats[nm], have = (save.items && save.items[nm]) || 0;
+      var id = G.Overlays.itemIconId ? G.Overlays.itemIconId(nm) : nm;
+      var SZ = 11, ic = G.Art.itemIcon(id, SZ);
+      x.drawImage(ic.c, cp + ic.ox, y + ic.oy, ic.w, ic.h);
+      cp += SZ + 1;
+      G.UI.text(x, { x: cp, y: y - 1 }, have + '/' + need, 8,
+        have >= need ? G.UI.C.textDim : '#d98a8a');
+      cp += 19;
+    });
+  }
   /* 丹房（四大技艺批2）：列出炼丹配方，材料足即可炼制。 */
   var AL = { lx: P.x + 12, y0: P.y + 34, rowH: 14, btnX: P.x + P.w - 70 };
   function drawAlchemy(x, scene) {
@@ -1395,8 +1421,7 @@
     G.Alchemy.recipes.forEach(function (r, i) {
       var y = AL.y0 + i * AL.rowH, c = G.Alchemy.canCraft(save, r);
       G.UI.textOut(x, { x: AL.lx, y: y - 1 }, r.n, 11, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
-      G.UI.text(x, { x: AL.lx + 58, y: y - 1 }, G.Alchemy.matsText(save, r), 8.5,
-        c.ok ? G.UI.C.text : G.UI.C.textDim);
+      drawMatsInline(x, save, r.mats, AL.lx + 56, y);
     });
   }
   function buildAlchemy(btns, scene) {
@@ -1429,7 +1454,7 @@
       var y = FG.y0 + i * FG.rowH, c = G.Forge.canForge(save, r);
       G.UI.textOut(x, { x: FG.lx, y: y - 1 }, G.Forge.outName(r), 11, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
       G.UI.text(x, { x: FG.lx + 46, y: y - 1 }, r.d, 8, G.UI.C.textDim);
-      G.UI.text(x, { x: FG.lx + 118, y: y - 1 }, G.Forge.matsText(save, r), 8.5, c.ok ? G.UI.C.text : G.UI.C.textDim);
+      drawMatsInline(x, save, r.mats, FG.lx + 116, y);
     });
   }
   function buildForge(btns, scene) {
@@ -1450,6 +1475,54 @@
       x: FG.lx, y: 212, w: 96, h: 20, small: true,
       label: scene._craftFrom === 'cave' ? '返回洞府' : '关　闭',
       onClick: function () { if (scene._craftFrom === 'cave') G.Overlays.openPanel(scene, 'cave'); else scene.clearOverlay(); }
+    }));
+  }
+
+  /* 拜师（v0.60）：寻名师学炼丹/炼器/采药/采矿。每艺只显示下一位可拜的师父。 */
+  var MS = { lx: P.x + 14, y0: P.y + 36, rowH: 40 };
+  var PROF_IDS = ['herb', 'alchemy', 'mine', 'forge'];
+  var LV_NAME = ['未习', '入门', '精通', '宗师'];
+  function drawMasters(x, scene) {
+    var save = G.game.save;
+    shell(x, '拜师 · 寻 名 师 习 艺', '第 ' + (save.life || 1) + ' 世');
+    PROF_IDS.forEach(function (id, k) {
+      var def = G.Professions.list[id], lv = G.Professions.levelOf(save, id);
+      var by = MS.y0 + k * MS.rowH;
+      G.UI.text(x, { x: MS.lx, y: by }, def.n, 12.5, G.UI.C.goldHi);
+      G.UI.text(x, { x: MS.lx + 46, y: by }, '当前：' + LV_NAME[lv], 10,
+        lv ? G.UI.C.jadeHi : G.UI.C.textDim);
+      if (lv >= 3) {
+        G.UI.text(x, { x: MS.lx + 140, y: by }, '已臻宗师，无师可拜', 9.5, G.UI.C.textDim);
+        return;
+      }
+      var t = def.lv[lv], c = G.Professions.canLearn(save, G.game.meta, id, lv + 1);
+      G.UI.text(x, { x: MS.lx, y: by + 16 }, '师：' + t.master + '（' + t.place + '）',
+        9.5, c.ok ? G.UI.C.text : G.UI.C.textDim);
+      G.UI.text(x, { x: MS.lx + 205, y: by + 16 },
+        '束脩 ' + (t.cost || '免') + '　' + t.note, 9, G.UI.C.textDim);
+    });
+  }
+  function buildMasters(btns, scene) {
+    var save = G.game.save;
+    PROF_IDS.forEach(function (id, k) {
+      var lv = G.Professions.levelOf(save, id);
+      if (lv >= 3) return;
+      var c = G.Professions.canLearn(save, G.game.meta, id, lv + 1);
+      var by = MS.y0 + k * MS.rowH;
+      btns.push(new G.UI.Btn({ x: P.x + P.w - 72, y: by - 3, w: 60, h: 18, small: true,
+        variant: c.ok ? 'gold' : 'ghost', label: '拜师', disabled: !c.ok,
+        onClick: function () {
+          var r = G.Professions.learn(save, G.game.meta, id, lv + 1);
+          G.game.toast(r.ok
+            ? ('拜入 ' + G.Professions.list[id].lv[lv].master + ' 门下，习得「'
+              + G.Professions.list[id].n + '」')
+            : r.reason);
+          G.Overlays.openPanel(scene, 'masters');
+        }
+      }));
+    });
+    btns.push(new G.UI.Btn({ x: MS.lx, y: 212, w: 96, h: 20, small: true, label: '返回洞府',
+      onClick: function () { G.Overlays.openPanel(scene, 'cave'); }
     }));
   }
 
@@ -2546,6 +2619,7 @@
   G.Overlays.BAR_Y = BAR_Y;
   G.Overlays.BAR_H = BAR_H;
   G.Overlays.isPanel = function (name) { return !!IDS[name]; };
+  G.Overlays.itemIconId = function (name) { return ITEM_ICON_ID[name] || name; };
   /* 成就页移出游戏内（v0.15.0）：底栏不再有它，改由**开局界面**渲染。
      绘制实现仍留在这里（单一实现），只是换个调用方 —— 不复制一份。 */
   G.Overlays.drawAchieve = drawAchieve;

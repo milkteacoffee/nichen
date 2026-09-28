@@ -339,10 +339,35 @@
       save.dungeonRun = {
         archId: set[slot], stage: 1,
         midBeaten: false, bigBeaten: false, restDone: false,
-        farm: slot < save.dungeonSlot
+        farm: slot < save.dungeonSlot, introShown: false
       };
       G.Storage.saveCurrent(save);
-      this._enterStage();
+      if (save.dungeonRun.farm) this._enterStage();
+      else this._showWorldIntro();
+    },
+
+    /* 小世界开场叙事（v0.60，用户第 11 点） */
+    _showWorldIntro: function () {
+      var self = this, save = G.game.save, run = save.dungeonRun;
+      var arch = D().archById(run.archId);
+      this.view = 'worldintro';
+      this._introLines = D().worldFlavor(arch.id) || [];
+      this.buttons = [
+        new G.UI.Btn({ x: 150, y: 200, w: 120, h: 24, small: true, variant: 'gold',
+          label: '踏入小世界', onClick: function () { self._enterStage(); } }),
+        new G.UI.Btn({ x: 280, y: 200, w: 90, h: 24, small: true, variant: 'ghost',
+          label: '退回', onClick: function () { self._showHub(); } })
+      ];
+    },
+    _renderWorldIntro: function (x) {
+      var save = G.game.save, run = save.dungeonRun, arch = D().archById(run.archId);
+      G.Overlays.dim(x);
+      G.UI.frame(x, BRIEF, '小 世 界 · ' + arch.n, { tex: true });
+      (this._introLines || []).forEach(function (l, i) {
+        G.UI.text(x, { x: BRIEF.x + 22, y: BRIEF.y + 40 + i * 34 }, l, 12.5, '#e2d8be');
+      });
+      G.UI.text(x, { x: BRIEF.x + 22, y: BRIEF.y + BRIEF.h - 44 },
+        '小世界内陨落即为真死，无法回档重来。', 11, '#d08a72');
     },
 
     /* ================= 进入关卡 ================= */
@@ -835,6 +860,7 @@
       else if (this.view === 'daohub') this._renderDaoHub(x);
       else if (this.view === 'entrance') this._renderEntrance(x);
       else if (this.view === 'buff') this._renderBuff(x);
+      else if (this.view === 'worldintro') this._renderWorldIntro(x);
       else if (this.view === 'event') this._renderEvent(x);
       else this._renderBrief(x);
 

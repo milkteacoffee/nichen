@@ -76,6 +76,16 @@
       if (!got) d.reward = '幼年青纹蛇 ×1　药渣 ×5　木囊 ×2';
       return d;
     },
+    riftkey: function (save) {
+      return { title: '药铺 · 沈伯', name: '沈伯', portrait: 'shenbo',
+        lines: [
+          '“翠微山西北那道裂口子，你近来可曾瞧见？”',
+          '“那是一处上古小世界的入口，里头自成天地，机缘与凶险并存。”',
+          '“这道引灵符你收好，贴在裂隙上，封印自开。”',
+          '“切记——小世界里死了，就真的死了，谁也救不回来。”'
+        ],
+        reward: '引灵符 ×1' };
+    },
     shenboIdle: function (save) {
       var t;
       if (save.quest.step === 'm0-2') t = '“雪夜将至，山神庙……去看看吧。”';
@@ -633,6 +643,15 @@
        ⚠️ 风味台词不丢：面板里留了「与沈伯闲聊」按钮。
        ⚠️ 也**不能**把柜台动作直接改成 `apothecary` —— 那会把上面所有任务分支吞掉
        （M0/M1 主线全靠沈伯这条线，吞了就直接卡死）。 */
+    /* 秘境引灵符（v0.60，用户第 11 点）：前置任务，解封翠微山裂隙 */
+    if (!q.flags.riftKey && q.step !== 'm0-1' && (save.globalLevel || 1) >= 24) {
+      q.flags.riftKey = true;
+      save.items['引灵符'] = (save.items['引灵符'] || 0) + 1;
+      G.Player.chronicle(save, 'riftKey', '沈伯赠引灵符，翠微山裂隙可开');
+      G.Storage.saveCurrent(save);
+      scene.setOverlay('riftkey', [ack(scene)]);
+      return;
+    }
     openApothecary(scene);
   }
 

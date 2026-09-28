@@ -105,7 +105,9 @@
       scatter: { trees: 46, rocks: 22 },
       special: [
         { id: 'chest1', kind: 'chest', x: 10, y: 20, loot: { stone: 100 } },
-        { id: 'chest2', kind: 'chest', x: 38, y: 8, loot: { items: { '解封符': 2 } } }
+        { id: 'chest2', kind: 'chest', x: 38, y: 8, loot: { items: { '解封符': 2 } } },
+        /* 第一处秘境裂隙（v0.60，用户第 11 点）：需沈伯「引灵符」解封，slot 0 */
+        { id: 'rift0', kind: 'entrance', x: 6, y: 17, slot: 0 }
       ],
       exits: [
         { x0: 23, x1: 26, y: 39, to: 'town', spawn: { x: 18, y: 20 }, label: '青溪镇' },

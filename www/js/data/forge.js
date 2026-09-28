@@ -17,6 +17,10 @@
   ];
 
   function canForge(save, r) {
+    /* v0.60 须先拜师学炼器（用户第 7 点） */
+    var needLv = r.need >= 577 ? 3 : r.need >= 37 ? 2 : 1;
+    if (G.Professions.levelOf(save, 'forge') < needLv)
+      return { ok: false, reason: '未得器师传授（洞府→拜师）' };
     if ((save.globalLevel || 1) < r.need) return { ok: false, reason: '境界不足' };
     for (var k in r.mats) {
       if ((save.items[k] || 0) < r.mats[k]) return { ok: false, reason: '材料不足' };

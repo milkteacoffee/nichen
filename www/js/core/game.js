@@ -3,6 +3,42 @@
   /* 战利品浮层的存活时长（秒）：用户口径「弹出 3 秒左右」 */
   var LOOT_T = 3.0;
 
+  /* ===== 环境粒子（v0.60.0）：让每个场景都有"流动的空气"，去 PPT 感 =====
+     光点自下而上漂浮、轻微摆动；halo=低透明晕、core=亮芯，'lighter' 叠加出辉光。
+     打开面板/覆盖层或剧情弹窗时不画。场景名确定性生成 → 截图可复现。 */
+  function C(halo, core) { return { halo: halo, core: core }; }
+  var AMBIENT = {
+    /* 暖：萤火 + 灵气金点（城镇/野外/生成区域的默认观感） */
+    _warm: [C('rgba(240,205,130,0.10)', 'rgba(255,228,165,0.55)'),
+            C('rgba(160,200,140,0.09)', 'rgba(195,235,175,0.42)'),
+            C('rgba(150,185,230,0.08)', 'rgba(185,215,250,0.38)')],
+    /* 冷：洞/副本里的幽蓝、紫孢子 */
+    _cool: [C('rgba(130,180,230,0.10)', 'rgba(170,215,255,0.5)'),
+            C('rgba(180,140,220,0.09)', 'rgba(210,180,250,0.42)')],
+    /* 金：天界/轮回/死亡，向上飞升的光尘 */
+    _rise: [C('rgba(245,225,160,0.12)', 'rgba(255,240,190,0.6)'),
+            C('rgba(220,235,255,0.10)', 'rgba(240,248,255,0.5)')],
+    /* 标题：金尘，更慢更稀 */
+    _gold: [C('rgba(235,200,120,0.10)', 'rgba(250,225,150,0.5)')]
+  };
+  function amb(n, col, sp0, sp1, r0, r1, amp) {
+    return { n: n, col: col, sp0: sp0, sp1: sp1, r0: r0, r1: r1, amp: amp };
+  }
+  var AMBIENT_FOR = {
+    title: amb(18, AMBIENT._gold, 2, 6, .6, 1.6, 1.8),
+    town: amb(22, AMBIENT._warm, 3, 9, .6, 1.7, 2.4),
+    field: amb(24, AMBIENT._warm, 3, 10, .6, 1.8, 2.6),
+    cave: amb(22, AMBIENT._cool, 3, 9, .6, 1.7, 2.2),
+    dungeon: amb(24, AMBIENT._cool, 3, 10, .6, 1.8, 2.2),
+    bloodhall: amb(24, AMBIENT._cool, 3, 10, .6, 1.8, 2.2),
+    heaven: amb(26, AMBIENT._rise, 6, 14, .6, 1.9, 2.0),
+    'reincarnation-hall': amb(26, AMBIENT._rise, 6, 14, .6, 1.9, 2.0),
+    death: amb(24, AMBIENT._rise, 5, 12, .6, 1.8, 2.0),
+    difficulty: amb(16, AMBIENT._cool, 2, 6, .5, 1.4, 1.6),
+    reincarnation: amb(16, AMBIENT._cool, 2, 6, .5, 1.4, 1.6),
+    _default: amb(22, AMBIENT._warm, 3, 9, .6, 1.7, 2.4)
+  };
+
   var Game = {
     W: 480, H: 272,
     canvas: null, ctx: null,
@@ -171,6 +207,8 @@
       x.fillStyle = '#0b0d14';
       x.fillRect(0, 0, this.W, this.H);
       if (this.scene.render) this.scene.render(x);
+      /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过） */
+      this._renderAmbient(x);
 
       /* 悬浮说明：**必须在所有东西画完之后**才画（它是"覆盖层之上的覆盖层"），
          候选区由场景/面板在 render 期间用 G.UI.hover() 登记。
@@ -242,6 +280,46 @@
       if (!text) return;
       this.lootFeed.push({ text: text, t: LOOT_T, special: !!special });
       if (this.lootFeed.length > 5) this.lootFeed.shift();
+    },
+
+    _ambientFor: function (name) {
+      if (this._ambKey === name) return this._amb;
+      var cfg = AMBIENT_FOR[name] || AMBIENT_FOR._default;
+      var seed = 0;
+      for (var i = 0; i < name.length; i++) seed = (seed * 131 + name.charCodeAt(i)) >>> 0;
+      if (!seed) seed = 0x9e3779b9;
+      function rnd() { seed = (seed * 1664525 + 1013904221) >>> 0; return seed / 4294967296; }
+      var ps = [];
+      for (var k = 0; k < cfg.n; k++) {
+        ps.push({
+          x: rnd() * this.W, y: rnd() * this.H,
+          r: cfg.r0 + rnd() * (cfg.r1 - cfg.r0),
+          sp: cfg.sp0 + rnd() * (cfg.sp1 - cfg.sp0),
+          amp: rnd() * cfg.amp, fr: 0.6 + rnd() * 1.2, ph: rnd() * 6.2832,
+          ci: Math.floor(rnd() * cfg.col.length)
+        });
+      }
+      this._ambKey = name; this._amb = { cfg: cfg, ps: ps };
+      return this._amb;
+    },
+
+    _renderAmbient: function (x) {
+      if (G.Story && G.Story.modalOpen && G.Story.modalOpen()) return;
+      if (this.scene && this.scene.overlay) return;
+      var A2 = this._ambientFor(this.sceneName), cfg = A2.cfg, t = this.time;
+      x.save();
+      x.globalCompositeOperation = 'lighter';
+      for (var i = 0; i < A2.ps.length; i++) {
+        var p = A2.ps[i];
+        var yy = ((p.y - t * p.sp) % this.H + this.H) % this.H;
+        var xx = p.x + Math.sin(t * p.fr + p.ph) * p.amp;
+        var c = cfg.col[p.ci];
+        x.fillStyle = c.halo;
+        x.beginPath(); x.arc(xx, yy, p.r * 2.1, 0, 6.2832); x.fill();
+        x.fillStyle = c.core;
+        x.beginPath(); x.arc(xx, yy, p.r, 0, 6.2832); x.fill();
+      }
+      x.restore();
     },
 
     /* 濒死警告（v0.18.0）：气血低于 25% 时**全屏泛红 + 呼吸**。
