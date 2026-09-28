@@ -432,6 +432,21 @@
         skills: skills, buffs: { atk: 0, turns: 0 },
         guard: false, statuses: {}, shield: 0
       };
+      /* 已装备法宝（武器/防具/饰品 —— 用户口径「戒指」指的就是饰品那一槽）：
+         存一份给绘制用。**法宝的数值加成早就进 computeStats 了**（equipFx），
+         这里只是把它**显示出来** —— 此前战斗界面完全不体现"我穿了三件什么"，
+         玩家换了法宝只能去角色面板看，战斗中感受不到（纯静默的表现层缺失）。
+         数组**按 SLOTS 定长**（空槽为 null）：位置恒定，玩家一眼就知道哪格空着；
+         过滤空槽会让饰品"漂"到第一格，反而看不懂。 */
+      this.equippedList = [];
+      var eqp = save.equip || {};
+      G.Data.equips.SLOTS.forEach(function (sl) {
+        var eid = eqp[sl];
+        /* ⚠️ 必须**定长**（空槽推 null），不能\"有才推\" —— 否则穿了武器+饰品时
+           会画成两格，玩家读不出\"我缺的是防具\"，而且位置会随装备变化跳动。
+           定长后 1~3 件位置恒定，与面板法宝子页的三槽一一对应。 */
+        this.equippedList.push(eid ? G.Data.equips.byId(eid) : null);
+      }, this);
       this._applySecretPassives();
 
       /* 敌方：脚本分支优先，其次参数里的敌群/单敌 */
@@ -2121,6 +2136,9 @@
       }
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
+      /* 已装备法宝常显（v0.69.0）：**必须画在按钮之后** —— 它占的是指令区
+         「取消防御」后空出来的那格（318,240），按钮先渲染会把图标压掉。 */
+      this._drawEquip(x);
     },
 
     /* 本场战斗的背景主题名（表见 BG_THEME）。
@@ -2409,6 +2427,56 @@
         x.fillStyle = f.col;
         x.fillText(f.txt, f.x, y);
         x.restore();
+      }
+    },
+
+    /* 已装备法宝的战斗常显（v0.69.0，用户第 11 点「新资源及戒指战斗图标」）。
+       挂在指令区**第二行第三格**（318,240，142×28）—— 那是取消「防御」后空出来的格，
+       正好横排三个（武器/防具/饰品，含用户点名的"戒指"）。
+       为什么不放主角名牌旁：名牌多敌时会收窄、Boss 战还要让位，图标会跟着抖；
+       指令区这一格是**固定尺寸的空白**，最稳。
+       法宝的数值早在 computeStats 里生效了（equipFx），这里纯粹补**表现层** ——
+       此前战斗界面完全不体现穿了什么，玩家换上戒指也只能去角色面板看。 */
+    _drawEquip: function (x) {
+      var list = this.equippedList || [];
+      if (!list.length) return;
+      var gx = 318, gy = 240, gw = 142, gh = 28;
+      G.UI.panel(x, { x: gx, y: gy, w: gw, h: gh }, 'rgba(12,15,24,0.72)',
+        'rgba(216,183,104,0.30)', 3, { shadow: false });
+      var cell = gw / 3;                     /* 固定三等分：槽位恒定不跳动 */
+      var SZ = 20;
+      var SLOTS = G.Data.equips.SLOTS, SLOT_N = G.Data.equips.SLOT_N;
+      for (var i = 0; i < SLOTS.length; i++) {
+        var e = list[i] || null;
+        var ccx = gx + cell * i + cell / 2;
+        var icy = gy + (gh - SZ) / 2;
+        var r = { x: gx + cell * i, y: gy, w: cell, h: gh };
+        /* 槽位分隔线（除第一个）*/
+        if (i > 0) {
+          x.strokeStyle = 'rgba(216,183,104,0.16)';
+          x.lineWidth = 0.8;
+          x.beginPath();
+          x.moveTo(Math.round(gx + cell * i) + .5, gy + 6);
+          x.lineTo(Math.round(gx + cell * i) + .5, gy + gh - 6);
+          x.stroke();
+        }
+        if (e) {
+          var ic = G.Art.itemIcon(e.id, SZ);
+          if (ic) x.drawImage(ic.c, ccx - SZ / 2 + ic.ox, icy + ic.oy, ic.w, ic.h);
+          /* 悬浮说明：法宝名 + 加成（加成文案走数据层 `equips.fxDesc` 唯一口） */
+          G.UI.hover(r, { title: e.n + '　· ' + SLOT_N[SLOTS[i]],
+            text: (e.d ? e.d + '\n' : '') + G.Data.equips.fxDesc(e) });
+        } else {
+          /* 空槽：画一个暗虚位，玩家知道"这格还没穿" */
+          x.strokeStyle = 'rgba(216,183,104,0.18)';
+          x.lineWidth = 0.9;
+          x.setLineDash && x.setLineDash([2, 2]);
+          G.UI.rr(x, { x: ccx - SZ / 2, y: icy, w: SZ, h: SZ }, 3);
+          x.stroke();
+          x.setLineDash && x.setLineDash([]);
+          G.UI.hover(r, { title: '未装备 · ' + SLOT_N[SLOTS[i]],
+            text: '去炼器、做任务或刷怪获取' });
+        }
       }
     },
 

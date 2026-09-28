@@ -1501,6 +1501,82 @@ step(function () {
   console.log('  ✓ 激发制：只装已激发的 / 上限 3 / 被动不占位 / 九重进倍率 / 参悟得功即入栏');
 }, 'skill.activate.contract');
 
+/* 4b-2) 战斗法宝常显（v0.69.0，用户第 11 点「新资源及戒指战斗图标」）
+   此前战斗界面**完全不体现穿了什么法宝** —— 数值早进了 computeStats，
+   但表现层缺失，玩家换戒指只能在角色面板看到。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.globalLevel = 20; s.hp = 99999;
+  s.items = s.items || {};
+  /* 三槽各穿一件：武器 / 防具 / 饰品（用户点名的"戒指"就是饰品） */
+  const EQ = G.Data.equips;
+  const w = EQ.ofSlot('weapon')[0], a = EQ.ofSlot('armor')[0], ac = EQ.ofSlot('accessory')[0];
+  [w, a, ac].forEach((e) => { s.items[e.id] = 1; });
+  /* ⚠️ **故意只穿两件**（防具留空）：定长契约就是为"空槽也占位"设的 ——
+     三件全穿时"过滤空槽"与"定长"结果相同，反例 I 会漏过去（最初就是这么写的，被抓到）。
+     装备：[武器, 空, 饰品] —— 位置必须恒定，饰品不能漂到第 2 格。 */
+  s.equip = { weapon: w.id, armor: null, accessory: ac.id };
+  G.game.save = s;
+  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+  pump(6, 'equip.battle');
+  const b = G.game.scene;
+  if (!b || typeof b._cmd !== 'function') {
+    errors.push('法宝常显：没能进入战斗');
+  } else {
+    /* ① 定长三格：空槽也要占位（位置恒定，不因缺件而漂移） */
+    if (!Array.isArray(b.equippedList) || b.equippedList.length !== 3) {
+      errors.push('battle.equippedList 应为定长 3（按 SLOTS），实为 '
+        + (b.equippedList ? b.equippedList.length : 'undefined'));
+    } else {
+      if (b.equippedList[0] !== w.id && (!b.equippedList[0] || b.equippedList[0].id !== w.id)) {
+        errors.push('法宝第 1 格应是武器 ' + w.id + '，实为 '
+          + JSON.stringify(b.equippedList[0]));
+      }
+      if (!b.equippedList[2] || b.equippedList[2].id !== ac.id) {
+        errors.push('法宝第 3 格应是饰品（戒指）' + ac.id);
+      }
+      /* 空槽（第 2 格防具）必须是 null 占位，不是被挤掉 */
+      if (b.equippedList[1] !== null) {
+        errors.push('空槽（防具）应占位为 null，实为 ' + JSON.stringify(b.equippedList[1]));
+      }
+    }
+    /* ② 绘制必须真的被调到，且不抛 —— 挂一个探针在 ctx.drawImage 上 */
+    const calls = [];
+    const realDI = b.render ? null : null;
+    const sx = G.game.ctx;
+    const origDI = sx.drawImage;
+    const origPanel = G.UI.panel;
+    let panelRects = [];
+    G.UI.panel = function (ctx, r, fill, stroke, rad, opt) {
+      panelRects.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+      return origPanel.apply(this, arguments);
+    };
+    try { b.render(G.game.ctx); } catch (e) {
+      errors.push('法宝常显绘制抛异常：' + e.message);
+    }
+    G.UI.panel = origPanel;
+    sx.drawImage = origDI;
+    /* ③ 那个格子必须落在指令区空白格（318,240,142×28），且不与任何指令按钮重叠 */
+    const hit = panelRects.filter((r) => r.x === 318 && r.y === 240 && r.w === 142 && r.h === 28);
+    if (!hit.length) {
+      errors.push('法宝常显面板没画在指令区空白格 (318,240,142×28)');
+    }
+    const btns = b.buttons || [];
+    const overlap = btns.filter((btn) => {
+      if (btn.x == null) return false;
+      return !(btn.x + btn.w <= 318 || btn.x >= 460 || btn.y + btn.h <= 240 || btn.y >= 268);
+    });
+    if (overlap.length) {
+      errors.push('法宝常显与 ' + overlap.length + ' 个指令按钮重叠（'
+        + overlap.map((o) => o._key).join(',') + '）');
+    }
+  }
+  G.game.save = save;
+  G.game.changeScene('title');
+  console.log('  ✓ 战斗法宝常显：定长三格（空槽占位）/ 画在指令区空白格 / 不与指令按钮重叠');
+}, 'battle.equip.contract');
+
 /* 4b-2) 多敌战斗（v0.3 §7「1v1-3」+ 战斗规格 v0.2 §5/§6.2） */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));

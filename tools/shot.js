@@ -445,8 +445,11 @@ shot('05l_farewell', 8);
 /* 上面几帧又把 G.game.save 换成了克隆 → 后面所有帧都要回到基准存档 */
 step(() => { G.game.save = save; }, 'm1.restore2');
 
-/* 5) 战斗：普通遭遇（含功法 / 道具 / 防御 面板） */
+/* 5) 战斗：普通遭遇（含功法 / 道具 / 法宝常显） */
 step(() => {
+  /* 已装备法宝（v0.70.0）：武器+防具各一，**饰品特意留空** ——
+     正好验证空槽虚位（三格定长，缺哪格一眼看得出）。 */
+  save.equip = { weapon: 'eq_qingfeng', armor: 'eq_bujia', accessory: null };
   save.pos = null;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('赤炎狼', 6, '苍鬃狼'), mapId: 'field' });
 }, 'battle.enter');

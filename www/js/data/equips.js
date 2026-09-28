@@ -93,6 +93,21 @@
     ofSlot: function (slot) {
       return LIST.filter(function (e) { return e.slot === slot; });
     },
+    /* 法宝加成 → 一句人话（**唯一**文案口）。
+       面板法宝子页与战斗法宝常显都读它，各写一套必然漂移
+       （表现是"面板写 +8% 气血、战斗悬浮写别的"）。 */
+    fxDesc: function (e) {
+      if (!e || !e.fx) return '';
+      var W = { a: '攻击', f: '防御', h: '气血', s: '速度' };
+      var parts = [];
+      Object.keys(W).forEach(function (k) {
+        if (e.fx[k]) parts.push(W[k] + ' +' + Math.round(e.fx[k] * 100) + '%');
+      });
+      if (e.fx.c) parts.push('暴击 +' + Math.round(e.fx.c * 100) + '%');
+      if (e.fx.cd) parts.push('暴伤 +' + Math.round(e.fx.cd * 100) + '%');
+      if (e.fx.vamp) parts.push('吸血 +' + Math.round(e.fx.vamp * 100) + '%');
+      return parts.join('　');
+    },
     /* 把三槽的加成汇总成 {a,f,h,s,c,cd,vamp}（与 dungeonBuffs.sum 同形） */
     sum: function (equip) {
       var o = { a: 0, f: 0, h: 0, s: 0, c: 0, cd: 0, vamp: 0 };
