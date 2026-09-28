@@ -519,6 +519,24 @@
       return Math.max(-0.6, Math.min(0.6, cut));
     },
 
+    /* 破境所需灵气的**难度系数**（v0.62.0，用户第 5 点）
+       ------------------------------------------------------------
+       用户口径：「这四个值太容易获取了，玩家一下子就升级完成了，需要修改，
+                  而且并没有体现修仙很难」。
+       实测（按 **36 小阶** 的真实模型复算，`tools/smoke.js: zone.curve` 与 `tools/zone-curve.js` 同口径）：
+       改前每个大境刷满只要 **2.96–10.54 场**（淬体 3.7 / 炼气 3.6 / 筑基 7.2 / 化神 3.0）——
+       **一场架几乎刷满一境**，所以"一下子就升级完成了"。
+       修法：给 `needQi` 乘一个统一的难度系数，把"刷满一个境界的场次"从 3–10 场推到 **10–37 场**
+       （×3.5；各境的原始差距只有 3.6 倍，所以**一个统一系数**就能整体平移，不需要逐境配表）。
+       ⚠️ **淬体也一起乘** —— 它是 M0 教学链，但"一场架通一境"在教学关里同样是错的；
+          首阶 needQi 由 1 变 6（4 点灵气起步仍够打第一架）。
+       ⚠️ 改这个数必须同时复跑：
+          · `zone-curve`（看"场次"列，且它的 9 段模型已过时，以 smoke 的 36 阶模型为准）
+          · `smoke`（`zone.curve.contract` 会逐境验 [2,40] 与最高/最低 ≤8 倍）
+          · `playthrough` / `rebirth`（末行数字会整体位移，属预期） */
+    NEED_SCALE: 3.5,
+    needScale: function (gl) { return this.NEED_SCALE; },
+
     /* 当前境界 → 下一**小阶**所需灵气 */
     needQi: function (save, gl) {
       gl = gl || save.globalLevel || 1;
@@ -528,7 +546,7 @@
       /* 36 小阶按境进度 u² 平滑增长；系数 22.8 使每大境总灵气与旧九段版相当
          （Σ22.8·u² ≈ 285，与旧 Σstage²=285 同基准），不改变整体修炼节奏。 */
       var base = 100 * t.gate * 22.8 * u * u * t.calib;
-      return Math.max(1, Math.round(base * (1 + this.breakCut(save))));
+      return Math.max(1, Math.round(base * (1 + this.breakCut(save)) * this.needScale(gl)));
     },
 
     /* 大境界 9→10 所需丹药名 */

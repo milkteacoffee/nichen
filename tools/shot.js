@@ -1336,6 +1336,9 @@ shot('43_sect_hall', 8);
       它是全屏模态，会整块盖住面板，拍出来的图看不出面板好坏（第一版就拍成这样了）。 */
 function clearStoryModal() {
   if (G.Story) { G.Story._cur = null; G.Story._queue = []; G.Story._codex = false; }
+  /* ⚠️ toast / 战利品浮层也要清：它们要 1.6~3 秒才散，而 `shot` 只 pump 2~6 帧，
+     不清就会横在面板或选项按钮上（拍出来像"按钮被盖住了"，其实是上一帧的残留）。 */
+  if (G.game) { G.game.toasts.length = 0; G.game.lootFeed.length = 0; }
 }
 step(() => {
   const s = G.game.save;
@@ -1411,6 +1414,44 @@ step(() => {
   G.Overlays.openPanel(sc, 'sect', true);
 }, 'panel.sect');
 shot('48_panel_sect_emblem', 2);
+
+/* ---------- v0.62.0 ---------- */
+/* ① 地图：拖拽 / 缩放 / 节点传送（用户第 6/8 点）。
+   拍**放大 3 倍 + 平移**那一帧 —— 默认 1 倍的观感与旧版一致，看不出新能力。 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 200; s.maxGlobalLevel = 200;
+  s.visited = s.visited || {};
+  G.Data.regions.of('fan').forEach((r) => { s.visited[r.id] = true; });
+  G.game.meta.progress.activeWorld = 'fan';
+  G.game.changeScene('town', { toSpawn: true });
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc.overlay = null;
+  G.Overlays.openPanel(sc, 'map');
+  sc.mapZoom = 3; sc.mapPan = { x: 0, y: 0 };
+  G.Overlays.openPanel(sc, 'map', true);
+  clearStoryModal();   /* ⚠️ openPanel 之后**再清一次**：上面那次可能跑在浮层生成之前 */
+}, 'panel.map.zoom');
+shot('49_panel_map_zoom', 2);
+
+/* ② 机缘（用户第 7 点）：行走触发的"山道劫修"，三选一里一个是死路 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 200; s.maxGlobalLevel = 200;
+  s.hp = G.Player.computeStats(s).maxhp;      /* 别让「气血垂危」红字压住标题 */
+  s.quest.flags = {};
+  s.visited = s.visited || {}; s.visited.fan5 = true;
+  G.game.changeScene('fan5', { toSpawn: true });
+  clearStoryModal();
+  /* ⚠️ 必须清 toast：上一步的「闭关 30 日」要 1.6 秒才散，pump 的帧数不够，
+     它会横在选项按钮上（拍出来的图看着像"按钮被盖住了"）。 */
+  G.game.toasts.length = 0;
+  G.game.lootFeed.length = 0;
+  const ev = G.Data.StoryEvents.list.filter((e) => e.map === 'fan5')[0];
+  if (ev) G.Data.StoryEvents.show(G.game.scene, ev);
+}, 'encounter.se8');
+shot('50_encounter_bandit', 2);
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

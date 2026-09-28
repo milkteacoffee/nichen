@@ -2138,6 +2138,59 @@
     tabY: P.y + 32, tabH: 20, tabW: 64, tabGap: 6,
     vx: P.x + 14, vy: P.y + 58, vw: P.w - 28, vh: P.h - 80
   };
+  /* 缩放控件的矩形（**唯一几何来源**）：`buildMap` 建按钮、`drawMap` 的标注层避让都用它。
+     三颗 24×16、间距 2，贴在视口右上角内侧。 */
+  var MAP_ZOOM_N = 3;
+  function mapZoomRect(i) {
+    return {
+      x: P.x + P.w - 14 - (MAP_ZOOM_N - i) * 26, y: MP.vy + 4, w: 24, h: 16
+    };
+  }
+  function mapZoomBand() {
+    return {
+      x: P.x + P.w - 14 - MAP_ZOOM_N * 26, y: MP.vy + 4,
+      w: MAP_ZOOM_N * 26 - 2, h: 16
+    };
+  }
+
+  /* ===== 地图视口：缩放与平移（v0.62.0，用户第 6/8 点）=====
+     用户口径：「这个地图不支持拖动和放大缩小，而且到达化神境就可以自由传送到各个地图了」。
+     约定：
+       · `scene.mapZoom` ∈ [1,3]，缺省 1；`scene.mapPan` = 屏幕像素位移（缺省 0,0）。
+       · 节点屏幕坐标 = 视口中心 + (mx-0.5)×vw×z + pan。
+         ⚠️ z=1 且 pan=0 时它**退化成原来的 `vx + mx*vw`** —— 这是"不改默认观感"的保证，
+            也是契约能拿旧坐标对表的前提。
+       · pan 必须夹住：|pan| ≤ (z-1)×vw/2，否则能把地图拖出视口，只剩一片空白。 */
+  var MAP_ZOOM_MAX = 3;
+  function mapZoomOf(scene) {
+    var z = (scene && scene.mapZoom) || 1;
+    return Math.max(1, Math.min(MAP_ZOOM_MAX, z));
+  }
+  function mapPanOf(scene) {
+    var p = (scene && scene.mapPan) || { x: 0, y: 0 };
+    return { x: p.x || 0, y: p.y || 0 };
+  }
+  function mapClampPan(scene) {
+    var z = mapZoomOf(scene), p = scene.mapPan = mapPanOf(scene);
+    var lx = (z - 1) * MP.vw / 2, ly = (z - 1) * MP.vh / 2;
+    p.x = Math.max(-lx, Math.min(lx, p.x));
+    p.y = Math.max(-ly, Math.min(ly, p.y));
+  }
+  function mapNodePos(scene, r) {
+    var z = mapZoomOf(scene), p = mapPanOf(scene);
+    return {
+      x: MP.vx + MP.vw / 2 + (r.mx - 0.5) * MP.vw * z + p.x,
+      y: MP.vy + MP.vh / 2 + (r.my - 0.5) * MP.vh * z + p.y
+    };
+  }
+  /* 视口变换的**逆方向**。绘制走 `x.translate/scale`（原有代码一行不改就自动缩放），
+     但**悬浮框与命中判定不经过 ctx**，必须自己换算 —— 少了它，
+     放大后提示条会飘到别处、点节点也点不中（都是静默的）。 */
+  function mapUnproject(scene, px, py) {
+    var V = MP, z = mapZoomOf(scene), p = mapPanOf(scene);
+    var ox = V.vx + V.vw / 2, oy = V.vy + V.vh / 2;
+    return { x: ox + (px - (ox + p.x)) / z, y: oy + (py - (oy + p.y)) / z };
+  }
   var WORLD_ORDER = ['fan', 'ling', 'xian', 'dao'];
   /* 每界的地形配色与密度 —— 决定"这一界长什么样"（用户口径：按地图特色出图，
      冰谷 / 岩石地各有各的样）。程序化版先用配色 + 密度区分；出图后整张替换。 */
@@ -2362,8 +2415,17 @@
     var list = Rg.of(w) || [];
     shell(x, '地图', Rg.worldNames[w] || '');
 
-    /* 视口 */
-    var V = MP;
+    /* 视口（v0.62.0 起带缩放/平移）。
+       ⚠️ 手法：把**整层地图**放进一个 ctx 变换里（clip 到视口 → 平移到中心+pan →
+          scale(z) → 把原点挪回视口左上）。这样底下"节点/连线/界门/名字"的既有代码
+          **一行都不用改**就自动跟着缩放 —— 比逐处乘 z 安全得多（漏一处就飘）。 */
+    var V = MP, Z = mapZoomOf(scene), PAN = mapPanOf(scene);
+    x.save();
+    x.beginPath(); x.rect(V.vx, V.vy, V.vw, V.vh); x.clip();
+    x.translate(V.vx + V.vw / 2 + PAN.x, V.vy + V.vh / 2 + PAN.y);
+    x.scale(Z, Z);
+    x.translate(-(V.vx + V.vw / 2), -(V.vy + V.vh / 2));
+
     var mapScrollImg = G.Assets.img('mapscroll.' + w);
     if (mapScrollImg) {
       x.drawImage(mapScrollImg, V.vx, V.vy, V.vw, V.vh);
@@ -2434,30 +2496,78 @@
       /* 悬浮说明：鼠标落在**节点或它的名字**上就弹（v0.41.0）。
          ⚠️ 命中框要盖住"节点 + 名字"两块，只盖节点的话移到名字上就没了（很难用）。 */
       if (G.UI.hover) {
-        G.UI.hover({ x: nx - 22, y: ny - 14, w: 44, h: 34 },
+        /* ⚠️ 悬浮框不走 ctx，必须自己换算到**屏幕坐标**（`mapNodePos`）。
+           而且框的尺寸要**固定**（44×34）—— 跟着 Z 放大会让提示条盖住半个视口。 */
+        var np = mapNodePos(scene, r);
+        G.UI.hover({ x: np.x - 22, y: np.y - 14, w: 44, h: 34 },
           mapNodeInfo(r, save, meta, w, visited));
       }
-      /* 名字：节点下方居中，两端夹住视口（贴边会被裁掉） */
+      /* 名字**不在这里画** —— 见下面"标注层"的说明（要在视口变换之外、用屏幕坐标画）。 */
+    });
+
+    /* 地图层结束：把视口变换还原（图例与提示必须在**未缩放**的屏幕坐标里画） */
+    x.restore();
+
+    /* ===== 标注层（v0.62.0）=====
+       区域名**必须画在视口变换之外**，两个理由：
+        ① 文字是"标注"不是"位置"：跟着 Z 放大会把地图本身盖掉（3 倍时「赤牙洞」撑满半屏）；
+        ② 契约的文字探针**不认 ctx 变换**（它只记 `fillText` 的实参）——
+           在变换里 translate 到别处再画，探针看到的是 (0,0)，直接判"越界"。
+       所以这里用 `mapNodePos`（正变换）算出屏幕坐标，再按屏幕坐标画与夹取。 */
+    list.forEach(function (r) {
+      var isCur = r.id === cur;
+      var seen = isCur || !!visited[r.id];
+      var np = mapNodePos(scene, r);
+      /* 视口外不画（否则会盖到面板外框与底栏上）；
+         **缩放控件底下也不画** —— 按钮是后画的框，压住先画的字就是"框盖字"（契约会报）。 */
+      var zb = mapZoomBand();
+      var labelW = 34;
+      if (np.x < V.vx - 4 || np.x > V.vx + V.vw + 4
+        || np.y < V.vy - 4 || np.y > V.vy + V.vh + 4) return;
+      if (np.x + labelW / 2 > zb.x && np.x - labelW / 2 < zb.x + zb.w
+        && np.y + 13 > zb.y && np.y - 4 < zb.y + zb.h) return;
       var fs = isCur ? 10.5 : 9.5;
       x.font = G.UI.F(fs);
       var tw = x.measureText(r.n).width;
-      var lx = Math.max(V.vx + tw / 2 + 1, Math.min(V.vx + V.vw - tw / 2 - 1, nx));
-      G.UI.textOut(x, { x: lx, y: ny + 5 }, r.n, fs,
+      var lx = Math.max(V.vx + tw / 2 + 1, Math.min(V.vx + V.vw - tw / 2 - 1, np.x));
+      var ly = Math.max(V.vy + 2, Math.min(V.vy + V.vh - 13, np.y + 5));
+      G.UI.textOut(x, { x: lx, y: ly }, r.n, fs,
         isCur ? G.UI.C.goldHi : (seen ? 'rgba(228,236,248,0.95)' : 'rgba(140,152,176,0.9)'),
         'center', 'rgba(6,10,20,0.9)', 2.2);
     });
 
-    /* 图例 + "还没现世"的界提示 */
-    var hint = '金环 = 当前所在　菱形 = 界门';
+    /* 图例 + "还没现世"的界提示（v0.62.0 补上新的操作口径） */
+    var hint = '拖拽平移 · ＋/− 缩放 · 点节点传送（化神境起）';
     if (!worldGate(meta, 'xian').show) hint += '　仙界未现';
     else if (!worldGate(meta, 'dao').show) hint += '　道界未现';
-    G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 }, hint, 10, G.UI.C.textDim);
+    G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 }, hint, 9.5, G.UI.C.textDim);
   }
 
   function buildMap(btns, scene) {
     var meta = G.game.meta || {};
     var Rg = G.Data.regions;
     var cur = mapWorldOf(scene, meta);
+    /* 缩放控件（v0.62.0）：贴在视口右上角内侧。
+       ⚠️ 用**按钮**而不是滚轮 / 双指 —— 无头契约点得到、触屏也好按；
+          滚轮与双指只有真机验证得了，契约覆盖不到（"没人验"= 迟早坏）。 */
+    [['＋', 1], ['－', -1], ['复位', 0]].forEach(function (zb2, i) {
+      var r2 = mapZoomRect(i);
+      btns.push(new G.UI.Btn({
+        x: r2.x, y: r2.y, w: r2.w, h: r2.h, small: true, fs: 9.5,
+        variant: 'ghost', label: zb2[0],
+        onClick: function () {
+          if (zb2[1] === 0) { scene.mapZoom = 1; scene.mapPan = { x: 0, y: 0 }; }
+          else {
+            /* ⚠️ **在写入时就夹**，不要只在读取时夹（`mapZoomOf`）——
+               否则 `scene.mapZoom` 会一路涨到 4、5、6，契约读到的原始值超出范围，
+               而且"再点 ＋ 没反应"这种事只有靠原始值才看得出来。 */
+            scene.mapZoom = Math.max(1, Math.min(MAP_ZOOM_MAX, mapZoomOf(scene) + zb2[1]));
+            mapClampPan(scene);
+          }
+          G.Overlays.openPanel(scene, 'map', true);
+        }
+      }));
+    });
     /* 只给**可见**的界建按钮（隐藏 = 玩家不知道它存在，不该以灰按钮的形式泄底） */
     var show = WORLD_ORDER.filter(function (w) { return worldGate(meta, w).show; });
     var total = show.length * MP.tabW + (show.length - 1) * MP.tabGap;
@@ -2829,6 +2939,64 @@
   /* 导出给契约：分界的可见性/可点性判据（用户口径的"隐藏 vs 置灰"） */
   G.Overlays.worldGate = worldGate;
   G.Overlays.worldMapBg = worldMapBg;
+  /* 地图视口矩形（契约要拿它算节点坐标，别在契约里另抄一份几何） */
+  G.Overlays.MAP_VIEW = MP;
+  /* ---- 地图的拖拽 / 节点传送（v0.62.0，用户第 6/8 点）----
+     拖拽：指针状态在 `G.Input._down` / `G.Input.drag`（input.js 已记录）。
+     ⚠️ 只在"面板是 map 且按下点落在视口内"时起拖 —— 否则在面板外按下也会把地图拖走。 */
+  G.Overlays.mapDragTick = function (scene) {
+    var inp = G.Input;
+    if (!inp) return;
+    if (!inp._down) { scene._mapDrag = null; return; }
+    var p0 = inp._down, p1 = inp.drag || inp._down;
+    var V = MP;
+    if (!scene._mapDrag) {
+      if (!(p0.x >= V.vx && p0.x <= V.vx + V.vw && p0.y >= V.vy && p0.y <= V.vy + V.vh)) return;
+      var pan = mapPanOf(scene);
+      scene._mapDrag = { x: p0.x, y: p0.y, px: pan.x, py: pan.y };
+    }
+    var d = scene._mapDrag;
+    scene.mapPan = { x: d.px + (p1.x - d.x), y: d.py + (p1.y - d.y) };
+    mapClampPan(scene);
+  };
+  /* 节点点击 = 传送（用户原话：「到达化神境就可以自由传送到各个地图了」）。
+     返回 true = 这次点击被地图吃掉（不再往下派发）。 */
+  var TELEPORT_GL = 181;                  /* 化神境起始 gl（REALMS 里 化神 y0 = 181） */
+  G.Overlays.TELEPORT_GL = TELEPORT_GL;
+  G.Overlays.mapTap = function (p, scene) {
+    if (!scene || scene.overlay !== 'map') return false;
+    var V = MP;
+    /* 视口外的点击不归地图管（底栏页签、关闭钮都在外面） */
+    if (!(p.x >= V.vx && p.x <= V.vx + V.vw && p.y >= V.vy && p.y <= V.vy + V.vh)) return false;
+    var meta = G.game.meta || {}, save = G.game.save;
+    if (!save) return true;
+    var w = mapWorldOf(scene, meta);
+    var list = G.Data.regions.of(w) || [];
+    /* ⚠️ 命中判定要**逆变换**回未缩放的视口坐标再比 —— 直接拿屏幕坐标比，
+       放大之后就再也点不中（而且看起来像"这个节点是死的"）。 */
+    var q = mapUnproject(scene, p.x, p.y);
+    var hit = null;
+    list.forEach(function (r) {
+      var nx = V.vx + r.mx * V.vw, ny = V.vy + r.my * V.vh;
+      if (Math.hypot(q.x - nx, q.y - ny) <= 12) hit = r;
+    });
+    if (!hit) return true;
+    var curId = G.Data.regions.regionIdOf ? G.Data.regions.regionIdOf(save.map) : null;
+    if (hit.id === curId) { G.game.toast('已在此处'); return true; }
+    if (!(save.visited || {})[hit.id]) {
+      G.game.toast('未曾到过 ' + hit.n + '，无从传送');
+      return true;
+    }
+    if ((save.globalLevel || 1) < TELEPORT_GL) {
+      var ri = G.Player.realmInfo(save.globalLevel) || { n: '' };
+      G.game.toast('需化神境方可自由传送（当前 ' + ri.n + '）');
+      return true;
+    }
+    scene.clearOverlay();
+    G.game.changeScene(G.Data.regions.mapIdOf(hit.id), { toSpawn: true });
+    G.game.toast('御空而至 · ' + hit.n);
+    return true;
+  };
   G.Overlays.barBtns = barBtns;
   G.Overlays.renderBar = renderBar;
   G.Overlays.openPanel = openPanel;

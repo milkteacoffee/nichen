@@ -225,6 +225,10 @@
 
       /* ===== 移动 ===== */
       update: function (dt) {
+        /* 地图面板的拖拽（v0.62.0，用户第 6/8 点）。
+           ⚠️ 必须放在**最前面** —— 面板打开时下面的逻辑会 early return，
+              挂到后面就永远不跑（表现是"拖不动"，且完全不报错）。 */
+        if (this.overlay === 'map' && G.Overlays.mapDragTick) G.Overlays.mapDragTick(this);
         /* 寿元尽 → 坐化。年龄在战斗/打坐/突破后推进，这里统一裁决；
            切场景后 this.save 已被清空，必须立刻 return。 */
         if (G.game.checkAged && G.game.checkAged()) return;
@@ -303,11 +307,12 @@
           }
           this.frame = 0;
         }
-        /* 主线插曲·旅途际遇（v0.60，用户第 3 点）：野外静止、非城镇洞穴时按 gl 触发 */
-        if (!this.moving && !this.path.length && !this.pendingAct && G.Data.StoryEvents
-            && !this.map.md.indoor && !this.map.md.safe && this._baseType() !== 'cave'
-            && this._baseType() !== 'bloodcave') {
-          var _ev = G.Data.StoryEvents.pending(save);
+        /* 主线插曲·机缘（v0.60 立，v0.62.0 扩成三态触发：gl / map 行走 / step）。
+           ⚠️ 用 `pendingFor(save, this)` 而不是老的 `pending(save)` ——
+              老签名拿不到 scene，判不了"野外/城镇"与"当前图 id"，
+              `map` 触发的那一类会**永远不弹**（且不报错）。 */
+        if (!this.moving && !this.path.length && !this.pendingAct && G.Data.StoryEvents) {
+          var _ev = G.Data.StoryEvents.pendingFor(save, this);
           if (_ev) G.Data.StoryEvents.show(this, _ev);
         }
       },

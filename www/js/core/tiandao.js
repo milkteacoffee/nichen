@@ -754,8 +754,14 @@
       }
     },
 
-    /* 面板内点击（输入框由按钮承载，这里只做隐藏输入框的失焦兜底） */
-    overlayTap: function () { return false; },
+    /* 面板内点击（输入框由按钮承载，这里只做隐藏输入框的失焦兜底）。
+       v0.62.0：**地图面板的节点点击 = 传送**（用户第 6/8 点）挂在这里 ——
+       它是所有探索场景共用的 overlay 点击入口（`hooks.overlayTap`），
+       单独在每个场景里加一遍必然漏（生成型区域 / 室内 / 山门 / 血煞据点各一套）。 */
+    overlayTap: function (p, scene) {
+      if (G.Overlays && G.Overlays.mapTap) return G.Overlays.mapTap(p, scene);
+      return false;
+    },
     overlayKey: function (code, scene) {
       if (code === 'Escape') scene.clearOverlay();
     }

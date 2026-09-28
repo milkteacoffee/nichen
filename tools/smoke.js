@@ -928,7 +928,10 @@ step(function () {
   const q0 = s.qi;
   bk.onClick();
   if (s.globalLevel !== 2) errors.push('点突破后应为淬体一重中期(gl2)，实为 ' + s.globalLevel);
-  if (s.qi !== q0 - 1) errors.push('突破未按公式扣除灵气（' + q0 + ' → ' + s.qi + '）');
+  /* ⚠️ 扣的是 needQi(gl1)，v0.62.0 收紧后 = 2（原先 1）—— 别再写死 1 */
+  if (s.qi !== q0 - G.Player.needQi(s, 1)) {
+    errors.push('突破未按公式扣除灵气（' + q0 + ' → ' + s.qi + '）');
+  }
 }, 'quest.dream');
 pump(8, 'quest.dream.render');
 
@@ -1277,16 +1280,16 @@ step(function () {
 step(function () {
   const P = G.Player;
   const bare = { globalLevel: 1, linggen: { elems: ['木'], coef: { 木: 1.2 } }, talents: [], world: { traits: [] } };
-  if (P.needQi(bare, 1) !== 1) errors.push('淬体一重初期→中期 应为 1，实为 ' + P.needQi(bare, 1));
+  if (P.needQi(bare, 1) !== 2) errors.push('淬体一重初期→中期 应为 2，实为 ' + P.needQi(bare, 1));
   let sum = 0;
   for (let gl = 1; gl <= 35; gl++) sum += P.needQi(bare, gl);
-  if (sum !== 10489) errors.push('淬体 35 小阶合计应为 10,489，实为 ' + sum);
-  if (P.needQi(bare, 36) !== 912) errors.push('淬体九重巅峰破境 应为 912，实为 ' + P.needQi(bare, 36));
-  if (P.needQi(bare, 37) !== 4) errors.push('炼气一重初期→中期 应为 4，实为 ' + P.needQi(bare, 37));
-  if (P.needQi(bare, 38) !== 14) errors.push('炼气一重中期→后期 应为 14，实为 ' + P.needQi(bare, 38));
+  if (sum !== 36724) errors.push('淬体 35 小阶合计应为 36,724（v0.62.0 收紧后），实为 ' + sum);
+  if (P.needQi(bare, 36) !== 3192) errors.push('淬体九重巅峰破境 应为 3192，实为 ' + P.needQi(bare, 36));
+  if (P.needQi(bare, 37) !== 12) errors.push('炼气一重初期→中期 应为 12，实为 ' + P.needQi(bare, 37));
+  if (P.needQi(bare, 38) !== 49) errors.push('炼气一重中期→后期 应为 49，实为 ' + P.needQi(bare, 38));
   /* 天赋/世界折扣（在大阶 gl36 才看得出 -10%） */
   const disc = { globalLevel: 36, linggen: bare.linggen, talents: [], world: { traits: ['W13'] } };
-  if (P.needQi(disc, 36) !== 821) errors.push('洞天福地 -10% 未生效：' + P.needQi(disc, 36) + '（bare 912）');
+  if (P.needQi(disc, 36) !== 2873) errors.push('洞天福地 -10% 未生效：' + P.needQi(disc, 36) + '（bare 3192）');
 }, 'break.formula');
 
 step(function () {
@@ -1298,7 +1301,7 @@ step(function () {
   let r = P.breakthrough(s);
   if (!r.ok) errors.push('灵气 100 未能突破淬体一重初期→中期：' + r.reason);
   else if (s.globalLevel !== 2) errors.push('突破后境界应为 gl2，实为 ' + s.globalLevel);
-  else if (s.qi !== 99) errors.push('突破后灵气应为 100-1=99，实为 ' + s.qi);
+  else if (s.qi !== 98) errors.push('突破后灵气应为 100-2=98（v0.62.0 首阶 needQi=2），实为 ' + s.qi);
   /* 失败：灵气不足不升级不扣灵气（gl2 需 3，给 0） */
   s.qi = 0;
   const before = s.qi, gl0 = s.globalLevel;
@@ -1332,7 +1335,7 @@ step(function () {
   const info = P.winBigBreak(s);
   if (s.globalLevel !== 37) errors.push('心魔战胜利后应为炼气一重初期(gl37)，实为 ' + s.globalLevel);
   if (info.n !== '炼气一重初期') errors.push('境界名异常：' + info.n);
-  if (s.qi !== 999087) errors.push('突破后灵气应为 999999-912=999087，实为 ' + s.qi);
+  if (s.qi !== 996807) errors.push('突破后灵气应为 999999-3192=996807，实为 ' + s.qi);
   /* 失败：不降级、灵气保留 80% */
   s.globalLevel = 36; s.qi = 1000;
   const left = P.loseBigBreak(s);
@@ -7340,6 +7343,209 @@ step(function () {
     });
   });
 }, 'sect.emblem.contract');
+
+/* ---------- 机缘契约（v0.62.0，用户第 7 点） ----------
+   用户口径：「支线任务，会存在在行走其他地图时间触发，或者等到特定境界时触发特殊任务，
+              完成之后奖励功法、法宝、或者惩罚死亡等等」。
+   三层断言：① 三种触发形态与"惩罚死亡"都**真的存在**；② 每条都留了活路；
+             ③ 行走触发挂的图**真的能触发**（挂在洞穴/室内/安全区上 → 永远不弹，且完全静默）。 */
+step(function () {
+  const SE = G.Data.StoryEvents;
+  if (!SE) { errors.push('G.Data.StoryEvents 未载入'); return; }
+  if (typeof SE.pendingFor !== 'function') {
+    errors.push('缺 pendingFor(save, scene) —— 行走触发这一类判不了（老 pending 拿不到 scene）');
+    return;
+  }
+  const L = SE.list;
+  const k = { gl: 0, map: 0, step: 0, any: 0, dead: 0 };
+  L.forEach(function (e) {
+    if (e.gl != null) k.gl++;
+    if (e.map) k.map++;
+    if (e.step) k.step++;
+    if (e.where === 'any') k.any++;
+    if (!e.choices || !e.choices.length) { errors.push('机缘 ' + e.id + ' 没有选项'); return; }
+    const alive = e.choices.filter(function (c) { return !c.dead; });
+    if (!alive.length) {
+      errors.push('机缘 ' + e.id + ' 全是死路 —— 无信息必死不是"残酷"，是不讲道理');
+    }
+    e.choices.forEach(function (c) {
+      if (c.dead) k.dead++;
+      if (typeof c.run !== 'function') errors.push('机缘 ' + e.id + ' 的选项「' + c.t + '」缺 run');
+    });
+  });
+  if (!k.map) errors.push('没有任何「行走触发」的机缘（用户第 7 点明确要求）');
+  if (!k.gl) errors.push('没有任何「境界触发」的机缘');
+  if (!k.dead) errors.push('没有任何「惩罚死亡」的选项（用户第 7 点明确要求）');
+
+  /* ① 行走触发挂的图必须**真的能触发**：洞穴 / 室内 / 安全区上 wildOk 恒假 → 永远不弹。
+        （本契约最容易漏、且完全静默的一类：初版 se8 挂在 fan3=赤牙洞，那是 cave 图。）
+        ⚠️ 必须走 `G.game.changeScene` 而不是 `G.RegionGen.sceneFor` ——
+            `scene.map` 是 `enter()` 里才建的，直接拿 sceneFor 的返回值 `map` 还是 null，
+            `wildOk` 会一律判假 → 契约变成"恒报错"的假红（第一次就写成这样，抓到了）。 */
+  const s0 = JSON.parse(JSON.stringify(save));
+  s0.pos = { x: 5, y: 5 }; s0.globalLevel = 700;
+  s0.items = s0.items || {}; s0.beasts = s0.beasts || {};
+  if (!Array.isArray(s0.beasts)) s0.beasts = [];
+  s0.quest = s0.quest || { step: 'm1-7', flags: {} };
+  s0.quest.flags = s0.quest.flags || {};
+  G.game.save = s0;
+  if (!G.game.meta) G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: [] };
+  const prevName = G.game.sceneName;
+  const mapEvs = L.filter(function (e) { return e.map && e.where !== 'any'; });
+  mapEvs.forEach(function (e) {
+    try { G.game.changeScene(e.map, { toSpawn: true }); } catch (err) {
+      errors.push('机缘 ' + e.id + ' 挂的图「' + e.map + '」切不过去：' + err.message); return;
+    }
+    if (!SE.wildOk(G.game.scene)) {
+      errors.push('机缘 ' + e.id + ' 挂的图「' + e.map + '」不是野外（洞穴/室内/安全区）→ 永远不会触发');
+    }
+  });
+
+  /* ② 真的取得回来 + ③ 一次性 */
+  if (mapEvs.length) {
+    const e0 = mapEvs[0];
+    G.game.changeScene(e0.map, { toSpawn: true });
+    /* 先把非行走触发的一律标成已看，免得它们排在前面挡着 */
+    L.forEach(function (e) { if (!e.map) s0.quest.flags['se_' + e.id] = true; });
+    const got = SE.pendingFor(s0, G.game.scene);
+    if (!got) errors.push('站在 ' + e0.map + ' 上却取不到行走触发的机缘（map 判定失效）');
+    else {
+      if (got.id !== e0.id) errors.push('期望取到 ' + e0.id + '，实际 ' + got.id);
+      s0.quest.flags['se_' + got.id] = true;
+      const again = SE.pendingFor(s0, G.game.scene);
+      if (again && again.id === got.id) errors.push('机缘 ' + got.id + ' 看过之后还在重复触发');
+    }
+  }
+  /* ④ 老签名 `pending(save)` 仍要能用（它只认 gl/step 那一类） */
+  const s1 = JSON.parse(JSON.stringify(save));
+  s1.globalLevel = 700;
+  s1.quest = { step: 'm1-7', flags: {} };
+  const p1 = SE.pending(s1);
+  if (!p1) errors.push('pending(save) 取不到境界触发的机缘（老调用点会静默失效）');
+  else if (p1.map) errors.push('pending(save) 不该返回行走触发的机缘（它没有 scene）');
+  /* ⑤ 死路标记必须与选项数不成对（至少要留一条活路）—— 上面已逐条判过，这里再收一次总数 */
+  L.forEach(function (e) {
+    const d = (e.choices || []).filter(function (c) { return c.dead; });
+    if (d.length && d.length === (e.choices || []).length) {
+      errors.push('机缘 ' + e.id + ' 的 dead 标记数 == 选项数');
+    }
+  });
+  /* 还原场景（后面的契约还要用 town） */
+  G.game.save = save;
+  G.game.changeScene(prevName || 'town', { toSpawn: true });
+}, 'encounter.contract');
+
+/* ---------- 地图交互契约（v0.62.0，用户第 6/8 点） ----------
+   用户口径：「这些内容太挡地图和视线了……它的地图是支持放大缩小的，支持拖动看到其他区域内，
+              并且它是支持 x,y 坐标点位移动寻路」+「这个地图不支持拖动和放大缩小，
+              而且到达化神境就可以自由传送到各个地图了」。
+   断言：缩放按钮在且上下限被夹住；pan 被夹住；节点点击的三条门禁（未到访 / 境界不足 / 化神可传）；
+        视口外的点击**不被地图吞掉**（否则底栏页签与关闭钮就废了）。 */
+step(function () {
+  const V2 = G.Overlays.MAP_VIEW;
+  if (!V2 || !(V2.vw > 0)) { errors.push('未导出 MAP_VIEW（地图视口矩形）'); return; }
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = { x: 5, y: 5 }; s.items = s.items || {}; s.beasts = s.beasts || [];
+  s.globalLevel = 1; s.visited = { fan1: true };
+  G.game.save = s;
+  if (!G.game.meta) G.game.meta = {};
+  G.game.meta.progress = {
+    activeWorld: 'fan', worlds: { fan: true, ling: false, xian: false, dao: false },
+    worldDiff: {}, daoShards: {}
+  };
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.overlay = null;
+  G.Overlays.openPanel(sc, 'map');
+
+  const clickZoom = function (l) {
+    const b = (sc.buttons || []).filter(function (x) { return x.label === l; })[0];
+    if (b) b.onClick();
+    return !!b;
+  };
+  ['＋', '－', '复位'].forEach(function (l) {
+    if (!(sc.buttons || []).some(function (b) { return b.label === l; })) {
+      errors.push('地图缺少缩放控件「' + l + '」（用户第 6 点要求可放大缩小）');
+    }
+  });
+  sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+  for (let i = 0; i < 6; i++) clickZoom('＋');
+  if (sc.mapZoom !== 3) errors.push('缩放上限应为 3，实为 ' + sc.mapZoom);
+  for (let i = 0; i < 6; i++) clickZoom('－');
+  if (sc.mapZoom !== 1) errors.push('缩放下限应为 1，实为 ' + sc.mapZoom);
+  /* pan 夹取：拉到天边也要被收回视口范围内 */
+  sc.mapZoom = 3; sc.mapPan = { x: 99999, y: -99999 };
+  clickZoom('＋');
+  const limX = (3 - 1) * V2.vw / 2, limY = (3 - 1) * V2.vh / 2;
+  if (Math.abs(sc.mapPan.x) > limX + 0.01 || Math.abs(sc.mapPan.y) > limY + 0.01) {
+    errors.push('地图平移未被夹住（' + JSON.stringify(sc.mapPan) + '，上限 '
+      + limX.toFixed(0) + '/' + limY.toFixed(0) + '）');
+  }
+  /* 复位 */
+  sc.mapZoom = 3; sc.mapPan = { x: 20, y: 20 };
+  clickZoom('复位');
+  if (sc.mapZoom !== 1 || sc.mapPan.x !== 0 || sc.mapPan.y !== 0) {
+    errors.push('「复位」未把缩放/平移归位');
+  }
+
+  const Rg = G.Data.regions;
+  const target = Rg.of('fan').filter(function (r) { return r.id !== 'fan1'; })[0];
+  if (!target) { errors.push('凡界区域太少，无法验传送'); return; }
+  sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+  const nodeP = {
+    x: V2.vx + V2.vw / 2 + (target.mx - 0.5) * V2.vw + 0,
+    y: V2.vy + V2.vh / 2 + (target.my - 0.5) * V2.vh + 0
+  };
+  /* 视口外的点击**不该**被地图吞掉（否则底栏页签与关闭钮全废） */
+  if (G.Overlays.mapTap({ x: 4, y: 4 }, sc)) {
+    errors.push('视口外的点击不该被地图吃掉（底栏页签会被吞）');
+  }
+  if (!G.Overlays.mapTap(nodeP, sc)) {
+    errors.push('视口内的点击应被地图吃掉（返回 true）');
+  }
+  const home = G.game.sceneName;
+  /* ① 未到访 → 不传 */
+  delete s.visited[target.id];
+  G.Overlays.mapTap(nodeP, sc);
+  if (G.game.sceneName !== home) errors.push('未到访的区域不该能传送（' + target.n + '）');
+  /* ② 到访但未至化神 → 不传 */
+  s.visited[target.id] = true;
+  s.globalLevel = 1;
+  G.Overlays.mapTap(nodeP, sc);
+  if (G.game.sceneName !== home) errors.push('淬体境不该能自由传送（需化神境）');
+  /* ③ 到访 + 化神 → 传 */
+  s.globalLevel = G.Overlays.TELEPORT_GL;
+  G.Overlays.mapTap(nodeP, sc);
+  const want = Rg.mapIdOf(target.id);
+  if (G.game.sceneName !== want) {
+    errors.push('化神境应能传送到 ' + target.n + '（期望场景 ' + want
+      + '，实为 ' + G.game.sceneName + '）');
+  }
+  /* ④ 逆变换自洽：放大后同一点仍能命中同一个节点。
+     ⚠️ 必须**把 pan 摆成"该节点正好在视口中心"** —— 否则 3 倍放大后它会被推到视口外，
+        `mapTap` 的视口前置判定直接 return false，契约报的会是"逆变换坏了"（假红）。 */
+  G.game.changeScene('town', { toSpawn: true });
+  const sc2 = G.game.scene;
+  sc2.overlay = null; sc2.mapZoom = 3;
+  sc2.mapPan = { x: -(target.mx - 0.5) * V2.vw * 3, y: -(target.my - 0.5) * V2.vh * 3 };
+  G.Overlays.openPanel(sc2, 'map', true);
+  const z = 3, pn = sc2.mapPan;
+  const zoomedP = {
+    x: V2.vx + V2.vw / 2 + (target.mx - 0.5) * V2.vw * z + pn.x,
+    y: V2.vy + V2.vh / 2 + (target.my - 0.5) * V2.vh * z + pn.y
+  };
+  if (!(zoomedP.x >= V2.vx && zoomedP.x <= V2.vx + V2.vw
+    && zoomedP.y >= V2.vy && zoomedP.y <= V2.vy + V2.vh)) {
+    errors.push('（契约自检）居中后的节点仍在视口外，前置条件写错了');
+  }
+  s.visited[target.id] = true; s.globalLevel = G.Overlays.TELEPORT_GL;
+  G.Overlays.mapTap(zoomedP, sc2);
+  if (G.game.sceneName !== want) {
+    errors.push('放大 3 倍后点同一个节点应仍能命中（逆变换 mapUnproject 有问题）');
+  }
+  G.game.save = save;
+  G.game.changeScene('town', { toSpawn: true });
+}, 'map.view.contract');
 
 /* ---------- 天道多协议契约（v0.8.0） ----------
    缺口：天道原先只认 OpenAI 兼容的 /chat/completions。
