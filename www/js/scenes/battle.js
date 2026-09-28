@@ -1376,7 +1376,7 @@
           for (var si = 0; si < segs; si++) {
             if (t.u.hp <= 0) break;
             var r = self._calc(atk, t.u, skill);
-            var hpDmg = self._impact(t.key, r);
+            var hpDmg = self._impact(t.key, r, skill.elem);
             /* 技能爆发：按**功法属性**上色（普攻只有刀光，技能才出扩散环） */
             self._fx('burst', t.key, {
               col: (G.Data.elem && G.Data.elem.color && G.Data.elem.color[skill.elem]) || '#e8f0ff'
@@ -1536,8 +1536,13 @@
       this.cueDone = done || null;
     },
 
-    _impact: function (key, r) {
+    _impact: function (key, r, elem) {
       this.flash[key] = 1;
+      /* 受击后退（v0.54.0）：远离攻击者方向的短促位移，update 中弹回 */
+      if (!this.knock) this.knock = {};
+      this.knock[key] = (key === 'P') ? -7 : 7;
+      /* 暴击顿帧（90ms）：整个演出短暂冻结，压出命中重量 */
+      if (r.crit) this.hitStop = Math.max(this.hitStop || 0, 0.09);
       var u = this._unit(key);
       if (!u) return 0;
       var dmg = r.dmg;
@@ -1571,8 +1576,11 @@
       }
       if (dmg > 0) this._float(key, '-' + dmg, r.crit ? '#ffd45a' : '#ffd8d0', r.crit);
       else this._float(key, '格挡', '#9ac8ff');
-      /* 刀光：普攻与技能**都会**打到这里（`_impact` 是唯一的伤害漏斗） */
-      this._fx('slash', key, { col: r.crit ? '#ffd45a' : '#e8f0ff' });
+      /* 命中特效（v0.54.0）：五行技能走对应色爆发，普攻走刀光；暴击统一金色 */
+      var ELEM_FX_COL = { '金': '#ffd870', '木': '#8fd878', '水': '#7ab8ff', '火': '#ff8a5a', '土': '#e0b878', '雷': '#c89aff' };
+      var ecol = elem ? ELEM_FX_COL[elem] : null;
+      if (ecol) this._fx('burst', key, { col: r.crit ? '#ffd45a' : ecol });
+      else this._fx('slash', key, { col: r.crit ? '#ffd45a' : '#e8f0ff' });
       this.shake = r.crit ? 7 : 3;
       return dmg;
     },
@@ -1990,12 +1998,14 @@
     /* ===== 更新 ===== */
     update: function (dt) {
       this.t += dt;
+      if (this.hitStop > 0) { this.hitStop -= dt; return; }
       var k = Math.min(1, dt * 11);
       var self = this;
       this._keys().forEach(function (key) {
         self.lunge[key] = (self.lunge[key] || 0)
           + ((self.lungeT[key] || 0) - (self.lunge[key] || 0)) * k;
         self.flash[key] = Math.max(0, (self.flash[key] || 0) - dt * 3.2);
+        if (self.knock) self.knock[key] = (self.knock[key] || 0) + ((0) - (self.knock[key] || 0)) * k;
       });
       if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 22);
       this._tickFx(dt);
@@ -2181,7 +2191,8 @@
       if (u._captured) return;
       var pos = this._pos(key);
       var lunge = this.lunge[key] || 0;
-      var cx = pos.x + lunge;
+      var knock = (this.knock && this.knock[key]) || 0;
+      var cx = pos.x + lunge + knock;
       var by = pos.y;
       var s = pos.s;
 
@@ -2210,6 +2221,11 @@
       x.beginPath();
       x.ellipse(cx, by + 2, s * 0.34, s * 0.10, 0, 0, 6.2832);
       x.fill();
+
+      /* 待机呼吸（v0.54.0）：原地时极轻微起伏；前冲/受击/后退时不叠加 */
+      var sway = (Math.abs(lunge) < 1 && Math.abs(knock) < 1 && (this.flash[key] || 0) < 0.25)
+        ? Math.sin(this.t * 2.6 + (isP ? 0 : 1.4)) : 0;
+      if (sway) x.translate(0, sway);
 
       /* 单位 */
       x.drawImage(spr, Math.round(cx - s / 2), Math.round(by - s), s, s);

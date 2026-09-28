@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 7;
+  var VERSION = 8;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -182,6 +182,13 @@
           data.rideSkill = data.rideSkill || { land: false, air: false };
         }
         data.version = 7;
+      }
+
+      /* v7 → v8：剧情轮回记忆（《剧情打磨 v1.0》§5.3）
+         meta 侧加 memory（碎片/忆起）/ bonds（故人）/ progress.story（主线/结局旗标）。 */
+      if (data.version < 8) {
+        if (this._isMeta(data) && G.Story) G.Story.ensure(data);
+        data.version = 8;
       }
       return data;
     },

@@ -264,6 +264,10 @@
         }));
       });
       this.buttons.push(new G.UI.Btn({
+        x: 16, y: 232, w: 80, h: 26, small: true, variant: 'default',
+        label: '轮回图鉴', onClick: function () { if (G.Story) G.Story.openCodex(); }
+      }));
+      this.buttons.push(new G.UI.Btn({
         x: 366, y: 232, w: 98, h: 26, small: true, variant: 'gold',
         label: '转世重修', onClick: function () { G.game.changeScene('reincarnation'); }
       }));

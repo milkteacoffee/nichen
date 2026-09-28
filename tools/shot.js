@@ -223,6 +223,19 @@ step(() => { save.hp = 200; }, 'hud.restore');
 [['05_town', 'town'], ['07_field', 'field'], ['09_cave', 'cave']].forEach(function (m) {
   step(() => { save.pos = null; G.game.changeScene(m[1], { toSpawn: true }); }, 'scene:' + m[1]);
   shot(m[0], 24);
+  /* 屏幕中央行走帧（v0.54.0）：把主角放到视野中部再向右驱动，
+     验收真实行走帧（非纸片人），避免 _walk 那帧人在视口边缘。 */
+  if (m[1] === 'field') {
+    step(() => { save.pos = { x: 14, y: 9 }; G.game.changeScene('field'); }, 'field.center');
+    shot('07c0', 16);
+    step(() => {
+      const sc2 = G.game.scene;
+      sc2._heldDir = () => 'right';
+      for (let i = 0; i < 13; i++) sc2.update(0.05);
+    }, 'field.walkcenter');
+    shot('07c_field_walkcenter', 4);
+    step(() => { G.game.scene._heldDir = function () { return null; }; }, 'field.walkstop');
+  }
   /* 建筑特写（v0.16.0）：把相机推到镇北的建筑群 —— 出生点在镇南，
      建筑全被顶栏挡住，验收时看不到"建筑换图 + 匾额"的实际效果。
      ⚠️ 必须**先设 pos 再进场景**（`toSpawn` 会把它覆盖回出生点）。 */
@@ -231,6 +244,11 @@ step(() => { save.hp = 200; }, 'hud.restore');
        会被当成格坐标，角色直接跑到地图外，相机就贴着上沿不走了。 */
     step(() => { save.pos = { x: 18, y: 11 }; G.game.changeScene('town'); }, 'town.houses');
     shot('05a_town_houses', 40);
+    /* 建筑悬浮名签（v0.54.0）：鼠标落在药铺 footprint 上，应出「药铺 + 买卖丹药…」富卡。
+       站位(18,11)→相机约(48,40)，药铺格(14..19,6..10)屏中约(224,96)。 */
+    step(() => { G.Input.mouse = { x: 224, y: 96 }; }, 'town.structtip');
+    shot('05b_town_structtip', 40);
+    step(() => { G.Input.mouse = null; }, 'town.structtip.off');
     /* 宗门山门特写（v0.42.0）：青溪剑馆的山门在南侧空场（x6..11, y15..17）。
        ⚠️ 站位要选在**山门的左边**（x=4）—— 相机把山门推到画面右半边，
           否则它会落在左侧任务追踪栏底下（那一片恒定被盖住）。 */
@@ -846,6 +864,42 @@ step(() => {
 }, 'hall.ascend');
 shot('28_hall_ascend', 8);
 
+/* 剧情：轮回图鉴 + 忆起弹层（v0.54.0） */
+function storyMeta() {
+  G.game.changeScene('hall');
+  let meta = G.game.meta || G.Storage.loadMeta();
+  if (!meta) {
+    meta = { lives: 0, xianli: 0, totalXianli: 0,
+      perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
+      past: [], heaven: { memory: [], watchTotal: 0 },
+      progress: G.Storage.defaultProgress() };
+    G.game.meta = meta;
+  }
+  G.Story.ensure(meta);
+  G.Story.sealLife(meta, {}, 1);
+  return meta;
+}
+step(() => {
+  const meta = storyMeta();
+  G.Story.onBreak(meta, {}, 145);
+  G.Story._queue.length = 0; G.Story._cur = null;
+  G.Story._tab = 0; G.Story._page = 0;
+  G.Story.openCodex();
+}, 'codex.memory');
+shot('70_codex_memory', 10);
+
+step(() => { G.Story._tab = 1; G.Story._page = 0; }, 'codex.people');
+shot('70b_codex_people', 6);
+
+step(() => {
+  G.Story.closeCodex();
+  const meta = G.game.meta;
+  meta.memory.recalled = [];
+  G.Story._queue.length = 0; G.Story._cur = null;
+  G.Story.onBreak(meta, {}, 37);
+}, 'recall.flash');
+shot('71_recall', 8);
+
 /* 10) v0.8.0：底栏六功能 + 设置多协议 + 前世经历
    这四张是"底栏真的常驻、六个面板真的能开、设置真的能配云端模型"的肉眼凭据。
    每步都重建存档 —— death 场景会把当世档清空（G.game.save = null）。 */
@@ -1070,13 +1124,25 @@ shot('50_battle_mount', 30);
 step(() => {
   const s = G.game.save;
   s.cult = 'free'; s.sectId = null; s.sectRep = 0; s.cultSwitchUsed = false;
+  /* 先切回干净镇内（此前停在战斗场景，面板叠在战场上构图无效）。 */
+  G.game.changeScene('town', { toSpawn: true });
   G.Overlays.openPanel(G.game.scene, 'sect');
 }, 'panel.sect');
 shot('34_panel_sect', 6);
+/* 未入门·切到「宗门」子页：应见本界宗门 3×3 拜入网格（验证底部说明不越界）。 */
+step(() => {
+  const s = G.game.save;
+  s.cult = 'free'; s.sectId = null; s.sectRep = 0; s.cultSwitchUsed = false;
+  G.game.changeScene('town', { toSpawn: true });
+  G.Overlays.openPanel(G.game.scene, 'sect');
+  G.game.scene.sectTab = 'sect';
+}, 'panel.sect.grid');
+shot('34a_panel_sect_grid', 6);
 step(() => {
   const s = G.game.save;
   s.cult = 'sect'; s.sectId = 'qxj'; s.sectRep = 120; s.sectRank = 'inner';
   s.cultSwitchUsed = true;
+  G.game.changeScene('town', { toSpawn: true });
   G.Overlays.openPanel(G.game.scene, 'sect');
 }, 'panel.sect.joined');
 shot('34b_panel_sect_joined', 6);

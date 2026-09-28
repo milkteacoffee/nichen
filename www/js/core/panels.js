@@ -781,10 +781,10 @@
     if (e.cat === '仙') {
       var c = e.cast || {};
       if (c.target === 'self') {
-        return '仙术 · 每场一次：回复自身 ' + Math.round((c.healSelf || 0) * 100) + '% 气血';
+        return '仙术 · 每场一次：回复 ' + Math.round((c.healSelf || 0) * 100) + '% 气血';
       }
       return '仙术 · 每场一次：' + (c.target === 'all' ? '全体' : '单体') + ' '
-        + Math.round((c.mult || 0) * 100) + '% 威力'
+        + Math.round((c.mult || 0) * 100) + '%'
         + (c.status ? '（' + (ST_NAME[c.status.t] || c.status.t) + ' '
           + Math.round(c.status.chance * 100) + '%）' : '');
     }
@@ -816,7 +816,9 @@
         : (e.cat === '神' ? G.UI.C.jadeHi : G.UI.C.text);
       G.UI.text(x, { x: SP.x + 14, y: y }, Dg.SECRETS[id], 12, catCol);
       G.UI.text(x, { x: SP.x + 122, y: y + 1 }, '品阶 ' + g, 10, G.UI.C.gold);
-      G.UI.text(x, { x: SP.x + 186, y: y + 1 }, secretDesc(id, g), 10.5, G.UI.C.textDim);
+      /* 描述用限宽单行：起点 +176，右止于内容区右缘 -12，超长自动缩字/省略，杜绝右溢出。 */
+      G.UI.textFit(x, { x: SP.x + 176, y: y + 1 }, secretDesc(id, g), 10.5,
+        G.UI.C.textDim, (SP.x + SP.w - 12) - (SP.x + 176));
     });
     if (owned.length > 7) {
       G.UI.text(x, { x: SP.x + 14, y: SP.y + 206 }, '……另有 ' + (owned.length - 7) + ' 项', 10, G.UI.C.textDim);
@@ -1615,7 +1617,9 @@
         (WN[wid0] || '凡界') + '宗门 · 择一拜入', 12, G.UI.C.goldHi);
       G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
         '通过入门试炼即入；拜入后散修自悟功法将废功。', 10, G.UI.C.textDim);
-      G.UI.text(x, { x: P.x + 14, y: P.y + 204 },
+      /* 底部说明：size10 用 top 基线，y 须保证文字不越出面板下框（FRAME 底 238）。
+         放 P.y+198(abs224，止于237)；第三行按钮止于 P.y+190(abs216)，留 8px。 */
+      G.UI.text(x, { x: P.x + 14, y: P.y + 198 },
         save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
           : '每世仅一次改换门庭；宗门功法靠贡献兑换。', 10, G.UI.C.textDim);
       return;
@@ -1640,7 +1644,7 @@
       '当前宗门：' + ((s && s.n) || '散修'), 12, G.UI.C.goldHi);
     G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
       '位阶 ' + (G.Player.RANK_N[G.Player.rankOf(save)] || '外门')
-      + '　　贡献 ' + (save.sectRep || 0), 11, G.UI.C.textDim);
+      + '　贡献 ' + (save.sectRep || 0) + '（副本：首杀+20 刷取+8）', 11, G.UI.C.textDim);
     G.UI.text(x, { x: P.x + 14, y: P.y + 102 }, '本门功法', 11, G.UI.C.gold);
     var pool = (s && s.skills) || [];
     pool.slice(0, 4).forEach(function (id, i) {
@@ -1654,9 +1658,7 @@
       else { st = '未习 · 需 ' + cost + ' 贡献'; col = G.UI.C.textDim; }
       G.UI.text(x, { x: P.x + 22, y: P.y + 120 + i * 15 }, sk.n + '　' + st, 10, col);
     });
-    /* 说明下移到按钮行（y+176、高22 止于198）之下 y+204，消除叠影。 */
-    G.UI.text(x, { x: P.x + 14, y: P.y + 204 },
-      save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。' : '贡献来自副本通关；首杀 +20 / 刷取 +8。', 10, G.UI.C.textDim);
+    /* 贡献来源已并入顶部「贡献」行；此处不再放底部说明，避免文字越出面板下框。 */
   }
 
   function buildSect(btns, scene) {
@@ -2033,6 +2035,57 @@
     return { title: r.n + '　' + (r.theme || ''), text: L.join('\n') };
   }
 
+  /* ============================================================
+     多层仙云（v0.54.0，对标《烟雨江湖》卷轴云雾）——
+     2~3 层透明云整层 drawImage，横向漂移、速度不同（近快远慢）、绕回无缝；
+     仙界云最厚最快、道界最慢最淡、凡界薄雾。时间源一律 G.game.time（截图可钉）。
+     ============================================================ */
+  var CLOUD_CFG = {
+    fan: [
+      { k: 'cloud.4', sp: 6, a: 0.5, y: 0.66, s: 1.15 },
+      { k: 'cloud.1', sp: 9, a: 0.5, y: 0.16, s: 1.0 },
+      { k: 'cloud.2', sp: 13, a: 0.4, y: 0.36, s: 0.8 }
+    ],
+    ling: [
+      { k: 'cloud.1', sp: 8, a: 0.55, y: 0.12, s: 1.05 },
+      { k: 'cloud.2', sp: 14, a: 0.5, y: 0.3, s: 0.9 },
+      { k: 'cloud.4', sp: 9, a: 0.5, y: 0.66, s: 1.2 }
+    ],
+    xian: [
+      { k: 'cloud.2', sp: 16, a: 0.55, y: 0.2, s: 1.0 },
+      { k: 'cloud.3', sp: 24, a: 0.6, y: 0.44, s: 1.0 },
+      { k: 'cloud.4', sp: 12, a: 0.55, y: 0.7, s: 1.25 }
+    ],
+    dao: [
+      { k: 'cloud.1', sp: 5, a: 0.4, y: 0.2, s: 1.1 },
+      { k: 'cloud.3', sp: 7, a: 0.36, y: 0.42, s: 1.05 }
+    ]
+  };
+  function drawMapClouds(x, w, V) {
+    var cfg = CLOUD_CFG[w];
+    if (!cfg) return;
+    var time = (G.game && G.game.time) || 0;
+    x.save();
+    x.beginPath();
+    x.rect(V.vx, V.vy, V.vw, V.vh);
+    x.clip();
+    for (var i = 0; i < cfg.length; i++) {
+      var c = cfg[i];
+      var img = G.Assets.img(c.k);
+      if (!img) continue;
+      var dw = V.vw * c.s;
+      var dh = dw * (img.height / img.width);
+      var yy = V.vy + c.y * V.vh - dh * 0.5;
+      var period = dw;
+      var off = (time * c.sp) % period;
+      x.globalAlpha = c.a;
+      for (var px2 = V.vx - off; px2 < V.vx + V.vw; px2 += period) {
+        x.drawImage(img, px2, yy, dw, dh);
+      }
+    }
+    x.restore();
+  }
+
   function drawMap(x, scene) {
     var save = G.game.save, meta = G.game.meta || {};
     var Rg = G.Data.regions;
@@ -2044,8 +2097,13 @@
 
     /* 视口 */
     var V = MP;
-    x.drawImage(worldMapBg(w, Math.round(V.vw), Math.round(V.vh)),
-      V.vx, V.vy, V.vw, V.vh);
+    var mapScrollImg = G.Assets.img('mapscroll.' + w);
+    if (mapScrollImg) {
+      x.drawImage(mapScrollImg, V.vx, V.vy, V.vw, V.vh);
+    } else {
+      x.drawImage(worldMapBg(w, Math.round(V.vw), Math.round(V.vh)),
+        V.vx, V.vy, V.vw, V.vh);
+    }
     G.UI.rr(x, { x: V.vx + 0.5, y: V.vy + 0.5, w: V.vw - 1, h: V.vh - 1 }, 4);
     x.strokeStyle = 'rgba(158,206,246,0.42)';
     x.lineWidth = 1; x.stroke();
@@ -2076,20 +2134,7 @@
       }
     }
     x.setLineDash([]);
-    /* 云雾：视口四边的半透明云团（固定种子） */
-    for (var ci = 0; ci < 14; ci++) {
-      var edge = ci % 4;
-      var cxp = edge === 0 || edge === 1 ? V.vx + rndM() * V.vw
-        : (edge === 2 ? V.vx + rndM() * 26 : V.vx + V.vw - rndM() * 26);
-      var cyp = edge === 2 || edge === 3 ? V.vy + rndM() * V.vh
-        : (edge === 0 ? V.vy + rndM() * 20 : V.vy + V.vh - rndM() * 20);
-      var crr = 12 + rndM() * 20;
-      var gg = x.createRadialGradient(cxp, cyp, 0, cxp, cyp, crr);
-      gg.addColorStop(0, 'rgba(236,242,252,0.30)');
-      gg.addColorStop(1, 'rgba(236,242,252,0)');
-      x.fillStyle = gg;
-      x.beginPath(); x.arc(cxp, cyp, crr, 0, 6.2832); x.fill();
-    }
+    drawMapClouds(x, w, V);
     x.restore();
 
     /* 区域节点 */

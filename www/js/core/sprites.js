@@ -373,6 +373,21 @@
 
   /* 未来 Boss 素材解析：先查 manifest「battle.enemy.<artKey>」，缺图时退回程序化
      底怪 fallback（如 b1big 缺图 → killer）。后期出图登记后自动替换，无需改逻辑。 */
+  /* 战斗主角（v0.54.0）：把新写实待机帧烘进战斗盒，与地图/NPC 同一形象；缺帧回退旧立绘 */
+  var _hbat = null;
+  function heroBattleSprite() {
+    if (_hbat) return _hbat;
+    var fr = heroAnim('down', 'idle');
+    if (!fr) { _hbat = beastSprite('hero'); return _hbat; }
+    var o = A.cv(BEAST_LW, BEAST_LH);
+    o.x.imageSmoothingEnabled = true;
+    if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
+    var h = BEAST_LH, w = ANIM_W * (h / ANIM_H);
+    o.x.drawImage(fr[0], (BEAST_LW - w) / 2, 0, w, h);
+    _hbat = o.c;
+    return _hbat;
+  }
+
   function beastResolve(artKey, fallback) {
     var ck = artKey + '|' + fallback;
     if (beastCache[ck]) return beastCache[ck];
@@ -1264,6 +1279,63 @@
     return _hd;
   }
 
+  /* ===== 手绘帧动画（v0.54.0）=====
+     读取已切片的 sheet.hero.* 精灵条（每帧等宽、脚底对齐），逐帧烘到统一占位盒：
+     横向居中、脚底钉盒底。view: down/up/side；action: walk(4帧)/idle(2帧)。 */
+  var ANIM_W = 28, ANIM_H = 46;
+  var ANIM_DEF = {
+    walk: { n: 4, keys: { down: 'sheet.hero.walk.down', up: 'sheet.hero.walk.up', side: 'sheet.hero.walk.side' } },
+    idle: { n: 2, keys: { down: 'sheet.hero.idle.down', up: 'sheet.hero.idle.up', side: 'sheet.hero.idle.side' } }
+  };
+  var animCache = {};
+  function heroAnim(view, action) {
+    var ck = action + '.' + view;
+    if (Object.prototype.hasOwnProperty.call(animCache, ck)) return animCache[ck];
+    var def = ANIM_DEF[action];
+    var img = G.Assets && G.Assets.img ? G.Assets.img(def.keys[view]) : null;
+    if (!img) { animCache[ck] = null; return null; }
+    var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    var cw = iw / def.n, arr = [];
+    for (var i = 0; i < def.n; i++) {
+      var o = A.cv(ANIM_W, ANIM_H);
+      o.x.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
+      var sx = Math.round(i * cw), sw = Math.round((i + 1) * cw) - sx;
+      var dw = sw * (ANIM_H / ih);
+      var dx = (ANIM_W - dw) / 2;
+      o.x.drawImage(img, sx, 0, sw, ih, dx, 0, dw, ANIM_H);
+      arr.push(o.c);
+    }
+    animCache[ck] = arr;
+    return arr;
+  }
+
+  /* NPC 待机帧（v0.54.0）：2 帧 idle，烘到与主角同一占位盒。 */
+  var NPC_ANIM_KEY = {
+    villager: 'sheet.npc.villager', elder: 'sheet.npc.elder',
+    keeper: 'sheet.npc.keeper', cultist: 'sheet.npc.cultist'
+  };
+  function npcAnim(kind) {
+    var ck = 'npcanim.' + kind;
+    if (Object.prototype.hasOwnProperty.call(animCache, ck)) return animCache[ck];
+    var key = NPC_ANIM_KEY[kind];
+    var img = key && G.Assets.img ? G.Assets.img(key) : null;
+    if (!img) { animCache[ck] = null; return null; }
+    var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    var n = 2, cw = iw / n, arr2 = [];
+    for (var i = 0; i < n; i++) {
+      var o2 = A.cv(ANIM_W, ANIM_H);
+      o2.x.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in o2.x) o2.x.imageSmoothingQuality = 'high';
+      var sx = Math.round(i * cw), sw = Math.round((i + 1) * cw) - sx;
+      var dw = sw * (ANIM_H / ih), dx = (ANIM_W - dw) / 2;
+      o2.x.drawImage(img, sx, 0, sw, ih, dx, 0, dw, ANIM_H);
+      arr2.push(o2.c);
+    }
+    animCache[ck] = arr2;
+    return arr2;
+  }
+
   var Sprites = {
     makeHero: makeHero,
     hero: null,
@@ -1278,17 +1350,19 @@
     },
     beast: beastSprite,
     beastResolve: beastResolve,
-    heroBattle: function () { return beastSprite('hero'); },
+    heroBattle: function () { return heroBattleSprite(); },
     heartDemon: heartDemonSprite,
     /* 已登记的程序化战斗立绘键（供契约断言"登记了且真的能产出位图"） */
     BAKE_KEYS: Object.keys(BAKE),
     HERO_PAL: HERO,
     /* 地图角色的逻辑占位尺寸：渲染点必须用它，改 MAP_SCALE 时不会漏改一边 */
     HERO_W: HERO_LW, HERO_H: HERO_LH, MAP_SCALE: MAP_SCALE,
+    heroAnim: heroAnim, ANIM_W: ANIM_W, ANIM_H: ANIM_H,
+    npcAnim: npcAnim,
     /* 超采样倍率变更后必须调用：清空全部精灵缓存并丢弃已建好的 hero 帧表，
        否则旧倍率的位图会被继续复用（放大后重新变糊）。 */
     clear: function () {
-      heroCache = {}; npcCache = {}; beastCache = {}; _hd = null;
+      heroCache = {}; npcCache = {}; beastCache = {}; animCache = {}; _hd = null; _hbat = null;
       this.hero = null;
     }
   };

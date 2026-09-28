@@ -141,6 +141,7 @@
       /* 输入分发：按钮优先 */
       for (var i = 0; i < inp.taps.length; i++) {
         var p = inp.taps[i], handled = false;
+        if (G.Story && G.Story.modalOpen()) { G.Story.onTap(p); continue; }
         var btns = this.scene.buttons || [];
         for (var b = 0; b < btns.length; b++) {
           if (!btns[b].disabled && btns[b].hit(p)) {
@@ -162,6 +163,7 @@
         this.whisper.t -= dt;
         if (this.whisper.t <= 0) this.whisper = null;
       }
+      if (G.Story) G.Story.update(dt);
 
       /* 高分渲染：逻辑坐标 480×272；UI 场景开平滑，像素场景关平滑 */
       x.setTransform(this.S, 0, 0, this.S, 0, 0);
@@ -202,6 +204,7 @@
       }
       this._renderLoot(x);
       this._renderToasts(x);
+      if (G.Story) G.Story.render(x);
 
       inp.endFrame();
       requestAnimationFrame(this.loop.bind(this));

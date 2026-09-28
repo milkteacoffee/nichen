@@ -22,6 +22,61 @@
      凡"只在剧情里跑"的分支，必须有契约显式驱动一次（见 bloodnight.contract）。 */
   var NIGHT_T = 1.2;
 
+  /* 建筑功能说明（v0.54.0）—— 全部从结构已有字段(label/bk/kind/to/need/closedText)
+     推导「名称 + 一句功能」，不新造数据；鼠标悬浮建筑时由 G.UI.hover 富卡展示。 */
+  var STRUCT_DESC = {
+    house: '居所，可闭关修炼、休整',
+    apothecary: '买卖丹药、药材，可出售战利品',
+    shop: '买卖杂货、材料与器具',
+    inn: '投宿恢复气血，可打听消息',
+    smithy: '打造与修理兵器、法器',
+    alchemy: '炼制丹药之所',
+    hall: '宗门正殿，议事领务',
+    temple: '供奉神祇，可祈福',
+    tower: '登高瞭望、镇守要地',
+    gate: '山门或城门，可由此进出',
+    ruin: '荒废遗迹，或藏机缘'
+  };
+  function structureInfo(s) {
+    var L = [];
+    if (s.to) {
+      if (String(s.to).indexOf('sect.') === 0) L.push('宗门山门，可拜入或进入宗门');
+      else if (s.to === 'cave') L.push('由此进入洞穴秘境');
+      else L.push('门户，可由此进出');
+    } else if (s.label === '洞府') {
+      L.push('你的居所，可闭关修炼、休整');
+    } else {
+      var key = s.bk || s.kind;
+      if (STRUCT_DESC[key]) L.push(STRUCT_DESC[key]);
+      else if (s.kind === 'ruin') L.push(STRUCT_DESC.ruin);
+      else if (s.kind === 'gate') L.push(STRUCT_DESC.gate);
+      else L.push('一处建筑');
+    }
+    if (s.closedText) L.push(s.closedText);
+    else if (s.need) L.push('修为或条件不足，暂不可入');
+    return { title: s.label || '建筑', text: L.join('\n') };
+  }
+
+  /* 手绘场景道具（v0.54.0）：把生成的 prop.* 透明图按目标高度预烘（避免每帧滤波缩放），
+     ox 让道具在锚点格水平居中、oy 使根部落在格中(py+14)。缓存按逻辑键。 */
+  var PROP_CACHE = {};
+  function paintedSingle(imgKey, targetH) {
+    if (PROP_CACHE[imgKey]) return PROP_CACHE[imgKey];
+    var img = G.Assets.img(imgKey);
+    if (!img) return null;
+    var tw = Math.max(8, Math.round(img.width * (targetH / img.height)));
+    var o2 = G.Art.cv(tw, targetH);
+    o2.x.drawImage(img, 0, 0, tw, targetH);
+    var art = { c: o2.c, w: tw, h: targetH, ox: Math.round((16 - tw) / 2), oy: 14 - targetH };
+    PROP_CACHE[imgKey] = art;
+    return art;
+  }
+  function paintedProp(type, v) {
+    if (type === 'tree') return paintedSingle('prop.tree.' + (v + 1), 48);
+    if (type === 'rock') return paintedSingle('prop.rock.' + (v + 1), 24);
+    return null;
+  }
+
   /* 跨图寻路与地图名的缓存。图与出口在存档生命周期内不变，
      但追踪栏是**每帧**画的 —— 不缓存的话每帧都要跑一次 BFS 与全表扫描。
      enter() 里清一次（换存档 / 首次进生成型区域后要重建）。 */
@@ -691,6 +746,7 @@
           if (sp.kind === 'boss') self._drawBoss(x, sp, camX, camY);
           if (sp.kind === 'entrance') self._drawEntrance(x, sp, camX, camY);
           if (sp.kind === 'worldgate') self._drawWorldgate(x, sp, camX, camY);
+          if (sp.kind === 'well') self._drawWellSpecial(x, sp, camX, camY);
         });
 
         /* 洞窟暗幕（火把可视范围）。bloodcave 是 cave 的换色变体（M1 §5.1），
@@ -1014,7 +1070,7 @@
         x.restore();
 
         G.Art.blit(x, art, px, py);
-        this._drawPlaque(x, s, bx0, by0);
+        this._drawPlaque(x, s, bx0, by0, bw0, bh0);
       },
 
       /* 建筑匾额（v0.16.0）：**建筑上写它当前的名字**（用户口径）。
@@ -1024,30 +1080,12 @@
          位置取"屋顶上方"而不是贴在墙上：屋墙从上到下被屋檐、两扇窗、门占满，
          没有能放下 4 个字的空档（4 行高的房子只有 8px 可用）。
          顶到屏幕上沿时改为压进屋顶内侧，避免被裁掉。 */
-      _drawPlaque: function (x, s, bx0, by0) {
-        var label = s.label;
-        if (!label) return;
-        /* 匾额**只在鼠标悬浮到该建筑上时显示**（用户口径：「关于建筑的名称也是，
-           鼠标悬浮展示名称，不要固定展示」）。
-           固定挂着会盖住屋顶，一排建筑的名牌挤在一起也很乱。 */
-        var mm = G.Input && G.Input.mouse;
-        var W0 = s.w * 16, H0 = s.h * 16;
-        if (!(mm && mm.x >= bx0 && mm.x <= bx0 + W0 && mm.y >= by0 && mm.y <= by0 + H0)) return;
-        var W = s.w * 16;
-        var fs = 9.5;
-        x.font = G.UI.F(fs);
-        var tw = x.measureText(label).width;
-        var pw = Math.ceil(tw + 10), ph = 13;
-        var px0 = Math.round(bx0 + (W - pw) / 2);
-        var py0 = Math.round(by0 - ph - 2);
-        if (py0 < 2) py0 = Math.round(by0 + 3);       /* 顶到上沿 → 压进屋顶 */
-        G.UI.rr(x, { x: px0, y: py0, w: pw, h: ph }, 3);
-        x.fillStyle = 'rgba(10,14,24,0.82)';
-        x.fill();
-        x.strokeStyle = 'rgba(216,183,104,0.55)';
-        x.lineWidth = 0.9;
-        x.stroke();
-        G.UI.text(x, { x: px0 + pw / 2, y: py0 + 2 }, label, fs, G.UI.C.goldHi, 'center');
+      /* 建筑悬浮名签（v0.54.0）：鼠标悬浮显示「名称 + 功能说明」。
+         复用全局 G.UI.hover 富卡（帧末置顶、触屏自动静默、自动翻面不越界），
+         不再自绘小匾额；面板打开时不挂。 */
+      _drawPlaque: function (x, s, bx0, by0, bw0, bh0) {
+        if (this.overlay) return;
+        G.UI.hover({ x: bx0, y: by0, w: bw0, h: bh0 }, structureInfo(s));
       },
 
       _drawGather: function (x, o, camX, camY) {
@@ -1087,7 +1125,8 @@
         /* 缩放走 3 档预烘（见 A.decorScaled）：同一变体在每个位置都一模一样，
            一眼就是复制粘贴，所以按位置给一点缩放与水平翻转 —— 但缩放必须是
            预烘好的整数尺寸，否则每帧一次滤波缩放既费帧又糊画面。 */
-        var art = G.Art.decorScaled(o.t, this._pal(), v, h1 % 3);
+        var art = (o.t === 'tree' || o.t === 'rock') ? paintedProp(o.t, v) : null;
+        if (!art) art = G.Art.decorScaled(o.t, this._pal(), v, h1 % 3);
         if (!art) return;
 
         /* ===== 摇摆（v0.22.0）=====
@@ -1185,6 +1224,24 @@
           x.fillRect(px | 0, py | 0, p.s, p.s);
         }
         x.restore();
+      },
+
+      _drawWellSpecial: function (x, sp, camX, camY) {
+        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var art = paintedSingle('prop.well', 30);
+        if (!art) return;
+        var bx = px + art.ox, by = py + art.oy;
+        x.save();
+        x.fillStyle = 'rgba(0,0,0,0.22)';
+        x.beginPath();
+        x.ellipse(bx + art.w / 2, by + art.h - 3, art.w * 0.32, art.h * 0.1, 0, 0, 6.2832);
+        x.fill();
+        x.restore();
+        x.drawImage(art.c, Math.round(bx), Math.round(by), art.w, art.h);
+        if (!this.overlay) {
+          G.UI.hover({ x: bx, y: by, w: art.w, h: art.h },
+            { title: '水井', text: '清冽井水，饮之可解渴、恢复少许气血' });
+        }
       },
 
       _drawChest: function (x, sp, camX, camY) {
@@ -1415,13 +1472,34 @@
           x.drawImage(mspr, -19, -30, 38, 36);
           x.restore();
         }
-        var spr = G.Sprites.heroFrames()[this.dir][this.frame];
-        x.save();
-        x.translate(px, py + 3);
-        x.rotate(tilt);
-        x.scale(1 / sq, sq);
-        x.drawImage(spr, Math.round(-HW / 2), Math.round(-HH + bob), HW, HH);
-        x.restore();
+        var view = this.dir === 'down' ? 'down' : this.dir === 'up' ? 'up' : 'side';
+        var AW = G.Sprites.ANIM_W, AH = G.Sprites.ANIM_H;
+        var frames = G.Sprites.heroAnim(view, this.moving ? 'walk' : 'idle');
+        var fi = 0;
+        if (frames) {
+          if (this.moving) {
+            fi = Math.floor(step * 2) % frames.length;
+            if (fi < 0) fi += frames.length;
+          } else {
+            /* 待机眨眼：每 3.2s 短暂切到第 2 帧（不是持续浮动，避免"在抖"） */
+            var ph = G.game.time % 3.2;
+            fi = ph < 0.18 ? 1 : 0;
+            if (fi >= frames.length) fi = 0;
+          }
+        }
+        if (frames) {
+          x.save();
+          x.translate(px, py + 3);
+          if (this.dir === 'left') x.scale(-1, 1);
+          x.drawImage(frames[fi], Math.round(-AW / 2), Math.round(-AH + bob), AW, AH);
+          x.restore();
+        } else {
+          var spr0 = G.Sprites.heroFrames()[this.dir][this.frame];
+          x.save();
+          x.translate(px, py + 3);
+          x.drawImage(spr0, Math.round(-HW / 2), Math.round(-HH + bob), HW, HH);
+          x.restore();
+        }
       },
 
       /* 站桩 NPC：落地投影 + 待机**不抖**（v0.11.2 改）。
@@ -1439,7 +1517,16 @@
         x.ellipse(px, py - 1, HW * 0.32, HW * 0.12, 0, 0, 6.2832);
         x.fill();
         x.restore();
-        x.drawImage(G.Sprites.npc(n.kind), Math.round(px - HW / 2), Math.round(top), HW, HH);
+        var nfr = G.Sprites.npcAnim ? G.Sprites.npcAnim(n.kind) : null;
+        if (nfr) {
+          var nph = G.game.time % 3.2, nfi = nph < 0.18 ? 1 : 0;
+          if (nfi >= nfr.length) nfi = 0;
+          var ntop = py + 3 - G.Sprites.ANIM_H;
+          x.drawImage(nfr[nfi], Math.round(px - G.Sprites.ANIM_W / 2), Math.round(ntop),
+            G.Sprites.ANIM_W, G.Sprites.ANIM_H);
+        } else {
+          x.drawImage(G.Sprites.npc(n.kind), Math.round(px - HW / 2), Math.round(top), HW, HH);
+        }
         var mk = hooks.npcMark ? hooks.npcMark(n) : null;
         if (mk) this._drawNpcMark(x, px, top - 4, mk);
       },

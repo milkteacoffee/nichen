@@ -68,6 +68,8 @@
 
       meta.past.push(rec);
       if (meta.past.length > 60) meta.past.shift();
+      /* 轮回记忆封印（剧情 v1.0）：本界碎片/故人封入逆命珠 */
+      if (G.Story) G.Story.sealLife(meta, save, life);
       if (G.Storage.stampDevice) G.Storage.stampDevice(meta);
       G.Storage.saveMeta(meta);
 

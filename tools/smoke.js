@@ -2896,11 +2896,11 @@ step(function () {
   if (!B.canRide(mk('b_huangzongma','adult'))) errors.push('成年坐骑应可骑');
   if (B.canRide(mk('b_chiyanlang','adult'))) errors.push('战种不应可骑');
   const mig = G.Storage._migrate({ version: 6, cult: 'free', skills: {} });
-  if (mig.version !== 7 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
+  if (mig.version !== 8 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
     errors.push('v6→v7 存档迁移缺灵兽字段');
   }
   const migM = G.Storage._migrate({ version: 6, xianli: 0 });
-  if (migM.version !== 7 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
+  if (migM.version !== 8 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
 }, 'beasts.data.contract');
 
 /* ---------- 灵兽管理器契约（v0.44.0，B2，《灵兽 v1.1》） ----------
@@ -6511,8 +6511,8 @@ step(function () {
   if (!tog) { errors.push('轮回殿没有「飞升台」入口'); return; }
   tog.onClick();
   if (sc.view !== 'ascend') { errors.push('点击后没有切到飞升台视图'); return; }
-  /* 4 界 × (主界 + 难度) + 底部 5 键（返回标题 / 仙躯灌注 / 飞升台 / 前世经历 / 转世重修） */
-  if (sc.buttons.length !== 13) errors.push(`飞升台按钮数应为 13（4+4+5），实际 ${sc.buttons.length}`);
+  /* 4 界 × (主界 + 难度) + 底部 6 键（返回标题 / 仙躯灌注 / 飞升台 / 前世经历 / 轮回图鉴 / 转世重修） */
+  if (sc.buttons.length !== 14) errors.push(`飞升台按钮数应为 14（4+4+6），实际 ${sc.buttons.length}`);
 
   /* 未解锁的仙界（左列第 3 行 = index 4）点了不写 */
   sc.buttons[4].onClick();
@@ -7856,6 +7856,37 @@ step(function () {
   console.log('  ✓ 濒死红屏：满血不画 / ≤25% 泛红 / ≤15% 出字；主角受击走红剪影');
 }, 'danger.warn.contract');
 pump(4, 'danger.warn.leave');
+
+/* ---------- 剧情轮回记忆契约（story.memory.contract） ---------- */
+(function () {
+  var e2 = [];
+  if (!G.Story) { errors.push('剧情系统 G.Story 未加载'); return; }
+  var meta = G.Storage._migrate({ version: 7, xianli: 0,
+    perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
+    past: [], heaven: { memory: [] } });
+  if (meta.version !== 8) e2.push('迁移后版本应为 8');
+  if (!meta.memory || !meta.bonds || !meta.progress.story) e2.push('剧情结构未补齐');
+  var r1 = G.Story.sealLife(meta, {}, 1);
+  var sealedFan = Object.keys(meta.memory.fragments).length;
+  if (sealedFan < 11) e2.push('凡界封印碎片应≥11，实际 ' + sealedFan);
+  if (!meta.bonds.jiang || !meta.bonds.wanqing) e2.push('爷爷/晚晴应入故人卷');
+  if (!meta.progress.story.oath) e2.push('第一世后应立誓');
+  G.Story.onBreak(meta, {}, 1);
+  if (meta.memory.recalled.indexOf('f01') < 0) e2.push('淬体应忆起 f01');
+  G.Story.onBreak(meta, {}, 37);
+  if (meta.memory.recalled.indexOf('f02') < 0 || meta.memory.recalled.indexOf('f03') < 0) e2.push('炼气应忆起 f02/f03');
+  if (G.Story.recalledList(meta).length !== 3) e2.push('已忆起应为 3，实际 ' + G.Story.recalledList(meta).length);
+  if (meta.memory.recalled.indexOf('f04') >= 0) e2.push('未到筑基不应忆起 f04');
+  var savedGM = G.game.meta; G.game.meta = meta;
+  G.Story.openCodex(); if (!G.Story.modalOpen()) e2.push('图鉴应能打开');
+  G.Story.closeCodex(); if (G.Story.modalOpen()) e2.push('图鉴关闭异常');
+  G.game.meta = savedGM;
+  G.Story.setEnding(meta, 'nitan');
+  if (meta.progress.story.ending !== 'nitan') e2.push('结局登记失败');
+  G.Story._queue.length = 0;
+  if (e2.length) e2.forEach(function (x) { errors.push('剧情记忆：' + x); });
+  else console.log('  ✓ 轮回记忆：旧档迁移/死亡封印/境界忆起/图鉴/结局 闭环');
+})();
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

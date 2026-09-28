@@ -598,6 +598,7 @@
         if (G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       }
       if (G.TianDao) G.TianDao.notify('ascend');
+      if (G.Story) G.Story.onBreak(meta, save, save.globalLevel);
       return { ok: true, from: fromW.id, to: targetId, gl: save.globalLevel,
         secretUpgraded: upgraded };
     },
@@ -615,6 +616,7 @@
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       /* 天道注视 + 低语（v2.7：注视累加与阈值判定统一走 TianDao） */
       if (G.TianDao) G.TianDao.notify(big ? 'breakBig' : 'breakSmall');
+      if (G.Story) G.Story.onBreak(meta, save, save.globalLevel);
       return save.globalLevel;
     },
 

@@ -365,6 +365,26 @@
       x.fillText(str, s.x, s.y);
     },
 
+    /* 限宽单行（左对齐，top 基线）：超宽先逐档缩字号（下限 8.5），仍超则截断加省略号。
+       给秘术/详情等"文案长度随数据浮动"的行用，保证永不越出右框；返回实际字号。 */
+    textFit: function (x, s, str, size, color, maxW) {
+      x.textAlign = 'left';
+      x.textBaseline = 'top';
+      var fs = size;
+      x.font = F(fs);
+      while (fs > 8.5 && x.measureText(str).width > maxW) {
+        fs -= 0.5; x.font = F(fs);
+      }
+      var t = String(str);
+      if (x.measureText(t).width > maxW) {
+        while (t.length > 1 && x.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+        t += '…';
+      }
+      x.fillStyle = color || C.text;
+      x.fillText(t, s.x, s.y);
+      return fs;
+    },
+
     /* 中文折行：① 不能把标点丢到行首（「险恶。」的句号单独占一行）；
        ② 不能把开引号/开括号留在行末。
        做法是先把"基字 + 紧随其后的禁则字符"打包成不可拆的簇，再按簇折行 ——

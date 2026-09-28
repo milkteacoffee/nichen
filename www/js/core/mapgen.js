@@ -170,7 +170,7 @@
       if (sp.skipFlag && flagIs(sp, sp.skipFlag)) return false;
       return true;
     }).forEach(function (sp) {
-      if (sp.kind === 'well') { addDecor('well', sp.x, sp.y, true); }
+      if (sp.kind === 'well') { solid[sp.y][sp.x] = true; mark(sp.x, sp.y); }  /* 井改手绘 special(_drawWellSpecial)，不挂程序化 decor */
       else if (sp.kind === 'chest') {
         solid[sp.y][sp.x] = true; mark(sp.x, sp.y); markApproach(sp);
         chests[sp.id] = sp;
