@@ -24,10 +24,18 @@
     /* 凡界的界门放在**落霞镇**（商旅重镇 = 交通枢纽），而不是青溪镇 ——
        青溪镇是复用现有手写地图（`town`），往里塞界门对象会动到 M0 教学链与既有测试契约。 */
     R({ id: 'fan4', mx: 0.46, my: 0.64, n: '落霞镇', theme: '商旅重镇', terr: 'plain', w: 44, h: 28, ground: 'town', safe: true, gate: true,
-        exits: [{ to: 'fan1', side: 'south' }, { to: 'fan5', side: 'east' }, { to: 'fan7', side: 'north' }, { to: 'fan8', side: 'west' }, { to: 'fan2', side: 'north' }],
+        exits: [{ to: 'fan1', side: 'south' }, { to: 'fan5', side: 'east' }, { to: 'fan7', side: 'north' }, { to: 'fan8', side: 'west' }, { to: 'fan2', side: 'north' }, { to: 'fan10', side: 'east' }],
         b: [B('shop', '坊市', 6, 3), B('smithy', '铁匠铺', 5, 3), B('alchemy', '丹房', 5, 3),
             B('temple', '当铺', 5, 3), B('inn', '悦来客栈', 7, 4), B('inn', '同福客栈', 7, 4),
             B('house', '民居', 4, 3, 4)] }),
+
+    /* 云州城（M2，v0.65.0）：**手写地图**（`map: 'yunzhou'`）——
+       生成型区域的 NPC 是通用村民，做不了主线；所以这张图走 `data/maps.js` 的手写路线。
+       `exits: []` 是**故意**的：它的出入都写在 `maps.js: yunzhou.exits` 里，
+       而 regiongen 对"有 map 的区域"取 `md.spawn` 当落点（见 `targetSpawn`）。
+       反向那条（fan4 → fan10）写在 fan4 的 exits 里 —— **两侧都要有**，否则是有向断头路。 */
+    R({ id: 'fan10', mx: 0.70, my: 0.84, n: '云州城', map: 'yunzhou', theme: '凡界大城',
+        terr: 'plain', gate: false, exits: [], b: [] }),
 
     R({ id: 'fan5', mx: 0.26, my: 0.84, n: '黑风岭', theme: '匪寨山地', terr: 'ridge', w: 42, h: 30, ground: 'grass', gate: false,
         exits: [{ to: 'fan4', side: 'west' }, { to: 'fan6', side: 'east' }, { to: 'fan9', side: 'north' }, { to: 'fan8', side: 'south' }, { to: 'fan1', side: 'east' }],
@@ -48,7 +56,7 @@
         b: [B('temple', '义庄', 7, 4), B('house', '守墓屋', 4, 3), B('tower', '破棺洞', 3, 3)] }),
 
     R({ id: 'fan8', mx: 0.58, my: 0.78, n: '落霞灵矿', theme: '废弃灵矿', terr: 'mine', w: 42, h: 28, ground: 'cave', gate: false,
-        exits: [{ to: 'fan4', side: 'east' }, { to: 'fan9', side: 'north' }, { to: 'fan5', side: 'west' }],
+        exits: [{ to: 'fan4', side: 'east' }, { to: 'fan9', side: 'north' }, { to: 'fan5', side: 'west' }, { to: 'fan10', side: 'south' }],
         zones: [{ id: 'all', y0: 0, y1: 27, enc: { min: 149, max: 200 }, pair: 25 }],
         b: [B('house', '矿工棚', 4, 3, 2), B('hall', '矿主宅', 7, 4), B('gate', '矿洞入口', 6, 3)] }),
 
@@ -193,6 +201,10 @@
       scatter: { trees: 7, rocks: 2 } },
     town_trade: { ground: '#6a6055', dark: '#514a41', grass: '#8a7a5a', rock: '#9a9186',
       scatter: { trees: 5, rocks: 3 } },
+    /* 云州城（M2，v0.65.0）：**大城** —— 比青溪镇（灰绿）与落霞镇（土黄）更"齐整"，
+       青石板偏冷、植被更少（城里没什么树）。同界内必须与另两个镇**不重复**。 */
+    city_grand: { ground: '#5a6070', dark: '#434a58', grass: '#6f7f86', rock: '#8e96a2',
+      scatter: { trees: 4, rocks: 3 } },
     hill_green: { ground: '#4a6b42', dark: '#3a5735', grass: '#5fbf5f', rock: '#7a7f8a',
       scatter: { trees: 16, rocks: 5 } },
     cave_rock: { ground: '#4a4038', dark: '#38302a', grass: '#5a5a4a', rock: '#6f6a62',
@@ -255,11 +267,12 @@
 
   /* 区域 → 预设。单独一张表：一眼看全"哪个区是什么风格"，
      也便于契约检查"每个区域都有预设、且**同界内不重复**"。
-     28 个区域 → 28 个不同预设：同一界里两区同色，就等于"进哪一区都一样"没修好。 */
+     29 个区域 → 29 个不同预设：同一界里两区同色，就等于"进哪一区都一样"没修好。 */
   var TINT = {
     fan1: 'town_start', fan2: 'hill_green', fan3: 'cave_rock',
     fan4: 'town_trade', fan5: 'bandit_dry', fan6: 'bamboo',
     fan7: 'grave', fan8: 'mine', fan9: 'lava',
+    fan10: 'city_grand',
 
     ling1: 'swamp', ling2: 'deepwater', ling3: 'bloodsect',
     ling4: 'desert', ling5: 'sword',

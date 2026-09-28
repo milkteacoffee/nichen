@@ -74,6 +74,69 @@
       ]
     },
 
+    /* ===== 云州城（M2，v0.65.0，用户「M2 云州城主线」）=====
+       凡界第二座城，比青溪镇大一倍：**城主府 / 云州论道台 / 丹霞坊 / 云州铁坊 / 云州客栈 / 西市**
+       + 四条主街十字。M1 结尾「离乡，往云州城去」指向的就是这里（主线 m2-1..m2-3）。
+       ⚠️ 这是**手写地图**（不是 regiongen 生成）—— 生成型区域的 NPC 是通用的村民/掌柜，
+          没有对话钩子，做不了主线。手写的代价是：出口要在 `exits` 里自己写（见下），
+          而且 `regiongen.targetSpawn` 对"有 map 的区域"直接取 `md.spawn`，所以**入口落点就是 spawn**。
+       ⚠️ NPC 站位必须避开道路 —— 主街只有 1 格宽，站上去就把路堵死了（青溪镇踩过）。 */
+    yunzhou: {
+      id: 'yunzhou', w: 44, h: 30, safe: true, ground: 'town', tex: 'fan4',
+      /* ⚠️ `label` 是场景名牌的**唯一来源**（`explore._sceneName` 只对 town/field/cave 有硬编码兜底，
+         其余一律返回 mapId）—— 不写它，左上角会显示裸 id「yunzhou」。 */
+      label: '云州城',
+      spawn: { x: 22, y: 27 },
+      structures: [
+        S('keep', 'ruin', 3, 3, 11, 6, { label: '城主府', bk: 'hall', roof: '#4a4a5a' }),
+        S('pavilion', 'ruin', 19, 3, 10, 5, { label: '云州论道台', bk: 'tower', roof: '#46566a' }),
+        S('alchemy', 'house', 34, 4, 7, 5, { label: '丹霞坊', bk: 'alchemy', roof: '#6a4a4a' }),
+        S('smithy', 'house', 34, 15, 7, 5, { label: '云州铁坊', bk: 'smithy', roof: '#5a5a5a' }),
+        S('inn', 'house', 3, 15, 7, 5, { label: '云州客栈', bk: 'inn', roof: '#6a5a4a' }),
+        S('market', 'house', 3, 23, 7, 4, { label: '西市', bk: 'shop', roof: '#78624a' }),
+        S('houseA', 'house', 14, 20, 4, 3, { label: '民居', bk: 'house' }),
+        S('houseB', 'house', 27, 20, 4, 3, { label: '民居', bk: 'house' })
+      ],
+      /* 主街：一条南北纵街 + 两条东西横街，十字交叉在 (22,12) */
+      paths: [
+        path('v', 22, 4, 25),
+        path('h', 8, 12, 30),
+        path('h', 8, 22, 30)
+      ],
+      scatter: { trees: 8, rocks: 3 },
+      special: [ { id: 'well', kind: 'well', x: 30, y: 12 } ],
+      /* 云州城的建筑**不做室内**（v0.65.0 的取舍）：手写室内要另写一套 makeInterior，
+         而本轮的交付重点是"城 + 主线"，服务由街面 NPC 直接给（投宿 / 坊市 / 打造 / 炼丹）。
+         以后要补室内，在 `doors` 里加映射并在 yunzhou.js 里注册场景即可。 */
+      npcs: [
+        /* 主线三人组：城主府执事 → 论道台裁判 → 归客 */
+        { id: 'yz_steward', kind: 'elder', name: '城主府执事', portrait: 'villager',
+          x: 17, y: 10, act: 'steward' },
+        { id: 'yz_judge', kind: 'keeper', name: '论道台裁判', portrait: 'villager',
+          x: 24, y: 10, act: 'judge' },
+        /* 服务：坊市 / 投宿 / 打造 / 炼丹（复用已有服务，不另写一套） */
+        { id: 'yz_market', kind: 'keeper', name: '西市掌柜', portrait: 'keeper',
+          x: 8, y: 21, act: 'market' },
+        { id: 'yz_inn', kind: 'keeper', name: '客栈小二', portrait: 'keeper',
+          x: 8, y: 14, act: 'inn' },
+        { id: 'yz_smith', kind: 'villager', name: '铁坊匠人', portrait: 'villager',
+          x: 32, y: 14, act: 'smith' },
+        { id: 'yz_dan', kind: 'villager', name: '丹霞坊主', portrait: 'villager',
+          x: 32, y: 4, act: 'dan' },
+        { id: 'yz_story', kind: 'villager', name: '说书人', portrait: 'villager',
+          x: 14, y: 12, act: 'story' }
+      ],
+      exits: [
+        /* 南门 → 落霞镇（凡界 F4 的枢纽，那格是十字路口，一定走得到）。
+           ⚠️ 反向那条（fan4 → fan10）写在 regions.js 的 fan4.exits 里；
+              两侧都要有，否则是**有向断头路**（能出去、回不来）。 */
+        { x0: 21, x1: 23, y: 29, to: 'fan4', spawn: { x: 22, y: 15 }, label: '落霞镇' },
+        /* 北门 → 落霞灵矿（M2-3 的台词就说"灵界之门在落霞镇西边那座废矿底下"，
+           这条门是把那句话变成能走的路）。反向写在 fan8.exits 的 south。 */
+        { x0: 21, x1: 23, y: 0, to: 'fan8', spawn: { x: 21, y: 14 }, label: '落霞灵矿' }
+      ]
+    },
+
     field: {
       id: 'field', w: 50, h: 40, ground: 'grass', tex: 'fan2',
       spawn: { x: 24, y: 37 },

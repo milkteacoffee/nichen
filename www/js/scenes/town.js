@@ -710,8 +710,10 @@
       return;
     }
 
-    /* m1-7 离乡（M1 收束）：与刘掌柜道别 → 赠盘缠与回城符 → m1done。
-       道别之后**不再开店**：这一趟是告别，不是购物。 */
+    /* m1-7 离乡（M1 收束）：与刘掌柜道别 → 赠盘缠与回城符 → **接 M2 云州城**。
+       道别之后**不再开店**：这一趟是告别，不是购物。
+       ⚠️ v0.65.0 起收束到 `m2-1`（不再是 `m1done`）—— M2 三步走完才进分叉线。
+          `m1done` 现在是"M2 也走完了"的标志，`tickQuest` 看到它就自动分叉。 */
     if (step === 'm1-7') {
       scene.setOverlay('m1_7', [new G.UI.Btn({
         x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '收下',
@@ -719,7 +721,7 @@
           save.stone += 200;
           save.items['回城符'] = (save.items['回城符'] || 0) + 3;
           q.flags.leaveTown = true;
-          q.step = 'm1done';
+          q.step = 'm2-1';
           /* M2 解锁：写进 meta.story（跨世保留），M1 只落一个"已解锁"的戳。 */
           var meta = G.game.meta || (G.game.meta = {});
           meta.story = meta.story || {};

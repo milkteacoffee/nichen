@@ -2415,13 +2415,15 @@ step(function () {
 }, 'worldgate.contract');
 
 /* ---------- 主线任务链契约 ----------
-   ① 14 步主线每一步都要能取到追踪数据、下标与顺序一致、文案齐全
-     （缺一步 = 面板步数错位、"主线 8/14" 与实际不符）
+   ① 17 步主线每一步都要能取到追踪数据、下标与顺序一致、文案齐全
+     （缺一步 = 面板步数错位、"主线 8/17" 与实际不符）
+     ⚠️ v0.65.0 起含 **M2 云州城三步**（m2-1..m2-3），插在 m1-7 与 m1done 之间。
    ② **m1-2「外堂探子」的抉择必须真的把任务推进到 m1-3** ——
      这是玩家最容易感知到的一环：旗标置了但步数不动，任务就"卡在原地反复"。 */
 step(function () {
   const ORDER = ['m0-1', 'm0-2', 'm0-3', 'm0-4', 'm0-5', 'free',
-    'm1-1', 'm1-2', 'm1-3', 'm1-4', 'm1-5', 'm1-6', 'm1-7', 'm1done'];
+    'm1-1', 'm1-2', 'm1-3', 'm1-4', 'm1-5', 'm1-6', 'm1-7',
+    'm2-1', 'm2-2', 'm2-3', 'm1done'];
   const s0 = JSON.parse(JSON.stringify(save));
   ORDER.forEach(function (id, i) {
     s0.quest = { step: id, flags: {} };
@@ -3945,8 +3947,15 @@ step(function () {
     const r = Rg.index[id];
     (r.exits || []).forEach(function (e) { if (adj[id] && adj[e.to]) adj[id].push(e.to); });
   });
-  /* 手写地图的出口（town=fan1 / field=fan2 / cave=fan3） */
-  const HM = { town: 'fan1', field: 'fan2', cave: 'fan3' };
+  /* 手写地图的出口。⚠️ 这张映射**必须从数据推导**，不能写死 ——
+     写死的话新增一张手写地图（v0.65.0 的云州城 `yunzhou`）不会被算进连通性，
+     结果是"新城区被判成 0 出口的孤岛 + 回程断头路"两条假红（本轮就踩了）。
+     判据：区域带 `map` 字段 = 复用一张手写地图（生成型区域没有这个字段）。 */
+  const HM = {};
+  ids.forEach(function (id) {
+    const r = Rg.index[id];
+    if (r && r.map) HM[r.map] = id;
+  });
   Object.keys(HM).forEach(function (m) {
     const mm = G.Data.maps[m];
     if (!mm) return;
@@ -5176,7 +5185,7 @@ step(function () {
     take.onClick();
     if (s7.stone !== 300) errors.push('m1-7 应赠灵石 200，实为 +' + (s7.stone - 100));
     if ((s7.items['回城符'] || 0) !== 3) errors.push('m1-7 应赠回城符 ×3，实为 ' + (s7.items['回城符'] || 0));
-    if (R().step !== 'm1done') errors.push('m1-7 收尾应转 m1done，实为 ' + R().step);
+    if (R().step !== 'm2-1') errors.push('m1-7 收尾应转 m2-1（v0.65.0 起接 M2），实为 ' + R().step);
     if (!R().flags.leaveTown) errors.push('m1-7 未写 flags.leaveTown');
     const unlocked = ((G.game.meta || {}).story || {}).unlocked || [];
     if (unlocked.indexOf('M2') < 0) errors.push('m1-7 未解锁 M2（meta.story.unlocked）');
@@ -7706,6 +7715,132 @@ step(function () {
   }
 }, 'map.terrain.contract');
 
+/* ---------- M2 云州城契约（v0.65.0，用户「M2 云州城主线」） ----------
+   用户口径：M1 结尾「离乡，往云州城去」—— 本轮把这座城真正做出来（手写城图 + 街面 NPC + 主线三步）。
+   断言：① 区域与地图挂上了、城门 ≥2 且**双向**；
+        ② 每个 NPC 的 `act` 在场景里有实现、每个对话键在对话表里有条目（源码闸 ——
+           漏了的表现是"点了只 toast 一句「没什么可说的」"或"只有按钮没有台词"，**都是静默的**）；
+        ③ 每个 NPC 四周有正交落脚点（走不到他面前 = 这条 NPC 等于不存在）；
+        ④ 主线三步**真驱动一遍**（走逻辑入口 `_interact`，不是直接改 step）。 */
+step(function () {
+  const Rg = G.Data.regions;
+  const r = Rg.byId('fan10');
+  if (!r) { errors.push('缺区域 fan10（云州城）'); return; }
+  if (r.map !== 'yunzhou') errors.push('云州城应复用 `yunzhou` 手写地图，实为 ' + r.map);
+  const md = G.Data.maps.yunzhou;
+  if (!md) { errors.push('缺 maps.yunzhou（手写城图）'); return; }
+  if (!md.npcs || md.npcs.length < 5) {
+    errors.push('云州城 NPC 太少（' + ((md.npcs || []).length) + '，应 ≥5）');
+  }
+  if (!md.exits || md.exits.length < 2) errors.push('云州城应至少两个城门');
+  if (!md.doors) {
+    /* 本轮取舍：建筑不做室内。这条断言是**提醒**，不是错误 —— 但必须写下来，
+       否则下一轮有人以为"忘了做"而去补一套 makeInterior。 */
+    void 0;
+  }
+
+  /* 源码闸：NPC 的 act 要有实现；sayBtn 的键要有对话 */
+  const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const src = stripC(fs.readFileSync(path.join(WWW, 'js', 'scenes', 'yunzhou.js'), 'utf8'));
+  const i0 = src.indexOf('var D = {');
+  const i1 = src.indexOf('function sayBtn');
+  const i2 = src.indexOf('var ACTS = {');
+  const i3 = src.indexOf('hooks.onInteract');
+  if (i0 < 0 || i1 < 0 || i2 < 0 || i3 < 0) {
+    errors.push('源码闸：yunzhou.js 里找不到 D / ACTS / sayBtn / onInteract，正则可能过时了');
+    return;
+  }
+  const dlgKeys = (src.slice(i0, i1).match(/^\s{4}(\w+):\s*\{/gm) || [])
+    .map(function (m) { return m.replace(/[\s:{]/g, ''); });
+  const actKeys = (src.slice(i2, i3).match(/^\s{4}(\w+):\s*function/gm) || [])
+    .map(function (m) { return m.replace(/[\s:]|function/g, ''); });
+  if (dlgKeys.length < 5) errors.push('源码闸：对话表只扫到 ' + dlgKeys.length + ' 条，正则可能过时了');
+  if (actKeys.length < 5) errors.push('源码闸：ACTS 只扫到 ' + actKeys.length + ' 个动作，正则可能过时了');
+  (md.npcs || []).forEach(function (n) {
+    if (actKeys.indexOf(n.act) < 0) {
+      errors.push('云州城 NPC「' + n.name + '」的 act「' + n.act + '」在 ACTS 里没有实现'
+        + '（点了只会 toast「没什么可说的」）');
+    }
+  });
+  const used = (src.match(/sayBtn\(scene,\s*'([^']+)'\)/g) || [])
+    .map(function (m) { return m.replace(/[\s\S]*'([^']+)'[\s\S]*/, '$1'); });
+  if (!used.length) errors.push('源码闸：没有扫到任何 sayBtn(scene, …) 调用，正则可能过时了');
+  used.forEach(function (k) {
+    if (dlgKeys.indexOf(k) < 0) {
+      errors.push('云州城对话键「' + k + '」在 D 表里没有条目（点了只有按钮、没有台词）');
+    }
+  });
+
+  /* ③④ 真跑一遍 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = { x: 5, y: 5 }; s.items = s.items || {}; s.beasts = s.beasts || [];
+  s.quest = { step: 'm2-1', flags: {} };
+  s.dungeonSlot = 0; s.dungeonFarm = 0;
+  G.game.save = s;
+  if (!G.game.meta) G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: [] };
+  G.game.changeScene('yunzhou', { toSpawn: true });
+  if (G.game.sceneName !== 'yunzhou') { errors.push('切不到云州城（scenes.yunzhou 没注册？）'); return; }
+  const sc = G.game.scene;
+
+  /* 站位可达：**只认正交相邻**（斜角站不住） */
+  const standBy = function (n) {
+    const dirs = [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']];
+    for (let i = 0; i < dirs.length; i++) {
+      const d = dirs[i];
+      if (!sc._blocked(n.x + d[0], n.y + d[1])) {
+        s.pos = { x: n.x + d[0], y: n.y + d[1] };
+        sc.dir = d[2];
+        return true;
+      }
+    }
+    return false;
+  };
+  (md.npcs || []).forEach(function (n) {
+    if (!standBy(n)) {
+      errors.push('云州城 NPC「' + n.name + '」四周没有正交落脚点（玩家走不到他面前）');
+    }
+  });
+
+  /* 主线三步：走**逻辑入口** `_interact`（玩家就是站在他面前按一下），不是直接改 step */
+  const talk = function (act) {
+    const n = (md.npcs || []).filter(function (x) { return x.act === act; })[0];
+    if (!n) { errors.push('云州城没有 act=' + act + ' 的 NPC'); return false; }
+    if (!standBy(n)) return false;
+    sc.overlay = null;
+    sc._interact();
+    return true;
+  };
+  if (talk('steward')) {
+    if (s.quest.step !== 'm2-2') {
+      errors.push('与城主府执事对话后主线应推进到 m2-2，实为 ' + s.quest.step);
+    }
+    sc.clearOverlay();
+  }
+  /* m2-2：没通关过秘境 → 不该能交差 */
+  s.dungeonSlot = 0; s.dungeonFarm = 0;
+  if (talk('judge')) {
+    if (s.quest.step !== 'm2-2') {
+      errors.push('未通关秘境时不该能交差（主线跳到 ' + s.quest.step + '）');
+    }
+    sc.clearOverlay();
+  }
+  /* 通关过秘境 → 收束到 m1done（分叉线在此接管） */
+  s.dungeonSlot = 1;
+  if (talk('judge')) {
+    if (s.quest.step !== 'm1done') {
+      errors.push('通关秘境后与裁判对话应收束到 m1done，实为 ' + s.quest.step);
+    }
+    sc.clearOverlay();
+  }
+  /* 服务类 NPC：真点一遍，只断言"不抛异常"是空断言 —— 这里验它确实打开了对应覆盖层 */
+  if (talk('market')) {
+    if (sc.overlay !== 'shop.buy') errors.push('西市掌柜应打开坊市（shop.buy），实为 ' + sc.overlay);
+    sc.clearOverlay();
+  }
+  G.game.save = save;
+  G.game.changeScene('town', { toSpawn: true });
+}, 'm2.yunzhou.contract');
+
 /* ---------- 天道多协议契约（v0.8.0） ----------
    缺口：天道原先只认 OpenAI 兼容的 /chat/completions。
    现在要支持 Claude（/messages，system 在顶层、x-api-key）与原生 Response
@@ -8325,7 +8460,7 @@ step(function () {
       }
     }
   });
-  if (n !== 28) errors.push('区域总数应为 28，实为 ' + n);
+  if (n !== 29) errors.push('区域总数应为 29（凡界 10 + 灵 5 + 仙 9 + 道 5），实为 ' + n);
 
   /* ③④ 源码闸：真地图 + 缓存 + 固定种子 */
   const ps = stripC(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));

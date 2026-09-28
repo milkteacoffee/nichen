@@ -1515,6 +1515,47 @@ step(() => {
 }, 'map.terrain.ling');
 shot('55_map_terrain_ling', 2);
 
+/* ⑥ 云州城（M2，v0.65.0）：城景 + M2 主线对话。
+   ⚠️ 拍城景要把主线拨到 m2-1 并让主角站在**街口**（spawn 在南门），否则拍到的是墙。 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 120; s.maxGlobalLevel = 120;
+  /* ⚠️ 章节链**和机缘**都要标成已看过 —— 否则进图那一帧会弹「筑基心障」
+     （那是 `storyevents.js` 的 se10，`gl:73 / where:'any'`，不是章节），整屏盖住城景。
+     两套系统都会在 explore.update 里弹模态，拍场景前都要清干净。 */
+  s.chapters = G.Data.Chapters.list.map((c) => c.id);
+  s.daoHeart = 2;
+  s.quest = s.quest || { step: 'm2-1', flags: {} };
+  s.quest.step = 'm2-1';
+  s.quest.flags = s.quest.flags || {};
+  G.Data.StoryEvents.list.forEach((e) => { s.quest.flags['se_' + e.id] = true; });
+  s.pos = null;
+  G.game.meta.progress.activeWorld = 'fan';
+  G.game.changeScene('yunzhou', { toSpawn: true });
+  clearStoryModal();
+}, 'scene.yunzhou');
+shot('56_scene_yunzhou', 3);
+
+/* M2-1 的对话：**走逻辑入口**（站到执事面前按一下），不是直接把覆盖层塞进去 ——
+   这样拍到的就是玩家真会看到的那一屏（含按钮版式）。 */
+step(() => {
+  const s = G.game.save;
+  const sc = G.game.scene;
+  const md = G.Data.maps.yunzhou;
+  const n = md.npcs.filter((x) => x.act === 'steward')[0];
+  const dirs = [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']];
+  for (let i = 0; i < dirs.length; i++) {
+    const d = dirs[i];
+    if (!sc._blocked(n.x + d[0], n.y + d[1])) {
+      s.pos = { x: n.x + d[0], y: n.y + d[1] }; sc.dir = d[2]; break;
+    }
+  }
+  sc.overlay = null;
+  sc._interact();
+  clearStoryModal();
+}, 'yunzhou.m2_1');
+shot('57_yunzhou_dialog', 2);
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n渲染期间异常 (' + errors.length + ')：');
