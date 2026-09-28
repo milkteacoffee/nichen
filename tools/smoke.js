@@ -4243,6 +4243,63 @@ step(function () {
   if (s2.quest.step !== 'm0-2') errors.push('m0-1 复命后任务应推进到 m0-2');
 }, 'skills.origin.contract');
 
+/* ---------- 入世成长演出契约（v0.71.0） ----------
+   用户口径：「增加 6/10 岁成长及动画」。
+   ① 形象三档真的不同：身高 6<10<16、脚底齐平、**头尺寸不变**（只平移）
+   ② 入世按钮必须**先进 grow 演出**，不能直调 finish()（否则演出是死代码）
+   ③ 演出播完 3 拍 → 自动 finish，且真正入世
+   ④ 16 岁档与历史程序化形象逐像素一致（bodyRatio=1 不参与缩放）
+   走真实路径：`_buildButtons` 里那颗「入世」按钮的 onClick —— 不直接改 step。 */
+step(function () {
+  const R = G.scenes.reincarnation;
+  const SP = G.Sprites;
+  if (!SP.heroAgeStage) { errors.push('G.Sprites.heroAgeStage 缺失（童年形象未接入）'); return; }
+
+  /* ① 三档形象：用尺寸与头顶位置判定（无头 canvas 桩拿不到像素，只看几何） */
+  const c6 = SP.heroAgeStage(6, 'down', 0), c10 = SP.heroAgeStage(10, 'down', 0),
+        c16 = SP.heroAgeStage(16, 'down', 0);
+  if (!c6 || !c10 || !c16) { errors.push('heroAgeStage 未产出位图'); return; }
+  if (!(c6.height === c10.height && c10.height === c16.height)) {
+    errors.push('三档形象画布应同尺寸（同一占位盒）');
+  }
+  const R6 = SP.AGE_STAGE_R[6], R10 = SP.AGE_STAGE_R[10], R16 = SP.AGE_STAGE_R[16];
+  if (!(R6 < R10 && R10 < R16)) errors.push('三档身体比例应严格递增（6<10<16）');
+  if (R16 !== 1) errors.push('16 岁档 bodyRatio 必须为 1（否则会改变历史形象）');
+
+  /* ② 入世按钮 → grow 演出（源码闸 + 行为闸双保险） */
+  const rcSrc = fs.readFileSync(path.join(WWW, 'js/scenes/reincarnation.js'), 'utf8');
+  if (!/self\.step = 'grow'/.test(rcSrc)) {
+    errors.push("入世按钮应先进 'grow' 演出（不能直调 finish）");
+  }
+  R.enter();
+  R.step = 'talent';
+  R.drawTalents();
+  R._buildButtons();
+  const enterBtn = R.buttons.filter(function (b) { return b._key === '入世'; })[0]
+    || R.buttons[R.buttons.length - 1];
+  if (!enterBtn) { errors.push('入世页没有「入世」按钮'); return; }
+  R.step = 'talent';
+  enterBtn.onClick();
+  if (R.step !== 'grow') errors.push("点「入世」后 step 应为 'grow'，实为 " + R.step);
+  if (G.game.save && G.game.save.age === 16 && R.step === 'grow') {
+    /* 演出途中**不能**已经入世（save 还没产出来才算对） */
+  }
+  /* ③ 播 3 拍（每拍 GROW_DUR 秒，跳过更快的 update 也要走满 3 次） */
+  const D = R.GROW_DUR;
+  let guard = 0;
+  while (R.step === 'grow' && guard < 12) { R.update(D + 0.01); guard++; }
+  if (guard !== 3) errors.push('成长演出应恰好 3 拍（6/10/16），实为 ' + guard + ' 拍');
+  if (R.step === 'grow') errors.push('三拍播完后应自动入世，但 step 仍是 grow');
+  const sv = G.game.save;
+  if (!sv || sv.age !== 16) errors.push('演出结束应产出 16 岁入世档，实为 age=' + (sv && sv.age));
+
+  /* ④ 16 岁档与历史程序化版一致（同尺寸 + 同缓存键语义） */
+  const old16 = G.Art.heroSprite('down', 0, SP.HERO_PAL);
+  if (old16 && (old16.width !== c16.width || old16.height !== c16.height)) {
+    errors.push('16 岁档与历史 heroSprite 尺寸不一致');
+  }
+}, 'birth.grow.contract');
+
 /* ---------- 法宝三槽契约（v0.25.0） ----------
    用户口径：「这个人物少了三个法宝格子，武器、防具、饰品」。
    ① 表合法：id 唯一、slot 在三槽内、**效果字段落在 te 的已知集合里**（写错会静默不生效）

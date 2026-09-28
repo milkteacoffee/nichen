@@ -33,6 +33,9 @@
     linggen: null,
     talentCards: [],
     _finished: false,
+    /* 入世成长演出（v0.71.0）：0 → 未开始；开始后按 t 走三拍 6→10→16 岁。 */
+    grow: 0,
+    growT: 0,
 
     _birthDraft: function () {
       var meta = G.game.meta;
@@ -52,6 +55,7 @@
       }
       this.step = 'linggen'; this._finished = false;
       this.linggen = null; this.talentCards = [];
+      this.grow = 0; this.growT = 0; this._growSkip = false;
       this.rollLinggenOnce();
       this.drawTalents();
       this._buildButtons();
@@ -80,10 +84,16 @@
           self.drawTalents();
           self._buildButtons();
         });
+      } else if (this.step === 'grow') {
+        /* 成长演出期间无按钮（点任意处加速，见 onTap） */
       } else {
         back('返回灵根', function () { self.step = 'linggen'; self._buildButtons(); });
         /* 每世仅一项先天禀赋，返回、刷新均不能重新抽取。 */
-        primary('入世', function () { self.finish(); });
+        primary('入世', function () {
+          /* v0.71.0：先播「6 岁 → 10 岁 → 16 岁」成长演出，播完才真正入世。 */
+          self.step = 'grow'; self.grow = 0; self.growT = 0;
+          self._buildButtons();
+        });
       }
     },
 
@@ -339,6 +349,30 @@
     onTap: function (p) {
       /* v0.66.0：身份选择已删（`step` 直接从 linggen 起），这里不再处理 origin 分支。
          灵根页的点击由 `renderLinggen` 内的 hover 区域自己管。 */
+      /* 成长演出（v0.71.0）：点一下 → 跳到下一拍（不让急性子干等 6 秒）。 */
+      if (this.step === 'grow') this._growSkip = true;
+    },
+
+    /* 成长演出（v0.71.0）：三拍 6→10→16 岁，每拍 GROW_DUR 秒，
+       最后一拍结束自动入世。skip（点击）直接把当前拍推完，不跳过年份。 */
+    GROW_DUR: 2.0,
+    update: function (dt) {
+      if (this.step !== 'grow') return;
+      var d = this.GROW_DUR;
+      this.growT += dt * (this._growSkip ? 4 : 1);
+      this._growSkip = false;
+      if (this.growT >= d) {
+        this.growT -= d;
+        this.grow += 1;
+        /* grow 0=6岁 1=10岁 2=16岁；播完第 3 拍即入世。
+           ⚠️ 必须**先把 step 改掉再 finish**：finish() 会 changeScene 切走，
+           但它**不会**回头改旧场景对象的 step —— 留着 'grow' 会让"是否还在演出"
+           的判据永远为真（契约里 while(R.step==='grow') 会空转到上限）。 */
+        if (this.grow >= 3) {
+          this.grow = 3; this.growT = 0; this.step = 'done';
+          this.finish();
+        }
+      }
     },
 
     /* ===== 渲染 ===== */
@@ -348,6 +382,7 @@
       x.fillStyle = bg; x.fillRect(0, 0, 480, 272);
 
       if (this.step === 'linggen') this.renderLinggen(x);
+      else if (this.step === 'grow') this.renderGrow(x);
       else this.renderTalents(x);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
@@ -397,6 +432,102 @@
       });
       var stT = '灵石获取 ' + (lg.stoneBonus > 0 ? '+' + Math.round(lg.stoneBonus * 100) + '%' : '无加成');
       G.UI.text(x, { x: r.x + 18, y: r.y + 110 }, stT, 12, G.UI.C.textDim);
+    },
+
+    /* ===== 入世成长演出（v0.71.0）=====
+       三拍：6 岁 → 10 岁 → 16 岁。每拍画一档形象 + 落地那年的一句纪年 + 一道光柱"拔高"。
+       为什么用程序化形象而不是素材：素材（char.hero.*）只有十六岁一档，
+       读素材三拍全一个样，等于没做。`heroAgeStage` 与地图兜底同一套画法，画风天然一致。
+       演出结束调用 `finish()`，与旧路径唯一差别就是多播了这 6 秒。 */
+    renderGrow: function (x) {
+      var AGES = [6, 10, 16];
+      var idx = Math.min(this.grow, 2);
+      var age = AGES[idx];
+      var d = this.GROW_DUR;
+      var ph = Math.max(0, Math.min(1, this.growT / d));   /* 本拍进度 0→1 */
+
+      /* 背景：随年龄由暮色转晨曦（越长大越亮），三拍连起来像"天亮了" */
+      var k = idx + ph;
+      var bg = x.createLinearGradient(0, 0, 0, 272);
+      bg.addColorStop(0, this._mix('#0a0d18', '#16243c', k / 3));
+      bg.addColorStop(1, this._mix('#141a2e', '#2a3a52', k / 3));
+      x.fillStyle = bg; x.fillRect(0, 0, 480, 272);
+
+      /* 人物：脚底钉在 y=214 的地面线上（三档一致 → 视觉上是"长高"）。 */
+      var GY = 214, CX = 240;
+      /* 光柱：本拍前 35% 从地面升起，末 20% 淡出 */
+      var beamA = Math.min(1, ph / 0.35) * Math.min(1, (1 - ph) / 0.2 + 0.35);
+      var bh = 200 * (0.4 + 0.6 * Math.min(1, ph / 0.4));
+      var g2 = x.createLinearGradient(0, GY - bh, 0, GY);
+      g2.addColorStop(0, 'rgba(216,183,104,0)');
+      g2.addColorStop(0.55, 'rgba(216,183,104,' + (0.13 * beamA).toFixed(3) + ')');
+      g2.addColorStop(1, 'rgba(245,227,168,' + (0.20 * beamA).toFixed(3) + ')');
+      x.fillStyle = g2;
+      x.fillRect(CX - 46, GY - bh, 92, bh);
+
+      /* 脚下的影/地线 */
+      x.fillStyle = 'rgba(0,0,0,0.28)';
+      x.beginPath(); x.ellipse(CX, GY, 20, 5, 0, 0, 6.2832); x.fill();
+      x.strokeStyle = 'rgba(216,183,104,0.18)';
+      x.lineWidth = 1;
+      x.beginPath(); x.moveTo(CX - 150, GY + 0.5); x.lineTo(CX + 150, GY + 0.5); x.stroke();
+
+      /* 人物本体：入场时从地面"长出来"（纵向 clip 由下往上揭开） */
+      var spr = G.Sprites.heroAgeStage(age, 'down', 0);
+      var SW = spr.width, SH = spr.height;
+      var dx = Math.round(CX - SW / 2), dy = Math.round(GY - SH);
+      x.save();
+      var reveal = Math.min(1, ph / 0.45);
+      if (reveal < 1) {
+        x.beginPath();
+        x.rect(0, GY - SH * reveal, 480, SH * reveal + 4);
+        x.clip();
+      }
+      x.drawImage(spr, dx, dy);
+      x.restore();
+
+      /* 头顶的四向小演练：让"这是个会走的人"而不是一张立绘 */
+      if (ph > 0.55) {
+        var step = Math.floor((ph - 0.55) * 20) % 3;
+        var m = G.Sprites.heroAgeStage(age, 'down', step);
+        x.globalAlpha = 0.999;
+        x.drawImage(m, dx, dy);                        /* 同位置叠走帧 → 有轻微迈步感 */
+      }
+
+      /* 年份大字 + 纪年小字 */
+      var ageTxt = age + ' 岁';
+      G.UI.textOut(x, { x: 240, y: 34 }, ageTxt, 34, G.UI.C.goldHi, 'center', 'rgba(8,10,16,0.9)', 4);
+      var line = {
+        6: '幼年 · 在青溪镇外的破屋里，你第一次记住了自己的名字。',
+        10: '少年 · 你已能独自上山拾柴，指尖偶尔会流动一丝微光。',
+        16: '及冠 · 你决定离开这座小镇，去寻自己的道。'
+      }[age];
+      var lines = G.UI.wrap(x, line, 12.5, 380);
+      lines.slice(0, 2).forEach(function (l, i) {
+        G.UI.text(x, { x: 240, y: 236 + i * 17 }, l, 12.5, G.UI.C.textDim, 'center');
+      });
+
+      /* 三拍进度点（6 · 10 · 16） */
+      for (var i = 0; i < 3; i++) {
+        var px = 240 + (i - 1) * 22;
+        x.beginPath(); x.arc(px, 205, 3.2, 0, 6.2832);
+        x.fillStyle = i < idx ? G.UI.C.gold
+          : (i === idx ? 'rgba(245,227,168,' + (0.5 + 0.5 * Math.sin(G.game.time * 6)).toFixed(2) + ')' : 'rgba(216,183,104,0.25)');
+        x.fill();
+      }
+
+      G.UI.text(x, { x: 240, y: 258 }, '点击继续', 9.5, G.UI.C.textDim, 'center');
+    },
+
+    /* 颜色插值（#rrggbb → #rrggbb），只给成长演出的背景用 */
+    _mix: function (a, b, t) {
+      t = Math.max(0, Math.min(1, t));
+      function hex(s, i) { return parseInt(s.slice(1 + i * 2, 3 + i * 2), 16); }
+      function h2(v) { v = Math.round(v); return (v < 16 ? '0' : '') + v.toString(16); }
+      var r = hex(a, 0) + (hex(b, 0) - hex(a, 0)) * t;
+      var g = hex(a, 1) + (hex(b, 1) - hex(a, 1)) * t;
+      var bl = hex(a, 2) + (hex(b, 2) - hex(a, 2)) * t;
+      return '#' + h2(r) + h2(g) + h2(bl);
     },
 
     renderTalents: function (x) {

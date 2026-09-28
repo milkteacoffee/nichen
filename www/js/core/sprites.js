@@ -94,7 +94,11 @@
     shoe: '#2c2a30', eye: '#201d28', sash: '#c2b48c'
   };
 
-  function heroParts(dir, step, pal) {
+  /* v0.71.0：`bodyRatio` —— 童年/少年形象用。
+     颈部以下（含领、袍、腰、臂、腿）整体纵向压缩，**头不压** → 头身比变大、更幼态；
+     压缩后脚底会离画布底沿，再整体下移把脚钉回原脚底线，保证三档"站在同一地面"。
+     默认 undefined → 完全不进入这段，十六岁形象与历史行为**逐像素一致**。 */
+  function heroParts(dir, step, pal, bodyRatio) {
     var P = [];
     function add(x, y, w, h, c, extra) {
       var o = { x: x, y: y, w: w, h: h, c: c };
@@ -168,6 +172,21 @@
     add(8.6, ry, 3.1, 2.0, pal.shoe);
     add(4.4, ly, 3.1, 0.5, 'rgba(255,255,255,0.12)');
     add(8.6, ry, 3.1, 0.5, 'rgba(255,255,255,0.12)');
+
+    /* 童年/少年（v0.71.0）：**以脚底为不动点**把颈部以下按 r 压缩，头部只随之下移
+       而**不改尺寸** —— 头身比自然变大，读起来才像小孩（不是"缩小版大人"）。
+       分界取颈顶（8.6）：映射在该点连续（左极限 = 右极限），且分界处没有跨越元素，
+       脖子不会裂开。16 岁（未传 bodyRatio）整段跳过，行为与历史逐像素一致。 */
+    if (bodyRatio && bodyRatio !== 1) {
+      var NECK = 8.6, FOOT = 23.9;
+      var r2 = Math.max(0.5, Math.min(1, bodyRatio));
+      var headShift = (FOOT - (FOOT - NECK) * r2) - NECK;   /* 头整体下移量 = 身高缩掉的那截 */
+      for (var q = 0; q < P.length; q++) {
+        var pp = P[q];
+        if (pp.y < NECK) { pp.y += headShift; }             /* 头：只平移，大小不变 → 更幼态 */
+        else { pp.y = FOOT - (FOOT - pp.y) * r2; pp.h = Math.max(0.5, pp.h * r2); }
+      }
+    }
 
     return P;
   }
@@ -262,6 +281,24 @@
       out[d] = [heroSprite(d, 0, pal), heroSprite(d, 1, pal), heroSprite(d, 2, pal)];
     });
     return out;
+  }
+
+  /* ===== 童年/少年形象（v0.71.0）=====
+     入世演出用：同一套画法按身体比例压出 6 岁（r=0.52）/ 10 岁（r=0.74）/ 16 岁（r=1）。
+     **刻意不读素材**：素材只有十六岁一档，读素材就让三档全都一样了。
+     直接走程序化 `heroParts(..., bodyRatio)`，与地图兜底同一套画法，画风天然一致。 */
+  var AGE_STAGE_R = { 6: 0.52, 10: 0.74, 16: 1 };
+  var childCache = {};
+  function heroAgeStage(age, dir, step) {
+    dir = dir || 'down'; step = step || 0;
+    var r = AGE_STAGE_R[age];
+    if (r == null) r = 1;
+    var key = age + '|' + dir + '|' + step;
+    if (childCache[key]) return childCache[key];
+    var c = bake(heroParts(dir, step, HERO, r), 16, 24, null, { scale: MAP_SCALE });
+    if (dir === 'right') c = mirror(c);
+    childCache[key] = c;
+    return c;
   }
 
   /* ---------- NPC ---------- */
@@ -1373,11 +1410,13 @@
     /* 地图角色的逻辑占位尺寸：渲染点必须用它，改 MAP_SCALE 时不会漏改一边 */
     HERO_W: HERO_LW, HERO_H: HERO_LH, MAP_SCALE: MAP_SCALE,
     heroAnim: heroAnim, ANIM_W: ANIM_W, ANIM_H: ANIM_H,
+    heroAgeStage: heroAgeStage, AGE_STAGE_R: AGE_STAGE_R,
     npcAnim: npcAnim,
     /* 超采样倍率变更后必须调用：清空全部精灵缓存并丢弃已建好的 hero 帧表，
        否则旧倍率的位图会被继续复用（放大后重新变糊）。 */
     clear: function () {
       heroCache = {}; npcCache = {}; beastCache = {}; animCache = {}; _hd = null; _hbat = null; _hbatFrames = null;
+      childCache = {};
       this.hero = null;
     }
   };

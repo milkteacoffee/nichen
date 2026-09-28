@@ -1606,6 +1606,17 @@ step(() => {
 }, 'v66.birth.talent');
 shot('66c_single_talent', 2);
 
+/* v0.71.0：入世成长演出三拍（6 → 10 → 16 岁）。固定在每拍进度 60%
+   （人物已从地面完全长出、走帧已开始、光柱仍亮），三张连看就是"长高"。 */
+[0, 1, 2].forEach((stage) => {
+  step(() => {
+    const R = G.scenes.reincarnation;
+    R.step = 'grow'; R.grow = stage; R.growT = R.GROW_DUR * 0.6; R._growSkip = false;
+    R._buildButtons();
+  }, 'v71.grow.' + stage);
+  shot('71_grow_' + ['6y', '10y', '16y'][stage], 2);
+});
+
 step(() => {
   G.Storage.selectSlot(1); G.game.meta = G.Storage.loadMeta(); G.game.save = G.Storage.loadCurrent();
   G.Input.mouse = null;
