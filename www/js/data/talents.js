@@ -120,6 +120,38 @@
 
   G.Data = G.Data || {};
   G.Data.talents = T;
+  /* 说明从效果字段推导，不再为同一天赋维护第二份数值。 */
+  G.Data.talentDetail = function (t) {
+    if (typeof t === 'string') t = G.Data.talentById(t);
+    if (!t) return { story: '', text: '未记录此天赋。' };
+    var e = t.e || {}, lines = [];
+    var names = { a: '攻击', f: '防御', h: '气血上限', s: '速度', qi: '灵气获取',
+      po: '灵力获取', st: '灵石获取', c: '暴击率', cd: '暴击伤害', br: '突破所需灵气' };
+    Object.keys(names).forEach(function (k) {
+      if (e[k]) lines.push(names[k] + (e[k] > 0 ? '增加 ' : '减少 ') + Math.round(Math.abs(e[k]) * 100) + '%');
+    });
+    if (e.im && e.im.length) lines.push('免疫：' + e.im.map(function (k) {
+      return { '毒': '中毒', '烧': '灼烧', '麻': '麻痹', '封': '封印', '睡': '睡眠' }[k] || k;
+    }).join('、'));
+    if (e.items) Object.keys(e.items).forEach(function (k) { lines.push('入世携带' + k + ' ' + e.items[k] + ' 枚，仅发一次'); });
+    if (e.stone) lines.push('入世灵石' + (e.stone > 0 ? '增加 ' : '减少 ') + Math.abs(e.stone) + ' 枚，仅发一次');
+    if (e.zeroStone) lines.push('代价：入世基础灵石归零');
+    /* 历史池含仅登记、尚未接入战斗结算的字段，不能把配置描述冒充已生效。 */
+    var pending = { he: '治疗增幅', ls: '吸血', rc: '反伤', se: '攻击功法增幅', es: '逃跑增幅',
+      chest: '宝箱增幅', ct: '抗暴击', lowHpDef: '低血防御', killAtk: '击杀增攻',
+      drAll: '全伤减免', rs: '异常抵抗', dr: '持续伤害减免', eb: '属性功法增幅',
+      bdur: '灼烧缩短', mf: '五行匹配增幅', alch: '炼丹增幅', craft: '法宝增幅' };
+    var waiting = Object.keys(pending).filter(function (k) { return !!e[k]; }).map(function (k) { return pending[k]; });
+    if (waiting.length) lines.push('尚待接入结算：' + waiting.join('、') + '（不计入当前收益）');
+    if (!lines.length) lines.push('没有额外数值加成，成长依靠自身修行。');
+    var story = e.qi || e.br ? '吐纳时更易沉心入定，修行积累取决于每一次苦功。'
+      : e.a || e.c ? '筋骨或眼力异于常人，但仍需磨练才能发挥所长。'
+        : e.h || e.f ? '体魄经年磨砺，耐力是漫长修行的根本。'
+          : e.s ? '身法轻捷，平日奔走练就了稳健的步伐。'
+            : e.po ? '善于体会功诀中的细微变化，领悟仍离不开反复练习。'
+              : '成长留下的性情与禀赋，构成这一世独有的起点。';
+    return { story: story, text: story + '\n' + lines.join('；\n') + '\n每世随机一种，终生保留；返回或重载不重抽。' };
+  };
   G.Data.talentById = function (id) {
     for (var i = 0; i < T.length; i++) if (T[i].id === id) return T[i];
     return null;

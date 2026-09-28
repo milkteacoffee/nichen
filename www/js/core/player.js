@@ -177,6 +177,32 @@
   var Player = {
     REALMS: REALMS,
     MAX_GL: MAX_GL,
+    formatCount: function (n) {
+      n = Math.max(0, Math.floor(Number(n) || 0));
+      if (n >= 100000) return (n / 10000).toFixed(1) + 'W';
+      if (n >= 10000) return (n / 1000).toFixed(1) + 'K';
+      return String(n);
+    },
+    hasHome: function (save) { return !!save && save.homeOwned !== false; },
+    HOME_PRICE: 300,
+    acquireHome: function (save) {
+      if (!save || this.hasHome(save)) return { ok: false, reason: '本世已有洞府' };
+      if ((save.stone || 0) < this.HOME_PRICE) return { ok: false, reason: '需 300 下品灵石租用洞府' };
+      save.stone -= this.HOME_PRICE;
+      save.homeOwned = true;
+      this.chronicle(save, 'home', '以三百下品灵石租得此世洞府');
+      G.Storage.saveCurrent(save);
+      return { ok: true };
+    },
+    rootDescription: function (save, elem) {
+      var lg = save.linggen || save || {}, elems = lg.elems || [];
+      var owned = elems.indexOf(elem) >= 0;
+      var parts = [owned ? '本世天生拥有，不可重随。' : '本世未拥有此属性灵根。'];
+      if (owned) parts.push('根性系数 ×' + ((lg.coef || {})[elem] || 1) + '，影响相应修行收益。');
+      if (elems.length === 5) parts.push('五行俱全，当前根性系数 0.6，晋级最为艰难。');
+      parts.push('金克木、木克土、土克水、水克火、火克金。');
+      return { title: elem + '灵根 · ' + (owned ? '已拥有' : '未拥有'), text: parts.join('\n') };
+    },
     WORLDS: WORLDS,
     GRADES: GRADES,
     RES: RES,

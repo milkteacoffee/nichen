@@ -1556,6 +1556,73 @@ step(() => {
 }, 'yunzhou.m2_1');
 shot('57_yunzhou_dialog', 2);
 
+/* v0.66 首批验收。只操作上方 Node 内存 localStorage，不读写玩家浏览器存档。 */
+step(() => {
+  sandbox.localStorage.clear();
+  G.Storage.selectSlot(1);
+  G.game.meta = { past: [], xianli: 0, pity: 0,
+    perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
+    progress: G.Storage.defaultProgress() };
+  const s = JSON.parse(JSON.stringify(save));
+  s.homeOwned = false; s.origin = null; s.originFx = {};
+  s.globalLevel = 5; s.age = 16; s.gt = null;
+  s.quest = { step: 'm0-3', flags: {} }; s.pos = null;
+  s.chapters = G.Data.Chapters.list.map(c => c.id);
+  G.Data.StoryEvents.list.forEach(e => { s.quest.flags['se_' + e.id] = true; });
+  s.scene = 'town'; s.map = 'town';
+  s.items = { '灵泉水': 3, '血精': 2, '木囊': 1, '回春丹': 5, '铁矿': 12 };
+  s.stone = 100000; s.lingCrystal = 0; s.xianCrystal = 0; s.daoCrystal = 0;
+  s.talents = [G.Data.talents[0].id];
+  G.game.save = s;
+  s.hp = G.Player.computeStats(s).maxhp; s.qi = G.Player.needQi(s);
+  G.Storage.saveMeta(G.game.meta); G.Storage.saveCurrent(s);
+  G.game.changeScene('title'); G.scenes.title._openSlots();
+  clearStoryModal();
+}, 'v66.slots');
+shot('66a_three_slots', 2);
+
+step(() => {
+  G.Storage.selectSlot(2); G.game.meta = null; G.game.save = null;
+  G.game.changeScene('reincarnation'); clearStoryModal();
+}, 'v66.birth.root');
+shot('66b_locked_roots', 2);
+step(() => {
+  G.scenes.reincarnation.step = 'talent'; G.scenes.reincarnation._buildButtons();
+}, 'v66.birth.talent');
+shot('66c_single_talent', 2);
+
+step(() => {
+  G.Storage.selectSlot(1); G.game.meta = G.Storage.loadMeta(); G.game.save = G.Storage.loadCurrent();
+  G.Input.mouse = null;
+  G.game.changeScene('town', { toSpawn: true }); clearStoryModal();
+  G.game.scene.trackOpen = false;
+}, 'v66.hud');
+shot('66d_hud_percent', 14);
+step(() => { G.Overlays.openPanel(G.game.scene, 'cave'); clearStoryModal(); }, 'v66.nohome');
+shot('66e_no_home', 14);
+step(() => {
+  const sc = G.game.scene; sc.charTab = 'linggen';
+  G.Overlays.openPanel(sc, 'char', true); clearStoryModal();
+  const p = G.Overlays.CHAR_BODY;
+  G.Input.mouse = { x: p.x + 35, y: p.y + 69 };
+}, 'v66.root.tip');
+shot('66f_root_tooltip', 14);
+step(() => {
+  const sc = G.game.scene; sc.bagTab = 'misc';
+  G.Overlays.openPanel(sc, 'bag', true); clearStoryModal();
+  G.Input.mouse = { x: 83, y: 108 };
+}, 'v66.item.tip');
+shot('66g_item_tooltip', 14);
+step(() => {
+  G.Input.mouse = null; const sc = G.game.scene; sc.bagTab = 'stone';
+  G.Overlays.openPanel(sc, 'bag', true); clearStoryModal();
+}, 'v66.assets');
+shot('66h_asset_zero', 14);
+step(() => {
+  G.Overlays.openVessel(G.game.scene); clearStoryModal();
+}, 'v66.portable.story');
+shot('66i_portable_story', 14);
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n渲染期间异常 (' + errors.length + ')：');

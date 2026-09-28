@@ -115,6 +115,10 @@
        为什么收成一处：面板清单以后还会加，散在五个场景里改，漏一处就是"点了没反应"。 */
     route: function (x, scene) {
       if (this.isPanel && this.isPanel(scene.overlay)) return this.renderPanel(x, scene);
+      if ((scene.overlay === 'dream' || scene.overlay === 'cult') && this.renderVessel) {
+        this.renderVessel(x, scene);
+        return true;
+      }
       if (G.TianDao && G.TianDao.isMenuOverlay(scene.overlay)) {
         G.TianDao.renderOverlay(x, scene);
         return true;
@@ -659,6 +663,7 @@
         }
         G.UI.textOut(x, { x: cx + CW / 2, y: cy + 27 }, v ? ('×' + v) : '—', 9.5,
           on ? G.UI.C.goldHi : G.UI.C.textDim, 'center');
+        G.UI.hover({ x: cx, y: cy, w: CW, h: CW }, G.Player.rootDescription(save, e));
       });
       /* 格下说明：只两行、且**左栏宽度内收得住**（右栏从 RX 起，不能压过去） */
       G.UI.text(x, { x: LX, y: gy0 + 3 * (CW + GAP) + 4 },
@@ -794,6 +799,12 @@
         var ry = P.y + 150 + i * 14;
         G.UI.text(x, { x: LX, y: ry }, r[0], 10, G.UI.C.textDim);
         G.UI.textOut(x, { x: P.x + P.w - 14, y: ry }, r[1], 10, G.UI.C.text, 'right');
+        if (i === 2) G.UI.hover({ x: LX, y: ry, w: P.w - 28, h: 14 }, {
+          title: '本世天赋', text: (save.talents || []).map(function (id) {
+            var talent = G.Data.talentById(id);
+            return talent ? talent.n + '\n' + G.Data.talentDetail(talent).text : id;
+          }).join('\n\n') || '未记录天赋。'
+        });
       });
     },
 

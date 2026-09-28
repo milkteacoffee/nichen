@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 9;
+  var VERSION = 10;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -20,6 +20,33 @@
 
   var Storage = {
     defaultProgress: defaultProgress,
+    SLOT_COUNT: 3,
+    activeSlot: function () {
+      var n = Number(localStorage.getItem('nichen_active_slot'));
+      return n >= 1 && n <= 3 && n === Math.floor(n) ? n : 1;
+    },
+    _slotKey: function (key, slot) {
+      slot = slot == null ? this.activeSlot() : slot;
+      if (slot < 1 || slot > 3 || slot !== Math.floor(slot)) throw new Error('存档槽必须为 1–3');
+      /* 槽一沿用旧键，旧档及备份不复制、不删除。 */
+      return slot === 1 ? key : key + '_slot' + slot;
+    },
+    selectSlot: function (slot) {
+      this._slotKey(K_SAVE, slot);
+      localStorage.setItem('nichen_active_slot', String(slot));
+    },
+    listSlots: function () {
+      var out = [];
+      for (var i = 1; i <= this.SLOT_COUNT; i++) {
+        var s = this._read(this._slotKey(K_SAVE, i));
+        var m = this._read(this._slotKey(K_META, i));
+        out.push({ slot: i, occupied: !!(s || m), current: !!s,
+          life: s ? (s.life || 1) : (((m && m.past) || []).length + 1),
+          realm: s ? G.Player.realmInfo(s.globalLevel || 1).n : '',
+          age: s && s.age, savedAt: (s && s.lastSeen) || 0 });
+      }
+      return out;
+    },
 
     /* 通用读写（带 .bak） */
     _write: function (key, obj) {
@@ -43,9 +70,9 @@
       return null;
     },
 
-    saveMeta: function (meta) { meta.version = VERSION; this._write(K_META, meta); },
+    saveMeta: function (meta) { meta.version = VERSION; this._write(this._slotKey(K_META), meta); },
     loadMeta: function () {
-      var m = this._read(K_META);
+      var m = this._read(this._slotKey(K_META));
       if (m) m = this._migrate(m);
       return m;
     },
@@ -54,17 +81,18 @@
       /* 离开时间戳（v0.61.0）：离线打坐收益的基准。写在这里 = 只有"一个真相源"，
          不必让每个调用点自己记得刷新（漏一处就会出现"离线 300 天"的假收益）。 */
       save.lastSeen = Date.now();
-      this._write(K_SAVE, save);
+      this._write(this._slotKey(K_SAVE), save);
     },
     loadCurrent: function () {
-      var s = this._read(K_SAVE);
+      var s = this._read(this._slotKey(K_SAVE));
       if (s) s = this._migrate(s);
       return s;
     },
     clearCurrent: function () {
       try {
-        localStorage.removeItem(K_SAVE);
-        localStorage.removeItem(K_SAVE + '_bak');
+        var key = this._slotKey(K_SAVE);
+        localStorage.removeItem(key);
+        localStorage.removeItem(key + '_bak');
       } catch (e) {}
     },
 
@@ -218,11 +246,18 @@
         }
         data.version = 9;
       }
+      if (data.version < 10) {
+        if (!this._isMeta(data) && data.homeOwned == null) {
+          /* 老档保留已经使用过的居所，新降世明确从 false 开始。 */
+          data.homeOwned = true;
+        }
+        data.version = 10;
+      }
       return data;
     },
 
-    hasMeta: function () { return !!localStorage.getItem(K_META); },
-    hasCurrent: function () { return !!localStorage.getItem(K_SAVE); },
+    hasMeta: function () { return !!this._read(this._slotKey(K_META)); },
+    hasCurrent: function () { return !!this._read(this._slotKey(K_SAVE)); },
 
     /* ===== 设备 / 浏览器标识（v0.8.0）=====
        用途：同一台机器上可能有多个存档（不同浏览器 / 清过缓存 / 换机），

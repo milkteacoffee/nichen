@@ -314,16 +314,13 @@ step(() => {
 }, 'vessel.check');
 note('山神庙得逆命珠');
 
-/* ---- 沈家小院 → 走到逆命珠前 → 珠内空间梦境点化（m0-3 → m0-4） ---- */
+/* ---- 无洞府：从公共面板使用随身珠（m0-3 → m0-4），不购房、不改主线奖励 ---- */
 step(() => G.game.changeScene('town'), 'town3');
 pump(6);
-step(() => interactWith('door', 'home'), 'home.open');
 step(() => {
-  if (G.game.sceneName !== 'town_home') {
-    errors.push('小院门应走进室内地图 town_home，实为 ' + G.game.sceneName);
-    return;
-  }
-  interactWith('furn', 'vessel');                          /* 珠就供在屋里 */
+  if (G.Player.hasHome(G.game.save)) errors.push('新世不应自动拥有洞府');
+  G.Overlays.openPanel(G.game.scene, 'cave');
+  clickBtn(/随身逆命珠/, '随身逆命珠');
 }, 'cult.open');
 pump(6);
 step(() => {

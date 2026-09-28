@@ -804,18 +804,11 @@
     scene.setOverlay('apothecary', btns);
   }
 
-  hooks.renderOverlay = function (x, scene) {
+  /* 珠内剧情是随身入口，不以洞府所有权为前置。公共路由负责在所有探索图绘制。 */
+  G.Overlays.renderVessel = function (x, scene) {
     var save = G.game.save;
-    if (G.Overlays.route(x, scene)) return;
-    /* 抉择卡：版式与 dialog 同源，只是底部留给竖排选项按钮（选项由 openChoice1 建） */
-    if (scene.overlay === 'choice1') {
-      G.Overlays.choice(x, DIALOGS.choice1);
-      return;
-    }
-    /* 对话类覆盖层统一走 dialog（立绘 + 名牌 + 折行台词） */
-    var d = DIALOGS[scene.overlay];
-    if (d) {
-      G.Overlays.dialog(x, typeof d === 'function' ? d(save) : d);
+    if (scene.overlay === 'dream') {
+      G.Overlays.dialog(x, DIALOGS.dream(save));
       return;
     }
     if (scene.overlay === 'cult') {
@@ -842,7 +835,22 @@
             G.Data.elem.color[sd.elem] || G.UI.C.textDim);
         }
       });
-    } else if (scene.overlay === 'market' || scene.overlay === 'apothecary') {
+    }
+  };
+
+  hooks.renderOverlay = function (x, scene) {
+    var save = G.game.save;
+    if (G.Overlays.route(x, scene)) return;
+    if (scene.overlay === 'choice1') {
+      G.Overlays.choice(x, DIALOGS.choice1);
+      return;
+    }
+    var d = DIALOGS[scene.overlay];
+    if (d) {
+      G.Overlays.dialog(x, typeof d === 'function' ? d(save) : d);
+      return;
+    }
+    if (scene.overlay === 'market' || scene.overlay === 'apothecary') {
       /* 两家店**共用一套渲染**（只有标题与货单不同）—— 见 openApothecary 的注释。 */
       var isApo = scene.overlay === 'apothecary';
       G.Overlays.dim(x);
@@ -912,6 +920,8 @@
     }
     openCult(scene);
   }
+
+  G.Overlays.openVessel = useVessel;
 
   G.scenes.town_home = makeInterior('town_home', {
     rest: restOnBed,

@@ -84,12 +84,7 @@
 
   /* 资源数值压缩：超过一万用「万」。
      资源格只有 62px 宽，五行灵石中后期是五位数，不压缩就会顶到图标上。 */
-  function num(n) {
-    n = Math.floor(n || 0);
-    if (n < 10000) return String(n);
-    var v = n / 10000;
-    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + '万';
-  }
+  function num(n) { return G.Player.formatCount(n); }
 
   function create(mapId, hooks) {
     hooks = hooks || {};
@@ -380,6 +375,11 @@
 
       _transition: function (e) {
         var save = G.game.save;
+        if (e.to === 'town_home' && !G.Player.hasHome(save)) {
+          G.game.toast('尚未取得洞府，可在「洞府」页租用');
+          G.Overlays.openPanel(this, 'cave');
+          return;
+        }
         /* spawn 缺省兜底：`enter` 对 save.pos === null 会退回地图默认出生点。
            没有这行时，任何"只给 to 不给 spawn"的调用都会在 e.spawn.x 上抛异常 ——
            而它多半发生在 update 的帧回调里（血夜红雾淡完那一刻），
@@ -1697,30 +1697,29 @@
         G.UI.textOut(x, { x: 52 + nameW + 8, y: 7.5 }, '第 ' + save.life + ' 世',
           10.5, G.UI.C.textDim);
 
-        /* --- 气血 --- */
-        var ratio = st.maxhp ? save.hp / st.maxhp : 0;
+        /* 气血/灵气上下排列，条内只画百分比；纪年独立放在右上。 */
+        var ratio = Math.max(0, Math.min(1, st.maxhp ? save.hp / st.maxhp : 0));
         var low = ratio <= 0.3;
-        G.UI.text(x, { x: 52, y: 21 }, '气血', 10.5, G.UI.C.textDim);
-        G.UI.bar(x, { x: 80, y: 22, w: 84, h: 8 }, ratio, low ? '#e2605a' : G.UI.C.hp);
-        /* --- 纪年（v0.61.0）---
-           世界时钟的**常驻可见读数**：用户第 3 点问"游戏内时间与现实的比例怎么做的"，
-           答在闭关页里、**证在 HUD 上** —— 这一行一直在走，就是「现实 1 天 = 游戏 365 天」。
-           放在第二行气血条右侧（第一行右侧被四格资源与设置占满）。 */
-        if (G.Time) {
-          G.UI.text(x, { x: 172, y: 21 }, G.Time.label(save), 9.5, G.UI.C.jadeHi);
-        }
-        if (low) {                       /* 濒死：条外一圈脉动红晕 */
+        var qiNeed = G.Player.needQi(save);
+        var qiRatio = Math.max(0, Math.min(1, qiNeed > 0 ? (save.qi || 0) / qiNeed : 1));
+        G.UI.text(x, { x: 52, y: 20 }, '气血', 9.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: 80, y: 20, w: 132, h: 11 }, ratio, low ? '#e2605a' : G.UI.C.hp);
+        G.UI.textOut(x, { x: 146, y: 20.5 }, Math.round(ratio * 100) + '%', 9.5, '#ffffff', 'center');
+        G.UI.text(x, { x: 52, y: 34 }, '灵气', 9.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: 80, y: 34, w: 132, h: 11 }, qiRatio, G.UI.C.jadeHi);
+        G.UI.textOut(x, { x: 146, y: 34.5 }, Math.round(qiRatio * 100) + '%', 9.5, '#ffffff', 'center');
+        if (G.Time) G.UI.text(x, { x: 244, y: 8 }, G.Time.label(save), 9.5, G.UI.C.jadeHi);
+        if (!self.overlay) G.UI.hover({ x: 80, y: 34, w: 132, h: 11 }, {
+          title: bs.ready ? '灵气已足 · 可尝试突破' : '灵气修炼进度',
+          text: '当前 ' + num(save.qi) + ' / 所需 ' + num(qiNeed) + '。突破还需满足境界条件。'
+        });
+        if (low) {
           x.save();
           x.globalAlpha = 0.30 + 0.30 * Math.sin(t / 220);
-          G.UI.rr(x, { x: 78.5, y: 20.5, w: 87, h: 11 }, 3);
+          G.UI.rr(x, { x: 78.5, y: 18.5, w: 135, h: 14 }, 3);
           x.strokeStyle = '#ff8a80'; x.lineWidth = 1.2; x.stroke();
           x.restore();
         }
-        G.UI.textOut(x, { x: 170, y: 21 }, Math.round(save.hp) + ' / ' + st.maxhp, 10.5,
-          low ? '#ff9a92' : G.UI.C.text);
-
-        /* v0.60.0 移除顶部「灵气」进度条 —— 灵气=修炼经验，右侧资源芯片已显示同值，
-           重复展示（用户第 6 点）。"可突破"并入右侧灵气芯片：就绪时该芯片金边脉动。 */
 
         /* --- 右：资源（四格等宽，图标 + 右对齐数值）---
            背板要够暗：顶栏渐变到这一行已经快透明了，格子底压不住的话
@@ -1743,7 +1742,7 @@
             text: '功法精进所用的修为。在功法面板「精进」消耗，部分秘术也要花它。'
           }],
           ['crystal', G.Player.xianliLive(save), '#d8c0f0', {
-            title: '仙晶',
+            title: '仙力（本世待结算）',
             text: '本世累积的仙力：境界 + 功法 + 击杀首领（每个 +30）+ 年岁。\n'
               + '身故结算后可在轮回殿灌输仙躯，永久增益下一世。'
           }]

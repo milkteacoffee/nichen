@@ -2981,11 +2981,11 @@ step(function () {
   if (!B.canRide(mk('b_huangzongma','adult'))) errors.push('成年坐骑应可骑');
   if (B.canRide(mk('b_chiyanlang','adult'))) errors.push('战种不应可骑');
   const mig = G.Storage._migrate({ version: 6, cult: 'free', skills: {} });
-  if (mig.version !== 9 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
+  if (mig.version !== 10 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
     errors.push('v6→v7 存档迁移缺灵兽字段');
   }
   const migM = G.Storage._migrate({ version: 6, xianli: 0 });
-  if (migM.version !== 9 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
+  if (migM.version !== 10 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
 }, 'beasts.data.contract');
 
 /* ---------- 灵兽管理器契约（v0.44.0，B2，《灵兽 v1.1》） ----------
@@ -8692,7 +8692,7 @@ pump(4, 'danger.warn.leave');
   var meta = G.Storage._migrate({ version: 7, xianli: 0,
     perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
     past: [], heaven: { memory: [] } });
-  if (meta.version !== 9) e2.push('迁移后版本应为 9');
+  if (meta.version !== 10) e2.push('迁移后版本应为 10');
   if (!meta.memory || !meta.bonds || !meta.progress.story) e2.push('剧情结构未补齐');
   var r1 = G.Story.sealLife(meta, {}, 1);
   var sealedFan = Object.keys(meta.memory.fragments).length;
@@ -8715,6 +8715,214 @@ pump(4, 'danger.warn.leave');
   if (e2.length) e2.forEach(function (x) { errors.push('剧情记忆：' + x); });
   else console.log('  ✓ 轮回记忆：旧档迁移/死亡封印/境界忆起/图鉴/结局 闭环');
 })();
+
+/* v0.66 开局返工：隔离本地存储桩，行为断言不读取玩家真实浏览器存档。 */
+step(function () {
+  const before = { ls: sandbox.localStorage, save: G.game.save, meta: G.game.meta,
+    scene: G.game.scene, sceneName: G.game.sceneName, changeScene: G.game.changeScene };
+  const birth = G.scenes.reincarnation;
+  const birthState = { step: birth.step, linggen: birth.linggen, talentCards: birth.talentCards,
+    buttons: birth.buttons, finished: birth._finished };
+  function check(ok, msg) { if (!ok) throw new Error(msg); }
+  function reset() {
+    const data = {};
+    sandbox.localStorage = { getItem: k => data[k] || null,
+      setItem: (k, v) => { data[k] = String(v); }, removeItem: k => { delete data[k]; } };
+  }
+  function slotsCheck() {
+    reset();
+    for (let i = 1; i <= 3; i++) {
+      G.Storage.selectSlot(i);
+      G.Storage.saveMeta({ past: [], xianli: i * 100 });
+      G.Storage.saveCurrent({ life: i, stone: i * 10, globalLevel: 1, age: 16 });
+      G.Storage.saveCurrent({ life: i, stone: i * 10 + 1, globalLevel: 1, age: 16 });
+    }
+    check(JSON.parse(sandbox.localStorage.getItem('nichen_save')).stone === 11, '槽一未沿用旧键或被其它槽覆盖');
+    for (let i = 1; i <= 3; i++) {
+      G.Storage.selectSlot(i);
+      check(G.Storage.loadCurrent().stone === i * 10 + 1, '当世串档：槽' + i);
+      check(G.Storage.loadMeta().xianli === i * 100, '轮回记录串档：槽' + i);
+      const key = G.Storage._slotKey('nichen_save');
+      check(JSON.parse(sandbox.localStorage.getItem(key + '_bak')).stone === i * 10, '备份串档：槽' + i);
+    }
+    check(G.Storage.listSlots().length === 3, '不是三个存档槽');
+    G.Storage.selectSlot(2);
+    sandbox.localStorage.setItem('nichen_save_slot2', '{bad json');
+    check(G.Storage.loadCurrent().stone === 20, '槽二未从自己的备份恢复');
+    G.Storage.clearCurrent();
+    check(!G.Storage.hasCurrent(), '清除当世未清备份');
+    check(G.Storage.hasMeta(), '清除当世误删轮回记录');
+    G.Storage.selectSlot(1); check(G.Storage.loadCurrent().stone === 11, '清槽二影响槽一');
+    G.Storage.selectSlot(3); check(G.Storage.loadCurrent().stone === 31, '清槽二影响槽三');
+    [0, 4, -1, 1.5, '2', NaN].forEach(function (n) {
+      let refused = false;
+      try { G.Storage.selectSlot(n); } catch (e) { refused = true; }
+      check(refused && G.Storage.activeSlot() === 3, '无效槽位未拒绝：' + n);
+    });
+  }
+  function birthCheck() {
+    reset(); G.Storage.selectSlot(1); G.game.meta = null;
+    birth.enter();
+    check(birth.step === 'linggen', '降世仍从身份选择开始');
+    check(birth.talentCards.length === 1, '每世不是一种天赋');
+    const draft = JSON.stringify(G.game.meta.pendingBirth);
+    const root = JSON.stringify(birth.linggen), talent = birth.talentCards[0].id;
+    birth.rollLinggen(); birth.drawTalents(); birth.enter();
+    G.game.meta = G.Storage.loadMeta(); birth.enter();
+    check(JSON.stringify(G.game.meta.pendingBirth) === draft, '返回或重载会重抽降世');
+    check(JSON.stringify(birth.linggen) === root && birth.talentCards[0].id === talent, '锁定结果未恢复');
+    birth.step = 'talent'; birth._buildButtons();
+    check(!birth.buttons.some(b => /重随|重抽|身份/.test(b.label)), '仍有重抽或身份按钮');
+    G.game.changeScene = function () {};
+    birth.finish();
+    check(G.game.save.homeOwned === false, '新降世白送洞府');
+    check(G.game.save.talents.length === 1 && G.game.save.origin === null, '新档仍多天赋或有身份');
+    const first = G.game.save;
+    birth.finish(); check(G.game.save === first, '重复入世覆盖了存档');
+    G.game.meta.past.push({ life: 1 }); birth.enter();
+    check(G.game.meta.pendingBirth.life === 2, '下世未创建新的降世草稿');
+    /* 后一世允许偶然相同灵根，不用“结果必须不同”这种概率假红。 */
+  }
+  function homeCheck() {
+    reset(); G.Storage.selectSlot(1);
+    const s = { homeOwned: false, stone: G.Player.HOME_PRICE - 1, age: 16, globalLevel: 1 };
+    check(!G.Player.acquireHome(s).ok && !G.Player.hasHome(s), '无钱也能取得洞府');
+    s.stone = G.Player.HOME_PRICE + 17;
+    check(G.Player.acquireHome(s).ok && G.Player.hasHome(s) && s.stone === 17, '租洞府未正确扣款/授予');
+    check(!G.Player.acquireHome(s).ok && s.stone === 17, '重复租洞府再次扣款');
+    check(G.Storage.loadCurrent().homeOwned === true, '洞府所有权未落盘');
+    const old = G.Storage._migrate({ version: 9, stone: 12 });
+    check(old.homeOwned === true && old.version === 10 && old.stone === 12, '旧档洞府迁移损失');
+    const fresh = G.Storage._migrate({ version: 9, homeOwned: false });
+    check(fresh.homeOwned === false, '迁移把无洞府变成有洞府');
+  }
+  function counterexample(obj, key, replacement, verify, label) {
+    const real = obj[key]; let rejected = false;
+    try { obj[key] = replacement; verify(); } catch (e) { rejected = true; }
+    finally { obj[key] = real; }
+    check(rejected, '反例没有被契约抓住：' + label);
+    console.log('  ✓ 反例命中：' + label);
+  }
+  try {
+    slotsCheck(); birthCheck(); homeCheck();
+    if (process.argv.includes('--counterexamples')) {
+      counterexample(G.Storage, '_slotKey', function (key) { return key; }, slotsCheck, '所有存档写同一键');
+      const draw = birth.drawTalents;
+      counterexample(birth, 'drawTalents', function () { draw.call(this); this.talentCards.push(this.talentCards[0]); }, birthCheck, '降世发两个天赋');
+      counterexample(G.Player, 'acquireHome', function (s) { s.homeOwned = true; return { ok: true }; }, homeCheck, '洞府不检查余额');
+    }
+    console.log('  ✓ 三存档：当世/轮回/备份隔离；降世锁灵根单天赋；洞府扣款与旧档迁移');
+  } finally {
+    sandbox.localStorage = before.ls; G.game.save = before.save; G.game.meta = before.meta;
+    G.game.scene = before.scene; G.game.sceneName = before.sceneName; G.game.changeScene = before.changeScene;
+    birth.step = birthState.step; birth.linggen = birthState.linggen;
+    birth.talentCards = birthState.talentCards; birth.buttons = birthState.buttons; birth._finished = birthState.finished;
+  }
+}, 'birth.slots.home.contract');
+
+step(function () {
+  function check(ok, msg) { if (!ok) throw new Error(msg); }
+  [[0, '0'], [9999, '9999'], [10000, '10.0K'], [99999, '100.0K'], [100000, '10.0W']].forEach(function (c) {
+    check(G.Player.formatCount(c[0]) === c[1], 'K/W边界错误：' + c[0]);
+  });
+  const realSave = G.game.save, realMeta = G.game.meta, realHover = G.UI.hover;
+  const oldOverlay = G.scenes.town.overlay;
+  const s = JSON.parse(JSON.stringify(save));
+  try {
+    G.game.save = s; G.game.meta = { past: [], perfusion: {}, progress: G.Storage.defaultProgress() };
+    G.scenes.town.overlay = null;
+    s.hp = G.Player.computeStats(s).maxhp; s.qi = G.Player.needQi(s);
+    const ctx = textSpyXY(); G.scenes.town._drawHUD(ctx);
+    const percents = ctx.__seenXY.filter(t => t.s === '100%');
+    check(percents.length === 2 && percents[0].y < percents[1].y, 'HUD没有上下两条100%');
+    check(!ctx.__seenXY.some(t => /^\d+ \/ \d+$/.test(t.s)), 'HUD仍显示气血绝对数值');
+    const date = ctx.__seenXY.find(t => /太初/.test(t.s));
+    check(date && date.x >= 240 && date.y < 20, '纪年仍与气血位置冲突');
+    const tips = [];
+    G.UI.hover = function (box, info) { tips.push({ box, info }); };
+    G.Overlays.charLinggen(makeCtx(), s);
+    check(tips.filter(t => /灵根/.test(t.info.title)).length === 9, '灵根九格没有全部挂说明');
+    const mats = {};
+    (G.Data.alchemy || []).concat(G.Data.forge || []).forEach(function (r) {
+      Object.keys(r.mats).forEach(k => { mats[k] = 1; });
+    });
+    ['药渣', '灵食', '木囊', '玄囊', '宝囊', '血精', '道纹残片', '引灵符'].forEach(k => { mats[k] = 1; });
+    Object.keys(mats).forEach(function (k) {
+      const d = G.Overlays.itemDescription(k);
+      check(d && d.length > 8 && d !== '—', '材料缺说明：' + k);
+    });
+    s.items = { '灵泉水': 1, '血精': 2, '木囊': 3 };
+    tips.length = 0;
+    G.Overlays.renderPanel(makeCtx(), { overlay: 'bag', bagTab: 'misc' });
+    check(tips.length === 3 && tips.every(t => t.info.text.length > 8), '背包实际渲染未挂材料提示');
+    G.Data.talents.forEach(function (t) {
+      check(G.Data.talentDetail(t).text.length > 35, '天赋缺详细说明：' + t.id);
+    });
+    console.log('  ✓ 界面：HUD双百分比/纪年分离、九灵根悬浮、材料用途、99项天赋详情、K/W边界');
+  } finally {
+    G.game.save = realSave; G.game.meta = realMeta; G.UI.hover = realHover; G.scenes.town.overlay = oldOverlay;
+  }
+}, 'birth.ui.details.contract');
+
+step(function () {
+  const old = { ls: sandbox.localStorage, save: G.game.save, meta: G.game.meta,
+    scene: G.game.scene, sceneName: G.game.sceneName, change: G.game.changeScene };
+  const sc = G.scenes.field, hall = G.scenes.hall;
+  const oldSc = { overlay: sc.overlay, buttons: sc.buttons, panelOpenAt: sc.panelOpenAt };
+  const oldHall = hall.buttons;
+  function check(ok, msg) { if (!ok) throw new Error(msg); }
+  function verify() {
+    const data = {};
+    sandbox.localStorage = { getItem: k => data[k] || null,
+      setItem: (k, v) => { data[k] = String(v); }, removeItem: k => { delete data[k]; } };
+    const s = JSON.parse(JSON.stringify(save));
+    s.homeOwned = false; s.quest = { step: 'm0-3', flags: {} }; s.scene = 'field'; s.map = 'field';
+    G.game.meta = { past: [], xianli: 0, perfusion: {}, progress: G.Storage.defaultProgress() };
+    G.game.save = s; G.game.scene = sc; G.game.sceneName = 'field';
+    G.Storage.saveMeta(G.game.meta); G.Storage.saveCurrent(s);
+    let go = null;
+    G.game.changeScene = function (name) { go = name; };
+    sc._transition({ to: 'town_home', spawn: { x: 14, y: 9 } });
+    check(!go && sc.overlay === 'cave' && s.map === 'field', '未租洞府仍可由门进入');
+    const btn = sc.buttons.find(b => b.label === '随身逆命珠');
+    check(btn && !btn.disabled, '无洞府时缺少随身剧情入口');
+    const beforeQi = s.qi, beforeStone = s.stone;
+    btn.onClick();
+    check(s.quest.step === 'm0-4' && sc.overlay === 'dream', '无洞府主线没有推进');
+    check(s.homeOwned === false && s.stone === beforeStone, '随身剧情赠房或扣了租金');
+    const ctx = textSpyXY();
+    check(G.Overlays.route(ctx, sc) === true && ctx.__seenXY.length > 0, '野外随身剧情缺少绘制路由');
+    G.Overlays.openVessel(sc);
+    check(s.qi === beforeQi + 2500 && sc.overlay === 'cult', '重复点化再次发奖励');
+    G.Storage.saveCurrent(s);
+    hall.buttons = []; hall._buildFooter();
+    const aliveBtn = hall.buttons.find(b => b.label === '返回当世');
+    check(aliveBtn, '轮回殿仍可覆盖存活当世');
+    aliveBtn.onClick();
+    check(go === 'field' && G.game.save.homeOwned === false, '轮回殿没有回到本槽当世');
+    G.Storage.clearCurrent(); hall.buttons = []; hall._buildFooter();
+    const deadBtn = hall.buttons.find(b => b.label === '转世重修');
+    check(deadBtn, '当世结束后缺少转世入口');
+    deadBtn.onClick(); check(go === 'reincarnation', '空当世没有进入降世');
+  }
+  try {
+    verify();
+    if (process.argv.includes('--counterexamples')) {
+      const real = G.Overlays.renderVessel; let caught = false;
+      try { G.Overlays.renderVessel = function () {}; verify(); }
+      catch (e) { caught = /缺少绘制路由/.test(e.message); }
+      finally { G.Overlays.renderVessel = real; }
+      check(caught, '随身剧情空白反例未命中');
+      console.log('  ✓ 反例命中：随身剧情只有按钮、不画内容');
+    }
+    console.log('  ✓ 无洞府主线：门禁/野外可点化/重复不领奖/轮回殿不覆盖存活档');
+  } finally {
+    sandbox.localStorage = old.ls; G.game.save = old.save; G.game.meta = old.meta;
+    G.game.scene = old.scene; G.game.sceneName = old.sceneName; G.game.changeScene = old.change;
+    sc.overlay = oldSc.overlay; sc.buttons = oldSc.buttons; sc.panelOpenAt = oldSc.panelOpenAt;
+    hall.buttons = oldHall;
+  }
+}, 'birth.navigation.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

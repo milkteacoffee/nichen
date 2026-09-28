@@ -5,7 +5,7 @@
     bg: null, mist: [], petals: [], t: 0, about: false, ach: false,
 
     enter: function () {
-      this.about = false;
+      this.about = false; this.slots = false;
       this._buildMenu();
 
       /* 后台预热当前世界的地面纹理，避免首次进镇/进洞时的烘焙顿挫 */
@@ -37,7 +37,7 @@
     _buildMenu: function () {
       var self = this;
       /* 回到主菜单就收起成就页（`enter` 与「关闭」都走这里，一处收口） */
-      this.ach = false;
+      this.ach = false; this.slots = false;
       this.buttons = [];
       var hasSave = G.Storage.hasCurrent(), hasMeta = G.Storage.hasMeta();
       /* 题牌列在**左侧**：右侧竖排标题 + 朱印要占掉 x≈350..470 一整条。 */
@@ -51,6 +51,7 @@
         y += h + gap;
       }
       if (hasSave) add('继续当世', 'frost', function () {
+        G.game.meta = G.Storage.loadMeta();
         G.game.save = G.Storage.loadCurrent();
         /* v0.61.0：补时钟字段 + **结算离线打坐**（用户第 4 点）—— 必须在这里，
            因为它要读"上次离开到现在的现实时长"，晚了就被 lastSeen 覆盖成 0。 */
@@ -60,10 +61,11 @@
       });
       /* 主操作走 `frostGold`（云雾玉牌·金）：云海底上不该出现 default 的墨玉渐变块 ——
          那是 HUD 体系的材质，压在云海背景上会读成"贴上去的补丁"。 */
-      add(hasMeta ? '转世重修' : '新游戏', 'frostGold', function () {
-        G.game.changeScene(hasMeta ? 'reincarnation' : 'difficulty');
+      add('存档 · 三个槽位', 'frostGold', function () { self._openSlots(); });
+      if (hasMeta) add('轮回殿', 'frost', function () {
+        G.game.meta = G.Storage.loadMeta();
+        G.game.changeScene('hall');
       });
-      if (hasMeta) add('轮回殿', 'frost', function () { G.game.changeScene('hall'); });
       /* 成就移出游戏内（v0.15.0，用户口径"放到游戏外面的新建游戏界面"）：
          它与**设备绑定、跨世只发一次**，属于账号级信息，放在开局界面最合适。
          无 meta 时也能进（看空列表 + 设备标识），不必先有存档。 */
@@ -76,6 +78,45 @@
       }));
 
       if (!this.bg) this._buildBackground();
+    },
+
+    _openSlots: function () {
+      var self = this;
+      this.slots = true; this.ach = false; this.about = false;
+      this.slotRows = G.Storage.listSlots();
+      this.buttons = [];
+      this.slotRows.forEach(function (row, i) {
+        self.buttons.push(new G.UI.Btn({ x: 346, y: 68 + i * 48, w: 80, h: 25,
+          small: true, variant: 'gold',
+          label: row.current ? '读取' : (row.occupied ? '续轮回' : '新建'),
+          onClick: function () {
+            /* 存档与跨世记录必须成对切换，禁止用另一槽的仙力/进度。 */
+            G.Storage.selectSlot(row.slot);
+            G.game.meta = G.Storage.loadMeta();
+            G.game.save = G.Storage.loadCurrent();
+            if (G.game.save) {
+              G.game.resumeWorld();
+              G.game.changeScene(G.game.save.scene || 'town');
+              G.game.toast('已读取存档 ' + row.slot);
+            } else {
+              G.game.changeScene(G.game.meta ? 'reincarnation' : 'difficulty');
+            }
+          } }));
+      });
+      this.buttons.push(new G.UI.Btn({ x: 190, y: 224, w: 100, h: 24,
+        small: true, variant: 'ghost', label: '返回', onClick: function () { self._buildMenu(); } }));
+    },
+
+    _renderSlots: function (x) {
+      G.UI.frame(x, { x: 30, y: 22, w: 420, h: 230 }, '存 档', { tex: true });
+      G.UI.text(x, { x: 54, y: 46 }, '最多三个独立历程 · 新建只使用空槽，不覆盖旧档', 11, G.UI.C.textDim);
+      this.slotRows.forEach(function (row, i) {
+        var y = 67 + i * 48;
+        G.UI.text(x, { x: 54, y: y }, '存档 ' + row.slot + (row.occupied ? ' · 第 ' + row.life + ' 世' : ' · 空'), 13, G.UI.C.goldHi);
+        var detail = row.current ? row.realm + ' · ' + (row.age || 16) + ' 岁'
+          : (row.occupied ? '当世已结束，保留轮回记录' : '从一个全新的修行历程开始');
+        G.UI.text(x, { x: 54, y: y + 20 }, detail, 11, G.UI.C.textDim);
+      });
     },
 
     _openAch: function () {
@@ -333,6 +374,7 @@
 
       if (this.ach) this._renderAch(x);
       if (this.about) this._renderAbout(x);
+      if (this.slots) this._renderSlots(x);
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
     },
 

@@ -269,7 +269,15 @@
       }));
       this.buttons.push(new G.UI.Btn({
         x: 366, y: 232, w: 98, h: 26, small: true, variant: 'gold',
-        label: '转世重修', onClick: function () { G.game.changeScene('reincarnation'); }
+        label: G.Storage.hasCurrent() ? '返回当世' : '转世重修', onClick: function () {
+          /* 标题可进轮回殿查看记录，但不能绕过三槽保护覆盖尚存活的一世。 */
+          if (G.Storage.hasCurrent()) {
+            G.game.meta = G.Storage.loadMeta();
+            G.game.save = G.Storage.loadCurrent();
+            G.game.resumeWorld();
+            G.game.changeScene(G.game.save.scene || 'town');
+          } else G.game.changeScene('reincarnation');
+        }
       }));
     },
 

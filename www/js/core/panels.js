@@ -69,8 +69,49 @@
     '灵液': '乳白灵液，草木精华所凝，炼丹辅料。',
     '符纸': '黄纸符纸，未书之符，画符必备。',
     '朱砂': '朱砂，书符点睛之用，亦可入丹。',
-    '灵木': '深褐灵木，年久成材，炼器与阵法皆宜。'
+    '灵木': '深褐灵木。当前暂无消耗配方，可留作材料收藏。',
+    '灵泉水': '炼丹辅料，用于回春丹、解毒丹、聚气散等；在丹房选配方时消耗。',
+    '百年灵芝': '筑基丹和结丹丹的主药，在丹房炼制破境丹时消耗。',
+    '玄铁': '多种法宝的主料，在炼器页按配方消耗。',
+    '精钢': '青锋剑、寒月刃的炼器材料。',
+    '灵玉': '炼丹及炼器材料，用于结丹丹、解封符和护身法宝等。',
+    '妖骨': '炼器材料，用于寒月刃。',
+    '灵羽': '炼器材料，用于疾风靴与聚灵玉佩。',
+    '道纹草': '道界材料，用于道纹丹及道纹法宝。',
+    '道纹矿': '道界矿料，用于道纹丹及道纹法宝。',
+    '铁木': '采集或购买取得的木料。当前暂无消耗配方，可暂存。',
+    '血精': '血煞类敌人掉落的特殊材料。当前暂无消耗配方，可暂存。',
+    '道纹残片': '道界试炼掉落的残片。当前暂无消耗配方，可暂存。',
+    '药渣': '在灵兽页喂养：修为 +14、亲密 +1，每次消耗一份。',
+    '灵食': '在灵兽页喂养：修为 +30、亲密 +2，每次消耗一份。',
+    '木囊': '战斗中选择道具捕捉可收服妖兽，捕捉系数 1.0；先压低其气血。',
+    '玄囊': '战斗捕兽用品，捕捉系数 1.5；不能捕捉首领。',
+    '宝囊': '战斗捕兽用品，捕捉系数 2.0；不能捕捉首领。',
+    '灵草': '部分灵兽的进化材料，在灵兽页满足进化条件后消耗。',
+    '饲灵草料': '特定灵兽的进化材料，在灵兽页满足进化条件后消耗。',
+    '引灵符': '沈伯所赠的任务凭证，用于开启翠微山秘境裂隙。',
+    '结丹丹': '筑基圆满冲击金丹时使用的破境丹。',
+    '道纹丹': '战斗内回复六成气血，在战斗道具菜单使用。',
+    '伤药': '旧版遗留道具，当前没有使用入口；保留在储物中。',
+    '灵石': '通用货币；持有余额在资产页查看，物品栏中的旧记录不重复折算。'
   };
+  function itemDescription(name) {
+    var uses = [];
+    (G.Data.alchemy || []).forEach(function (r) {
+      if (r.mats[name]) uses.push('炼制' + r.n + '需 ' + r.mats[name] + ' 份');
+    });
+    (G.Data.forge || []).forEach(function (r) {
+      if (r.mats[name]) uses.push('炼制' + G.Forge.outName(r) + '需 ' + r.mats[name] + ' 份');
+    });
+    if (uses.length) return '用途：' + uses.join('；') + '。在相应技艺页按配方消耗。';
+    var evo = [];
+    if (G.Data.beasts) {
+      var beasts = G.Data.beasts.list || [];
+      beasts.forEach(function (b) { if (b.chain && b.chain.item === name) evo.push(b.n); });
+    }
+    if (evo.length) return '灵兽进化材料：' + evo.join('、') + '；在灵兽页满足进化条件后消耗。';
+    return ITEM_D[name] || '当前没有可用的消耗入口或配方，请保留；不会因点击而消失。';
+  }
   /* 可在面板里直接使用的道具（战斗外的即时收益） */
   var ITEM_USE = {
     '回春丹': { heal: 0.40 }, '大还丹': { heal: 0.75 }, '聚气散': { qi: 500 }
@@ -120,8 +161,8 @@
       g2: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' } },
     'm0-2': { t: '雪夜山神庙', d: '入翠微山破庙，取回那件东西', f: 'templeDone', fd: '已得逆命珠',
       g: { map: 'field_temple', x: 15, y: 6, who: '山神庙 · 神台' } },
-    'm0-3': { t: '珠内点化', d: '入逆命珠内空间打坐，消化机缘', f: 'dream', fd: '已受点化',
-      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（洞府）' } },
+    'm0-3': { t: '珠内点化', d: '底栏洞府页点击随身逆命珠，入定消化机缘；无需洞府', f: 'dream', fd: '已受点化',
+      g: null },
     'm0-4': { t: '破境备丹', d: '修至淬体九段，回镇向沈伯取淬体突破丹', f: 'gotBreakPill', fd: '已得丹',
       g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' },
       subs: [{ t: '修至淬体九段' }, { t: '取淬体突破丹', f: 'gotBreakPill' }] },
@@ -144,8 +185,8 @@
       g: { map: 'town_shop', x: 13, y: 6, who: '沈伯（药铺）' },
       g2: { map: 'bloodhall', x: 15, y: 6, who: '血煞外堂 · 血面' },
       subs: [{ t: '入夜 · 血煞外堂' }, { t: '斩执事血面', f: 'bloodNight' }] },
-    'm1-6': { t: '筑基心魔劫', d: '血夜后回小院，在逆命珠前服丹筑基', f: 'based', fd: '已筑基',
-      g: { map: 'town_home', x: 14, y: 5, who: '逆命珠（洞府）' } },
+    'm1-6': { t: '筑基心魔劫', d: '血夜后于角色境界页或随身逆命珠前服丹筑基，无需洞府', f: 'based', fd: '已筑基',
+      g: null },
     'm1-7': { t: '离乡', d: '与刘掌柜道别，往云州城去', f: 'leaveTown', fd: '已辞乡',
       g: { map: 'town_market', x: 8, y: 5, who: '刘掌柜（刘记杂货）' } },
     'm1done': { t: '云州在望', d: 'M1 已了，可继续历练、刷秘境、寻界门飞升', f: null, fd: '', g: null },
@@ -1141,12 +1182,7 @@
 
   /* 总身家（下品灵石计）的紧凑显示：过万走「万」，过亿走「亿」。
      用户第 11 点要求"灵石改称资产"，而资产是**四币合计**，所以必须有个折算口径。 */
-  function fmtWorth(v) {
-    v = Math.max(0, Math.floor(v || 0));
-    if (v >= 1e8) return (v / 1e8).toFixed(2).replace(/\.?0+$/, '') + ' 亿';
-    if (v >= 1e4) return (v / 1e4).toFixed(2).replace(/\.?0+$/, '') + ' 万';
-    return String(v);
-  }
+  function fmtWorth(v) { return G.Player.formatCount(v); }
 
   /* 逐类取格子：{ n 名称, c 数量/等级, d 悬浮说明, use 可使用则填道具名 } */
   function bagCells(tab, save) {
@@ -1156,7 +1192,7 @@
         if (!(save.items[k] > 0)) return;
         /* 法宝（eq_ 前缀）归「法宝」页陈列，不混在杂项里 */
         if (G.Data.equips && G.Data.equips.byId(k)) return;
-        out.push({ n: k, c: '×' + save.items[k], d: ITEM_D[k] || '—',
+        out.push({ n: k, c: '×' + G.Player.formatCount(save.items[k]), d: itemDescription(k),
           use: ITEM_USE[k] ? k : null, icon: ITEM_ICON_ID[k] || null });
       });
     } else if (tab === 'skill') {
@@ -1185,7 +1221,7 @@
         /* 极品在前：玩家的注意力先落在最值钱的那一档 */
         G.Player.GRADES.slice().reverse().forEach(function (gr) {
           out.push({
-            n: gr.n + c.n, c: g[gr.id],
+            n: gr.n + c.n, c: G.Player.formatCount(g[gr.id]) + '个',
             icon: c.icon + '.' + gr.id,
             d: '1 ' + gr.n + c.n + ' = ' + gr.mult + ' 下品' + c.n
               + '　·　' + (c.world === 'fan' ? '凡界通货，通用'
@@ -1405,6 +1441,13 @@
   function drawCave(x, scene) {
     var save = G.game.save, meta = G.game.meta || {};
     shell(x, '洞府', '第 ' + (save.life || 1) + ' 世');
+    if (!G.Player.hasHome(save)) {
+      G.UI.text(x, { x: P.x + 16, y: P.y + 46 }, '本世尚无洞府', 17, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + 16, y: P.y + 78 }, '居所不随转世继承，需以此世所得自行租用。', 12, G.UI.C.text);
+      G.UI.text(x, { x: P.x + 16, y: P.y + 102 }, '租金：300 下品灵石；取得后开放丹房、器坊与阵台。', 11, G.UI.C.textDim);
+      G.UI.text(x, { x: P.x + 16, y: P.y + 126 }, '无洞府亦可就地打坐、寻师或照料随行灵兽。', 11, G.UI.C.textDim);
+      return;
+    }
     G.UI.text(x, { x: P.x + 14, y: P.y + 32 },
       '丹房 · 器坊 · 阵台 · 兽栏', 11, G.UI.C.textDim);
     ARTS.forEach(function (a, i) {
@@ -1426,6 +1469,28 @@
   }
 
   function buildCave(btns, scene) {
+    if (!G.Player.hasHome(G.game.save)) {
+      btns.push(new G.UI.Btn({ x: P.x + 16, y: P.y + 153, w: 175, h: 24, small: true,
+        variant: 'gold', label: '租用洞府 · 300 灵石', disabled: (G.game.save.stone || 0) < G.Player.HOME_PRICE,
+        onClick: function () {
+          var result = G.Player.acquireHome(G.game.save);
+          G.game.toast(result.ok ? '本世洞府已租得' : result.reason);
+          G.Overlays.openPanel(scene, 'cave');
+        } }));
+      var q = G.game.save.quest || {};
+      if (q.step && q.step !== 'm0-1' && q.step !== 'm0-2') {
+        btns.push(new G.UI.Btn({ x: P.x + 200, y: P.y + 153, w: 174, h: 24, small: true,
+          label: '随身逆命珠', onClick: function () { G.Overlays.openVessel(scene); } }));
+      }
+      [{ id: 'meditate', label: '就地打坐' }, { id: 'masters', label: '寻师习艺' },
+        { id: 'beasts', label: '随行灵兽' }].forEach(function (v, i) {
+        btns.push(new G.UI.Btn({ x: P.x + 16 + i * 125, y: P.y + 184, w: 112, h: 22,
+          small: true, label: v.label, onClick: function () {
+            scene._medFrom = 'cave'; G.Overlays.openPanel(scene, v.id);
+          } }));
+      });
+      return;
+    }
     /* 主动轮回（v0.15.0）：**两步确认**（点一次进入待确认，再点一次才真的走）。
        不弹独立对话框 —— 那要新开一条 overlay 管线，而"按钮自变文案"已经够表达意图，
        且失败面为零（第二次点击就是确认，没有第三个状态）。
@@ -3170,6 +3235,7 @@
      契约要能**遍历所有 id** 才能把这类漏注册钉死，所以清单必须出得来。 */
   G.Overlays.PANEL_IDS = Object.keys(IDS);
   G.Overlays.itemIconId = function (name) { return ITEM_ICON_ID[name] || name; };
+  G.Overlays.itemDescription = itemDescription;
   /* 成就页移出游戏内（v0.15.0）：底栏不再有它，改由**开局界面**渲染。
      绘制实现仍留在这里（单一实现），只是换个调用方 —— 不复制一份。 */
   G.Overlays.drawAchieve = drawAchieve;

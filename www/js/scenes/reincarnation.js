@@ -1,18 +1,9 @@
-/* 转世流程：出身选择 → 灵根推演 → 天赋降世 → 直接入世（16 岁） */
+/* 转世：灵根推演 → 单项先天禀赋 → 入世。
+   灵根与天赋存在当前槽 meta.pendingBirth，返回/刷新不重抽。
+   幼年可玩流程与新动画尚待后续实现，当前仍从 16 岁入世。 */
 (function () {
-  /* 出身：只给「百分比加成 + 开局物品/灵石」，不给任何固定值。
-     六维系统已整体删除，角色数值只由 境界 + 功法 + 天赋百分比 + 仙躯 决定 ——
-     出身如果发固定属性，面板上就会多出一份"看不见来源"的数值。 */
-  var origins = [
-    { id: 'farm', n: '农家子弟', fx: { h: .06, f: .04 },
-      d: ['气血 +6%', '防御 +4%'] },
-    { id: 'hunter', n: '猎户之子', fx: { a: .06, s: .04 }, items: { '伤药': 2 },
-      d: ['攻击 +6%', '速度 +4%', '伤药 ×2'] },
-    { id: 'herb', n: '药铺学徒', fx: { qi: .08, br: -.04 }, items: { '回春丹': 2 },
-      d: ['灵气获取 +8%', '突破灵气 -4%', '回春丹 ×2'] },
-    { id: 'merchant', n: '商贾之家', fx: { st: .10 }, stone: 120,
-      d: ['灵石获取 +10%', '灵石 +120'] }
-  ];
+  function has(s, n) { return ((s.items || {})[n] || 0) > 0; }
+  function take(s, n, k) { k = k || 1; s.items[n] = (s.items[n] || 0) - k; if (s.items[n] <= 0) delete s.items[n]; }
 
   var elemInfo = {
     '金': { n: '金', c: '#d8c36a' }, '木': { n: '木', c: '#6fae6f' },
@@ -37,19 +28,32 @@
 
   var scene = {
     smooth: true,
-    step: 'origin',
+    step: 'linggen',
     originSel: -1,
     linggen: null,
     talentCards: [],
-    talentRerollCost: 30,
+    _finished: false,
+
+    _birthDraft: function () {
+      var meta = G.game.meta;
+      var life = ((meta.past || []).length || 0) + 1;
+      if (!meta.pendingBirth || meta.pendingBirth.life !== life) {
+        meta.pendingBirth = { life: life,
+          seed: G.RNG.hash(Date.now() + ':' + Math.random() + ':' + life) };
+        G.Storage.saveMeta(meta);
+      }
+      return meta.pendingBirth;
+    },
 
     enter: function () {
       if (!G.game.meta) {
         G.game.meta = defaultMeta();
         G.Storage.saveMeta(G.game.meta);
       }
-      this.step = 'origin'; this.originSel = -1;
+      this.step = 'linggen'; this._finished = false;
       this.linggen = null; this.talentCards = [];
+      this.rollLinggenOnce();
+      this.drawTalents();
       this._buildButtons();
     },
 
@@ -69,39 +73,26 @@
           small: true, disabled: disabled, onClick: fn }));
       }
 
-      if (this.step === 'origin') {
+      if (this.step === 'linggen') {
         back('返回标题', function () { G.game.changeScene('title'); });
         primary('下一步', function () {
-          self.step = 'linggen';
-          self.rollLinggen();
-          self._buildButtons();
-        }, this.originSel < 0);
-      } else if (this.step === 'linggen') {
-        back('上一步', function () { self.step = 'origin'; self._buildButtons(); });
-        normal(256, '重随灵根', function () { self.rollLinggen(); });
-        primary('锁定灵根', function () {
           self.step = 'talent';
           self.drawTalents();
           self._buildButtons();
         });
       } else {
-        back('上一步', function () { self.step = 'linggen'; self._buildButtons(); });
-        normal(140, '重随（30仙力）', function () {
-          var m = G.game.meta;
-          if (m.xianli >= self.talentRerollCost) {
-            m.xianli -= self.talentRerollCost;
-            G.Storage.saveMeta(m);
-            self.drawTalents();
-            self._buildButtons();
-          }
-        }, G.game.meta.xianli < this.talentRerollCost);
+        back('返回灵根', function () { self.step = 'linggen'; self._buildButtons(); });
+        /* 每世仅一项先天禀赋，返回、刷新均不能重新抽取。 */
         primary('入世', function () { self.finish(); });
       }
     },
 
-    /* ===== 灵根 ===== */
-    rollLinggen: function () {
-      var rng = G.rng;
+    /* 灵根只抽一次：当前槽 pendingBirth 持久保存种子与结果，返回/刷新不重抽。
+       使用独立 G.RNG，不消耗玩法的全局随机序列。 */
+    rollLinggenOnce: function () {
+      var draft = this._birthDraft();
+      if (draft.linggen) { this.linggen = JSON.parse(JSON.stringify(draft.linggen)); return; }
+      var rng = new G.RNG(G.RNG.hash(draft.seed + ':linggen'));
       var entries = [];
       function add(elems, w, kind) { entries.push({ elems: elems, w: w, kind: kind }); }
       var i, j, comb;
@@ -136,41 +127,39 @@
         pick.elems.forEach(function (e) { lg.coef[e] = cv; });
         if (pick.elems.indexOf('金') >= 0) lg.stoneBonus = .15;
       }
+      draft.linggen = JSON.parse(JSON.stringify(lg));
+      G.Storage.saveMeta(G.game.meta);
       this.linggen = lg;
     },
 
-    /* ===== 天赋（无放回抽3，怜悯提升高品质权重） ===== */
-    drawTalents: function () {
-      var pity = Math.min(.5, (G.game.meta.pity || 0) / 100);
-      var base = { '仙': 1, '上': 3, '良': 6, '凡': 10 };
-      var w = { '仙': base['仙'], '上': base['上'], '良': base['良'], '凡': base['凡'] };
-      var shift = pity * (w['良'] + w['凡']);
-      var up = w['仙'] + w['上'];
-      w['仙'] += shift * (w['仙'] / up);
-      w['上'] += shift * (w['上'] / up);
-      w['良'] *= (1 - pity); w['凡'] *= (1 - pity);
+    /* 保留旧驱动入口，但重复调用只取本世锁定结果。 */
+    rollLinggen: function () { this.rollLinggenOnce(); },
 
-      var pool = G.Data.talents.slice();
-      var cards = [];
-      for (var n = 0; n < 3; n++) {
-        var groups = {};
-        pool.forEach(function (t) {
-          groups[t.t] = groups[t.t] || [];
+    /* 每世一种天赋：独立随机流、结果落盘，不受仙力/怜悯影响。 */
+    drawTalents: function () {
+      var draft = this._birthDraft();
+      var talent = draft.talentId && G.Data.talentById(draft.talentId);
+      if (!talent) {
+        var rng = new G.RNG(G.RNG.hash(draft.seed + ':talent'));
+        var weights = { '仙': 1, '上': 3, '良': 6, '凡': 10 };
+        var groups = {}, tiers = [];
+        G.Data.talents.forEach(function (t) {
+          if (!groups[t.t]) { groups[t.t] = []; tiers.push(t.t); }
           groups[t.t].push(t);
         });
-        var tiers = Object.keys(groups);
-        var tpick = tiers[G.rng.weighted(tiers.map(function (t) { return { w: w[t] }; }))];
-        var t = G.rng.pick(groups[tpick]);
-        cards.push(t);
-        pool.splice(pool.indexOf(t), 1);
+        var tier = tiers[rng.weighted(tiers.map(function (t) { return { w: weights[t] }; }))];
+        talent = rng.pick(groups[tier]);
+        draft.talentId = talent.id;
+        G.Storage.saveMeta(G.game.meta);
       }
-      this.talentCards = cards;
+      this.talentCards = [talent];
     },
 
     /* ===== 结算：生成当世档 ===== */
     finish: function () {
+      if (this._finished) return;
       var meta = G.game.meta;
-      var life = (meta.past.length || 0) + 1;
+      var life = ((meta.past || []).length || 0) + 1;
       var anchor = life === 1;
       var seed = anchor ? 20260924 : (Date.now() & 0x7fffffff);
       var world = G.Data.generateWorld(seed, anchor);
@@ -179,12 +168,7 @@
       var items = {}, stone = 50;
       var zeroStone = false;
 
-      /* 出身：百分比效果 + 开局物品/灵石（六维已删，见 origins 注释） */
-      var og = origins[this.originSel] || origins[0];
-      var originFx = {};
-      if (og.fx) Object.keys(og.fx).forEach(function (k) { originFx[k] = og.fx[k]; });
-      if (og.items) Object.keys(og.items).forEach(function (k) { items[k] = (items[k] || 0) + og.items[k]; });
-      if (og.stone) stone += og.stone;
+      /* 不再授予出身额外资源或百分比加成。 */
 
       /* 天赋 */
       var talentIds = this.talentCards.map(function (t) { return t.id; });
@@ -242,7 +226,7 @@
 
       var save = {
         life: life, worldSeed: seed, world: world,
-        origin: og.id, originFx: originFx,
+        origin: null, originFx: {}, homeOwned: false,
         linggen: this.linggen, talents: talentIds,
         skills: skills, skillEquip: equip,
         items: items, stone: stone + addStone, qi: 100 + addQi, po: addPo,
@@ -341,6 +325,7 @@
       G.Player.chronicle(save, 'birth',
         '入世' + ((firstR && firstR.n) || (world.names && world.names.town) || '青溪镇'));
       G.Storage.saveCurrent(save);
+      this._finished = true;
       G.game.save = save;
       /* 新世界的调色板是随机取的（非锚世），地面纹理的缓存键里带调色板 ——
          不预热的话，玩家进第一张地图时要现场烘 10 张 224² 纹理（约 110~145ms）。
@@ -352,21 +337,8 @@
     },
 
     onTap: function (p) {
-      if (this.step === 'origin') {
-        for (var i = 0; i < origins.length; i++) {
-          var r = this._originRect(i);
-          if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) {
-            this.originSel = i;
-            this._buildButtons();
-            break;
-          }
-        }
-      }
-    },
-
-    _originRect: function (i) {
-      var w = 104, gap = 12, x = gap + i * (w + gap);
-      return { x: x, y: 66, w: w, h: 158 };
+      /* v0.66.0：身份选择已删（`step` 直接从 linggen 起），这里不再处理 origin 分支。
+         灵根页的点击由 `renderLinggen` 内的 hover 区域自己管。 */
     },
 
     /* ===== 渲染 ===== */
@@ -375,8 +347,7 @@
       bg.addColorStop(0, '#0c1020'); bg.addColorStop(1, '#141a2e');
       x.fillStyle = bg; x.fillRect(0, 0, 480, 272);
 
-      if (this.step === 'origin') this.renderOrigin(x);
-      else if (this.step === 'linggen') this.renderLinggen(x);
+      if (this.step === 'linggen') this.renderLinggen(x);
       else this.renderTalents(x);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
@@ -387,24 +358,11 @@
       G.UI.text(x, { x: 16, y: 40 }, hint, 12, G.UI.C.textDim);
     },
 
-    renderOrigin: function (x) {
-      this._header(x, '第 ' + ((G.game.meta.past.length || 0) + 1) + ' 世 · 降世出身',
-        '你将以何种身份降生？（出身影响百分比加成与开局之物）');
-      for (var i = 0; i < origins.length; i++) {
-        var r = this._originRect(i), sel = i === this.originSel;
-        G.UI.panel(x, r, sel ? '#20263c' : '#151a2a',
-          sel ? G.UI.C.gold : G.UI.C.line);
-        G.UI.text(x, { x: r.x + r.w / 2, y: r.y + 16 }, origins[i].n, 16,
-          sel ? G.UI.C.goldHi : G.UI.C.text, 'center');
-        for (var d = 0; d < origins[i].d.length; d++) {
-          G.UI.text(x, { x: r.x + 12, y: r.y + 56 + d * 22 }, origins[i].d[d], 13,
-            G.UI.C.textDim);
-        }
-      }
-    },
+    /* `renderOrigin` 在 v0.66.0 起废弃（无身份卡），整段删去 —— 改成 `renderLinggen` 与
+       `renderTalents` 两步。render() 也只调这两个。 */
 
     renderLinggen: function (x) {
-      this._header(x, '天道推演 · 灵根', '灵根决定功法匹配与灵气、灵石加成，可无限重随直至锁定');
+      this._header(x, '降世 · 天生灵根', '本世只抽取一次，返回或重载不会改变；悬停灵根查看说明。');
       var lg = this.linggen;
       if (!lg) return;
 
@@ -426,36 +384,37 @@
         x.font = '16px KaiTi, serif';
         x.textAlign = 'center'; x.textBaseline = 'middle';
         x.fillText(info.n, cxx, r.y + 63);
+        G.UI.hover({ x: cxx - 18, y: r.y + 44, w: 36, h: 36 }, G.Player.rootDescription(lg, e));
       }
 
       /* 系数 */
       var coefText = lg.elems.map(function (e) {
         return e + '系功法 ×' + lg.coef[e].toFixed(1);
       }).join('　');
-      G.UI.text(x, { x: r.x + 18, y: r.y + 92 }, coefText, 12, G.UI.C.textDim);
+      var coefLines = G.UI.wrap(x, coefText, 11, r.w - 36);
+      coefLines.slice(0, 2).forEach(function (line, n) {
+        G.UI.text(x, { x: r.x + 18, y: r.y + 88 + n * 14 }, line, 11, G.UI.C.textDim);
+      });
       var stT = '灵石获取 ' + (lg.stoneBonus > 0 ? '+' + Math.round(lg.stoneBonus * 100) + '%' : '无加成');
       G.UI.text(x, { x: r.x + 18, y: r.y + 110 }, stT, 12, G.UI.C.textDim);
     },
 
     renderTalents: function (x) {
-      var meta = G.game.meta;
-      this._header(x, '天道赐福 · 先天禀赋',
-        '仙力 ' + meta.xianli + '　｜　可耗 30 仙力重随；怜悯 ' + (meta.pity || 0) + '%');
-      var w = 130, gap = 22;
-      for (var i = 0; i < this.talentCards.length; i++) {
-        var t = this.talentCards[i];
-        var r = { x: gap + i * (w + gap), y: 66, w: w, h: 150 };
-        var border = { '仙': G.UI.C.gold, '上': '#a98ce0', '良': '#6f9fc8', '凡': '#565b6e' }[t.t];
-        G.UI.panel(x, r, '#141927', border);
-        G.UI.text(x, { x: r.x + 10, y: r.y + 10 },
-          { '仙': '仙品', '上': '上品', '良': '良品', '凡': '凡品' }[t.t], 11, border);
-        G.UI.text(x, { x: r.x + r.w / 2, y: r.y + 34 }, t.n, 17,
-          t.t === '仙' ? G.UI.C.goldHi : G.UI.C.text, 'center');
-        var lines = G.UI.wrap(x, t.d, 12, r.w - 20);
-        for (var l = 0; l < lines.length; l++) {
-          G.UI.text(x, { x: r.x + 10, y: r.y + 70 + l * 18 }, lines[l], 12, G.UI.C.textDim);
-        }
-      }
+      this._header(x, '降世 · 先天禀赋', '每世随机一种，不可重抽；不是身份选择，也不消耗仙力。');
+      var t = this.talentCards[0];
+      if (!t) return;
+      var r = { x: 54, y: 66, w: 372, h: 158 };
+      var border = { '仙': G.UI.C.gold, '上': '#a98ce0', '良': '#6f9fc8', '凡': '#565b6e' }[t.t];
+      var detail = G.Data.talentDetail(t);
+      G.UI.panel(x, r, '#141927', border);
+      G.UI.text(x, { x: r.x + 16, y: r.y + 10 }, t.t + '品 · 本世唯一', 11, border);
+      G.UI.text(x, { x: r.x + r.w / 2, y: r.y + 22 }, t.n, 17, G.UI.C.goldHi, 'center');
+      var lines = G.UI.wrap(x, detail.text, 11, r.w - 32);
+      lines.slice(0, 6).forEach(function (line, i) {
+        G.UI.text(x, { x: r.x + 16, y: r.y + 47 + i * 14 }, line, 11, G.UI.C.textDim);
+      });
+      G.UI.text(x, { x: r.x + 16, y: r.y + 141 }, '悬停查看完整效果、代价与生效状态', 10, G.UI.C.jadeHi);
+      G.UI.hover(r, { title: t.n + ' · ' + t.t + '品', text: detail.text });
     }
   };
 
