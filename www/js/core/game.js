@@ -153,6 +153,24 @@
       this.changeScene('heaven');
     },
 
+    /* 回到当世（v0.61.0）：补时钟字段 → **结算离线打坐** → 刷新时间戳。
+       用户第 4 点：「需要新增离线打坐收益灵气，这样才能把灵根的作用体现出来」。
+       ⚠️ 只能在"读档那一刻"调一次 —— 它要读"上次离开到现在的现实时长"，
+          再调一次 `lastSeen` 已被刷新，收益归零（不会重复发放，但也别指望第二遍有货）。
+       返回结算结果（null = 不足阈值），方便契约与测试直接断言。 */
+    resumeWorld: function () {
+      var save = this.save;
+      if (!save) return null;
+      if (G.Time) G.Time.ensure(save);
+      var off = G.Time ? G.Time.offlineGain(save, Date.now()) : null;
+      if (off) {
+        save.qi = (save.qi || 0) + off.gain;
+        if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+        this.toast('离线闭关 ' + Math.round(off.gameDays) + ' 日 · 灵气 +' + off.gain, 3.4);
+      }
+      return off;
+    },
+
     /* 寿元尽 → 坐化。年龄推进（战斗/打坐/突破）后统一裁决。
        返回 true 表示本次已切到死亡结算，调用方必须立即 return。 */
     checkAged: function () {
@@ -192,6 +210,12 @@
       }
 
       if (this.scene.update) this.scene.update(dt);
+
+      /* 世界时钟（v0.61.0）：现实 dt → 游戏时间。**1 现实秒 = 365 游戏秒**
+         （现实 1 天 = 游戏 365 天，用户第 3 点）。秘境/副本里另有 ×12 的流速。
+         ⚠️ 放在 `scene.update` 之后：场景若在 update 里推进了时间（闭关/副本层），
+            这一帧的日历读数就已经是新的，不会出现"结算完又倒回去"的观感。 */
+      if (this.save && G.Time) G.Time.tick(this.save, dt);
 
       /* 天道低语计时（与场景无关） */
       if (this.whisper) {

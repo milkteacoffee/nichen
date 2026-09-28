@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 8;
+  var VERSION = 9;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -49,7 +49,13 @@
       if (m) m = this._migrate(m);
       return m;
     },
-    saveCurrent: function (save) { save.version = VERSION; this._write(K_SAVE, save); },
+    saveCurrent: function (save) {
+      save.version = VERSION;
+      /* 离开时间戳（v0.61.0）：离线打坐收益的基准。写在这里 = 只有"一个真相源"，
+         不必让每个调用点自己记得刷新（漏一处就会出现"离线 300 天"的假收益）。 */
+      save.lastSeen = Date.now();
+      this._write(K_SAVE, save);
+    },
     loadCurrent: function () {
       var s = this._read(K_SAVE);
       if (s) s = this._migrate(s);
@@ -189,6 +195,28 @@
       if (data.version < 8) {
         if (this._isMeta(data) && G.Story) G.Story.ensure(data);
         data.version = 8;
+      }
+      /* v8 → v9：世界时钟（v0.61.0，用户第 3 点）
+         save 侧加 gt（本世累计**游戏分钟**）/ ageBonus（突破等行为的一次性加龄）/
+         lastSeen（现实时间戳，离线打坐收益用）。
+         老档的 `age` 折成 gt（一岁 = 一游戏年），行为加龄归零 —— 见 `G.Time.ensure`。 */
+      if (data.version < 9) {
+        if (!this._isMeta(data)) {
+          if (data.gt == null) {
+            var a0 = (data.age == null ? 16 : data.age);
+            data.gt = Math.max(0, a0 - 16) * 365 * 1440;
+          }
+          if (data.ageBonus == null) data.ageBonus = 0;
+          if (data.lastSeen == null) data.lastSeen = 0;
+          /* 资源分级（用户第 11 点）：灵晶 / 仙晶 是新币种，老档一律 0 起。
+             ⚠️ 加存档字段前已 grep 过同名（G50）：`lingjing` 只在这里出现，
+                `xianjing` 与 HUD 的「仙力/仙晶」是两回事（那是 `xianliLive` 的读数，
+                不是持有量）—— 刻意不复用，免得"仙力"被当成钱花掉。 */
+          if (data.lingjing == null) data.lingjing = 0;
+          if (data.xianjing == null) data.xianjing = 0;
+          delete data._ageTick;
+        }
+        data.version = 9;
       }
       return data;
     },

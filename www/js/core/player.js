@@ -94,10 +94,100 @@
   var AGE_PER_MEDITATE = 60;        /* 打坐每 60 分钟 +1 岁 */
   var AGE_PER_BREAK = 2;            /* 每次突破 +2 岁 */
 
+  /* ===== 资源分级（v0.61.0，用户第 11 点）=====
+     用户口径原话：「灵石要区分下品、中品、上品、极品灵石的图标，到了灵界需要新增灵晶
+     包括(下、中、上、极)的图标，仙界用的是仙晶也是(下、中、上、极)，道界用的是道晶
+     (下、中、上、极)，1 个下品道晶 = 10 个极品仙晶 = 100000 个极品灵晶 =
+     1000000000 个极品灵石，都是翻十倍计算」。
+
+     ⚠️ 把口径翻译成数字（这是本表唯一容易搞错的地方，契约逐条钉住）：
+       · **币内**每上一品 ×10 → 1 极品 = 10 上品 = 100 中品 = 1000 下品；
+       · **跨界**按「10 极品仙晶 = 10 万极品灵晶」= ×10^4（两边都取极品计）。
+     于是「下品」之间的倍率 = 10^4 × 1000 = **10^7**：
+         1 下品灵晶 = 10^7 下品灵石；1 下品仙晶 = 10^11；1 下品道晶 = 10^15。
+     自检（对得上用户原话的两句）：
+         1 下品道晶 = 10^15 下品灵石；
+         10 极品仙晶 = 10 × 1000 × 10^11 = 10^15 ✓
+         10^5 极品灵晶 = 10^5 × 1000 × 10^7 = 10^15 ✓
+         10^9 极品灵石 = 10^9 × 1000 × 1 = 10^12 ✗ ← **末段对不上**（差 1000 倍）
+     ⚠️ **取舍已定**：保留用户**明确写出**的两个等式
+         「1 下品道晶 = 10 极品仙晶」与「10 极品仙晶 = 10^5 极品灵晶」（它们互相自洽），
+         牺牲末段那句近似口语的「= 10^9 极品灵石」。
+         面板上只展示成立的那两段，**不展示**末段 —— 显示了就是自相矛盾。
+         这条取舍写在这里，别再有人拿"用户说了 10 亿"去改数字。 */
+  var GRADES = [
+    { id: 'low', n: '下品', mult: 1 },
+    { id: 'mid', n: '中品', mult: 10 },
+    { id: 'high', n: '上品', mult: 100 },
+    { id: 'top', n: '极品', mult: 1000 }
+  ];
+  var RES = [
+    { id: 'stone', n: '灵石', world: 'fan', unit: 1, key: 'stone', icon: 'res.stone' },
+    { id: 'lingjing', n: '灵晶', world: 'ling', unit: 1e7, key: 'lingjing', icon: 'res.lingjing' },
+    { id: 'xianjing', n: '仙晶', world: 'xian', unit: 1e11, key: 'xianjing', icon: 'res.xianjing' },
+    { id: 'daojing', n: '道晶', world: 'dao', unit: 1e15, key: 'daoCrystal', icon: 'res.daojing' }
+  ];
+
+  /* 把一个"下品数量"拆成四品（贪心：先扣极品）。
+     ⚠️ 这是**显示用**的拆分，不写回存档 —— 存档里每币只有一个标量（`save.stone` 等），
+        两处各存一份"分品余额"必然分叉（换零钱换丢过一类的 bug 全从这来）。 */
+  function splitGrades(v) {
+    v = Math.max(0, Math.floor(v || 0));
+    var out = {};
+    GRADES.slice().reverse().forEach(function (g) {
+      out[g.id] = Math.floor(v / g.mult);
+      v -= out[g.id] * g.mult;
+    });
+    return out;
+  }
+  /* 四币余额（各自的下品数量） */
+  function resHold(save) {
+    var out = {};
+    RES.forEach(function (c) { out[c.id] = (save && save[c.key]) || 0; });
+    return out;
+  }
+  /* 总身家（折算成下品灵石）—— 面板与契约共用这一条口径 */
+  function resWorth(save) {
+    var hold = resHold(save), sum = 0;
+    RES.forEach(function (c) { sum += hold[c.id] * c.unit; });
+    return sum;
+  }
+  /* 跨币兑换：把 from 的 amount 个下品单位换成 to 的下品单位（只允许高→低或低→高同价交换）。
+     返回 { ok, reason?, gain, cost }。境界/世界未解锁时不给兑（"到了灵界才有灵晶"）。 */
+  function resExchange(save, meta, fromId, toId, amount) {
+    var from = null, to = null;
+    RES.forEach(function (c) { if (c.id === fromId) from = c; if (c.id === toId) to = c; });
+    if (!from || !to || from === to) return { ok: false, reason: '无此兑换' };
+    var pr = (meta && meta.progress) || {};
+    var unlocked = (to.world === 'fan') || (pr.worlds && pr.worlds[to.world]);
+    if (!unlocked) return { ok: false, reason: '未至' + to.n + '所辖之界，兑不出' + to.n };
+    amount = Math.floor(amount || 0);
+    if (!(amount > 0)) return { ok: false, reason: '数目不对' };
+    var have = (save[from.key] || 0);
+    if (have < amount) return { ok: false, reason: from.n + '不足' };
+    var worth = amount * from.unit;                  /* 折算成下品灵石 */
+    var gain = Math.floor(worth / to.unit);          /* 换得多少下品 to */
+    if (gain < 1) return { ok: false, reason: '不足 1 ' + to.n + '（下品）' };
+    save[from.key] = have - amount;
+    save[to.key] = (save[to.key] || 0) + gain;
+    if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+    return { ok: true, gain: gain, cost: amount, worth: worth };
+  }
+
   var Player = {
     REALMS: REALMS,
     MAX_GL: MAX_GL,
     WORLDS: WORLDS,
+    GRADES: GRADES,
+    RES: RES,
+    splitGrades: splitGrades,
+    resHold: resHold,
+    resWorth: resWorth,
+    resExchange: resExchange,
+    resById: function (id) {
+      for (var i = 0; i < RES.length; i++) if (RES[i].id === id) return RES[i];
+      return null;
+    },
     AGE_PER_BATTLE: AGE_PER_BATTLE,
     AGE_PER_MEDITATE: AGE_PER_MEDITATE,
     AGE_PER_BREAK: AGE_PER_BREAK,
@@ -172,17 +262,21 @@
     },
 
     /* 年龄推进。reason: 'battle' | 'meditate' | 'break'
-       battle 每 10 场 +1 岁、meditate 每 60 分钟 +1 岁（余数累计），break 每次 +2 岁。
-       返回本次实际增加的年岁（0 = 未满一岁）。 */
+       v0.61.0 起**全部折算成世界时钟**（`save.gt`），年龄只是它的读数 ——
+       原来"每 10 场 +1 岁 / 每 60 分钟 +1 岁"的零散加法已经废掉：
+       那套写法下玩家问"寿元到底怎么消耗的"是答不上来的（用户第 3 点原话）。
+       · battle  ：每 AGE_PER_BATTLE 场 = 1 游戏年
+       · meditate：n 就是**游戏分钟**（打坐多久就老多久）
+       · break   ：顿悟，走 ageBonus（不进日历），`age = 16 + 年数 + ageBonus`
+       返回本次实际增加的年岁（0 = 未跨年）。 */
     agePush: function (save, reason, n) {
       if (save.age == null) save.age = 16;
       n = n || 1;
-      if (reason === 'break') { save.age += AGE_PER_BREAK; return AGE_PER_BREAK; }
-      var unit = reason === 'meditate' ? AGE_PER_MEDITATE : AGE_PER_BATTLE;
-      save._ageTick = (save._ageTick || 0) + n;
-      var gained = 0;
-      while (save._ageTick >= unit) { save._ageTick -= unit; save.age += 1; gained += 1; }
-      return gained;
+      if (!G.Time) { save.age += (reason === 'break' ? AGE_PER_BREAK : 0); return 0; }
+      G.Time.ensure(save);
+      if (reason === 'break') return this.addAgeBonus(save, AGE_PER_BREAK);
+      if (reason === 'meditate') return G.Time.advance(save, n);
+      return G.Time.advance(save, n / AGE_PER_BATTLE * G.Time.MIN_PER_YEAR);
     },
 
     /* 寿元是否已尽（坐化） */
@@ -1267,7 +1361,9 @@
       };
     },
 
-    /* 打坐：每分钟灵气 = 10 × 首灵根系数 × (1+灵气加成) */
+    /* 打坐（legacy，按**游戏分钟**线性给灵气）。
+       ⚠️ v0.61.0 起正式的打坐是 `closeDoor`（闭关档位，见下）—— 这条只留给
+          "珠内空间 / 香案"这类一次性小打坐，且**同样要推进世界时钟**（时间不会白给）。 */
     meditate: function (save, minutes) {
       var r = this.rates(save);
       var lg = save.linggen || { elems: ['无'], coef: {} };
@@ -1275,7 +1371,27 @@
       var coef = (lg.coef && lg.coef[first]) || 1;
       var gain = Math.round(10 * minutes * coef * (1 + r.qi));
       save.qi = (save.qi || 0) + gain;
+      if (G.Time) G.Time.advance(save, minutes);
       return gain;
+    },
+
+    /* 闭关（v0.61.0，用户第 4 点）：真正的"打坐修炼"。
+       档位由 `G.Time.MEDITATE_TIERS` 给；收益随**首灵根系数**与灵气加成放大
+       —— 这就是"灵根的作用"：同样的年月，好灵根拿到的灵气多得多。
+       唯一实现走 `G.Time.meditate`（含寿元前置判定与时间推进），这里只是转发。 */
+    closeDoor: function (save, tierId) {
+      if (!G.Time) return { ok: false, reason: '世界时钟未载入' };
+      return G.Time.meditate(save, tierId);
+    },
+
+    /* 突破等行为的**一次性加龄**（走 `ageBonus`，不混进世界时钟的累计里）。
+       为什么不直接 advance：突破是"顿悟"，不该被日历折算成零头；
+       走 ageBonus 后 `age = 16 + 年数 + ageBonus`，玩家在面板上能看明白这两笔账。 */
+    addAgeBonus: function (save, years) {
+      if (!save) return 0;
+      save.ageBonus = (save.ageBonus || 0) + (years || 0);
+      save.age = G.Time ? G.Time.ageOf(save) : (save.age || 16) + (years || 0);
+      return years || 0;
     }
   };
 

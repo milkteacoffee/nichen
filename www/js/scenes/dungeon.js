@@ -563,6 +563,12 @@
       }
 
       run.stage += 1;
+      /* 秘境加速时间流逝（v0.61.0，用户第 3 点）：**每层另结 30 游戏日**。
+         这一条才是"修仙世界的残酷"—— 一趟五层秘境出来，人间已过数月，
+         寿元是真的在掉；再叠上副本场景内 ×12 的流速（`G.Time.SCENE_MULT`）。
+         ⚠️ 只推进时钟，**不在这里判坐化** —— 坐化裁决统一在 `G.game.checkAged`，
+            由探索/结算的收口处调，两处各判一次必然分叉。 */
+      if (G.Time) G.Time.dungeonFloor(save);
       this._pending = null;
       G.Storage.saveCurrent(save);
       /* **每层三选一**（v0.23.0）：结算文案先落进 briefLines，
@@ -960,9 +966,14 @@
 
         var kindCol = a.kind === 'big' ? '#e0a070' : '#80c89a';
         var kindTag = a.kind === 'big' ? '大副本' : '小副本';
-        G.UI.text(x, { x: r.x + 10, y: r.y + 4 },
+        /* 副本徽记（v0.61.0，用户第 1 点「这个 Boss 没有图标」）：
+           枢纽原先五行**只有文字**，玩家认不出哪个是哪个、也记不住。
+           徽记按原型 id 取图（`dungeon.<id>`，v0.61.0 出图接线），缺图退回程序化兜底。 */
+        var ic = G.Art.itemIcon('dungeon.' + a.id, 24);
+        x.drawImage(ic.c, r.x + 6 + ic.ox, r.y + 4 + ic.oy, ic.w, ic.h);
+        G.UI.text(x, { x: r.x + 36, y: r.y + 4 },
           (i + 1) + '. ' + a.n, 13, '#e8e2d0');
-        G.UI.text(x, { x: r.x + 10, y: r.y + 19 },
+        G.UI.text(x, { x: r.x + 36, y: r.y + 19 },
           kindTag + ' · ' + a.elem + '属性', 9.5, kindCol);
 
         var status;

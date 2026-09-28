@@ -249,7 +249,7 @@ step(() => { save.hp = 200; }, 'hud.restore');
     step(() => { G.Input.mouse = { x: 224, y: 96 }; }, 'town.structtip');
     shot('05b_town_structtip', 40);
     step(() => { G.Input.mouse = null; }, 'town.structtip.off');
-    /* 宗门山门特写（v0.42.0）：青溪剑馆的山门在南侧空场（x6..11, y15..17）。
+    /* 宗门山门特写（v0.42.0）：青溪剑阁的山门在南侧空场（x6..11, y15..17）。
        ⚠️ 站位要选在**山门的左边**（x=4）—— 相机把山门推到画面右半边，
           否则它会落在左侧任务追踪栏底下（那一片恒定被盖住）。 */
     step(() => { save.pos = { x: 4, y: 18 }; G.game.changeScene('town'); }, 'town.sectgate');
@@ -1326,6 +1326,91 @@ step(() => {
   G.game.changeScene('sect_qxj', { toSpawn: true });
 }, 'secthall');
 shot('43_sect_hall', 8);
+
+/* ---------- v0.61.0 新增/返工的四页（**每页都要肉眼过一遍**） ----------
+   ① 拜师：v0.60.0 的 DRAW 漏注册（只有按钮、面板全空），用户截图实锤；
+   ② 闭关：灵根苦修 + 离线收益的新入口；
+   ③ 资产：四界四币 × 四品（原「灵石」页）；
+   ④ 副本枢纽：五行徽记（原先只有文字）。
+   ⚠️ 开拍前必须**清掉「轮回记忆」弹窗**（`G.Story._cur` / `_queue`）——
+      它是全屏模态，会整块盖住面板，拍出来的图看不出面板好坏（第一版就拍成这样了）。 */
+function clearStoryModal() {
+  if (G.Story) { G.Story._cur = null; G.Story._queue = []; G.Story._codex = false; }
+}
+step(() => {
+  const s = G.game.save;
+  s.prof = s.prof || {}; s.stone = 1964;
+  G.game.changeScene('town', { toSpawn: true });
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc._medFrom = 'cave';
+  G.Overlays.openPanel(sc, 'masters');
+}, 'panel.masters');
+shot('44_panel_masters', 2);
+
+step(() => {
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc._medFrom = 'cave';
+  G.Overlays.openPanel(sc, 'meditate');
+}, 'panel.meditate');
+shot('45_panel_meditate', 2);
+
+/* 打坐演出：结算后 `medAt` 会在 1.8 秒内画脉动光晕 + 灵气上升 + 大字报数。
+   必须**先真闭关一次**再拍，否则拍到的是静止面板。 */
+step(() => {
+  const s = G.game.save;
+  s.gt = 40 * 365 * 1440; s.age = 56; s.ageBonus = 0; s.qi = 0;
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc._medFrom = 'cave';
+  G.Overlays.openPanel(sc, 'meditate');
+  const b = (sc.buttons || []).filter((x) => x.label === '闭关')[0];
+  if (b) b.onClick();
+  clearStoryModal();
+}, 'panel.meditate.fx');
+shot('45b_meditate_fx', 3);
+
+step(() => {
+  const s = G.game.save;
+  s.stone = 1964; s.lingjing = 3; s.xianjing = 0; s.daoCrystal = 0;
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc.bagTab = 'stone';
+  G.Overlays.openPanel(sc, 'bag', true);
+}, 'panel.bag.asset');
+shot('46_panel_bag_asset', 2);
+
+step(() => {
+  const s = G.game.save;
+  /* ⚠️ 必须把主界与境界都拨回**凡界**：前面的道界步骤把 gl 拨到 147，
+     `_worldId()` 于是走 `daohub`（道则回廊），拍到的是九关列表而不是秘境枢纽。 */
+  G.game.meta = G.game.meta || {};
+  G.game.meta.progress = G.game.meta.progress || {};
+  G.game.meta.progress.activeWorld = 'fan';
+  G.game.meta.progress.worlds = { fan: true, ling: true, xian: true, dao: false };
+  s.globalLevel = 73; s.maxGlobalLevel = 73;
+  s.dungeonSlot = 2;
+  s.dungeonSet = G.Data.dungeons.rollSet(s.worldSeed || 'shot-seed').slice(0, 5);
+  G.game.changeScene('dungeon');
+  clearStoryModal();
+}, 'dungeon.hub');
+shot('47_dungeon_hub', 2);
+
+/* 势力面板·宗门页（v0.61.0，用户第 12 点）：3×3 拜入网格 + 宗门徽记。
+   ⚠️ 必须 `cult='free'` 且 `sectId=null` 才会走到"未入门 → 择一拜入"那一支。 */
+step(() => {
+  const s = G.game.save;
+  s.cult = 'free'; s.sectId = null; s.sectRep = 0;
+  s.globalLevel = 73; s.maxGlobalLevel = 73;
+  G.game.meta.progress.activeWorld = 'fan';
+  G.game.changeScene('town', { toSpawn: true });
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc.sectTab = 'sect'; sc.sectView = null;
+  G.Overlays.openPanel(sc, 'sect', true);
+}, 'panel.sect');
+shot('48_panel_sect_emblem', 2);
 
 /* ---------- 报告 ---------- */
 if (errors.length) {

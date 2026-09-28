@@ -1316,10 +1316,14 @@ step(function () {
   if (bb.ok) errors.push('无突破丹却开始了心魔战');
   /* 有丹 → 扣丹 + 进心魔战；胜利 → 炼气1 */
   /* ⚠️ 破境是**概率事件**（封顶 95%）→ 单次调用会 5% 偶发假红。
-     这里同样**重试**（每次补一颗丹），残余概率 ≈ 0.05^6。 */
+     这里同样**重试**（每次补一颗丹），残余概率 ≈ 0.05^6。
+     ⚠️ **每次重试还要把灵气还原** —— 失败的尝试会"散灵气"（v0.60.0 的破境惩罚），
+        只补丹不补灵气的话，重试本身会把 999999 抽干，断言就变成偶发假红
+        （实测挂过一次：实为 849087，差 150000）。 */
   let bb2 = null;
   for (let i = 0; i < 6; i++) {
     s.items = { 淬体突破丹: 1 };
+    s.qi = 999999;
     bb2 = P.startBigBreak(s);
     if (bb2.ok) break;
   }
@@ -1650,20 +1654,96 @@ step(function () {
       }
     });
 
+  /* 世界时钟（v0.61.0，用户第 3 点）：寿元不再是"被行为零散加出来的"，
+     而是 `save.gt`（本世累计**游戏分钟**）的读数。这一条把四件事一起钉住：
+       ① 比例常数「现实 1 天 = 游戏 365 天」；
+       ② 行为折算与世界时钟一致（战斗 10 场 = 1 年；打坐的 n 就是游戏分钟）；
+       ③ 突破走 `ageBonus`（顿悟），**不折日历** —— 面板上两笔账要能分开看；
+       ④ 闭关收益随**首灵根系数**放大（"灵根的作用"），且寿元不足时坐不起。 */
+  const T = G.Time;
+  if (!T) { errors.push('G.Time 未载入（世界时钟模块）'); return; }
+  if (T.RATIO_DAY !== 365 || T.SEC_PER_REAL_SEC !== 365) {
+    errors.push('时间比例应为「现实 1 天 = 游戏 365 天」，实为 '
+      + T.RATIO_DAY + ' / ' + T.SEC_PER_REAL_SEC);
+  }
+  if (T.MIN_PER_YEAR !== 365 * 24 * 60) errors.push('一游戏年应为 525600 分钟');
+  if (T.DUNGEON_DAYS_PER_FLOOR <= 0) errors.push('副本每层应有时间代价（秘境加速时间流逝）');
+
   const s = { age: 16, globalLevel: 1 };
+  T.ensure(s);
+  if (s.gt !== 0 || s.age !== 16) errors.push('ensure 后应 gt=0 / age=16，实为 ' + s.gt + '/' + s.age);
   let gained = 0;
   for (let i = 0; i < 9; i++) gained += P.agePush(s, 'battle', 1);
   if (gained !== 0) errors.push('9 场战斗不应增龄，实增 ' + gained);
   if (P.agePush(s, 'battle', 1) !== 1) errors.push('第 10 场战斗应 +1 岁');
   if (s.age !== 17) errors.push('战斗增龄后应为 17 岁，实为 ' + s.age);
+  /* 打坐的 n 是**游戏分钟**：60 分钟只是一炷香，不该增龄，但必须推进时钟 */
   P.agePush(s, 'meditate', 60);
-  if (s.age !== 18) errors.push('打坐 60 分钟应 +1 岁，实为 ' + s.age);
+  if (s.age !== 17) errors.push('打坐 60 游戏分钟不该增龄，实为 ' + s.age);
+  if (s.gt !== T.MIN_PER_YEAR + 60) errors.push('打坐应推进 60 游戏分钟，实为 ' + s.gt);
   P.agePush(s, 'break');
-  if (s.age !== 20) errors.push('突破应 +2 岁，实为 ' + s.age);
-  if (P.isAged(s)) errors.push('20 岁不应判为寿元尽');
+  if (s.age !== 19) errors.push('突破应 +2 岁，实为 ' + s.age);
+  if (s.ageBonus !== 2) errors.push('突破的加龄应记在 ageBonus，实为 ' + s.ageBonus);
+  if (s.gt !== T.MIN_PER_YEAR + 60) errors.push('突破不该推进世界时钟（它是顿悟）');
+  if (P.isAged(s)) errors.push('19 岁不应判为寿元尽');
   s.age = 100;
   if (!P.isAged(s)) errors.push('淬体 100 岁应判为寿元尽');
   if (P.lifespanLeft(s) !== 0) errors.push('寿元尽时剩余应为 0');
+
+  /* ① 比例：1 现实秒 = 365 游戏秒 = 365/60 游戏分钟 */
+  const s1 = { age: 16, globalLevel: 1 };
+  T.ensure(s1);
+  T.tick(s1, 1);
+  if (Math.abs(s1.gt - 365 / 60) > 0.01) {
+    errors.push('1 现实秒应推进 ' + (365 / 60).toFixed(3) + ' 游戏分钟，实为 ' + s1.gt);
+  }
+  /* 一整现实天（86400 秒）应恰好推进一游戏年 */
+  const s1b = { age: 16, globalLevel: 1 };
+  T.ensure(s1b);
+  T.tick(s1b, 86400);
+  if (s1b.age !== 17) errors.push('现实 1 天应让角色长 1 岁，实为 ' + s1b.age);
+
+  /* ④ 闭关：灵根系数直接决定收益；寿元不足坐不起 */
+  const mkS = function (coef, age) {
+    const o = JSON.parse(JSON.stringify(save));
+    o.globalLevel = 1; o.qi = 0; o.age = age == null ? 16 : age;
+    o.gt = (o.age - 16) * T.MIN_PER_YEAR; o.ageBonus = 0;
+    o.linggen = { elems: ['金'], coef: { '金': coef } };
+    return o;
+  };
+  const tierY1 = T.tierById('y1');
+  /* 离线打坐用的存档必须带 lastSeen（没它一律不结算 —— 新档/首次进入不该白送） */
+  const mkOff = function (coef) { const o = mkS(coef, 16); o.lastSeen = 1000000; return o; };
+  if (!tierY1) errors.push('闭关档位缺「闭关一年」');
+  const gHi = T.meditateGain(mkS(1.5), tierY1);
+  const gLo = T.meditateGain(mkS(0.6), tierY1);
+  if (!(gHi > gLo * 2)) {
+    errors.push('灵根 1.5 的闭关收益应远高于 0.6，实为 ' + gHi + ' vs ' + gLo);
+  }
+  const sa = mkS(1.0);
+  const r1 = T.meditate(sa, 'y1');
+  if (!r1.ok) errors.push('闭关一年不该失败：' + r1.reason);
+  if (sa.gt !== T.MIN_PER_YEAR) errors.push('闭关一年应推进一游戏年，实为 ' + sa.gt);
+  if (sa.age !== 17) errors.push('闭关一年后应 17 岁，实为 ' + sa.age);
+  if (sa.qi !== r1.gain || r1.gain < 1) errors.push('闭关应给灵气，实为 ' + r1.gain);
+  /* 淬体寿元 100：90 岁的人坐不起「枯坐百年」 */
+  const sb = mkS(1.0, 90);
+  const r2 = T.meditate(sb, 'y100');
+  if (r2.ok) errors.push('寿元不足时不该能枯坐百年');
+  if (!r2.reason) errors.push('闭关失败必须给出可读原因');
+  /* 离线打坐：上限 12 现实小时，且不足阈值不结算 */
+  const sc2 = mkS(1.0);
+  sc2.lastSeen = 1000000;
+  if (T.offlineGain(sc2, 1000000 + 10000) !== null) errors.push('离线 10 秒不该结算');
+  const off = T.offlineGain(sc2, 1000000 + 30 * 3600 * 1000);
+  if (!off || !(off.gain > 0)) errors.push('离线 30 小时应有收益');
+  else if (!off.capped) errors.push('离线收益应被上限截断（12 小时）');
+  const offHi = T.offlineGain(mkOff(1.5), 1000000 + 6 * 3600 * 1000);
+  const offLo = T.offlineGain(mkOff(0.6), 1000000 + 6 * 3600 * 1000);
+  if (!offHi || !offLo || !(offHi.gain > offLo.gain * 2)) {
+    errors.push('离线打坐收益同样要体现灵根差异，实为 '
+      + (offHi && offHi.gain) + ' vs ' + (offLo && offLo.gain));
+  }
 }, 'lifespan');
 
 /* 5b-4) 本世大事记：同一 id 只记一次（走马灯数据源） */
@@ -2896,11 +2976,11 @@ step(function () {
   if (!B.canRide(mk('b_huangzongma','adult'))) errors.push('成年坐骑应可骑');
   if (B.canRide(mk('b_chiyanlang','adult'))) errors.push('战种不应可骑');
   const mig = G.Storage._migrate({ version: 6, cult: 'free', skills: {} });
-  if (mig.version !== 8 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
+  if (mig.version !== 9 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
     errors.push('v6→v7 存档迁移缺灵兽字段');
   }
   const migM = G.Storage._migrate({ version: 6, xianli: 0 });
-  if (migM.version !== 8 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
+  if (migM.version !== 9 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
 }, 'beasts.data.contract');
 
 /* ---------- 灵兽管理器契约（v0.44.0，B2，《灵兽 v1.1》） ----------
@@ -4058,7 +4138,7 @@ step(function () {
   if (G.Player.canUseSkill(mSect, freeSkill)) errors.push('宗门弟子不应能用散修功法');
   if (!G.Player.canUseSkill(mFree, commonSkill)) errors.push('common 功法散修也该能用');
   if (!G.Player.canUseSkill(mSect, commonSkill)) errors.push('common 功法宗门弟子也该能用');
-  /* 跨宗门：玄天阵宗的弟子不能用青溪剑馆的功法 */
+  /* 跨宗门：玄天阵宗的弟子不能用青溪剑阁的功法 */
   if (G.Player.canUseSkill(mk('sect', 'xtzz'), sectSkill)) errors.push('外门弟子不应能用别家的宗门功法');
   /* 同根分部：太虚剑宗山门弟子应能用本门功法（山门/总部/道场同根） */
   if (!G.Player.canUseSkill(mk('sect', 'txjz_ling'), '太虚剑意')) errors.push('同根分部应能用本门功法');
@@ -4111,7 +4191,7 @@ step(function () {
   if (!s0.cultSwitchUsed) errors.push('入门后应置 cultSwitchUsed');
 
   /* ⑤b 贡献兑换本门功法（用**实际入的那个宗门**的功法池，别写死 ——
-     按钮列表按"大宗门优先"排序，入的不一定是青溪剑馆） */
+     按钮列表按"大宗门优先"排序，入的不一定是青溪剑阁） */
   const mySect = G.Data.sects.byId(s0.sectId);
   const mySkill = (mySect && mySect.skills) ? mySect.skills[0] : null;
   const root = G.Data.sects.rootOf(s0.sectId);
@@ -5453,7 +5533,7 @@ step(function () {
     G.Overlays.openPanel(sc, 'bag');
     const tabs = sc.buttons.filter((b) => b.variant === 'subtab');
     if (tabs.length !== 5) errors.push('储物分类子页签应为 5 个，实为 ' + tabs.length);
-    ['杂项', '功法', '灵石', '法宝', '秘术'].forEach((n) => {
+    ['杂项', '功法', '资产', '法宝', '秘术'].forEach((n) => {
       if (!tabs.some((b) => b.label === n)) errors.push('储物缺分类子页：' + n);
     });
     if (!sc.buttons.some((b) => b.sub && /^×/.test(String(b.sub)))) {
@@ -6606,6 +6686,10 @@ step(function () {
 step(function () {
   const s = JSON.parse(JSON.stringify(save));
   s.pos = { x: 5, y: 5 };
+  /* 面板清单已扩到**全部可路由页**（v0.61.0），所以这份存档要把每个页要用到的
+     字段都补齐 —— 缺一个就是"建按钮时抛异常"，而那不是面板的错、是脚手架的错。 */
+  s.beasts = s.beasts || []; s.items = s.items || {};
+  s.prof = s.prof || {}; s.stone = s.stone || 0;
   G.game.save = s;
   if (!G.game.meta) G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: [] };
   G.game.changeScene('town', { toSpawn: true });
@@ -6677,7 +6761,10 @@ step(function () {
      玩家在面板里找不到出口（截图反馈）。
      这里用 glyph 认（矢量叉），不用 label 认（关闭钮的 label 是空串）。
      三条断言：① 有且只有一个；② 落在面板矩形内；③ 点下去**真的**关掉面板。 */
-  const CLOSE_IDS = ['char', 'skills', 'secrets', 'quest', 'bag', 'cave', 'map'];
+  /* ⚠️ 清单来自 `G.Overlays.PANEL_IDS`（v0.61.0）而不是写死 —— 原先写死 7 项，
+     漏了 sect / alchemy / forge / array / masters / beasts / beastShop，
+     **这 7 个面板的关闭钮从此没人验**（G48 同族：挪走了功能却没搬约束）。 */
+  const CLOSE_IDS = G.Overlays.PANEL_IDS;
   CLOSE_IDS.forEach(function (id) {
     G.Overlays.openPanel(sc, id);
     if (sc.overlay !== id) { errors.push('openPanel(' + id + ') 失败'); return; }
@@ -7020,6 +7107,239 @@ step(function () {
     }
   }
 }, 'panels.bounds.contract');
+
+/* ---------- 面板路由契约（v0.61.0，用户截图实锤） ----------
+   缺口：「拜师 · 习艺」面板点开后**只有 4 个「拜师」按钮浮在地图上**，
+   面板本体（左缘标题带 / 师父名 / 束脩说明）一条都没画。
+   根因：`panels.js` 的 `DRAW` 分发表里**没有 `masters` 项** → `renderPanel` 直接 `return false`。
+   `buildMasters` 照常跑（按钮由 `openPanel` 建），所以**按钮在、面板不在**。
+
+   为什么此前所有契约都漏了它：`panels.bounds.contract` 的清单是**写死的 6 个面板 + 角色 7 子页**，
+   不含 alchemy / forge / array / masters / beasts / beastShop / sect ——
+   这 7 页的越界、叠字、遮挡、渲染**一条断言都没跑**（G48 同族：功能挪走了、约束没跟着搬）。
+   `renderPanel` 的返回值本来就判了，但**判不到清单外的页**。
+
+   判据（两层，缺一不可）：
+     ① 运行时：`PANEL_IDS` 里每个 id 都必须 openPanel 成功 + `renderPanel` 返回 true + 有按钮；
+     ② 源码闸：`panels.js` 里 `IDS.*` 的每个键都必须在 `DRAW` 里有同名入口。
+        —— ① 依赖"清单本身是全的"，② 才能证明清单没漏；两条一起才闭合。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = { x: 5, y: 5 };
+  s.prof = {}; s.stone = 0; s.items = s.items || {}; s.beasts = s.beasts || [];
+  G.game.save = s;
+  if (!G.game.meta) G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: [] };
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+
+  const ALL = ['char', 'quest', 'bag', 'sect', 'cave', 'map',
+    'skills', 'secrets', 'beasts', 'beastShop', 'alchemy', 'forge', 'array', 'masters'];
+  const ids = G.Overlays.PANEL_IDS;
+  if (!Array.isArray(ids)) {
+    errors.push('G.Overlays.PANEL_IDS 未导出 —— 面板清单没有唯一来源，契约无法遍历');
+    return;
+  }
+  ALL.forEach(function (id) {
+    if (ids.indexOf(id) < 0) errors.push('PANEL_IDS 漏了面板 ' + id);
+  });
+  if (ids.length < ALL.length) {
+    errors.push('PANEL_IDS 只有 ' + ids.length + ' 项（应 ≥ ' + ALL.length + '）');
+  }
+
+  ids.forEach(function (id) {
+    sc.overlay = null;
+    /* openPanel 里就跑 buildXxx（建按钮）—— 建按钮期抛异常同样是"面板打不开"，
+       与渲染期抛异常要分开报，否则只能看到一个笼统的契约级错误。 */
+    try { G.Overlays.openPanel(sc, id); } catch (e) {
+      errors.push('面板 ' + id + ' 建按钮时抛异常：' + e.message);
+      return;
+    }
+    if (sc.overlay !== id) {
+      errors.push('openPanel(' + id + ') 没生效（overlay=' + sc.overlay + '）');
+      return;
+    }
+    if (!(sc.buttons || []).length) errors.push('面板 ' + id + ' 一个按钮都没有（点不出去）');
+    const cx = textSpy();
+    let ok = false;
+    /* 只跑 renderPanel（面板体 + 底栏），不跑整个场景 ——
+       否则 HUD 的文字会让"面板其实没画"这条断言恒真（空断言）。 */
+    try { ok = G.Overlays.renderPanel(cx, sc); } catch (e) {
+      errors.push('面板 ' + id + ' 渲染抛异常：' + e.message);
+      return;
+    }
+    if (!ok) {
+      errors.push('面板 ' + id + ' 没有绘制入口（DRAW 里缺 `' + id + '`）'
+        + ' —— 症状：只有按钮浮在画面上、面板本体全空');
+    }
+  });
+  sc.overlay = null;
+
+  /* ② 源码闸：IDS 的每个键都要在 DRAW 里有入口。**先剥注释**（G36）——
+     DRAW 上方那句说明注释里就写着 "G.Overlays.renderChar"，不剥会让闸恒真。 */
+  const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const src = stripC(fs.readFileSync(path.join(WWW, 'js', 'core', 'panels.js'), 'utf8'));
+  const i0 = src.indexOf('var IDS = {};');
+  const i1 = src.indexOf('var DRAW = {');
+  const i2 = src.indexOf('function renderPanel');
+  if (i0 < 0 || i1 < 0 || i2 < 0) {
+    errors.push('源码闸：panels.js 里找不到 IDS / DRAW / renderPanel，正则可能过时了');
+  } else {
+    /* ⚠️ IDS 的六个底栏键是 `PANELS.forEach(p => IDS[p.id] = 1)` **动态写入**的，
+       静态扫 `IDS.x =` 只能扫到 8 个 → 必须把 PANELS 表里的 id 也读出来，
+       否则"只扫到 8 个（应 ≥14）"这条保险丝会一直误报。 */
+    const p0 = src.lastIndexOf('var PANELS = [');
+    const panelKeys = p0 < 0 ? [] : (src.slice(p0, i0).match(/id:\s*'(\w+)'/g) || [])
+      .map(function (m) { return m.match(/'(\w+)'/)[1]; });
+    const idKeys = panelKeys.concat(
+      (src.slice(i0, i1).match(/IDS\.(\w+)\s*=/g) || [])
+        .map(function (m) { return m.replace(/^IDS\./, '').replace(/\s*=$/, ''); }));
+    const drawKeys = (src.slice(i1, i2).match(/^\s*(\w+)\s*:/gm) || [])
+      .map(function (m) { return m.replace(/[\s:]/g, ''); });
+    if (idKeys.length < ALL.length) {
+      errors.push('源码闸：只扫到 ' + idKeys.length + ' 个 IDS 键（应 ≥ ' + ALL.length
+        + '），正则可能过时了');
+    }
+    idKeys.forEach(function (k) {
+      if (drawKeys.indexOf(k) < 0) errors.push('源码闸：IDS 有 `' + k + '` 但 DRAW 没有对应入口');
+    });
+  }
+}, 'panels.route.contract');
+
+/* ---------- 资源分级契约（v0.61.0，用户第 11 点） ----------
+   用户给的换算链：「1 个下品道晶 = 10 个极品仙晶 = 100000 个极品灵晶 =
+   1000000000 个极品灵石，都是翻十倍计算」。
+   ⚠️ 这条链**末段不自洽**：前三段跨界都是 ×10^4（极品计），末段却是 ×10^4 ÷ 10^3。
+      取舍已定并写在 `player.js: RES` 的注释里 —— 保留用户**明确写出**且互相自洽的两个等式
+      （「1 下品道晶 = 10 极品仙晶」「10 极品仙晶 = 10^5 极品灵晶」），牺牲末段那句口语近似。
+   这里只钉**成立的部分**，以及"页面真的按四币四品摆出来了"。 */
+step(function () {
+  const P2 = G.Player;
+  if (!P2.RES || P2.RES.length !== 4) { errors.push('RES 应为四界四币'); return; }
+  if (!P2.GRADES || P2.GRADES.length !== 4) { errors.push('GRADES 应为四品'); return; }
+  const byId = {};
+  P2.RES.forEach(function (c) { byId[c.id] = c; });
+  ['stone', 'lingjing', 'xianjing', 'daojing'].forEach(function (id) {
+    if (!byId[id]) errors.push('缺币种 ' + id);
+    else if (!byId[id].icon) errors.push('币种 ' + id + ' 缺图标逻辑名前缀');
+  });
+  /* ① 币内每品 ×10 */
+  P2.GRADES.forEach(function (g, i) {
+    if (g.mult !== Math.pow(10, i)) errors.push('品级 ' + g.n + ' 的倍率应为 10^' + i);
+  });
+  /* ② 跨界倍率（下品计）：10^7 / 10^11 / 10^12 */
+  const u = function (id) { return byId[id].unit; };
+  if (u('lingjing') !== 1e7 || u('xianjing') !== 1e11 || u('daojing') !== 1e15) {
+    errors.push('跨界倍率应为 10^7 / 10^11 / 10^15，实为 '
+      + u('lingjing') + '/' + u('xianjing') + '/' + u('daojing'));
+  }
+  const TOP = 1000;   /* 1 极品 = 1000 下品 */
+  if (Math.abs(u('daojing') - 10 * TOP * u('xianjing')) > 1) {
+    errors.push('1 下品道晶应 = 10 极品仙晶（实为 ' + u('daojing') + ' vs '
+      + (10 * TOP * u('xianjing')) + ' 下品灵石）');
+  }
+  if (Math.abs(10 * TOP * u('xianjing') - 1e5 * TOP * u('lingjing')) > 1) {
+    errors.push('10 极品仙晶应 = 10 万极品灵晶');
+  }
+  /* ③ 拆分必须**无损**（四品加起来要还原成标量） */
+  [0, 1, 9, 999, 1000, 1234, 123456].forEach(function (v) {
+    const s3 = P2.splitGrades(v);
+    const back = s3.low + s3.mid * 10 + s3.high * 100 + s3.top * 1000;
+    if (back !== v) errors.push('资源拆分不是无损：' + v + ' → ' + back);
+  });
+  const sp = P2.splitGrades(1964);
+  if (sp.top !== 1 || sp.high !== 9 || sp.mid !== 6 || sp.low !== 4) {
+    errors.push('1964 应拆成 极品1/上品9/中品6/下品4，实为 ' + JSON.stringify(sp));
+  }
+  /* ④ 身家折算 */
+  if (P2.resWorth({ stone: 100, lingjing: 2 }) !== 100 + 2 * 1e7) {
+    errors.push('resWorth 折算错误');
+  }
+  /* ⑤ 兑换：目标界未解锁时不给兑（"到了灵界才有灵晶"） */
+  const se = { stone: 1e8, lingjing: 0, xianjing: 0, daoCrystal: 0 };
+  const rNo = P2.resExchange(se, { progress: { worlds: { fan: true, ling: false } } },
+    'stone', 'lingjing', 1e7);
+  if (rNo.ok) errors.push('灵界未解锁时不该能兑出灵晶');
+  if (!rNo.reason) errors.push('兑换失败必须给出可读原因');
+  const rYes = P2.resExchange(se, { progress: { worlds: { fan: true, ling: true } } },
+    'stone', 'lingjing', 1e7);
+  if (!rYes.ok) errors.push('灵界已解锁应可兑灵晶：' + rYes.reason);
+  else if (se.lingjing !== 1 || se.stone !== 1e8 - 1e7) {
+    errors.push('10^7 下品灵石应换得 1 下品灵晶，实为 ' + se.lingjing);
+  }
+
+  /* ⑥ 页面：页签名已改「资产」，且真的摆了 4 币 × 4 品 = 16 格 + 兑换口径说明 */
+  const s = JSON.parse(JSON.stringify(save));
+  s.pos = { x: 5, y: 5 }; s.items = s.items || {}; s.beasts = s.beasts || [];
+  s.stone = 1964; s.lingjing = 3; s.xianjing = 0; s.daoCrystal = 0;
+  G.game.save = s;
+  if (!G.game.meta) G.game.meta = { perfusion: {}, achieve: {}, past: [], titles: [] };
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.bagTab = 'stone';
+  G.Overlays.openPanel(sc, 'bag', true);
+  const tabNames = (sc.buttons || []).filter(function (b) { return b.variant === 'subtab'; })
+    .map(function (b) { return b.label; });
+  if (tabNames.indexOf('资产') < 0) errors.push('储物页签应已把「灵石」改为「资产」');
+  if (tabNames.indexOf('灵石') >= 0) errors.push('储物页签还留着旧的「灵石」');
+  const cells16 = (sc.buttons || []).filter(function (b) {
+    return typeof b.label === 'string'
+      && /^(极品|上品|中品|下品)(灵石|灵晶|仙晶|道晶)$/.test(b.label);
+  });
+  if (cells16.length !== 16) {
+    errors.push('资产页应为 4 币 × 4 品 = 16 格，实际 ' + cells16.length);
+  }
+  const cx3 = textSpy();
+  G.Overlays.renderPanel(cx3, sc);
+  if (!cx3.__seen.some(function (t) { return t.indexOf('下品道晶') >= 0; })) {
+    errors.push('资产页没有渲染出兑换口径说明（玩家看不出品级的意义）');
+  }
+  /* 图标必须**真的在 manifest 里**（不是程序化兜底）—— 这条抓的是"图出了但没接线"。
+     ⚠️ 无头环境里 `G.Assets.img` 取不到真图（没有 fetch），所以查 manifest 而不是查它。 */
+  const man = JSON.parse(fs.readFileSync(path.join(WWW, 'assets', 'manifest.json'), 'utf8'));
+  P2.RES.forEach(function (c) {
+    P2.GRADES.forEach(function (g) {
+      const key = c.icon + '.' + g.id;
+      if (!man[key]) errors.push('资源图标未接线（manifest 里没有）：' + key);
+    });
+  });
+  /* 副本徽记：15 个原型 + 道则回廊 */
+  ['B1', 'B2', 'B3', 'B4', 'B5', 'S1', 'S2', 'S3', 'S4', 'S5',
+    'S6', 'S7', 'S8', 'S9', 'S10', 'dao'].forEach(function (id) {
+    if (!man['dungeon.' + id]) errors.push('副本徽记未接线：dungeon.' + id);
+  });
+}, 'currency.contract');
+
+/* ---------- 宗门徽记契约（v0.61.0，用户第 12 点） ----------
+   用户口径：「这些宗门需要生成专属的标记，还有我们是修仙世界，不要有江湖气息的门派名」。
+   两件事：① 徽记（只做 9 个**根宗门**，灵界总部/仙界道场与凡界同根、共用一张）；
+           ② 门派名去江湖气（落霞镖局/翠微猎户盟/青溪剑馆 已改名）。 */
+step(function () {
+  const S = G.Data.sects;
+  if (!S || !S.rootOf) { errors.push('sects.rootOf 缺失（徽记按根宗门取的唯一口径）'); return; }
+  const man = JSON.parse(fs.readFileSync(path.join(WWW, 'assets', 'manifest.json'), 'utf8'));
+  const roots = {};
+  (S.list || []).forEach(function (s) { roots[S.rootOf(s.id) || s.id] = true; });
+  const keys = Object.keys(roots);
+  /* 9 个凡界根 + 4 个灵/仙自成一根 = 13（`sects.rootOf` 对没有 parent 的返回自己）*/
+  if (keys.length !== 13) errors.push('根宗门应为 13 个（9 凡界 + 4 灵仙自成一脉），实际 ' + keys.length);
+  keys.forEach(function (id) {
+    if (!man['sect.' + id]) errors.push('宗门徽记未接线：sect.' + id);
+  });
+  /* 徽记必须按**根**收敛：灵界总部与凡界同根 → 同一个取图键 */
+  const ling = (S.list || []).filter(function (s) { return s.world !== 'fan'; })[0];
+  if (ling && S.rootOf(ling.id) === ling.id) {
+    errors.push('灵界/仙界分支的 rootOf 应指回凡界根宗门，实际指回自己：' + ling.id);
+  }
+  /* 去江湖气：这三个名字不许再出现（源码闸） */
+  const bad = ['镖局', '猎户盟', '剑馆'];
+  ['www/js/data/sects.js', 'www/js/data/maps.js', 'www/js/data/skills.js'].forEach(function (rel) {
+    const t = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+    bad.forEach(function (w) {
+      if (t.indexOf(w) >= 0) errors.push('门派名仍有江湖气（' + w + '）：' + rel);
+    });
+  });
+}, 'sect.emblem.contract');
 
 /* ---------- 天道多协议契约（v0.8.0） ----------
    缺口：天道原先只认 OpenAI 兼容的 /chat/completions。
@@ -7872,7 +8192,7 @@ pump(4, 'danger.warn.leave');
   var meta = G.Storage._migrate({ version: 7, xianli: 0,
     perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
     past: [], heaven: { memory: [] } });
-  if (meta.version !== 8) e2.push('迁移后版本应为 8');
+  if (meta.version !== 9) e2.push('迁移后版本应为 9');
   if (!meta.memory || !meta.bonds || !meta.progress.story) e2.push('剧情结构未补齐');
   var r1 = G.Story.sealLife(meta, {}, 1);
   var sealedFan = Object.keys(meta.memory.fragments).length;

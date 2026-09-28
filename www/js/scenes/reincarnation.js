@@ -265,7 +265,14 @@
            老存档没这个字段 → explore.js 用 `|| (… = [])` 就地补，不写迁移。 */
         scriptBattlesDone: [],
         /* 仙力结算与寿元（轮回 v0.4 §3.2 / §4） */
-        maxGlobalLevel: startGL, bossKills: 0, chronicle: [], _ageTick: 0,
+        maxGlobalLevel: startGL, bossKills: 0, chronicle: [],
+        /* 世界时钟（v0.61.0）：gt = 本世累计**游戏分钟**（寿元的唯一账本），
+           ageBonus = 突破这类"顿悟"的一次性加龄，lastSeen = 现实时间戳（离线打坐用）。
+           ⚠️ `_ageTick` 已废（旧的分段余数），别再往新档里写。 */
+        gt: 0, ageBonus: 0, lastSeen: Date.now(),
+        /* 资源分级（用户第 11 点）：灵晶 / 仙晶 的持有量（下品计）。
+           灵石走 `stone`、道晶走 `daoCrystal`（老字段，不动）。 */
+        lingjing: 0, xianjing: 0,
         /* 副本（v3.3）：本世秘境序列随入世抽取。**种子化**（缺口 U8）——
            `dungeonSet` 与区域入口落位必须来自**同一条序列**（缺口 G20），
            否则区域裂隙显示的副本与秘境枢纽的槽位对不上。 */

@@ -448,11 +448,13 @@
     G.Storage.saveCurrent(save);
     G.game.toast('榻上安歇，气血全复');
   }
+  /* 打坐（蒲团）→ **闭关面板**（v0.61.0，用户第 4 点）。
+     原先这里是"一次性 +1200 灵气、年龄 +2"的无声动作 —— 玩家反馈"没有打坐修炼的感觉"。
+     现在蒲团只是**入口**：真正的档位/耗时/耗寿元/预计收益都在「闭关」页里摆开，
+     且收益随灵根系数放大（灵根的作用），离线也有结算（`G.game.resumeWorld`）。 */
   function meditateOnCushion(scene) {
-    var save = G.game.save;
-    var g = G.Player.meditate(save, 120);
-    var yrs = G.Player.agePush(save, 'meditate', 120);
-    G.game.toast('灵气 +' + g + (yrs ? '　岁月 +' + yrs : ''));
+    scene._medFrom = null;              /* 从地图蒲团进来：底部按钮是「关　闭」 */
+    G.Overlays.openPanel(scene, 'meditate');
   }
 
   /* 突破入口：口径统一在 G.Overlays.doBreak（底栏「功法」页也调它）。

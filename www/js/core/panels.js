@@ -94,8 +94,12 @@
     '灵液': 'mat.lingye', '符纸': 'mat.fuzhi', '朱砂': 'mat.zhusha', '灵木': 'mat.lingmu',
     /* 采集/掉落实际名称（v0.60） */
     '灵泉水': 'mat.lingquan', '百年灵芝': 'mat.lingzhi', '玄铁': 'mat.xuantie', '精钢': 'mat.steel',
-    '灵玉': 'mat.hanyu', '铁木': 'mat.lingmu', '道纹草': 'mat.daoherb', '道纹矿': 'mat.daoore',
-    '道纹残片': 'mat.daoshard', '妖骨': 'mat.shougu', '灵羽': 'mat.yumao', '血精': 'mat.bloodessence'
+    '灵玉': 'mat.lingyu', '铁木': 'mat.tiemu', '道纹草': 'mat.daoherb', '道纹矿': 'mat.daoore',
+    '道纹残片': 'mat.daoshard', '妖骨': 'mat.yaogu', '灵羽': 'mat.lingyu_f', '血精': 'mat.bloodessence',
+    /* v0.61.0（用户第 10 点「这些道具怎么没有图标」）：驯兽三件套 + 灵食/灵草
+       —— 原先根本没登记，`itemIcon` 一路拼到 `item.药渣` 查不到 → 静默退回程序化兜底。 */
+    '药渣': 'mat.yaozha', '木囊': 'mat.munang', '玄囊': 'mat.xuannang', '宝囊': 'mat.baonang',
+    '灵食': 'mat.lingshi', '灵草': 'mat.lingcao'
   };
 
   /* M0 主线链：与 town/field/cave/battle 里的判定一一对应。
@@ -252,6 +256,7 @@
   IDS.forge = 1;    /* 器坊：洞府炼器子页，不进底栏 */
   IDS.array = 1;    /* 阵台：洞府阵法子页，不进底栏 */
   IDS.masters = 1;  /* 拜师：洞府寻名师习艺，不进底栏 */
+  IDS.meditate = 1; /* 闭关：灵根苦修 + 离线收益（v0.61.0），不进底栏 */
 
   /* 底栏按钮：六个等宽页签。active 传当前面板 id 时该项高亮。 */
   function barBtns(scene, active) {
@@ -415,6 +420,7 @@
     if (id === 'forge') buildForge(btns, scene);
     if (id === 'array') buildArray(btns, scene);
     if (id === 'masters') buildMasters(btns, scene);
+    if (id === 'meditate') buildMeditate(btns, scene);
     if (id === 'beasts') buildBeasts(btns, scene);
     if (id === 'beastShop') buildBeastShop(btns, scene);
     if (id === 'sect') buildSect(btns, scene);
@@ -1079,7 +1085,7 @@
   var BAG_TABS = [
     { id: 'misc', n: '杂项' },
     { id: 'skill', n: '功法' },
-    { id: 'stone', n: '灵石' },
+    { id: 'stone', n: '资产' },
     { id: 'treasure', n: '法宝' },
     { id: 'secret', n: '秘术' }
   ];
@@ -1093,6 +1099,15 @@
     cell: 44, gap: 6, cols: 8, rows: 3
   };
   BG.cap = BG.cols * BG.rows;
+
+  /* 总身家（下品灵石计）的紧凑显示：过万走「万」，过亿走「亿」。
+     用户第 11 点要求"灵石改称资产"，而资产是**四币合计**，所以必须有个折算口径。 */
+  function fmtWorth(v) {
+    v = Math.max(0, Math.floor(v || 0));
+    if (v >= 1e8) return (v / 1e8).toFixed(2).replace(/\.?0+$/, '') + ' 亿';
+    if (v >= 1e4) return (v / 1e4).toFixed(2).replace(/\.?0+$/, '') + ' 万';
+    return String(v);
+  }
 
   /* 逐类取格子：{ n 名称, c 数量/等级, d 悬浮说明, use 可使用则填道具名 } */
   function bagCells(tab, save) {
@@ -1121,9 +1136,23 @@
         });
       });
     } else if (tab === 'stone') {
-      out.push({
-        n: '灵石', c: save.stone || 0, icon: 'stone',
-        d: '下品灵石，通用通货。杂货铺买丹药、妖丹回收、秘境与任务奖励都用它。'
+      /* 资产（v0.61.0，用户第 11 点）：**四界四币 × 四品 = 16 格**。
+         用户原话「灵石要区分下品、中品、上品、极品……这个地方灵石名称改为资产」。
+         ⚠️ 存档里每种币只有**一个标量**（以下品计），四品是 `Player.splitGrades` 的
+            显示拆分 —— 另存一份"分品余额"必然与标量分叉（换零钱换丢就是这么来的）。 */
+      var hold = G.Player.resHold(save);
+      G.Player.RES.forEach(function (c) {
+        var g = G.Player.splitGrades(hold[c.id]);
+        /* 极品在前：玩家的注意力先落在最值钱的那一档 */
+        G.Player.GRADES.slice().reverse().forEach(function (gr) {
+          out.push({
+            n: gr.n + c.n, c: g[gr.id],
+            icon: c.icon + '.' + gr.id,
+            d: '1 ' + gr.n + c.n + ' = ' + gr.mult + ' 下品' + c.n
+              + '　·　' + (c.world === 'fan' ? '凡界通货，通用'
+                : '须至' + c.n + '所辖之界方得')
+          });
+        });
       });
     } else if (tab === 'secret') {
       var Dg = G.Data.dungeons;
@@ -1214,7 +1243,7 @@
   function drawBag(x, scene) {
     var save = G.game.save;
     var tab = (scene && scene.bagTab) || 'misc';
-    shell(x, '储　物', '灵石 ' + (save.stone || 0));
+    shell(x, '储　物', '资产 ' + fmtWorth(G.Player.resWorth(save)));
 
     var cells = bagCells(tab, save);
     /* 格子本体由按钮画（见文件头说明）；这里只画空态文案与"溢出"提示。
@@ -1234,6 +1263,15 @@
     if (more > 0) {
       G.UI.textOut(x, { x: P.x + P.w - 14, y: P.y + 38 },
         '另有 ' + more + ' 件未列出', 10, G.UI.C.textDim, 'right');
+    }
+    /* 资产页的**兑换口径**必须写在面板上（用户第 11 点给的就是这条换算链）——
+       只摆 16 个格子而不说"哪个值钱"，玩家看不出品级的意义。 */
+    if (tab === 'stone') {
+      G.UI.text(x, {
+        x: P.x + 14,
+        y: BG.y0 + Math.ceil(cells.length / BG.cols) * (BG.cell + BG.gap) + 2
+      }, '1 下品道晶 = 10 极品仙晶 = 10 万极品灵晶'
+        + '（币内每品 ×10，跨界 ×1 万）', 9, G.UI.C.textDim);
     }
     /* 悬浮说明：逐格登记。提示条由 game.js 在帧末统一画（见 ui.js 的 hover 说明）。 */
     cells.slice(0, BG.cap).forEach(function (c, i) {
@@ -1391,6 +1429,14 @@
         onClick: function () { scene.endArm = false; G.Overlays.openPanel(scene, 'cave'); }
       }));
     }
+    /* 闭关 · 打坐（v0.61.0，用户第 3/4 点）：灵根苦修的正式入口。
+       卡片区（2×2）与底部按钮行都排满了，所以借说明行右侧那一块空白
+       （说明文字最宽约到 x=320，按钮从 340 起，水平不叠）。 */
+    btns.push(new G.UI.Btn({
+      x: 340, y: 170, w: 120, h: 18, small: true,
+      variant: 'gold', label: '闭 关 · 打 坐',
+      onClick: function () { scene._medFrom = 'cave'; G.Overlays.openPanel(scene, 'meditate'); }
+    }));
     /* 拜师·习艺：寻名师学炼丹/炼器/采药/采矿（用户第 7 点） */
     btns.push(new G.UI.Btn({
       x: 340, y: CV.btn.y, w: 120, h: CV.btn.h, small: true,
@@ -1526,6 +1572,122 @@
     }));
   }
 
+  /* 闭关（v0.61.0，用户第 3 / 第 4 点）：灵根苦修 + 离线收益的唯一入口。
+     为什么单开一页：原先"打坐"只是蒲团上一次 +1200 灵气、年龄 +2 的无声动作，
+     玩家反馈「没有打坐修炼的感觉」。现在改成**档位 + 演出 + 结算**：
+       · 五档（入定一月 → 枯坐百年），耗时 / 耗寿元 / 预计灵气都写在行上；
+       · 收益 = 当前小阶 needQi × 档位系数 × **首灵根系数** × (1+灵气加成)
+         —— 这就是"灵根的作用"：同样的年月，好灵根拿到的灵气多得多；
+       · 点下去先落数据、再播一段打坐演出（脉动光晕 + 灵气上升 + 大字报数）。
+     ⚠️ 收益只能走 `G.Time.meditate`（内部取 `Player.needQi`）——
+        自己另算一套必然与破境需求分叉，症状是"闭关十年还不够破一阶"。 */
+  var MD = { lx: P.x + 14, y0: P.y + 38, rowH: 24 };
+  var MED_ANIM_SEC = 1.8;
+  function medResultLine(save, scene) {
+    var r = scene.medResult;
+    if (!r) return '闭关可得灵气，亦可离机闭关（下次回到此世自动结算）';
+    return '本次闭关 ' + r.days + ' 日（寿元 −' + G.Time.fmtYears(r.years) + '）· 灵气 +'
+      + r.gain + '　' + (r.aged ? '岁月如流' : '容颜未改');
+  }
+  function drawMeditate(x, scene) {
+    var save = G.game.save;
+    shell(x, '闭　关', G.Time.label(save));
+    var r = G.Player.rates(save);
+    var coef = G.Time.linggenCoef(save);
+    var gl = save.globalLevel || 1;
+    var need = G.Player.needQi(save, gl);
+    var have = Math.floor(save.qi || 0);
+
+    G.Time.MEDITATE_TIERS.forEach(function (t, k) {
+      var y = MD.y0 + k * MD.rowH;
+      var c = G.Time.canMeditate(save, t);
+      var gain = G.Time.meditateGain(save, t);
+      var years = t.days / G.Time.DAY_PER_YEAR;
+      G.UI.textOut(x, { x: MD.lx, y: y }, t.n, 12.5, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
+      G.UI.text(x, { x: MD.lx + 76, y: y + 1 }, '耗 ' + t.days + ' 日', 9.5,
+        c.ok ? G.UI.C.text : G.UI.C.textDim);
+      G.UI.text(x, { x: MD.lx + 146, y: y + 1 },
+        '寿元 −' + G.Time.fmtYears(years), 9.5, c.ok ? G.UI.C.text : G.UI.C.danger);
+      G.UI.text(x, { x: MD.lx + 220, y: y + 1 }, '灵气 +' + gain, 10,
+        c.ok ? G.UI.C.jadeHi : G.UI.C.textDim);
+    });
+
+    /* 账本行：把"寿元怎么消耗"直接写在面板上（用户第 3 点的原话就是这个疑问） */
+    var infoY = MD.y0 + G.Time.MEDITATE_TIERS.length * MD.rowH + 6;
+    G.UI.text(x, { x: MD.lx, y: infoY },
+      '寿元 ' + (save.age || 16) + ' / ' + G.Player.lifespanOf(gl)
+      + '　·　灵气 ' + have + ' / ' + need + '（本阶）'
+      + '　·　首灵根 ×' + coef, 10, G.UI.C.text);
+    G.UI.text(x, { x: MD.lx, y: infoY + 13 },
+      '灵气加成 +' + Math.round((r.qi || 0) * 100) + '%　·　' + G.Time.ratioText()
+      + '　·　秘境中时间流速 ×' + G.Time.SCENE_MULT.dungeon, 9, G.UI.C.textDim);
+    G.UI.text(x, { x: MD.lx, y: infoY + 25 }, medResultLine(save, scene), 9.5,
+      scene.medResult ? G.UI.C.jadeHi : G.UI.C.textDim);
+
+    /* 打坐演出：脉动光晕 + 灵气上升 + 大字报数（约 1.8 秒）。
+       相位取 `G.game.time`（不用 performance.now）—— 截图与契约才钉得住。 */
+    if (scene.medAt != null) {
+      var el = (G.game.time || 0) - scene.medAt;
+      if (el < MED_ANIM_SEC && el >= 0) {
+        var cx = P.x + P.w / 2, cy = P.y + P.h / 2;
+        var k1 = el / MED_ANIM_SEC;
+        var pulse = 0.5 + 0.5 * Math.sin(el * 9);
+        var rad = 26 + 34 * k1 + 4 * pulse;
+        var gr = x.createRadialGradient(cx, cy, 2, cx, cy, rad);
+        gr.addColorStop(0, 'rgba(198,236,255,' + (0.30 * (1 - k1)).toFixed(3) + ')');
+        gr.addColorStop(0.55, 'rgba(150,205,255,' + (0.16 * (1 - k1)).toFixed(3) + ')');
+        gr.addColorStop(1, 'rgba(120,180,255,0)');
+        x.fillStyle = gr;
+        x.beginPath(); x.arc(cx, cy, rad, 0, Math.PI * 2); x.fill();
+        /* 上升的灵气点：确定性相位（按序号取模），不用随机数 */
+        for (var m = 0; m < 14; m++) {
+          var ph = ((el * 0.9 + m * 0.0714) % 1);
+          var mx = cx + Math.sin(m * 2.3) * (16 + 26 * ph);
+          var my = cy + 34 - ph * 68;
+          x.fillStyle = 'rgba(214,244,255,' + ((1 - ph) * (1 - k1) * 0.85).toFixed(3) + ')';
+          x.fillRect(mx, my, 1.6, 1.6);
+        }
+        var res = scene.medResult;
+        if (res) {
+          G.UI.textOut(x, { x: cx, y: cy - 6 }, '+' + res.gain, 20,
+            'rgba(226,246,255,' + (1 - k1).toFixed(2) + ')', 'center');
+        }
+      } else if (el >= MED_ANIM_SEC) {
+        scene.medAt = null;   /* 演出结束：下次进来不再播 */
+      }
+    }
+  }
+  function buildMeditate(btns, scene) {
+    var save = G.game.save;
+    G.Time.MEDITATE_TIERS.forEach(function (t, k) {
+      var y = MD.y0 + k * MD.rowH;
+      var c = G.Time.canMeditate(save, t);
+      btns.push(new G.UI.Btn({
+        x: P.x + P.w - 72, y: y - 3, w: 60, h: 18, small: true,
+        variant: c.ok ? 'gold' : 'ghost', label: '闭关', disabled: !c.ok,
+        onClick: function () {
+          var res = G.Player.closeDoor(save, t.id);
+          if (!res.ok) { G.game.toast(res.reason); return; }
+          scene.medResult = { gain: res.gain, days: res.days, years: res.years, aged: res.aged };
+          scene.medAt = G.game.time;
+          G.game.toast('闭关 ' + res.days + ' 日 · 灵气 +' + res.gain);
+          if (G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+          G.Overlays.openPanel(scene, 'meditate', true);
+          /* 坐化裁决：闭关是**最可能**把人坐死的一条路（枯坐百年），必须立刻判 */
+          if (G.game.checkAged) G.game.checkAged();
+        }
+      }));
+    });
+    btns.push(new G.UI.Btn({
+      x: MD.lx, y: 214, w: 96, h: 20, small: true,
+      label: scene._medFrom === 'cave' ? '返回洞府' : '关　闭',
+      onClick: function () {
+        if (scene._medFrom === 'cave') G.Overlays.openPanel(scene, 'cave');
+        else scene.clearOverlay();
+      }
+    }));
+  }
+
   /* 阵台（四大技艺批4）：阵法只能主城/宗门交易（道纹阵道界），经营长线投资。 */
   var FM = { lx: P.x + 12, y0: P.y + 34, rowH: 22, btnX: P.x + P.w - 70 };
   function curName(cur) { return cur === 'stone' ? '灵石' : cur === 'sectRep' ? '贡献' : '道晶'; }
@@ -1600,6 +1762,22 @@
   function sectOf(save) {
     if (!G.Data.sects || !save.sectId) return null;
     return G.Data.sects.byId(save.sectId);
+  }
+  /* 本界宗门列表（**排序的唯一口径**）：大派在前，其余保持数据序。
+     ⚠️ 面板体画徽记、`buildSect` 建按钮 —— 两处**必须共用这一个函数**，
+        各排各的必然错位（图标落在隔壁宗门的按钮上，且不报错）。 */
+  function sectListOf(meta) {
+    var wid = G.Player.activeWorldId(meta);
+    var list = (G.Data.sects ? G.Data.sects.ofWorld(wid) : []).slice();
+    list.sort(function (a, b) { return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1); });
+    return list;
+  }
+  /* 宗门徽记取图键（v0.61.0，用户第 12 点）：**按根宗门取** ——
+     灵界总部 / 仙界道场与凡界同根（`sects.rootOf`），共用一张徽记，
+     所以 21 个宗门只需要 9 张图。 */
+  function sectEmblem(id) {
+    var root = (G.Data.sects && G.Data.sects.rootOf) ? G.Data.sects.rootOf(id) : id;
+    return 'sect.' + (root || id);
   }
   /* ===== 势力面板（v0.41.0 重构）=====
      用户口径：「散修的任务和宗门重叠在一起了，可以在宗门的界面里面新增散修/宗门两个子界面，
@@ -1690,6 +1868,17 @@
         (WN[wid0] || '凡界') + '宗门 · 择一拜入', 12, G.UI.C.goldHi);
       G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
         '通过入门试炼即入；拜入后散修自悟功法将废功。', 10, G.UI.C.textDim);
+      /* 宗门徽记（v0.61.0，用户第 12 点）：贴在**每格按钮的左缘内**。
+         ⚠️ 不能走 `Btn.icon` —— 那个字段会把标签下移到 `y+27`（为 46px 方格设计），
+            26px 高的列表行会被顶出按钮外。所以由面板体直接 drawImage。
+         ⚠️ 迭代顺序必须与 `buildSect` 一致 → 共用 `sectListOf`。 */
+      sectListOf(G.game.meta).forEach(function (sc4, i) {
+        var col = i % 3, row = Math.floor(i / 3);
+        var ex = P.x + 14 + col * (SEC.gridW + SEC.gridGap);
+        var ey = P.y + 96 + row * (SEC.gridH + SEC.gridGapY);
+        var ic = G.Art.itemIcon(sectEmblem(sc4.id), 15);
+        x.drawImage(ic.c, ex + 5 + ic.ox, ey + (SEC.gridH - 15) / 2 + ic.oy, ic.w, ic.h);
+      });
       /* 底部说明：size10 用 top 基线，y 须保证文字不越出面板下框（FRAME 底 238）。
          放 P.y+198(abs224，止于237)；第三行按钮止于 P.y+190(abs216)，留 8px。 */
       G.UI.text(x, { x: P.x + 14, y: P.y + 198 },
@@ -1715,6 +1904,12 @@
     }
     G.UI.text(x, { x: P.x + 14, y: P.y + 58 },
       '当前宗门：' + ((s && s.n) || '散修'), 12, G.UI.C.goldHi);
+    /* 本门徽记（v0.61.0）：贴在右上角，与「当前宗门」同一行但**不压文字** ——
+       文字最宽到约 x+180（「当前宗门：太虚剑宗·灵界总部」），徽记从 x+w-46 起。 */
+    if (s) {
+      var eic = G.Art.itemIcon(sectEmblem(s.id), 30);
+      x.drawImage(eic.c, P.x + P.w - 46 + eic.ox, P.y + 50 + eic.oy, eic.w, eic.h);
+    }
     G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
       '位阶 ' + (G.Player.RANK_N[G.Player.rankOf(save)] || '外门')
       + '　贡献 ' + (save.sectRep || 0) + '（副本：首杀+20 刷取+8）', 11, G.UI.C.textDim);
@@ -1837,9 +2032,8 @@
 
     /* ---- 宗门页：未入门 → 本界全部宗门，3 列网格拜入 ---- */
     if (!save.sectId) {
-      var wid2 = G.Player.activeWorldId(G.game.meta);
-      var list2 = (G.Data.sects ? G.Data.sects.ofWorld(wid2) : []).slice();
-      list2.sort(function (a, b) { return (a.size === 'big' ? 0 : 1) - (b.size === 'big' ? 0 : 1); });
+      /* ⚠️ 顺序必须与 `drawSect` 画徽记时一致 → 共用 `sectListOf`（排序的唯一口径） */
+      var list2 = sectListOf(G.game.meta);
       var ready2 = G.Player.trialReady(save);
       list2.forEach(function (sc3, i) {
         var col = i % 3, row = Math.floor(i / 3);
@@ -2571,6 +2765,8 @@
     alchemy: drawAlchemy,
     forge: drawForge,
     array: drawArray,
+    masters: drawMasters,
+    meditate: drawMeditate,
     beasts: drawBeasts,
     beastShop: drawBeastShop,
     sect: drawSect,
@@ -2619,6 +2815,11 @@
   G.Overlays.BAR_Y = BAR_Y;
   G.Overlays.BAR_H = BAR_H;
   G.Overlays.isPanel = function (name) { return !!IDS[name]; };
+  /* 全部可路由面板 id 的**唯一清单**（v0.61.0）。
+     为什么导出：`DRAW` 漏一项的表现是"面板点了没反应、只有按钮浮在地图上、且不报错"
+     —— v0.60.0 的「拜师」面板就是这样漏的（DRAW 里有 alchemy/array，独缺 masters）。
+     契约要能**遍历所有 id** 才能把这类漏注册钉死，所以清单必须出得来。 */
+  G.Overlays.PANEL_IDS = Object.keys(IDS);
   G.Overlays.itemIconId = function (name) { return ITEM_ICON_ID[name] || name; };
   /* 成就页移出游戏内（v0.15.0）：底栏不再有它，改由**开局界面**渲染。
      绘制实现仍留在这里（单一实现），只是换个调用方 —— 不复制一份。 */

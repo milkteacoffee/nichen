@@ -192,6 +192,78 @@ SIZES = {
     'mat.fuzhi': (256, 256),
     'mat.zhusha': (256, 256),
     'mat.lingmu': (256, 256),
+    # ===== v0.61.0 新增：资源四品 + 缺失道具 + 副本徽记（用户第 1/10/11 点）=====
+    #   三张 4×4 集换表切出来的 48 张，切图见 `_gen/iconslice.js`（与 iconpipe 同一套抠图口径）。
+    #   · `res.<币种>.<品级>`：灵石 / 灵晶 / 仙晶 / 道晶 各 下品/中品/上品/极品
+    #     （用户第 11 点：四界四品，1 下品道晶 = 10 极品仙晶 = 10^5 极品灵晶 = 10^9 极品灵石）
+    #   · `mat.*`：储物页里"有名字没图标"的采集/驯兽材料
+    #   · `dungeon.<原型id>`：副本枢纽与入口面板的徽记（原先只有文字）
+    'res.stone.low': (256, 256),
+    'res.stone.mid': (256, 256),
+    'res.stone.high': (256, 256),
+    'res.stone.top': (256, 256),
+    'res.lingjing.low': (256, 256),
+    'res.lingjing.mid': (256, 256),
+    'res.lingjing.high': (256, 256),
+    'res.lingjing.top': (256, 256),
+    'res.xianjing.low': (256, 256),
+    'res.xianjing.mid': (256, 256),
+    'res.xianjing.high': (256, 256),
+    'res.xianjing.top': (256, 256),
+    'res.daojing.low': (256, 256),
+    'res.daojing.mid': (256, 256),
+    'res.daojing.high': (256, 256),
+    'res.daojing.top': (256, 256),
+    'mat.yaozha': (256, 256),        # 药渣
+    'mat.munang': (256, 256),        # 木囊
+    'mat.xuannang': (256, 256),      # 玄囊
+    'mat.baonang': (256, 256),       # 宝囊
+    'mat.lingshi': (256, 256),       # 灵食
+    'mat.lingquan': (256, 256),      # 灵泉水
+    'mat.steel': (256, 256),         # 精钢
+    'mat.lingyu': (256, 256),        # 灵玉
+    'mat.tiemu': (256, 256),         # 铁木
+    'mat.daoherb': (256, 256),       # 道纹草
+    'mat.daoore': (256, 256),        # 道纹矿
+    'mat.daoshard': (256, 256),      # 道纹残片
+    'mat.bloodessence': (256, 256),  # 血精
+    'mat.yaogu': (256, 256),         # 妖骨
+    'mat.lingyu_f': (256, 256),      # 灵羽
+    'mat.lingcao': (256, 256),       # 灵草
+    'dungeon.B1': (256, 256),
+    'dungeon.B2': (256, 256),
+    'dungeon.B3': (256, 256),
+    'dungeon.B4': (256, 256),
+    'dungeon.B5': (256, 256),
+    'dungeon.S1': (256, 256),
+    'dungeon.S2': (256, 256),
+    'dungeon.S3': (256, 256),
+    'dungeon.S4': (256, 256),
+    'dungeon.S5': (256, 256),
+    'dungeon.S6': (256, 256),
+    'dungeon.S7': (256, 256),
+    'dungeon.S8': (256, 256),
+    'dungeon.S9': (256, 256),
+    'dungeon.S10': (256, 256),
+    'dungeon.dao': (256, 256),       # 道则回廊（道界试炼）
+    # 宗门徽记（v0.61.0，用户第 12 点）：**只做 9 个「根宗门」**——
+    # 灵界总部 / 仙界道场与凡界同根（`sects.rootOf`），共用一张徽记，
+    # 所以不需要按 21 个宗门各出一张。
+    'sect.qxj': (256, 256),          # 青溪剑阁
+    'sect.lxb': (256, 256),          # 落霞宗
+    'sect.yhy': (256, 256),          # 幽篁药庐
+    'sect.hyg': (256, 256),          # 火云观
+    'sect.cwl': (256, 256),          # 翠微御灵宗
+    'sect.txjz': (256, 256),         # 太虚剑宗
+    'sect.dxg': (256, 256),          # 丹霞谷
+    'sect.xtzz': (256, 256),         # 玄天阵宗
+    'sect.wssz': (256, 256),         # 万兽山庄
+    # 灵/仙两界**自成一根**的 4 个（没有 parent，不挂凡界山门）：雷泽散人盟 /
+    # 云海剑冢·守冢一脉 / 寒渊水府·鲛族 / 南天门天兵营。
+    'sect.lzm': (256, 256),          # 雷泽散人盟
+    'sect.yhjz': (256, 256),         # 云海剑冢·守冢一脉
+    'sect.hysf': (256, 256),         # 寒渊水府·鲛族
+    'sect.tmty': (256, 256),         # 南天门天兵营
     'skill.jin': (256, 256),
     'skill.mu': (256, 256),
     'skill.shui': (256, 256),

@@ -52,6 +52,9 @@
       }
       if (hasSave) add('继续当世', 'frost', function () {
         G.game.save = G.Storage.loadCurrent();
+        /* v0.61.0：补时钟字段 + **结算离线打坐**（用户第 4 点）—— 必须在这里，
+           因为它要读"上次离开到现在的现实时长"，晚了就被 lastSeen 覆盖成 0。 */
+        G.game.resumeWorld();
         G.game.toast('读档成功');
         G.game.changeScene(G.game.save.scene || 'town');
       });

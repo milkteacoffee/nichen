@@ -1691,6 +1691,13 @@
         var low = ratio <= 0.3;
         G.UI.text(x, { x: 52, y: 21 }, '气血', 10.5, G.UI.C.textDim);
         G.UI.bar(x, { x: 80, y: 22, w: 84, h: 8 }, ratio, low ? '#e2605a' : G.UI.C.hp);
+        /* --- 纪年（v0.61.0）---
+           世界时钟的**常驻可见读数**：用户第 3 点问"游戏内时间与现实的比例怎么做的"，
+           答在闭关页里、**证在 HUD 上** —— 这一行一直在走，就是「现实 1 天 = 游戏 365 天」。
+           放在第二行气血条右侧（第一行右侧被四格资源与设置占满）。 */
+        if (G.Time) {
+          G.UI.text(x, { x: 172, y: 21 }, G.Time.label(save), 9.5, G.UI.C.jadeHi);
+        }
         if (low) {                       /* 濒死：条外一圈脉动红晕 */
           x.save();
           x.globalAlpha = 0.30 + 0.30 * Math.sin(t / 220);

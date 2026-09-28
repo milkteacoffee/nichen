@@ -20,10 +20,10 @@
 
   var LIST = [
     /* ===== 凡界 · 5 小宗门 ===== */
-    S({ id: 'qxj', n: '青溪剑馆', world: 'fan', size: 'small', region: 'fan1', elem: '金',
+    S({ id: 'qxj', n: '青溪剑阁', world: 'fan', size: 'small', region: 'fan1', elem: '金',
         tier: '凡', trial: 'duel', skills: ['青溪剑诀', '流云三叠'],
-        desc: '青溪镇上开馆授徒的小剑馆，教的是最扎实的入门剑式。' }),
-    S({ id: 'lxb', n: '落霞镖局', world: 'fan', size: 'small', region: 'fan4', elem: '土',
+        desc: '青溪镇上开阁授徒的小剑阁，教的是最扎实的入门剑式。' }),
+    S({ id: 'lxb', n: '落霞宗', world: 'fan', size: 'small', region: 'fan4', elem: '土',
         tier: '凡', trial: 'escort', skills: ['铁镖护体', '镖行千里'],
         desc: '半宗门半商帮，走镖也教拳，最讲一个"信"字。' }),
     S({ id: 'yhy', n: '幽篁药庐', world: 'fan', size: 'small', region: 'fan6', elem: '木',
@@ -32,7 +32,7 @@
     S({ id: 'hyg', n: '火云观', world: 'fan', size: 'small', region: 'fan9', elem: '火',
         tier: '凡', trial: 'duel', skills: ['火云咒', '焚天诀'],
         desc: '地火谷中的道观，修的是最刚猛的一路火法。' }),
-    S({ id: 'cwl', n: '翠微猎户盟', world: 'fan', size: 'small', region: 'fan2', elem: '土',
+    S({ id: 'cwl', n: '翠微御灵宗', world: 'fan', size: 'small', region: 'fan2', elem: '土',
         tier: '凡', trial: 'gather', skills: ['猎兽诀', '御兽同心'],
         desc: '翠微山的猎户结社，与山中的妖兽打了一辈子交道。' }),
 

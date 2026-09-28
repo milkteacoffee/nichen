@@ -392,6 +392,62 @@ var AVATAR_HEAD_DEF = [37, 27, 44];                  /* 兜底 = 程序化半身
 
 ---
 
+## 二·补. v0.61.0 图标批次（资源四品 / 缺失道具 / 副本徽记）
+
+这一批**不是逐张出图**，而是三张 **4×4 集换表**（deepkey 文生图，1024×1024）
+经 `_gen/iconslice.js` 切成 **48 张 256×256 透明底图标**（与 `tools/iconpipe.js` 同一套抠图口径：
+四边泛洪抠近黑 → 裁包围盒 → 等比缩进 256 并居中）。
+
+```bash
+# 出图：三张表分别落到 _gen/_raw/（子目录不被切图脚本扫）
+# 切片：
+NODE_PATH=./node_modules node _gen/iconslice.js <sheet.png> _gen "<name1,name2,...>"
+# 接线（新逻辑名必须先加进 SIZES）：
+"C:/MyFiles/Development/Python3.11/python.exe" tools/assets-build.py && ... --check
+```
+
+### 1. 资源四品 —— `res.<币种>.<品级>`（16 张）
+
+| 币种 | 界 | 逻辑名前缀 |
+|---|---|---|
+| 灵石 | 凡 | `res.stone.*` |
+| 灵晶 | 灵 | `res.lingjing.*` |
+| 仙晶 | 仙 | `res.xianjing.*` |
+| 道晶 | 道 | `res.daojing.*` |
+
+`<品级>` ∈ `low`（下品）/ `mid`（中品）/ `high`（上品）/ `top`（极品）。
+换算口径的**唯一来源**是 `player.js` 的 `RES` / `GRADES`（含"用户那句末段不自洽"的取舍说明），
+契约 `currency.contract` 逐条钉住。**改倍率就改那张表，别在面板里另写一份。**
+
+### 2. 缺失道具 —— `mat.<拼音>`（16 张）
+
+`mat.yaozha`(药渣) · `mat.munang`(木囊) · `mat.xuannang`(玄囊) · `mat.baonang`(宝囊) ·
+`mat.lingshi`(灵食) · `mat.lingquan`(灵泉水) · `mat.steel`(精钢) · `mat.lingyu`(灵玉) ·
+`mat.tiemu`(铁木) · `mat.daoherb`(道纹草) · `mat.daoore`(道纹矿) · `mat.daoshard`(道纹残片) ·
+`mat.bloodessence`(血精) · `mat.yaogu`(妖骨) · `mat.lingyu_f`(灵羽) · `mat.lingcao`(灵草)
+
+⚠️ 中文名 → 逻辑名的映射在 `panels.js: ITEM_ICON_ID`。**加新道具时两处都要动**：
+`SIZES` 登记（否则"未登记尺寸，跳过"）+ `ITEM_ICON_ID` 映射（否则 `itemIcon` 一路拼到
+`item.药渣` 查不到，**静默退回程序化兜底**，玩家看到的就是"这个道具没图标"）。
+
+### 3. 副本徽记 —— `dungeon.<原型id>`（16 张）
+
+`dungeon.B1..B5`（五大副本）+ `dungeon.S1..S10`（十小副本）+ `dungeon.dao`（道则回廊）。
+取图在 `dungeon.js: _renderHub`（枢纽五行，24px）。
+
+### 4. 宗门徽记 —— `sect.<根宗门id>`（13 张）
+
+只做**根宗门**：灵界总部 / 仙界道场与凡界同根（`sects.rootOf` 收敛），共用一张。
+9 个凡界根（`qxj / lxb / yhy / hyg / cwl / txjz / dxg / xtzz / wssz`）
++ 4 个灵/仙自成一根（`lzm / yhjz / hysf / tmty`）。
+取图在 `panels.js: sectEmblem()`（**按根收敛的唯一口径**），绘制在 `drawSect`（15px 网格内 / 30px 已入门）。
+⚠️ **不要走 `Btn.icon`** —— 那个字段会把标签下移到 `y+27`（为 46px 方格设计），26px 高的列表行会被顶出按钮外。
+
+> ⚠️ **集换表的格子顺序 = 切片的命名顺序**，两者靠人工对齐 —— 生成时**先想清楚 16 个格子的语义顺序**
+> 再写 prompt，切完立刻肉眼看一遍 `_shots/`，别等到接线后才发现"第 7 格是雪花、我把它给了火云洞"。
+
+---
+
 ## 三、出图规格建议
 
 | 项 | 建议 |
