@@ -336,17 +336,23 @@ step(() => {
 }, 'dream.check');
 note('珠内梦境点化');
 
-/* ---- 刷到炼气三段（大境界用商店可购的突破丹打通，与 playthrough 一致） ---- */
+/* ---- 修到炼气三段（v0.67.0：灵气**只能靠闭关**；大境界用商店可购的丹打通）
+   ⚠️ 原先靠 `fight({赤炎狼})` 刷灵气 —— 野怪已不产灵气（用户第 28 点），
+      继续刷会永远补不满、循环跑满 guard。改成走真实闭关入口 `G.Time.meditate`。 */
 const save1 = G.game.save;
+const T2coef = () => G.Time.linggenCoef(save1);
 let guard = 0;
-while (save1.globalLevel < 45 && guard++ < 1500) {
-  fight({ enemy: G.Data.makeEnemy('赤炎狼', 7, '赤炎狼'), mapId: 'field' });
+while (save1.globalLevel < 45 && guard++ < 500) {
   save1.hp = G.Player.computeStats(save1).maxhp;
   const st = G.Player.breakState(save1);
-  if (st.have < st.need) continue;
+  if (st.have < st.need) {
+        const med = G.Time.meditate(save1, 'm3');
+    if (!med.ok) { errors.push('闭关失败：' + med.reason); break; }
+    continue;
+  }
   if (!st.big) { G.Player.breakthrough(save1); continue; }
   save1.items[st.pill] = (save1.items[st.pill] || 0) + 1;   /* 药铺有售 */
-  const r = G.Player.startBigBreak(save1);
+  const r = G.Player.startBigBreak(save1, null, 0);         /* roll=0 → 必成功 */
   if (!r.ok) { errors.push('大境界突破被拒：' + r.reason); break; }
   G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town' });
   pump(4);

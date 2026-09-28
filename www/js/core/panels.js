@@ -124,6 +124,11 @@
     '回春丹': 'pill_huichun', '大还丹': 'pill_dahuan', '聚气散': 'pill_juqi',
     '醒神散': 'pill_xingshen', '解毒丹': 'pill_jiedu', '甘霖丹': 'pill_ganlin',
     '舒筋丹': 'pill_shujin', '淬体突破丹': 'pill_cuiti', '筑基丹': 'pill_zhuji',
+    /* v0.67.0：结丹丹 / 道纹丹 原先只在 ITEM_D 有说明，ITEM_ICON_ID 缺映射
+       → `itemIcon` 一路拼到 `item.结丹丹` 查不到 → 静默退回程序化兜底。 */
+    '结丹丹': 'pill_jiedan', '道纹丹': 'pill_daowen',
+    /* 旧版遗留的疗伤道具（无使用入口，仅旧档背包装饰），复用回春丹图，避免静默兜底 */
+    '伤药': 'pill_huichun',
     '解封符': 'talisman_jiefeng', '引灵符': 'talisman_jiefeng', '回城符': 'talisman_huicheng',
     '妖丹': 'mat_yaodan',
     '凡品功法碎片': 'shard_fan', '灵品功法碎片': 'shard_ling', '宝品功法碎片': 'shard_bao',
@@ -140,7 +145,9 @@
     /* v0.61.0（用户第 10 点「这些道具怎么没有图标」）：驯兽三件套 + 灵食/灵草
        —— 原先根本没登记，`itemIcon` 一路拼到 `item.药渣` 查不到 → 静默退回程序化兜底。 */
     '药渣': 'mat.yaozha', '木囊': 'mat.munang', '玄囊': 'mat.xuannang', '宝囊': 'mat.baonang',
-    '灵食': 'mat.lingshi', '灵草': 'mat.lingcao'
+    '灵食': 'mat.lingshi', '灵草': 'mat.lingcao',
+    /* v0.67.0：灵兽进化材料，beasts.js 的 chain.item 用它，原先无映射 → 无图标 */
+    '饲灵草料': 'mat.siliao'
   };
 
   /* M0 主线链：与 town/field/cave/battle 里的判定一一对应。

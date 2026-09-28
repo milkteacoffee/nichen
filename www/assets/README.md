@@ -423,7 +423,6 @@ NODE_PATH=./node_modules node _gen/iconslice.js <sheet.png> _gen "<name1,name2,.
 契约 `currency.contract` 逐条钉住。**改倍率就改那张表，别在面板里另写一份。**
 
 ### 2. 缺失道具 —— `mat.<拼音>`（16 张）
-
 `mat.yaozha`(药渣) · `mat.munang`(木囊) · `mat.xuannang`(玄囊) · `mat.baonang`(宝囊) ·
 `mat.lingshi`(灵食) · `mat.lingquan`(灵泉水) · `mat.steel`(精钢) · `mat.lingyu`(灵玉) ·
 `mat.tiemu`(铁木) · `mat.daoherb`(道纹草) · `mat.daoore`(道纹矿) · `mat.daoshard`(道纹残片) ·
@@ -448,6 +447,39 @@ NODE_PATH=./node_modules node _gen/iconslice.js <sheet.png> _gen "<name1,name2,.
 
 > ⚠️ **集换表的格子顺序 = 切片的命名顺序**，两者靠人工对齐 —— 生成时**先想清楚 16 个格子的语义顺序**
 > 再写 prompt，切完立刻肉眼看一遍 `_shots/`，别等到接线后才发现"第 7 格是雪花、我把它给了火云洞"。
+
+---
+
+## 二·补2. v0.67.0 图标补缺（3 张）
+
+v0.61.0 那批之后，`item.icon.contract` 加了一条**全量覆盖闸**：遍历 `ITEM_D` 的每个条目，
+要求都有 `ITEM_ICON_ID` 映射、且映射指向的素材键真实存在。它抓出了三个漏网的：
+
+| 中文名 | 逻辑名 | 用途 |
+|---|---|---|
+| 结丹丹 | `item.pill_jiedan` | 筑基→金丹 破境丹（`alchemy.js` 配方、丹房有售） |
+| 道纹丹 | `item.pill_daowen` | 战斗内回复六成气血（`shops.js` 道界商店、`battle.js` 道具表） |
+| 饲灵草料 | `mat.siliao` | 特定灵兽进化材料（`beasts.js` 的 `chain.item`） |
+
+**为什么之前没人发现**：取图会一路拼到 `item.结丹丹` 查不到 → **静默退回程序化兜底**，
+既有契约（只覆盖硬编码 16 个 id）照样全绿，玩家看到的就是"这个道具没图标"。
+
+出图口径沿用 v0.61.0，但**单张出图**（不需要集换表）：
+
+```bash
+# 1) deepkey 文生图 → _gen/_raw/，画风必须锚在已有图标上（参考 item.pill_zhuji 的云纹玉托）
+# 2) 预处理（透明底的图走这个：清低 alpha 伪影 → 裁框 → 缩进 256）
+python _gen/_prep_icons.py
+# 3) ⚠️ 生图工具**可能返回不透明白底**（同一批里 2 张透明、1 张白底，是随机的）：
+#    白底的走泛洪抠底（thresh=20 才不误吞淡青的云托；46 会把主体打穿）
+python _gen/_knockout.py <raw.png> _gen/item.pill_daowen.png 256
+# 4) 接线三处（缺一处就是静默兜底）：
+#    assets-build.py 的 SIZES 登记 + panels.js 的 ITEM_ICON_ID 映射 + 跑 assets-build.py
+python tools/assets-build.py && python tools/assets-build.py --check
+```
+
+⚠️ **查素材 alpha 不要靠肉眼看合成图** —— 用 `paste` 合成对比图不会正确叠加 alpha，
+看起来像"棋盘格被烤进了 RGB"，其实素材是对的。直接 `getextrema()` / `histogram()` 查。
 
 ---
 

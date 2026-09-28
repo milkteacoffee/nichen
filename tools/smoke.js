@@ -1343,7 +1343,9 @@ step(function () {
   if (left !== 800) errors.push('心魔战失败灵气应保留 80%（800），实为 ' + left);
 }, 'break.rules');
 
-/* 4c) 普通遭遇奖励公式：灵气 80×L×灵根系数 / 灵力 8×L / 灵石 6×L */
+/* 4c) 普通遭遇奖励（v0.67.0 经济重设，用户第 28 / 30 点）：
+       不再给灵气；只给材料 + 少量灵力（1×L）+ 1~5 下品灵石（不随 L 放大）。
+       ⚠️ 旧断言（灵气 480 / 灵力 48 / 灵石 36）是**旧经济规则**，随需求作废。 */
 step(() => {
   const s = JSON.parse(JSON.stringify(save));
   s.globalLevel = 6; s.qi = 0; s.po = 0; s.stone = 0;
@@ -1358,9 +1360,11 @@ step(function () {
   const b = G.game.scene, s = G.game.save;
   b.es.forEach(function (e) { e.hp = 0; });
   b._victory();
-  if (s.qi !== 480) errors.push('灵气奖励应为 80×6×1.0=480，实为 ' + s.qi);
-  if (s.po !== 48) errors.push('灵力奖励应为 8×6=48，实为 ' + s.po);
-  if (s.stone !== 36) errors.push('灵石奖励应为 6×6=36，实为 ' + s.stone);
+  if (s.qi !== 0) errors.push('野怪不该给灵气（v0.67.0），实为 ' + s.qi);
+  if (s.po !== 6) errors.push('灵力应为 1×L=6（一点点），实为 ' + s.po);
+  if (!(s.stone >= 1 && s.stone <= 5)) {
+    errors.push('灵石应为 1~5 个下品（单只），实为 ' + s.stone);
+  }
 }, 'reward.formula');
 pump(20, 'reward.result');
 
@@ -1672,6 +1676,23 @@ step(function () {
   if (T.MIN_PER_YEAR !== 365 * 24 * 60) errors.push('一游戏年应为 525600 分钟');
   if (T.DUNGEON_DAYS_PER_FLOOR <= 0) errors.push('副本每层应有时间代价（秘境加速时间流逝）');
 
+  /* ⑤ 「玩家在游玩时不会流逝时间」——v0.67.0（用户第 28 点）。
+     这条**必须用源码闸**：行为探针驱动不了"探索场景每帧是否 tick"，
+     而漏接的表现正是"静默地继续变老"（不报错、不崩、契约全绿）。
+     ⚠️ 判据要连"调用条件"一起钉住 —— 只查 `G.Time.tick(` 存在是判不出
+        "无条件 vs 有场景条件"的（旧版就是无条件调用，查符号恒真，属于 G43）。 */
+  {
+    const gj = fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8');
+    const gjs = gj.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    if (!/G\.Time\.tick\(this\.save, dt\)/.test(gjs)) {
+      errors.push('源码闸：game.js 里没有 G.Time.tick 调用 —— 秘境加速时间会失效');
+    }
+    if (!/G\.Time\.sceneMult\(\) > 1[^;]*G\.Time\.tick/.test(gjs)) {
+      errors.push('源码闸：G.Time.tick 必须**带秘境条件**（sceneMult() > 1）—— '
+        + '否则普通探索也会流逝时间（用户第 28 点：只有闭关/秘境才走时钟）');
+    }
+  }
+
   const s = { age: 16, globalLevel: 1 };
   T.ensure(s);
   if (s.gt !== 0 || s.age !== 16) errors.push('ensure 后应 gt=0 / age=16，实为 ' + s.gt + '/' + s.age);
@@ -1685,9 +1706,21 @@ step(function () {
   if (s.age !== 17) errors.push('打坐 60 游戏分钟不该增龄，实为 ' + s.age);
   if (s.gt !== T.MIN_PER_YEAR + 60) errors.push('打坐应推进 60 游戏分钟，实为 ' + s.gt);
   P.agePush(s, 'break');
-  if (s.age !== 19) errors.push('突破应 +2 岁，实为 ' + s.age);
+  if (s.age !== 19) errors.push('大境界突破应 +2 岁，实为 ' + s.age);
   if (s.ageBonus !== 2) errors.push('突破的加龄应记在 ageBonus，实为 ' + s.ageBonus);
   if (s.gt !== T.MIN_PER_YEAR + 60) errors.push('突破不该推进世界时钟（它是顿悟）');
+  /* v0.67.0 校准：**小阶**突破不再加龄（`_applyBreak(big=false)` 不调 agePush）。
+     否则 35 个淬体小阶 × 2 岁 = 70 岁，凡人寿元 100 撑不到炼气（实测 age 113 > 100）。 */
+  {
+    const sb2 = { globalLevel: 1, qi: 99999, age: 16, gt: 0, ageBonus: 0, items: {} };
+    T.ensure(sb2);
+    const beforeAge = sb2.age;
+    P.breakthrough(sb2);                     /* gl 1 → 2，属小阶 */
+    if (sb2.globalLevel !== 2) errors.push('小阶突破应进 1 阶，实为 ' + sb2.globalLevel);
+    if (sb2.age !== beforeAge) {
+      errors.push('小阶突破不该加龄（v0.67.0 寿元校准），实为 ' + beforeAge + ' → ' + sb2.age);
+    }
+  }
   if (P.isAged(s)) errors.push('19 岁不应判为寿元尽');
   s.age = 100;
   if (!P.isAged(s)) errors.push('淬体 100 岁应判为寿元尽');
@@ -2496,6 +2529,39 @@ step(function () {
   if (!cells.length) errors.push('储物面板没有生成格子按钮');
   const noIcon = cells.filter(function (b) { return !b.icon; });
   if (noIcon.length) errors.push(`${noIcon.length} 个储物格子没带 icon（会静默不画图标）`);
+
+  /* ④ 全量覆盖：**每个在 ITEM_D 里登记说明的道具**都必须能在 manifest 里查到图。
+     ⚠️ 这条是 v0.67.0 补的 —— 「结丹丹 / 道纹丹 / 饲灵草料」在 ITEM_D / 商店 /
+        炼丹配方 / 灵兽进化里都在用，却漏了 ITEM_ICON_ID 映射：
+        取图会一路拼到 `item.结丹丹` 查不到，**静默退回程序化兜底**，
+        玩家看到的就是「这个道具没图标」，而所有既有契约**照样全绿**。
+     之前那 ①②③ 只覆盖了硬编码的 16 个 id，正是这个缺口溜过去的原因。 */
+  const src = fs.readFileSync(path.join(WWW, 'js', 'core', 'panels.js'), 'utf8');
+  const dm = src.match(/var ITEM_D = \{([\s\S]*?)\n  \};/);
+  const im = src.match(/var ITEM_ICON_ID = \{([\s\S]*?)\n  \};/);
+  if (!dm || !im) { errors.push('道具图标契约：解析 ITEM_D / ITEM_ICON_ID 失败（正则过时？）'); return; }
+  const map = {};
+  (im[1].match(/'([^']+)':\s*'([^']+)'/g) || []).forEach(function (s) {
+    const m = s.match(/'([^']+)':\s*'([^']+)'/);
+    if (m) map[m[1]] = m[2];
+  });
+  const noMap = [], noArt = [];
+  (dm[1].match(/'([^']+)':\s*'/g) || []).forEach(function (s) {
+    const name = s.match(/'([^']+)'/)[1];
+    if (!map[name]) { noMap.push(name); return; }
+    const key = map[name].indexOf('.') >= 0 ? map[name] : 'item.' + map[name];
+    if (!mf[key]) noArt.push(name + '→' + key);
+  });
+  if (noMap.length) {
+    errors.push(`${noMap.length} 个道具在 ITEM_D 有说明却没有 ITEM_ICON_ID 映射`
+      + `（会静默退回程序化兜底）：${noMap.join(' / ')}`);
+  }
+  if (noArt.length) {
+    errors.push(`${noArt.length} 个道具的映射指向不存在的素材键：${noArt.join(' / ')}`);
+  }
+  if (Object.keys(map).length < 40) {
+    errors.push('道具图标契约：ITEM_ICON_ID 只解析到 ' + Object.keys(map).length + ' 条（应 ≥40），正则可能过时');
+  }
 }, 'item.icon.contract');
 
 /* ---------- 问道契约（v0.20.0） ----------
@@ -8081,11 +8147,12 @@ step(function () {
   }
 }, 'zone.curve.contract');
 
-/* ---------- 野怪收益曲线**差分探针** ----------
-   ⚠️ G19 的教训：只断言"函数存在 / 数值自洽"抓不到**"登记了但没接线"** ——
-   把 `battle.js` 里的 `* G.Player.realmQiCoef(L)` 摘掉，上面那条契约**照样全绿**。
-   所以这里必须**真的打一场 L=234 的野外战**，逐项复算期望值再比对；
-   并反向确认收益**显著高于**"不带境界系数"的值，否则说明系数根本没生效。 */
+/* ---------- 野怪收益**差分探针**（v0.67.0 改向） ----------
+   ⚠️ G19 的教训仍然适用于**副本**（灵气奖励必须接 realmQiCoef，见下一条 `zone.curve.probe.dungeon`）。
+   但**野外**在 v0.67.0 起**根本不产灵气**（用户第 28 点：「取消打怪升级获取灵气」）——
+   所以这里改成反向验证：**真的打一场 L=234 的野外战，灵气必须一点不涨**。
+   这是"经济规则"本身的看门狗：谁把灵气加回野外，这条立刻报。
+   （原判据「野外灵气 = 80×L×…×realmQiCoef」随需求作废。） */
 step(function () {
   const s = JSON.parse(JSON.stringify(G.game.save));
   s.globalLevel = 234; s.qi = 0; s.po = 0; s.stone = 0;
@@ -8103,22 +8170,13 @@ step(function () {
   const before = s.qi || 0;
   b._victory();
   const got = (s.qi || 0) - before;
-  const lg = s.linggen || { elems: ['无'], coef: {} };
-  const lgc = (lg.coef && lg.coef[(lg.elems && lg.elems[0]) || '无']) || 1;
-  const rq2 = G.Player.rates(s).qi || 0;
-  let exp = 0, noCoef = 0;
-  b.es.forEach(function (e) {
-    const L = e.level;
-    const gap = ((s.globalLevel || 1) - L) > 5 ? 0.5 : 1;
-    noCoef += Math.round(80 * L * lgc * (1 + rq2) * gap);
-    exp += Math.round(80 * L * lgc * (1 + rq2) * gap * G.Player.realmQiCoef(L));
-  });
-  if (got !== exp) {
-    errors.push('差分探针：野外灵气收益 ' + got + ' ≠ 期望 ' + exp
-      + '（battle.js 可能没接 realmQiCoef —— 见 G19 教训）');
+  if (got !== 0) {
+    errors.push('差分探针：野外战斗给灵气了（+' + got + '）—— v0.67.0 起野怪不该产灵气，'
+      + '灵气只能来自闭关打坐（用户第 28 点）');
   }
-  if (!(exp > noCoef * 10)) {
-    errors.push('差分探针：L=144 的境界系数没起作用（' + exp + ' vs 无系数 ' + noCoef + '）');
+  if (!(s.po > 0)) errors.push('野外战斗应给一点点灵力（1×L）');
+  if (!(s.stone >= 1 && s.stone <= 5)) {
+    errors.push('野外战斗灵石应为 1~5 个下品，实为 ' + s.stone);
   }
 }, 'zone.curve.probe');
 
@@ -8178,7 +8236,10 @@ step(function () {
    上面两条运行时探针只走了"首杀"两条路径，重刷分支（`farm=true`）带随机与保底、
    驱动成本高；而漏接线最容易发生在"只接了 4 处里的 3 处"（本轮就真发生过一次）。
    所以再加一道静态闸：扫源码里所有灵气奖励表达式，逐个要求带 `realmQiCoef`。
-   比数次数更稳 —— 以后新增奖励点会自动纳入检查。 */
+   比数次数更稳 —— 以后新增奖励点会自动纳入检查。
+   ⚠️ v0.67.0：**野外一处灵气奖励已按需求删除**（用户第 28 点「取消打怪升级获取灵气」），
+      所以处数由 6 降到 **5**（battle.js 只剩副本杂兵 1 处，dungeon.js 4 处）。
+      保险丝同步下调 —— 但**不能下调到"有多少就收多少"**，否则新增奖励点又漏接线时闸就哑了。 */
 step(function () {
   const FILES = ['js/scenes/battle.js', 'js/scenes/dungeon.js'];
   /* 灵气变量只有 qi / dqi / q2 / q3 四个名字；**不含** dpo/dst（灵力/灵石不参与境界缩放） */
@@ -8195,7 +8256,7 @@ step(function () {
       }
     });
   });
-  if (seen < 6) errors.push('源码闸：只扫到 ' + seen + ' 处灵气奖励（应 ≥6），正则可能过时了');
+  if (seen < 5) errors.push('源码闸：只扫到 ' + seen + ' 处灵气奖励（应 ≥5），正则可能过时了');
 }, 'zone.curve.source.contract');
 
 /* ---------- 药铺商店（v0.17.0）----------

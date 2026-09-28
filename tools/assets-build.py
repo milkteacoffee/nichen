@@ -111,6 +111,8 @@ SIZES = {
     'item.pill_shujin': (256, 256),      # 舒筋丹
     'item.pill_cuiti': (256, 256),       # 淬体突破丹
     'item.pill_zhuji': (256, 256),       # 筑基丹
+    'item.pill_jiedan': (256, 256),      # 结丹丹（v0.67.0 补：原先只在 ITEM_D 有说明、无图标）
+    'item.pill_daowen': (256, 256),      # 道纹丹（v0.67.0 补）
     'item.talisman_jiefeng': (256, 256), # 解封符
     'item.talisman_huicheng': (256, 256),# 回城符
     'item.mat_yaodan': (256, 256),       # 妖丹
@@ -215,6 +217,7 @@ SIZES = {
     'res.daojing.high': (256, 256),
     'res.daojing.top': (256, 256),
     'mat.yaozha': (256, 256),        # 药渣
+    'mat.siliao': (256, 256),        # 饲灵草料（v0.67.0 补：灵兽进化材料，原先无图标）
     'mat.munang': (256, 256),        # 木囊
     'mat.xuannang': (256, 256),      # 玄囊
     'mat.baonang': (256, 256),       # 宝囊

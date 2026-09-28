@@ -751,8 +751,14 @@
       save.globalLevel = Math.min(MAX_GL, (save.globalLevel || 1) + 1);
       /* 本世到达过的最高等级（仙力结算用，规格 v0.4 §4） */
       save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
-      /* 突破耗岁（§3.2）：每次 +2 岁 */
-      this.agePush(save, 'break');
+      /* 突破耗岁（§3.2）：**只有大境界**才 +2 岁（v0.67.0 校准）。
+         ⚠️ 为什么改：v0.67.0 起灵气只能靠闭关获取（用户第 28 点），寿元的
+            主要成本已经是**闭关本身的时间**（修满淬体 36 阶 ≈ 13 年）。
+            而每小阶突破再 +2 岁的话，光突破就吃掉 35×2 = **70 年**，
+            凡人（淬体）寿元仅 100 岁 → 玩家**不可能活着**修到炼气
+            （实测 age 113 > 寿命 100，"修仙很难"沦为"修仙不可能"）。
+         ⚠️ 大境界（9 次）保留 +2 岁：那是"破境渡劫"的代价，是设定里该有的痛感。 */
+      if (big) this.agePush(save, 'break');
       if (big) this.chronicle(save, 'break:' + save.globalLevel,
         '破入' + this.realmInfo(save.globalLevel).n);
       var st = this.computeStats(save, meta);

@@ -1881,23 +1881,26 @@
         return;
       }
 
-      /* 普通遭遇（经济表 v0.2 §4）：逐只结算再合计
-         灵气 80×L×灵根系数×(1+灵气加成)×境界系数（缺口 U5）/ 灵力 8×L×(1+灵力加成)
-         灵石 6×L×(1+灵石加成)；主角境界 − L > 5 → 该只 ×0.5
-         **道界例外**（境界 v3.2 §10.3）：道界不流通灵石，野外所得折算为**道晶**。 */
-      var r = G.Player.rates(save);
-      var lg = save.linggen || { elems: ['无'], coef: {} };
-      var lgCoef = (lg.coef && lg.coef[(lg.elems && lg.elems[0]) || '无']) || 1;
-      var qi = 0, po = 0, st = 0, cut = false;
+      /* 普通遭遇（v0.67.0 经济重设，用户第 28 / 30 点）：
+         · **不给灵气** —— 用户口径「取消打怪升级获取灵气…升级人物角色只能通过
+           闭关打坐来获取灵气值和灵力值」。灵气由此**只有闭关一个来源**（外加剧情任务）。
+         · 只给**材料**（下面的 rollDrops）+ **一点点灵力** + **1~5 下品灵石**
+           （用户原话「打野怪只会获得 1~5 个下品灵石」）。
+         · 灵石**不随 L 放大** —— 否则高等级刷怪又变成印钞机。用户口径是
+           「灵石主要靠接宗门任务和散修联盟的任务」，野外只该是零钱。
+         · **道界例外**（境界 v3.2 §10.3）：道界不流通灵石，野外所得折算为**道晶**。
+         ⚠️ 这里**故意不再消耗 `G.Player.rates`** —— 收益已与灵根/加成脱钩；
+           灵根的作用改由**闭关收益**体现（见 `gametime.js: meditateGain`）。 */
+      var po = 0, st = 0, cut = false;
       this.es.forEach(function (e) {
         var L = e.level;
         var gap = ((save.globalLevel || 1) - L) > 20 ? 0.5 : 1;
         if (gap < 1) cut = true;
-        qi += Math.round(80 * L * lgCoef * (1 + (r.qi || 0)) * gap * G.Player.realmQiCoef(L));
-        po += Math.round(8 * L * (1 + (r.po || 0)) * gap);
-        st += Math.round(6 * L * (1 + (r.st || 0)) * gap);
+        /* 灵力：只给"一点点"（1×L），且同样受境界压制 */
+        po += Math.max(1, Math.round(1 * L * gap));
+        /* 灵石：每只固定 1~5 下品（不随 L 放大） */
+        st += G.rng.int(1, 5);
       });
-      save.qi = (save.qi || 0) + qi;
       save.po = (save.po || 0) + po;
       var aw = G.Player.activeWorldId(G.game.meta);
       /* 野外刷怪：功法碎片**一定几率**掉落（v0.14.0，用户口径："野外刷怪有一定几率"）。
@@ -1917,11 +1920,11 @@
       if (aw === 'dao') {
         var dcr = G.Data.dungeons.daoCrystalDrop(G.Data.dungeons.diffOf(G.game.meta, 'dao'));
         save.daoCrystal = (save.daoCrystal || 0) + dcr;
-        this._loot('战利：灵气 +' + qi + '　灵力 +' + po + '　道晶 +' + dcr);
+        this._loot('战利：灵力 +' + po + '　道晶 +' + dcr);
       } else {
         save.stone += st;
-        this._loot('战利：灵气 +' + qi + '　灵力 +' + po + '　灵石 +' + st
-          + (cut ? '（境界压制，收益减半）' : ''));
+        this._loot('战利：灵力 +' + po + '　灵石 +' + st
+          + (cut ? '（境界压制）' : ''));
       }
       if (shardGot > 0) this._loot('拾得「' + shardItem + '」×' + shardGot, true);
       var spDrops2 = G.Gather.rollDrops(save, this.es, { dao: aw === 'dao' });

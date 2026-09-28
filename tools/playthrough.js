@@ -122,6 +122,12 @@ function note(tag) {
 }
 
 const G = sandbox.G;
+/* 破境成功率是**随机**的（`Player.startBigBreak` 走 `Math.random`，85% 起）。
+   契约若真采样，跑 10 次会有 1 次破境失败 → 主线整条走不下去，
+   变成"偶尔红"的假红。回归脚本要的是**确定性**，所以把 `Math.random` 钉死成必然成功。
+   ⚠️ 与 `rebirth.js` 钉 `Date.now` 同理：**必须在脚本载入之后**再钉，
+      否则会改到 `G.rng` 的初始种子（种子里掺了真实时间），污染既有的世界生成基线。 */
+vm.runInContext('Math.random = function () { return 0; };', sandbox);
 step(() => G.game.start(), 'start');
 pump(10);
 
@@ -291,17 +297,30 @@ pump(4);
 if (save.quest.step !== 'm0-4') errors.push('梦境后未推进到 m0-4（当前 ' + save.quest.step + '）');
 note('⑥ 珠内梦境 → m0-4');
 
-/* ---- 5) 修炼到淬体九段：走真实突破，刷怪补灵气 ---- */
+/* ---- 5) 修炼到淬体九段：走真实突破，灵气**只能靠闭关打坐** ----
+   v0.67.0（用户第 28 点）：「取消打怪升级获取灵气…升级人物角色只能通过闭关打坐」。
+   所以这里**先打一场验证战斗链仍然通**，剩下靠 `G.Time.meditate` 真实闭关补灵气 ——
+   ⚠️ 不再用"刷怪补气"（那条路已经不存在了，继续用会永远补不满、循环跑满 guard）。 */
 enterMap('field');
+const qiBeforeFight = save.qi;
+fight({ enemy: G.Data.makeEnemy('赤炎狼', 5, '赤炎狼'), mapId: 'field' }, 'grind');
+if (save.qi !== qiBeforeFight) {
+  errors.push('野怪不该再给灵气（v0.67.0 经济重设）：' + qiBeforeFight + ' → ' + save.qi);
+}
+note('⑦a 野怪已不再产灵气');
+
 let guard = 0;
-while (save.globalLevel < 36 && guard++ < 1500) {
-  fight({ enemy: G.Data.makeEnemy('赤炎狼', 5, '赤炎狼'), mapId: 'field' }, 'grind');
+while (save.globalLevel < 36 && guard++ < 400) {
   save.hp = G.Player.computeStats(save).maxhp;
   const st = G.Player.breakState(save);
   if (st.have >= st.need && !st.big) {
     const r = G.Player.breakthrough(save);
-    if (!r.ok) errors.push('刷怪后突破失败：' + r.reason);
+    if (!r.ok) errors.push('闭关补齐后突破失败：' + r.reason);
+    continue;
   }
+  /* 真实闭关入口：走 G.Time.meditate（内部取 needQi，不另算一套） */
+  const med = G.Time.meditate(save, 'm3');
+  if (!med.ok) { errors.push('闭关失败：' + med.reason); break; }
 }
 if (save.globalLevel < 36) errors.push('未能修炼到淬体九重巅峰（当前 ' + save.globalLevel + '）');
 note('⑦ 淬体九重巅峰');
@@ -314,12 +333,11 @@ pump(4);
 if (!save.items['淬体突破丹']) errors.push('m0-4 未获得淬体突破丹');
 note('⑧ 沈伯赠丹');
 
-/* 补满灵气以突破 */
-enterMap('field');
+/* 补满灵气以突破（依旧走闭关，不刷怪） */
 guard = 0;
-while (save.qi < G.Player.needQi(save, 36) && guard++ < 1500) {
-  fight({ enemy: G.Data.makeEnemy('树精', 6, '树精'), mapId: 'field' }, 'grind2');
-  save.hp = G.Player.computeStats(save).maxhp;
+while (save.qi < G.Player.needQi(save, 36) && guard++ < 400) {
+  const med = G.Time.meditate(save, 'm3');
+  if (!med.ok) { errors.push('补气闭关失败：' + med.reason); break; }
 }
 note('⑨ 灵气备足');
 
@@ -362,17 +380,19 @@ if (save.globalLevel !== 37) errors.push('心魔战后应为炼气一重初期�
 if (save.quest.step !== 'm0-5') errors.push('心魔战后未推进到 m0-5（当前 ' + save.quest.step + '）');
 note('⑩ 心魔战 → 炼气一重');
 
-/* ---- 7) 炼气 1 → 3（赤牙洞门槛） ---- */
+/* ---- 7) 炼气 1 → 3（赤牙洞门槛）：同样**只能闭关**（v0.67.0） ---- */
 enterMap('field');
 guard = 0;
-while (save.globalLevel < 45 && guard++ < 1500) {
-  fight({ enemy: G.Data.makeEnemy('赤炎狼', 7, '赤炎狼'), mapId: 'field' }, 'grind3');
+while (save.globalLevel < 45 && guard++ < 400) {
   save.hp = G.Player.computeStats(save).maxhp;
   const st = G.Player.breakState(save);
   if (st.have >= st.need && !st.big) {
     const r = G.Player.breakthrough(save);
     if (!r.ok) errors.push('炼气期突破失败：' + r.reason);
+    continue;
   }
+  const med = G.Time.meditate(save, 'm3');
+  if (!med.ok) { errors.push('炼气期闭关失败：' + med.reason); break; }
 }
 if (save.globalLevel < 45) errors.push('未能修炼到炼气三重（当前 ' + save.globalLevel + '）');
 note('⑪ 炼气三重');
