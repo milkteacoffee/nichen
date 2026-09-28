@@ -7654,6 +7654,58 @@ step(function () {
   G.game.changeScene('town', { toSpawn: true });
 }, 'chapter.contract');
 
+/* ---------- 地图地形契约（v0.64.0，用户第 14 点） ----------
+   用户口径：「这个地图和这些地面完全不是一个风格，没有区分谷、峰、平原、山地、草原、河流、
+              岛屿等等，凡界是一块大陆，有很多区域，需要重新设计」。
+   旧版底图是"在整个界里随机撒山"，所以每个区域长得一样。新版按区域的 `terr` 字段画地貌。
+   断言：① 每个区域都有 terr；② **用到的 terr 都有绘制分支**（源码闸 —— 漏了会静默画成空白）；
+        ③ 凡界要能看出用户点名的那几种地形；④ 凡界有"大陆级"特征（草原带 / 河道 / 海岛）。 */
+step(function () {
+  const Rg = G.Data.regions;
+  const all = Rg.all ? Rg.all() : ['fan', 'ling', 'xian', 'dao'].reduce(function (a, w) {
+    return a.concat(Rg.of(w) || []);
+  }, []);
+  if (!all.length) { errors.push('取不到区域清单（regions.all / of 都不可用）'); return; }
+  const used = {};
+  all.forEach(function (r) {
+    if (!r.terr) errors.push('区域 ' + r.id + '（' + r.n + '）没有 terr 字段 —— 底图会画成一片空白');
+    else used[r.terr] = (used[r.terr] || 0) + 1;
+  });
+
+  /* 源码闸：TERR_DRAW 的键集必须覆盖所有用到的 terr */
+  const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const src = stripC(fs.readFileSync(path.join(WWW, 'js', 'core', 'panels.js'), 'utf8'));
+  const i0 = src.indexOf('var TERR_DRAW = {');
+  const i1 = src.indexOf('function worldMapBg(');
+  if (i0 < 0 || i1 < 0 || i1 < i0) {
+    errors.push('源码闸：panels.js 里找不到 TERR_DRAW / worldMapBg，正则可能过时了');
+  } else {
+    const keys = (src.slice(i0, i1).match(/^\s{4}(\w+):\s*function/gm) || [])
+      .map(function (m) { return m.replace(/[\s:]|function/g, ''); });
+    if (keys.length < 12) {
+      errors.push('源码闸：TERR_DRAW 只扫到 ' + keys.length + ' 个分支（应 ≥12），正则可能过时了');
+    }
+    Object.keys(used).forEach(function (t) {
+      if (keys.indexOf(t) < 0) {
+        errors.push('源码闸：terr「' + t + '」被 ' + used[t] + ' 个区域使用，但 TERR_DRAW 没有对应分支'
+          + '（静默画成空白）');
+      }
+    });
+    /* 凡界必须能看出用户点名的那几种地形 */
+    const fanTerr = {};
+    (Rg.of('fan') || []).forEach(function (r) { fanTerr[r.terr] = true; });
+    ['peak', 'ridge', 'valley', 'plain'].forEach(function (t) {
+      if (!fanTerr[t]) errors.push('凡界没有「' + t + '」地形（用户第 14 点点名要区分峰/山地/谷/平原）');
+    });
+    /* 凡界的"大陆级"特征：草原带 / 主河道 / 海岛 —— 这三样不在区域节点上，必须写在底图里 */
+    const bg = src.slice(i1, src.indexOf('function worldGate', i1));
+    /* ⚠️ 查**具名调用**而不是颜色字面量 —— 颜色改个色号就绕过了，函数名不会。 */
+    [['fanGrass', '草原带'], ['fanRiver', '主河道'], ['fanIsles', '东南海岛']].forEach(function (p) {
+      if (bg.indexOf(p[0] + '(') < 0) errors.push('凡界底图缺少「' + p[1] + '」的大陆级特征（' + p[0] + ' 没被调用）');
+    });
+  }
+}, 'map.terrain.contract');
+
 /* ---------- 天道多协议契约（v0.8.0） ----------
    缺口：天道原先只认 OpenAI 兼容的 /chat/completions。
    现在要支持 Claude（/messages，system 在顶层、x-api-key）与原生 Response

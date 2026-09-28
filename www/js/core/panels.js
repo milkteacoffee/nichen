@@ -2232,13 +2232,235 @@
 
   /* 世界地图底图（预渲染缓存，键带界 id 与像素尺寸） */
   var mapBg = {};
+  /* ===== 地图地貌：**按区域地形画**（v0.64.0，用户第 14 点）=====
+     用户口径：「这个地图和这些地面完全不是一个风格，没有区分谷、峰、平原、山地、草原、河流、
+                岛屿等等，凡界是一块大陆，有很多区域，需要重新设计」。
+     旧版是"在整个界里随机撒山"，所以每个区域看起来一模一样。
+     新版：每个区域在 data/regions.js 里带一个 terr 字段（峰 / 山地 / 谷 / 平原 / 洞窟 / 矿 /
+     荒冢 / 熔岩谷 / 水 / 沼泽 / 荒漠 / 遗迹 / 宫阙 / 园囿 / 台 / 虚空），底图在它的坐标附近
+     **画出对应的地貌**；凡界再叠**大陆级的草原带 / 主河道与支流 / 东南海岛**。
+     ⚠️ 新增一种 terr 必须同时往 TERR_DRAW 加分支 —— 漏了会**静默画成空白**
+        （契约 map.terrain.contract 用源码闸钉住"用到的 terr 都有分支"）。 */
+
+  /* 地貌原语：两个就够（三角 = 山、簇 = 成片点） */
+  function terrTri(x, cx, cy, w, h, col, a) {
+    x.globalAlpha = a; x.fillStyle = col;
+    x.beginPath();
+    x.moveTo(cx - w, cy + h); x.lineTo(cx, cy - h); x.lineTo(cx + w, cy + h);
+    x.closePath(); x.fill();
+    x.globalAlpha = 1;
+  }
+  function terrDots(x, cx, cy, n, spread, r, col, a, rnd) {
+    x.globalAlpha = a; x.fillStyle = col;
+    for (var i = 0; i < n; i++) {
+      x.beginPath();
+      x.arc(cx + (rnd() - 0.5) * spread, cy + (rnd() - 0.5) * spread * 0.72, r, 0, 6.2832);
+      x.fill();
+    }
+    x.globalAlpha = 1;
+  }
+
+  var TERR_DRAW = {
+    /* 峰：一组高而尖的山（中间主峰最高），带雪线 */
+    peak: function (x, cx, cy, T2, rnd) {
+      terrTri(x, cx - 26, cy + 8, 22, 26, T2.ridge, 0.44);
+      terrTri(x, cx + 25, cy + 10, 19, 22, T2.ridge, 0.40);
+      terrTri(x, cx, cy, 28, 40, T2.ridgeHi, 0.50);
+      terrTri(x, cx, cy + 6, 10, 18, 'rgba(226,238,255,0.85)', 0.55);
+    },
+    /* 山地 / 岭：连绵矮脊，比峰低而宽 */
+    ridge: function (x, cx, cy, T2, rnd) {
+      for (var i = -2; i <= 2; i++) {
+        terrTri(x, cx + i * 19, cy + 6 + (i % 2 ? 5 : 0), 14, 14, T2.ridge, 0.38);
+      }
+    },
+    /* 谷：两侧夹山、中间一条暗色低地 */
+    valley: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.24; x.fillStyle = T2.land2;
+      x.beginPath(); x.ellipse(cx, cy, 40, 17, 0, 0, 6.2832); x.fill();
+      x.globalAlpha = 1;
+      terrTri(x, cx - 34, cy - 4, 17, 23, T2.ridge, 0.42);
+      terrTri(x, cx + 34, cy + 5, 17, 23, T2.ridge, 0.42);
+      terrTri(x, cx, cy + 24, 13, 16, T2.ridgeHi, 0.30);
+    },
+    /* 平原：田垄细纹 + 一座小丘（与"草原"的区别是**有垄**、几乎无草点） */
+    plain: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.15; x.strokeStyle = T2.ridgeHi; x.lineWidth = 1;
+      for (var i = -2; i <= 2; i++) {
+        x.beginPath();
+        x.moveTo(cx - 40, cy + i * 7); x.lineTo(cx + 40, cy + i * 7 - 4);
+        x.stroke();
+      }
+      x.globalAlpha = 1;
+      terrTri(x, cx + 34, cy - 14, 11, 8, T2.ridge, 0.26);
+    },
+    /* 草原：成片草点，无垄无山 */
+    grass: function (x, cx, cy, T2, rnd) {
+      terrDots(x, cx, cy, 34, 80, 1.4, T2.ridgeHi, 0.34, rnd);
+    },
+    /* 洞窟：一整块山体 + 一个暗色洞口 */
+    cave: function (x, cx, cy, T2, rnd) {
+      terrTri(x, cx, cy, 28, 32, T2.ridge, 0.50);
+      x.globalAlpha = 0.9; x.fillStyle = '#0a0d12';
+      x.beginPath(); x.arc(cx, cy + 15, 8, Math.PI, 0); x.fill();
+      x.globalAlpha = 1;
+    },
+    /* 矿：山体 + 坑口 + 矿渣点 */
+    mine: function (x, cx, cy, T2, rnd) {
+      terrTri(x, cx - 10, cy, 24, 24, T2.ridge, 0.46);
+      x.globalAlpha = 0.75; x.fillStyle = '#0a0d12';
+      x.beginPath(); x.arc(cx + 14, cy + 12, 5, 0, 6.2832); x.fill();
+      x.globalAlpha = 1;
+      terrDots(x, cx + 18, cy + 14, 12, 34, 1.7, 'rgba(214,190,140,0.9)', 0.45, rnd);
+    },
+    /* 荒冢：稀疏土丘 + 枯树杆 */
+    moor: function (x, cx, cy, T2, rnd) {
+      terrDots(x, cx, cy, 12, 70, 3.2, T2.ridge, 0.24, rnd);
+      x.globalAlpha = 0.36; x.strokeStyle = '#2a2a24'; x.lineWidth = 1.4;
+      for (var i = 0; i < 5; i++) {
+        var tx = cx + (rnd() - 0.5) * 64, ty = cy + (rnd() - 0.5) * 42;
+        x.beginPath(); x.moveTo(tx, ty + 7); x.lineTo(tx, ty - 5); x.stroke();
+      }
+      x.globalAlpha = 1;
+    },
+    /* 熔岩谷：暗红底 + 熔缝 + 侧山 */
+    lava: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.32; x.fillStyle = '#3a1c14';
+      x.beginPath(); x.arc(cx, cy, 38, 0, 6.2832); x.fill();
+      x.globalAlpha = 1;
+      terrTri(x, cx - 30, cy - 10, 15, 19, T2.ridge, 0.42);
+      x.globalAlpha = 0.75; x.strokeStyle = '#e2762e'; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(cx - 32, cy + 6);
+      x.quadraticCurveTo(cx, cy - 13, cx + 32, cy + 4); x.stroke();
+      x.globalAlpha = 1;
+    },
+    /* 水：湖 / 海 —— 水面 + 三道波纹 */
+    water: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.42; x.fillStyle = T2.water;
+      x.beginPath(); x.arc(cx, cy, 38, 0, 6.2832); x.fill();
+      x.globalAlpha = 0.55; x.strokeStyle = 'rgba(226,240,255,0.75)'; x.lineWidth = 1.2;
+      for (var i = 0; i < 3; i++) {
+        x.beginPath();
+        x.moveTo(cx - 21 + i * 6, cy - 8 + i * 8);
+        x.quadraticCurveTo(cx, cy - 13 + i * 8, cx + 21 - i * 6, cy - 8 + i * 8);
+        x.stroke();
+      }
+      x.globalAlpha = 1;
+    },
+    /* 沼泽：水面 + 芦苇点 */
+    marsh: function (x, cx, cy, T2, rnd) {
+      TERR_DRAW.water(x, cx, cy, T2, rnd);
+      terrDots(x, cx, cy, 16, 70, 1.6, '#4a5a34', 0.45, rnd);
+    },
+    /* 荒漠：沙丘弧 + 碎石 */
+    desert: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.26; x.fillStyle = '#c9ae74';
+      x.beginPath(); x.arc(cx, cy + 8, 40, Math.PI, 0); x.fill();
+      x.globalAlpha = 1;
+      terrDots(x, cx, cy + 12, 10, 64, 1.6, '#8a7448', 0.40, rnd);
+    },
+    /* 遗迹：地基 + 断柱 */
+    ruin: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.30; x.fillStyle = T2.ridge;
+      x.fillRect(cx - 32, cy + 10, 64, 5);
+      x.globalAlpha = 0.5;
+      for (var i = -2; i <= 2; i++) {
+        if (i === 0) continue;
+        var hh = (i % 2) ? 20 : 14;
+        x.fillRect(cx + i * 14 - 2, cy + 10 - hh, 5, hh);
+      }
+      x.globalAlpha = 1;
+    },
+    /* 宫阙：三层台基 + 檐柱 */
+    palace: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.42; x.fillStyle = T2.ridgeHi;
+      for (var i = 0; i < 3; i++) {
+        var w2 = 38 - i * 9;
+        x.fillRect(cx - w2, cy + 10 - i * 9, w2 * 2, 6);
+      }
+      x.globalAlpha = 0.6; x.fillStyle = '#e6d6a2';
+      x.fillRect(cx - 4, cy - 20, 8, 14);
+      x.globalAlpha = 1;
+    },
+    /* 园囿：花木点簇 + 一圈矮栏 */
+    garden: function (x, cx, cy, T2, rnd) {
+      terrDots(x, cx, cy, 30, 72, 2.1, 'rgba(228,196,208,0.85)', 0.42, rnd);
+      x.globalAlpha = 0.26; x.strokeStyle = T2.ridgeHi; x.lineWidth = 1.2;
+      x.beginPath(); x.arc(cx, cy, 36, 0, 6.2832); x.stroke();
+      x.globalAlpha = 1;
+    },
+    /* 台：一方高台 + 四角短柱 */
+    platform: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.40; x.fillStyle = T2.ridge;
+      x.fillRect(cx - 32, cy - 6, 64, 21);
+      x.globalAlpha = 0.55; x.fillStyle = T2.ridgeHi;
+      for (var i = -1; i <= 1; i += 2) {
+        x.fillRect(cx + i * 28 - 2, cy - 16, 4, 12);
+        x.fillRect(cx + i * 28 - 2, cy + 13, 4, 12);
+      }
+      x.globalAlpha = 1;
+    },
+    /* 虚空：更深的暗 + 星点 */
+    void: function (x, cx, cy, T2, rnd) {
+      x.globalAlpha = 0.5; x.fillStyle = 'rgba(8,6,14,0.9)';
+      x.beginPath(); x.arc(cx, cy, 44, 0, 6.2832); x.fill();
+      x.globalAlpha = 1;
+      terrDots(x, cx, cy, 18, 78, 1, 'rgba(226,238,255,0.9)', 0.6, rnd);
+    }
+  };
+
+  /* 凡界的**大陆级特征**（v0.64.0）：草原带 / 主河道与支流 / 东南海岛。
+     为什么抽成具名函数而不是内联一段：契约 `map.terrain.contract` 要能"看见"这三样真的被画了 ——
+     内联时源码闸只能去找颜色字面量（改个色号就绕过）。具名之后，闸查的是**调用**。
+     ⚠️ 这三样**不属于任何区域节点** —— 用户要的"凡界是一块大陆"靠它们成立，
+        只画区域地貌的话，整张图会是一堆孤立的小图案。 */
+  function fanGrass(x, wpx, hpx, rnd) {
+    var midR = Math.min(wpx, hpx) * 0.34;
+    x.globalAlpha = 0.30; x.fillStyle = '#4e6a34';
+    x.beginPath(); x.arc(wpx * 0.56, hpx * 0.52, midR, 0, 6.2832); x.fill();
+    x.globalAlpha = 1;
+    terrDots(x, wpx * 0.56, hpx * 0.52, 90, midR * 1.8, 1.3, '#6f8c46', 0.36, rnd);
+  }
+  function fanRiver(x, wpx, hpx, T) {
+    x.strokeStyle = T.water; x.lineCap = 'round';
+    x.globalAlpha = 0.9; x.lineWidth = 4.4;
+    x.beginPath();
+    x.moveTo(wpx * 0.04, hpx * 0.16);
+    x.bezierCurveTo(wpx * 0.30, hpx * 0.40, wpx * 0.44, hpx * 0.52, wpx * 0.62, hpx * 0.72);
+    x.bezierCurveTo(wpx * 0.74, hpx * 0.86, wpx * 0.86, hpx * 0.94, wpx * 1.03, hpx * 1.03);
+    x.stroke();
+    /* 两条支流：一条往东北、一条往东南，让水系看起来是从山里流出去的 */
+    x.lineWidth = 2.0; x.globalAlpha = 0.68;
+    x.beginPath();
+    x.moveTo(wpx * 0.30, hpx * 0.40);
+    x.quadraticCurveTo(wpx * 0.40, hpx * 0.30, wpx * 0.56, hpx * 0.28);
+    x.stroke();
+    x.beginPath();
+    x.moveTo(wpx * 0.62, hpx * 0.72);
+    x.quadraticCurveTo(wpx * 0.74, hpx * 0.62, wpx * 0.90, hpx * 0.60);
+    x.stroke();
+    x.globalAlpha = 1;
+  }
+  function fanIsles(x, wpx, hpx, T, rnd) {
+    [[0.86, 0.87, 20], [0.95, 0.74, 13], [0.78, 0.95, 11]].forEach(function (isl) {
+      var ix = wpx * isl[0], iy = hpx * isl[1];
+      x.globalAlpha = 0.42; x.fillStyle = T.water;
+      x.beginPath(); x.arc(ix, iy, isl[2] * 1.5, 0, 6.2832); x.fill();
+      x.globalAlpha = 0.58; x.fillStyle = T.land;
+      x.beginPath(); x.arc(ix, iy, isl[2] * 0.72, 0, 6.2832); x.fill();
+      x.globalAlpha = 1;
+      terrDots(x, ix, iy, 5, isl[2] * 1.1, 1.5, '#6f8c46', 0.45, rnd);
+    });
+  }
+
   function worldMapBg(w, wpx, hpx) {
     var key = w + '|' + wpx + 'x' + hpx;
     if (mapBg[key]) return mapBg[key];
     var T = WORLD_TERRAIN[w] || WORLD_TERRAIN.fan;
     var o = G.Art.cv(wpx, hpx), x = o.x;
-    /* 固定种子：同一界每次生成完全一样 */
+    /* 固定种子：同一界每次生成完全一样（截图与契约才钉得住） */
     var rnd = G.Art.rnd(w.charCodeAt(0) * 7919 + w.length * 131);
+    var list = (G.Data.regions && G.Data.regions.of) ? (G.Data.regions.of(w) || []) : [];
 
     /* ① 底：三段渐变（上远山、中平原、下近地） */
     var g = x.createLinearGradient(0, 0, 0, hpx);
@@ -2247,68 +2469,46 @@
     g.addColorStop(1, T.land2);
     x.fillStyle = g; x.fillRect(0, 0, wpx, hpx);
 
-    /* ② 山脉：成组的小三角脊（一组 3~5 座，看起来像山系而不是散点） */
-    var groups = Math.max(3, Math.round(T.peaks / 4));
-    for (var gi = 0; gi < groups; gi++) {
-      var gx = rnd() * wpx, gy = hpx * (0.12 + rnd() * 0.72);
-      var cnt = 3 + Math.floor(rnd() * 3);
-      for (var k = 0; k < cnt; k++) {
-        var mw = 9 + rnd() * 22, mh = 6 + rnd() * 15;
-        var mx0 = gx + (k - cnt / 2) * (mw * 0.85) + (rnd() - 0.5) * 8;
-        var my0 = gy + (rnd() - 0.5) * 10;
-        /* 山脊透明度压一档：地名要能压得住地形，否则整张图像花花绿绿的一团 */
-        x.globalAlpha = 0.34 + rnd() * 0.26;
-        x.fillStyle = T.ridge;
-        x.beginPath();
-        x.moveTo(mx0 - mw, my0 + mh); x.lineTo(mx0, my0); x.lineTo(mx0 + mw, my0 + mh);
-        x.closePath(); x.fill();
-        /* 受光面 */
-        x.globalAlpha = 0.20 + rnd() * 0.18;
-        x.fillStyle = T.ridgeHi;
-        x.beginPath();
-        x.moveTo(mx0, my0); x.lineTo(mx0 + mw * 0.55, my0 + mh * 0.72);
-        x.lineTo(mx0, my0 + mh * 0.9);
-        x.closePath(); x.fill();
-        /* 雪线（灵 / 仙 / 道界的山要"冷"） */
-        if (T.snow > 0 && rnd() < T.snow) {
-          x.globalAlpha = 0.55;
-          x.fillStyle = 'rgba(226,238,255,0.85)';
-          x.beginPath();
-          x.moveTo(mx0, my0); x.lineTo(mx0 + mw * 0.22, my0 + mh * 0.34);
-          x.lineTo(mx0 - mw * 0.22, my0 + mh * 0.34);
-          x.closePath(); x.fill();
+    /* ② 大陆级特征（**与区域节点无关**）—— 用户要的"凡界是一块大陆"靠这一段成立：
+          草原带 / 主河道与两条支流 / 东南海岛。
+          ⚠️ 这一段只给凡界；灵 / 仙 / 道是浮空屿与宫阙，套"大陆"反而怪。 */
+    if (w === 'fan') {
+      fanGrass(x, wpx, hpx, rnd);
+      fanRiver(x, wpx, hpx, T);
+      fanIsles(x, wpx, hpx, T, rnd);
+    } else {
+      /* 其余界保留"山系 + 横贯水脉"的观感（它们本来就是浮空屿 / 宫阙） */
+      var groups = Math.max(3, Math.round(T.peaks / 4));
+      for (var gi = 0; gi < groups; gi++) {
+        var gx = rnd() * wpx, gy = hpx * (0.12 + rnd() * 0.72);
+        var cnt = 3 + Math.floor(rnd() * 3);
+        for (var k = 0; k < cnt; k++) {
+          var mw = 9 + rnd() * 22, mh = 6 + rnd() * 15;
+          terrTri(x, gx + (k - cnt / 2) * (mw * 0.85) + (rnd() - 0.5) * 8,
+            gy + (rnd() - 0.5) * 10, mw, mh, T.ridge, 0.30 + rnd() * 0.24);
         }
       }
-    }
-    x.globalAlpha = 1;
-
-    /* ③ 河流：两条横贯的曲线（两端出画，像真的从山里流出去） */
-    x.strokeStyle = T.water;
-    x.lineCap = 'round';
-    x.globalAlpha = 0.85;
-    for (var r2 = 0; r2 < 2; r2++) {
-      var ry0 = hpx * (0.34 + r2 * 0.30) + (rnd() - 0.5) * 12;
-      x.lineWidth = 3.6 - r2 * 0.8;
-      x.beginPath();
-      x.moveTo(-8, ry0);
-      for (var sx0 = -8; sx0 <= wpx + 8; sx0 += 56) {
-        x.quadraticCurveTo(sx0 + 28, ry0 + (rnd() - 0.5) * 40, sx0 + 56, ry0 + (rnd() - 0.5) * 26);
+      x.strokeStyle = T.water; x.lineCap = 'round'; x.globalAlpha = 0.85;
+      for (var r2 = 0; r2 < 2; r2++) {
+        var ry0 = hpx * (0.34 + r2 * 0.30) + (rnd() - 0.5) * 12;
+        x.lineWidth = 3.6 - r2 * 0.8;
+        x.beginPath(); x.moveTo(-8, ry0);
+        for (var sx0 = -8; sx0 <= wpx + 8; sx0 += 56) {
+          x.quadraticCurveTo(sx0 + 28, ry0 + (rnd() - 0.5) * 40, sx0 + 56, ry0 + (rnd() - 0.5) * 26);
+        }
+        x.stroke();
       }
-      x.stroke();
+      x.globalAlpha = 1;
     }
-    x.globalAlpha = 1;
 
-    /* ④ 林地：小圆簇 */
-    for (var t = 0; t < T.trees * 3; t++) {
-      var tx0 = rnd() * wpx;
-      var ty0 = hpx * (0.28 + rnd() * 0.68);
-      x.globalAlpha = 0.20 + rnd() * 0.24;
-      x.fillStyle = T.ridgeHi;
-      x.beginPath(); x.arc(tx0, ty0, 1.6 + rnd() * 2.6, 0, 6.2832); x.fill();
-    }
-    x.globalAlpha = 1;
+    /* ③ **按区域地形画地貌** —— v0.64.0 的核心改动（旧版是随机撒山，所以每个区域长得一样） */
+    list.forEach(function (r) {
+      var fn = TERR_DRAW[r.terr];
+      if (!fn) return;
+      fn(x, r.mx * wpx, r.my * hpx, T, rnd);
+    });
 
-    /* ⑤ 暗角：四边压暗，把视线收进画面中间 */
+    /* ④ 暗角：四边压暗，把视线收进画面中间 */
     var vg = x.createRadialGradient(wpx / 2, hpx / 2, Math.min(wpx, hpx) * 0.35,
       wpx / 2, hpx / 2, Math.max(wpx, hpx) * 0.72);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -2387,22 +2587,22 @@
      ============================================================ */
   var CLOUD_CFG = {
     fan: [
-      { k: 'cloud.4', sp: 6, a: 0.5, y: 0.66, s: 1.15 },
-      { k: 'cloud.1', sp: 9, a: 0.5, y: 0.16, s: 1.0 },
-      { k: 'cloud.2', sp: 13, a: 0.4, y: 0.36, s: 0.8 }
+      { k: 'cloud.4', sp: 6, a: 0.26, y: 0.66, s: 1.15 },
+      { k: 'cloud.1', sp: 9, a: 0.26, y: 0.16, s: 1.0 },
+      { k: 'cloud.2', sp: 13, a: 0.22, y: 0.36, s: 0.8 }
     ],
     ling: [
-      { k: 'cloud.1', sp: 8, a: 0.55, y: 0.12, s: 1.05 },
-      { k: 'cloud.2', sp: 14, a: 0.5, y: 0.3, s: 0.9 },
-      { k: 'cloud.4', sp: 9, a: 0.5, y: 0.66, s: 1.2 }
+      { k: 'cloud.1', sp: 8, a: 0.28, y: 0.12, s: 1.05 },
+      { k: 'cloud.2', sp: 14, a: 0.26, y: 0.3, s: 0.9 },
+      { k: 'cloud.4', sp: 9, a: 0.26, y: 0.66, s: 1.2 }
     ],
     xian: [
-      { k: 'cloud.2', sp: 16, a: 0.55, y: 0.2, s: 1.0 },
+      { k: 'cloud.2', sp: 16, a: 0.28, y: 0.2, s: 1.0 },
       { k: 'cloud.3', sp: 24, a: 0.6, y: 0.44, s: 1.0 },
-      { k: 'cloud.4', sp: 12, a: 0.55, y: 0.7, s: 1.25 }
+      { k: 'cloud.4', sp: 12, a: 0.28, y: 0.7, s: 1.25 }
     ],
     dao: [
-      { k: 'cloud.1', sp: 5, a: 0.4, y: 0.2, s: 1.1 },
+      { k: 'cloud.1', sp: 5, a: 0.22, y: 0.2, s: 1.1 },
       { k: 'cloud.3', sp: 7, a: 0.36, y: 0.42, s: 1.05 }
     ]
   };

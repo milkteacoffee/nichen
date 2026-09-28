@@ -1488,6 +1488,33 @@ step(() => {
 }, 'ending.ni');
 shot('53_ending_ni', 3);
 
+/* ⑤ 地图地形（v0.64.0，用户第 14 点）：凡界看"大陆感"（草原带/主河道/海岛 + 各区地貌），
+   灵界看"浮空屿 + 水泽"——两界的底图逻辑不同，都要肉眼过一遍。 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 400; s.maxGlobalLevel = 400;
+  s.visited = s.visited || {};
+  ['fan', 'ling'].forEach((w) => { G.Data.regions.of(w).forEach((r) => { s.visited[r.id] = true; }); });
+  G.game.meta.progress.activeWorld = 'fan';
+  G.game.meta.progress.worlds = { fan: true, ling: true, xian: true, dao: false };
+  G.game.changeScene('town', { toSpawn: true });
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc.overlay = null; sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+  sc.mapWorld = 'fan';
+  G.Overlays.openPanel(sc, 'map', true);
+  clearStoryModal();
+}, 'map.terrain.fan');
+shot('54_map_terrain_fan', 2);
+
+step(() => {
+  const sc = G.game.scene;
+  sc.mapWorld = 'ling'; sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+  G.Overlays.openPanel(sc, 'map', true);
+  clearStoryModal();
+}, 'map.terrain.ling');
+shot('55_map_terrain_ling', 2);
+
 /* ---------- 报告 ---------- */
 if (errors.length) {
   console.log('\n渲染期间异常 (' + errors.length + ')：');
