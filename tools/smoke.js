@@ -6178,6 +6178,65 @@ step(function () {
       errors.push('追踪栏面板本体登记了按钮 —— 会吞掉地图点击');
     }
     if (tkBody.indexOf('trackOpen') < 0) errors.push('追踪栏没有收缩开关');
+
+    /* ---- 支线也进追踪栏（v0.72.0，用户口径「主支线追踪可完全缩至左侧」）----
+       ⚠️ 只用**未接/已完成**的档测，避免依赖玩家已接支线；
+       再单独构造"进行中"存档断言它真被收进来。 */
+    if (typeof G.Overlays.sideTrackRows !== 'function') {
+      errors.push('缺 G.Overlays.sideTrackRows（支线追踪取数口）');
+    } else {
+      const empty = G.Overlays.sideTrackRows({ side: {} });
+      if (empty.length) errors.push('未接任何支线时追踪栏不该有支线行，实为 ' + empty.length);
+
+      const SQ = G.Data.sideQuests;
+      const q0 = SQ.list[0];
+      /* ① 进行中（step1）要进；② 可交（step2）要进且排在进行中之前；③ 完成（step3）不进 */
+      const s1 = { side: {} }; s1.side[q0.id] = 1;
+      const r1 = G.Overlays.sideTrackRows(s1);
+      if (!r1.length || r1[0].id !== q0.id) errors.push('进行中的支线没有进追踪栏');
+      if (r1[0] && r1[0].canTurnIn) errors.push('step1 的支线被判成"可交"');
+
+      const s2 = { side: {} }; s2.side[q0.id] = 2;
+      const r2 = G.Overlays.sideTrackRows(s2);
+      if (!r2.length || !r2[0].canTurnIn) errors.push('可交的支线没有标 canTurnIn');
+
+      const s3 = { side: {} }; s3.side[q0.id] = 3;
+      if (G.Overlays.sideTrackRows(s3).length) errors.push('已完成的支线不该留在追踪栏');
+
+      /* 上限 2：全接完也最多 2 条（面板高度是写死的） */
+      const s4 = { side: {} };
+      SQ.list.forEach((q) => { s4.side[q.id] = 1; });
+      const r4 = G.Overlays.sideTrackRows(s4);
+      if (r4.length > 2) errors.push('追踪栏支线上限应为 2，实为 ' + r4.length);
+
+      /* 可交优先：一条 step2 + 一条 step1 → step2 排第一 */
+      if (SQ.list.length >= 2) {
+        const s5 = { side: {} };
+        s5.side[SQ.list[0].id] = 1;
+        s5.side[SQ.list[1].id] = 2;
+        const r5 = G.Overlays.sideTrackRows(s5);
+        if (!r5.length || r5[0].id !== SQ.list[1].id) {
+          errors.push('可交的支线没有排在进行中之前');
+        }
+      }
+
+      /* trackInfo 必须把支线一并带出（追踪栏读的是它，不是 sideTrackRows） */
+      const tkSide = G.Overlays.trackInfo(s1);
+      if (!(tkSide.sides || []).length) errors.push('trackInfo 未带出 sides（追踪栏取不到支线）');
+    }
+
+    /* ---- 高度预算：有支线时不能顶进底栏（272 − BOT_H 28 = 244 是功能栏上沿）----
+       源码闸：绘制里必须按 sides 是否存在取两个稳定高度值，且都 ≤ 166（78+166=244）。
+       ⚠️ 右界取 `_ellip` 而非 `_drawTrackTab` —— 后者在**前面**定义，
+          `slice(a,b)` 会因 b<a 得空串，闸门永远"通过"（静默失效）。 */
+    const drawBody = ex.slice(ex.indexOf('_drawTracker: function'), ex.indexOf('_ellip: function'));
+    const hM = drawBody.match(/var H = sides[^;]*;/);
+    if (!hM) errors.push('源码闸：追踪栏高度未按 sides 分档（会随内容伸缩或顶进底栏）');
+    else {
+      const nums = (hM[0].match(/\d+/g) || []).map(Number);
+      nums.forEach((n) => { if (n > 166) errors.push('追踪栏高度 ' + n + ' 超过 166 → 顶进底栏'); });
+    }
+    if (drawBody.indexOf('sides2') < 0) errors.push('源码闸：追踪栏没有画支线段');
   }
 
   /* ========== ⑦ 出口传送阵：命中 + 点击切图 ========== */

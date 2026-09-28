@@ -300,6 +300,30 @@ step(() => {
 shot('05n_track_closed', 20);
 step(() => { G.game.scene.trackOpen = true; G.game.scene._padButtons(); }, 'track.restore');
 
+/* 4a2) 追踪栏含支线（v0.72.0，用户口径「主支线追踪可完全缩至左侧」）：
+   接两条支线，其中一条置为"可交"（step2）看金色实心点与排序（可交排前）。
+   **故意选 m0-1** —— 它有路引、目标文案两行，是主线段最占位的形态；
+   再加两条支线就是"最密版式"，专门验不越界（面板底 78+161=239 < 底栏 244）。 */
+step(() => {
+  const s = G.game.save;
+  s.side = s.side || {};
+  const SQ = G.Data.sideQuests.list;
+  if (SQ[0]) s.side[SQ[0].id] = 1;
+  if (SQ[1]) s.side[SQ[1].id] = 2;
+  s.quest = { step: 'm0-1', flags: {} };
+  save.pos = null;
+  G.game.changeScene('town', { toSpawn: true });
+  G.game.scene.trackOpen = true;
+  G.game.scene._padButtons();
+  clearStoryModal();
+}, 'track.sides');
+shot('05o_track_sides', 20);
+step(() => {
+  const s = G.game.save; s.side = {};
+  s.quest = { step: 'm0-5', flags: {} };
+  G.game.scene._padButtons();
+}, 'track.sides.reset');
+
 /* 4b) 四向精灵对照（v0.11.2 修「侧身比前后高一头」）：
    场景里四向不会同框，所以直接铺一张对照图 —— 四向 × 三帧并排，画头线与脚底线。
    以后改 sprite 素材/裁切算法，肉眼扫一眼这张就知道有没有再错位。 */

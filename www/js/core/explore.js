@@ -1982,6 +1982,7 @@
          ⑤ 面板打开时整条不画 —— 面板自带暗罩，追踪栏浮在暗罩上会显得脏。 */
       _drawTracker: function (x) {
         if (this.overlay) return;
+        var self = this;
         var tk = G.Overlays.trackInfo ? G.Overlays.trackInfo(G.game.save) : null;
         if (!tk || !tk.s) return;
         var open = this.trackOpen !== false;
@@ -1995,14 +1996,20 @@
         /* 目标文案：折行最多 2 行（面板只有 118 宽，第 3 行就顶到面板底了） */
         var dl = G.UI.wrap(x, s.d, 9.5, TR_W - 14);
         if (dl.length > 2) { dl = dl.slice(0, 2); dl[1] = dl[1].replace(/.$/, '') + '…'; }
-        var subs = (s.subs || []).slice(0, 3);
+        /* 支线（v0.72.0）：有支线时主线段少放两条子任务 —— 面板高度写死，总预算必须守住：
+           by=78、底栏上沿 244 → 可用高 ≤ 158。主线段满配（2 行目标 + 3 条子任务 + 路引）
+           = 117，再加支线段（2 条 × 21 + 18 表头）= 60 → 177 会顶进底栏。
+           所以有支线时子任务封顶 1 条（117−22=95；95+60=155 ≤ 158）。 */
+        var sides = tk.sides || [];
+        var subCap = sides.length ? 1 : 3;
+        var subs = (s.subs || []).slice(0, subCap);
         var guide = tk.guide || null;
         var route = guide ? this._routeTo(guide.map) : null;
 
-        /* ⚠️ 高度**写死**，不随内容伸缩（用户口径：「任务左右上下都在浮动」）——
-           动态高度会让面板下沿随任务文案变化而伸缩，切任务时"跳一下"。
-           固定高度 = 稳定；内容超出由上面的折行上限（2 行）与子任务上限（3 条）保证。 */
-        var H = 118;
+        /* ⚠️ 高度只取**两个稳定值**：无支线 118 / 有支线 161。
+           不随内容伸缩（用户口径：「任务左右上下都在浮动」）；也不做"按条数递增"，
+           否则接一条支线面板就跳一次。两个值各自稳定，切换只发生在玩家接/交支线时。 */
+        var H = sides.length ? 161 : 118;
         var bx = TR_PANEL_X, by = TR_Y, bw = TR_W;
         G.UI.panel(x, { x: bx, y: by, w: bw, h: H }, 'rgba(6,9,16,0.80)',
           'rgba(216,183,104,0.34)', 4, { tex: false, shadow: false });
@@ -2045,7 +2052,7 @@
         });
 
         /* ---- 路引 ---- */
-        if (!guide) return;
+        if (guide) {
         x.fillStyle = 'rgba(216,183,104,0.18)';
         x.fillRect(bx + 6, cy + 1.5, bw - 12, 0.8);
         cy += 5;
@@ -2091,6 +2098,40 @@
           ? this._dirName(dx, dy) + '　约 ' + Math.round(Math.sqrt(dx * dx + dy * dy)) + ' 格'
           : (onMap ? '就在此处' : '往 ' + this._mapName(guide.map));
         G.UI.text(x, { x: bx + 28, y: cy + 12 }, line2, 9, C.textDim);
+        cy += 24;
+        }
+
+        /* ---- 支线（v0.72.0，用户口径「主支线追踪可完全缩至左侧」）----
+           主线段在上、支线段在下，中间一条分隔线。支线**只列进行中/可交的**
+           （见 panels.sideTrackRows），可交的用金色描边突出 —— 能拿奖励的先看见。
+           ⚠️ 高度必须留够：面板 H 是写死的，支线段画在它的下半区，
+              超出会被底栏盖住（不是裁切，是画在下面看不见）。 */
+        var sides2 = tk.sides || [];
+        if (sides2.length) {
+          x.fillStyle = 'rgba(216,183,104,0.18)';
+          x.fillRect(bx + 6, cy + 1.5, bw - 12, 0.8);
+          cy += 6;
+          G.UI.text(x, { x: bx + 8, y: cy }, '支 线', 9.5, C.jade || C.gold);
+          cy += 12;
+          sides2.forEach(function (sd) {
+            /* 圆点：可交 = 亮金实心（提醒去拿），进行中 = 暗青空心 */
+            x.save();
+            if (sd.canTurnIn) {
+              x.fillStyle = C.goldHi;
+              x.beginPath(); x.arc(bx + 10, cy + 5, 2.4, 0, 6.2832); x.fill();
+            } else {
+              x.strokeStyle = 'rgba(120,190,170,0.75)'; x.lineWidth = 1;
+              x.beginPath(); x.arc(bx + 10, cy + 5, 2.4, 0, 6.2832); x.stroke();
+            }
+            x.restore();
+            G.UI.text(x, { x: bx + 16, y: cy },
+              self._ellip(x, sd.n, 10, bw - 24), 10, sd.canTurnIn ? C.goldHi : C.text);
+            cy += 11;
+            var sl = G.UI.wrap(x, sd.hint || sd.d, 9, TR_W - 24);
+            if (sl.length > 1) { sl = sl.slice(0, 1); sl[0] = sl[0].replace(/.$/, '') + '…'; }
+            if (sl[0]) { G.UI.text(x, { x: bx + 16, y: cy }, sl[0], 9, C.textDim); cy += 10; }
+          });
+        }
       },
 
       /* 超宽截断：按字号量宽度，超出补 '…'（中文一个字就是一个字宽，够用） */

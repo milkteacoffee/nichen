@@ -3292,9 +3292,37 @@
     return {
       id: step, idx: idx, total: order.length, s: s, flags: flags,
       guide: (done && s.g2) ? s.g2 : (s.g || null),
-      upcoming: order.slice(idx + 1, idx + 3).map(function (id2) { return QUEST[id2]; })
+      upcoming: order.slice(idx + 1, idx + 3).map(function (id2) { return QUEST[id2]; }),
+      sides: sideTrackRows(save)
     };
   };
+
+  /* 追踪栏里的支线行（v0.72.0，用户口径「主支线追踪可完全缩至左侧」）。
+     只收**进行中（1）/ 可交（2）**的，未接（0）与已完成（3）不进 —— 追踪栏是
+     "此刻该做什么"，不是任务日志（那是任务面板的活）。
+     排序：**可交的排前面**（能拿奖励的优先提示），同档按 LIST 原序（稳定，不随帧变）。
+     上限 2 条：追踪栏高度写死，主线 + 路引已占大半，再多会顶到底栏。 */
+  function sideTrackRows(save) {
+    var SQ = G.Data.sideQuests;
+    if (!SQ || !SQ.list) return [];
+    var out = [];
+    SQ.list.forEach(function (q) {
+      var st = SQ.stepOf(save, q.id);
+      if (st !== 1 && st !== 2) return;
+      var cur = q.steps && q.steps[Math.min(st, (q.steps || []).length) - 1];
+      out.push({
+        id: q.id, n: q.n, step: st, canTurnIn: st === 2,
+        d: (cur && cur.d) || '',
+        hint: (cur && cur.hint) || ''
+      });
+    });
+    /* 可交优先，其余保序 —— 不用 sort（sort 在同档时会打乱稳定序） */
+    var ready = out.filter(function (r) { return r.canTurnIn; });
+    var doing = out.filter(function (r) { return !r.canTurnIn; });
+    return ready.concat(doing).slice(0, 2);
+  }
+  /* 支线行也导出给契约用（唯一口径，别在契约里另算一遍） */
+  G.Overlays.sideTrackRows = sideTrackRows;
 
   G.Overlays.PANELS = PANELS;  G.Overlays.PANEL_RECT = FRAME;
   /* 内容区也导出：契约要判"内容不越出外框"，两处都得拿到 */
