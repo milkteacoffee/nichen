@@ -25,12 +25,10 @@
 
   var MAX_E = 3;
 
-  var SPECIES_SPRITE = {
-    '青纹蛇': 'snake', '赤炎狼': 'wolf', '树精': 'tree',
-    '赤炎狼王': 'wolfking', '杀手': 'killer', '心魔': 'heartDemon',
-    /* M1：血煞教（设计 M1 v1.0 §5.3）。心魔残影与心魔同形象（本就是它的影）。 */
-    '血煞教徒': 'cultist', '血蝠': 'bloodbat', '血面': 'xuemian', '心魔残影': 'heartDemon'
-  };
+  /* 物种 → 程序化立绘键。**统一放在 `G.Data.SPECIES_SPRITE`**（enemies.js），
+     因为地图上的明雷（explore.js）也要用它取同一张图 —— 只有一份真相源，
+     才能保证"地图上看到哪只"与"进战斗打哪只"长相一致。 */
+  var SPECIES_SPRITE = G.Data.SPECIES_SPRITE;
   /* 灵兽物种 id → 程序化战斗图（无专用图时的兜底） */
   var BEAST_UNIT_SPRITE = {
     b_qingwenshe: 'snake', b_bilinmang: 'snake', b_qingjiao: 'snake',

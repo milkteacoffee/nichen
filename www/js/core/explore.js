@@ -139,6 +139,14 @@
            再回 A 图时 flash/flashDir/_pending 原封不动地留着，
            进门第一帧闪白补满、当场莫名其妙进战斗。 */
         this.flash = 0; this.flashDir = 0; this._pending = null;
+        /* 明雷索引：从 map.roams 建格键表，供 _roamAt 与绘制共用。
+           生命周期说明：**每次进图由 buildMap 重新生成**（种子 = worldSeed + mapId，
+           所以同一世同一图的点位固定），本次进图内击杀即从 roams 里移除、当次不再刷新；
+           离开再回来会重新出现 —— 这是刻意设计：明雷是**可重复的刷取口**，
+           收益已按"只给材料 + 1~5 下品灵石"封顶，不会重演旧版"刷怪刷灵气"。
+           为何不落存档：明雷不是"一次性遗迹"，玩家需要它可反复刷；
+           落存档的话清完一张图就永久空了，材料来源会断。 */
+        this._roamIdx = this._buildRoamIdx();
         /* 血夜红雾（M1 §6.3）：剩余秒数 + 淡出后的去处（{to, spawn}）。
            由 town.js 在"入夜"时置位，本场景负责计时与切图 ——
            这样"镇景压暗 0.5s 再进据点"不需要在 town 侧塞定时器。 */
@@ -342,6 +350,18 @@
       _onEnterTile: function (x, y) {
         var key = x + ',' + y, save = G.game.save;
         if (this.map.exitCells[key]) { this._transition(this.map.exitCells[key]); return; }
+        /* ===== 明雷（可见野怪）撞上即开战（v0.68.0 用户第 22 点）=====
+           放在出口裁决**之后**（踩到出口就切图，不该同时开战），
+           但放在暗雷之前 —— 明雷是"看得见的必战"，优先级高于随机暗雷。
+           ⚠️ 用**格子键**查表而不是遍历数组：地图每帧最多走一格，
+              遍历几十只野怪是不必要的开销，且格子表天然去重。 */
+        var roam = this._roamAt(x, y);
+        if (roam) {
+          if (this._flying()) return;            /* 飞过去不算撞上（与暗雷一致） */
+          if (this.prot > 0) { this.prot -= 1; return; }
+          this._encounterRoam(roam);
+          return;
+        }
         /* 剧情战斗触发格（M1 §5.1 血煞据点）：**走到格子上即开战**，
            与出入口同一处裁决 —— 所以放在 exitCells 之后、暗雷之前。
            打过的节点记进 save.scriptBattlesDone（键含 mapId，避免跨图 id 撞车），
@@ -362,7 +382,20 @@
         if (this.prot > 0) { this.prot -= 1; return; }
         var zone = this._zone(y);
         if (!zone) return;
-        if (G.rng.next() < .12) this._encounter(zone);
+        /* ===== 暗雷（v0.68.0 用户第 22 点）=====
+           改成**明雷 + 暗雷**之后，暗雷必须"概率小一点 + 只在特定地形"。
+           ① 概率 12% → 6%；② 只在野地（草地/山地/岩石地等）触发，
+              路面/室内砖地等"人走的路"踩上去无事发生（与明雷的 ROAM_FORBID 同源）。
+           地形口径收敛在一处：`ROAM_FORBID` 由 mapgen 导出，避免两处各写一份。 */
+        if (G.MapGen.ROAM_FORBID && G.MapGen.ROAM_FORBID[this._tileType(x, y)]) return;
+        if (G.rng.next() < .06) this._encounter(zone);
+      },
+
+      /* 该格的地面类型（明雷/暗雷的地形口径统一走这里） */
+      _tileType: function (x, y) {
+        var g = this.map.ground;
+        if (!g || !g[y] || !g[y][x]) return '';
+        return g[y][x].t || '';
       },
 
       _zone: function (ty) {
@@ -417,6 +450,47 @@
          分区权重决定"这一带以什么为主"，浮世相位的妖兽配比再叠一层调制；
          两者相乘可在保持分区差异的同时，让不同世界观的兽群构成不同。
          pair 是双只组概率：命中则出两只同种妖兽（前坡的"双蛇组"即此）。 */
+      /* 该格上的明雷（可见野怪）。格键索引在 enter 时建好，O(1) 查。 */
+      _roamAt: function (x, y) {
+        if (!this._roamIdx) return null;
+        return this._roamIdx[x + ',' + y] || null;
+      },
+
+      /* 建明雷格键索引。同一格只会有一只（生成时已 mark 去重），
+         所以这里不用处理"两只见面"的合并问题。 */
+      _buildRoamIdx: function () {
+        var idx = {};
+        (this.map.roams || []).forEach(function (r) { idx[r.x + ',' + r.y] = r; });
+        return idx;
+      },
+
+      /* 撞上明雷开战：与暗雷共用 `_encounter` 之后的整条链，
+         差别只在"这一场是玩家自己撞上去的"，所以直接构造 units 走同一出口。 */
+      _encounterRoam: function (roam) {
+        var unit = this._rollUnitR(roam);
+        this.flash = 0; this.flashDir = 1;
+        this._pending = { unit: unit, units: [unit], roam: roam };
+      },
+
+      /* 掷明雷对应的敌人。**等级与物种一律钉住地图上那只** ——
+         玩家看到的"那只狼"和真正打的那只必须一致，否则明雷就失去意义了
+         （看到 Lv15 的青纹蛇、打的是 Lv17 的别的兽，玩家会觉得被骗）。
+         所以这里**不重新 roll 等级/物种**，也不走 `_rollUnit` 的随机取名：
+         名字直接用物种名（或兽名池里取一个，但保持物种前缀可比对）。 */
+      _rollUnitR: function (roam) {
+        var L = roam.lv;
+        var poolKey = roam.species === '青纹蛇' ? 'snake'
+          : roam.species === '赤炎狼' ? 'wolf' : null;
+        var nm = poolKey ? G.rng.pick(G.Data.namePools[poolKey]) : roam.species;
+        /* 名字兜一道：兽名池用的别名（花脊蛇/灰背狼…）会让"名字里含物种"这条失配，
+           于是补一个物种后缀，既保留随机感又保证可追溯到地图上那只。
+           ⚠️ 这正是契约 `roam.contract` 抓到的第二处漂移。 */
+        if (nm.indexOf(roam.species) < 0) nm = roam.species + '·' + nm;
+        var unit = G.Data.makeEnemy(roam.species, L, nm);
+        this._applyWorldEnemy(unit);
+        return unit;
+      },
+
       _encounter: function (zone) {
         var save = G.game.save, world = save.world;
         var list = [];
@@ -747,6 +821,11 @@
         Object.keys(this.map.gatherNodes || {}).forEach(function (gk) {
           list.push({ gather: self.map.gatherNodes[gk], x: self.map.gatherNodes[gk].x, y: self.map.gatherNodes[gk].y });
         });
+        /* 明雷（可见野怪）：参与 y 排序 —— 与玩家/NPC 同一套遮挡关系，
+           否则会出现"野怪永远压在玩家身上"或反之的穿帮。 */
+        (this.map.roams || []).forEach(function (r) {
+          list.push({ roam: r, x: r.x, y: r.y });
+        });
         var pp = this._px();
         list.push({ player: true, x: pp.x / 16, y: pp.y / 16 });
         list.sort(function (a, b) { return a.y - b.y; });
@@ -755,6 +834,7 @@
           else if (o.furn) self._drawFurn(x, o.furn, camX, camY);
           else if (o.npc) self._drawNpc(x, o.npc, camX, camY);
           else if (o.gather) self._drawGather(x, o.gather, camX, camY);
+          else if (o.roam) self._drawRoam(x, o.roam, camX, camY);
           else self._drawDecor(x, o, camX, camY);
         });
 
@@ -1594,6 +1674,66 @@
         }
         var mk = hooks.npcMark ? hooks.npcMark(n) : null;
         if (mk) this._drawNpcMark(x, px, top - 4, mk);
+      },
+
+      /* 明雷（可见野怪）绘制（v0.68.0 用户第 22 点）。
+         与野怪立绘同源（`G.Sprites.beast(speciesSpriteKey)`），所以"地图上看到的那只"
+         和"进战斗打的那只"长相一致 —— 这是明雷的立身之本。
+         ⚠️ 尺寸用 `BEAST_LW/LH`（40×40）等比缩到地图格尺度，**不要**直接铺满 16px 格：
+            野怪立绘是方图，铺满格子会糊成一团；按格高的 ~1.6 倍显示才有"蹲在草里"的体量。
+         头顶加一枚低调的血气指示（红点），玩家一眼能分出"这格有野怪"，
+         而不是和装饰石头混淆 —— 这是"明雷"能被**看见**的关键。 */
+      _drawRoam: function (x, r, camX, camY) {
+        var gx = r.x * 16 - camX + 8, gy = r.y * 16 - camY + 12;
+        /* 游荡呼吸：用确定性相位（roam.ph）+ 全局时钟，无头环境稳定 */
+        var bob = Math.sin(G.game.time * 1.8 + r.ph * 6.2832);
+        /* 尺寸取 30：与主角（28×42）体量相当，一眼能认出"这是只怪"；
+           再小（初版 22）在 84px 的地图格里会被树石淹没。 */
+        var HH = 30, HW = 30;
+        var top = gy + 3 - HH + Math.round(bob * 1.2);
+        x.save();
+        /* 影子 */
+        x.fillStyle = 'rgba(0,0,0,0.30)';
+        x.beginPath();
+        x.ellipse(gx, gy - 1, HW * 0.30, HW * 0.12, 0, 0, 6.2832);
+        x.fill();
+        x.restore();
+        /* 物种 → 立绘键走**唯一真相源** `G.Data.SPECIES_SPRITE`（与 battle.js 同表）。
+           v0.68.0 初版在这里又抄了一份三元表达式 —— 一旦新增物种只改 battle 不改这里，
+           地图上就会画出错的怪（且完全静默）。 */
+        var spKey = (G.Data.SPECIES_SPRITE && G.Data.SPECIES_SPRITE[r.species]) || 'snake';
+        var spr = G.Sprites.beastResolve
+          ? G.Sprites.beastResolve(r.artKey || null, spKey)
+          : (G.Sprites.beast ? G.Sprites.beast(spKey) : null);
+        if (spr) {
+          x.drawImage(spr, Math.round(gx - HW / 2), Math.round(top), HW, HH);
+        } else {
+          /* 兜底：无素材时画一只简笔色块，保证"看得见有野怪"这条不丢 */
+          x.save();
+          x.fillStyle = '#7a4a3a';
+          x.beginPath();
+          x.ellipse(gx, top + HH * 0.6, HW * 0.28, HH * 0.30, 0, 0, 6.2832);
+          x.fill();
+          x.restore();
+        }
+        /* 头顶"遇敌"标记：红色小三角 + 微浮动，颜色与任务标记（金/玉）明确区分 */
+        var mk = Math.sin(G.game.time * 3 + r.ph * 6.2832) * 1.5;
+        x.save();
+        x.fillStyle = 'rgba(6,8,14,0.75)';
+        x.beginPath();
+        x.moveTo(gx, top - 3 + mk);
+        x.lineTo(gx - 4.5, top - 11 + mk);
+        x.lineTo(gx + 4.5, top - 11 + mk);
+        x.closePath();
+        x.fill();
+        x.fillStyle = '#e4695f';
+        x.beginPath();
+        x.moveTo(gx, top - 4.5 + mk);
+        x.lineTo(gx - 3, top - 10.5 + mk);
+        x.lineTo(gx + 3, top - 10.5 + mk);
+        x.closePath();
+        x.fill();
+        x.restore();
       },
 
       /* 头顶任务标记：金/玉色 ！？，暗描边 + 上下浮动，亮地面也看得清 */

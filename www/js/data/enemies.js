@@ -185,8 +185,20 @@
     };
   }
 
+  /* 物种 → 程序化立绘键（`battle.enemy.<key>` 素材名与 BAKE 兜底名都用它）。
+     **唯一真相源**：战斗（battle.js）与地图明雷（explore.js）共用这一份。
+     v0.68.0 之前它只写死在 battle.js 的闭包里，explore 想画野怪只能再抄一份 ——
+     两份表一旦不同步，就会出现"地图上是狼、打起来是蛇"的静默错位。 */
+  var SPECIES_SPRITE = {
+    '青纹蛇': 'snake', '赤炎狼': 'wolf', '树精': 'tree',
+    '赤炎狼王': 'wolfking', '杀手': 'killer', '心魔': 'heartDemon',
+    /* M1：血煞教（设计 M1 v1.0 §5.3）。心魔残影与心魔同形象（本就是它的影）。 */
+    '血煞教徒': 'cultist', '血蝠': 'bloodbat', '血面': 'xuemian', '心魔残影': 'heartDemon'
+  };
+
   G.Data = G.Data || {};
   G.Data.species = species;
+  G.Data.SPECIES_SPRITE = SPECIES_SPRITE;
   G.Data.makeEnemy = makeEnemy;
   G.Data.makeWolfKing = makeWolfKing;
   G.Data.makeKiller = makeKiller;

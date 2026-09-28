@@ -786,12 +786,49 @@ step(function () {
   sc.prot = 3;
   const realNext = G.rng.next;
   G.rng.next = function () { return 0; };
-  sc._onEnterTile(sc.map.md.spawn.x, 30);
+  /* ⚠️ v0.68.0：暗雷加了**地形闸**（只在野地触发，路面/砖地不遇袭），
+     所以这里不能再用 spawn.x 那一列 —— 翠微山的垂直主路正好压在那里。
+     改为在 y=30 这一行里**挑一个非路面的野地格**，这样测的才是"暗雷本身还能不能用"，
+     而不是"路面该不该遇袭"（后者是另一条断言，见下方 ②b）。 */
+  const encY = 30;
+  let encX = sc.map.md.spawn.x;
+  for (let cx = 1; cx < sc.map.w - 1; cx++) {
+    if (sc.map.solid[encY][cx]) continue;
+    if (sc.map.exitCells[cx + ',' + encY]) continue;
+    if ((G.MapGen.ROAM_FORBID || {})[sc._tileType(cx, encY)]) continue;
+    encX = cx; break;
+  }
+  sc._onEnterTile(encX, encY);
   if (sc._pending) errors.push('prot>0 的保护期内不应触发遭遇');
   sc.prot = 0;
-  if (!sc._zone(30)) { errors.push('翠微山 y=30 没有遭遇分区'); G.rng.next = realNext; return; }
+  if (!sc._zone(encY)) { errors.push('翠微山 y=30 没有遭遇分区'); G.rng.next = realNext; return; }
+
+  /* ②b v0.68.0 地形闸：**路面踩上去绝不遇袭**（用户在过道里被野怪拦住会很出戏）。
+     判据必须是"路面 + 概率必然命中"两个条件同时成立 —— 单看概率命中会误判成地形闸失效。 */
+  let pathBlocked = true, pathTested = 0;
+  for (let py = 1; py < sc.map.h - 1 && pathTested < 3; py++) {
+    for (let px = 1; px < sc.map.w - 1 && pathTested < 3; px++) {
+      if (sc.map.solid[py][px]) continue;
+      if (sc.map.exitCells[px + ',' + py]) continue;
+      if (sc._tileType(px, py) !== 'path') continue;
+      pathTested++;
+      const keep = G.rng.next;
+      G.rng.next = function () { return 0; };      /* 概率必然命中 */
+      sc.prot = 0; sc._pending = null; sc.steps = 99;
+      sc._onEnterTile(px, py);
+      G.rng.next = keep;
+      if (sc._pending) { pathBlocked = false; sc._pending = null; }
+    }
+  }
+  if (pathTested >= 1 && !pathBlocked) {
+    errors.push('v0.68.0 地形闸失效：路面格触发了暗雷（暗雷应只在草地/山地/岩石地等野地触发）');
+  }
+  if (pathTested === 0) errors.push('地形闸断言没测到任何路面格（翠微山路径表变了？）');
+
   /* ② 踩中暗雷 → 排队 + 闪白方向为 1 */
-  sc._onEnterTile(sc.map.md.spawn.x, 30);
+  sc.prot = 0; sc._pending = null; sc.steps = 99;
+  G.rng.next = function () { return 0; };
+  sc._onEnterTile(encX, encY);
   G.rng.next = realNext;
   if (!sc._pending) { errors.push('踩中暗雷没有排队遭遇'); return; }
   if (sc.flashDir !== 1) errors.push('遭遇后 flashDir 应为 1，实为 ' + sc.flashDir);
@@ -820,6 +857,121 @@ step(function () {
   sc2.onTap({ x: 240, y: 200 });
   if (!sc2.path.length) errors.push('返回后点击不能寻路 —— 玩家仍被锁着');
 }, 'encounter.enter');
+
+/* 3a-5) 明雷（可见野怪，v0.68.0 用户第 22 点）
+   用户口径：「这个地图是有野怪的……需要改成明雷加暗雷，暗雷就是概率小一点，
+   而且只有特定区域有暗雷，而不是整个地图场景随处都能遇到，比如说像草地、山地、岩石地等等」。
+
+   明雷 = **地图上站着的野怪**（看得见、可绕开、撞上必战）。
+   这条契约盯四件事，少一件就是一个静默缺陷：
+   ① 野外图必须真的生成明雷（`map.roams` 非空）—— 空了玩家就只剩随机暗雷，回到旧体验
+   ② 明雷不能落在禁用地形（路面/砖地）、不能是实心格、不能压在出口上
+      （压出口 = 玩家一进图就被迫开战；落实心格 = 野怪卡在石头里）
+   ③ 安全区/室内**一只都不许有** —— 镇上/洞府里站着野怪是明显的出戏
+   ④ 撞上去**真的能进战斗**，且等级/物种与地图上那只一致
+      （不一致 = "明雷"名不副实：看到的是狼、打的是别的等级，玩家会觉得被骗） */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.pos = null;
+  s.worldSeed = 'roam-contract';
+  G.game.save = s;
+
+  const forb = G.MapGen.ROAM_FORBID || {};
+  if (!Object.keys(forb).length) errors.push('MapGen.ROAM_FORBID 未导出（暗雷地形闸会跟着失效）');
+
+  /* ① 野外图必须有明雷；② 点位合法 */
+  const wild = ['field', 'cave', 'fan5', 'fan6', 'fan7', 'fan9'];
+  let totalRoams = 0;
+  wild.forEach(function (mapId) {
+    /* ⚠️ fan5..fan9 是**生成型区域**（RegionGen 懒建），地图不在 `G.Data.maps` 里，
+       要先 ensure 才拿得到 —— 直接 buildMap 会 "未知地图 fan5"（本轮踩过）。 */
+    if (G.Data.regions.byId(mapId) && !G.Data.maps[mapId] && G.RegionGen) {
+      G.RegionGen.ensure(s, mapId);
+    }
+    const md = G.MapGen.buildMap(s, mapId);
+    const roams = md.roams || [];
+    if (!roams.length) errors.push('野外图 ' + mapId + ' 没有生成任何明雷（只剩暗雷，回到旧体验）');
+    totalRoams += roams.length;
+    roams.forEach(function (r) {
+      const t = md.ground[r.y] && md.ground[r.y][r.x] ? md.ground[r.y][r.x].t : '';
+      if (forb[t]) errors.push(mapId + ' 明雷落在禁用地形 ' + t + ' @(' + r.x + ',' + r.y + ')');
+      if (md.solid[r.y][r.x]) errors.push(mapId + ' 明雷落在实心格 @(' + r.x + ',' + r.y + ')');
+      if (md.exitCells[r.x + ',' + r.y]) errors.push(mapId + ' 明雷压在出口 @(' + r.x + ',' + r.y + ')');
+      if (!(r.lv >= 1)) errors.push(mapId + ' 明雷等级非法：' + r.lv);
+      if (!r.species) errors.push(mapId + ' 明雷没有物种');
+    });
+  });
+  if (totalRoams < wild.length) {
+    errors.push('明雷总量偏少（' + totalRoams + ' 只 / ' + wild.length + ' 张图），生成逻辑可能退化了');
+  }
+
+  /* ③ 安全区与室内：一只都不许有 */
+  ['town', 'town_home', 'yunzhou'].forEach(function (mapId) {
+    const md = G.MapGen.buildMap(s, mapId);
+    if ((md.roams || []).length) {
+      errors.push('安全区/室内 ' + mapId + ' 不该有明雷，实为 ' + md.roams.length + ' 只');
+    }
+  });
+
+  /* ④ 撞明雷 → 真的进战斗，且与地图上那只一致 */
+  s.pos = null;
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.prot = 0;
+  /* ④a 走**真实行走路径**（`_onEnterTile`，玩家踩着格子触发的正是这条）验证撞上开战。
+     不能只测 ④ 的直调 `_encounterRoam` —— 那只证明"构造敌人函数没错"，
+     证明不了"踩上去真的会战"（接线断了照样绿）。 */
+  {
+    const r0 = (sc.map.roams || [])[0];
+    if (r0) {
+      sc.prot = 0; sc._pending = null; sc.steps = 99;
+      sc._onEnterTile(r0.x, r0.y);
+      if (!sc._pending) errors.push('走到明雷格上没有开战（明雷接线断了）');
+      else {
+        const pu = sc._pending.units && sc._pending.units[0];
+        if (pu && pu.level !== r0.lv) {
+          errors.push('行走触发：明雷等级漂移（图上 Lv' + r0.lv + '，实际 Lv' + pu.level + '）');
+        }
+        sc._pending = null;
+      }
+    } else {
+      errors.push('明雷契约：field 没有明雷，无法验证真实行走触发');
+    }
+  }
+  const roam = (sc.map.roams || [])[0];
+  if (!roam) { errors.push('明雷契约：field 没有明雷，无法验证撞上开战'); return; }
+  sc._encounterRoam(roam);
+  if (!sc._pending) { errors.push('撞上明雷没有排队遭遇'); return; }
+  if (sc.flashDir !== 1) errors.push('撞明雷后 flashDir 应为 1，实为 ' + sc.flashDir);
+  const u = sc._pending.units && sc._pending.units[0];
+  if (!u) { errors.push('撞明雷后没有敌人'); return; }
+  if (u.level !== roam.lv) {
+    errors.push('明雷等级漂移：地图上标 Lv' + roam.lv + '，实际打 Lv' + u.level
+      + '（玩家会觉得被骗）');
+  }
+  if (u.name.indexOf(roam.species) < 0) {
+    errors.push('明雷物种漂移：地图上是 ' + roam.species + '，实际打 ' + u.name);
+  }
+
+  /* ⑤ 物种立绘表只能有一份真相源（`G.Data.SPECIES_SPRITE`）。
+     地图明雷与战斗立绘都从它取图 —— 若它丢了，两边会各自退回 'snake'，
+     所有野怪长得一样（且完全静默）。同时钉住：明雷实际取图不为空。 */
+  const SS = G.Data.SPECIES_SPRITE;
+  if (!SS || !Object.keys(SS).length) {
+    errors.push('G.Data.SPECIES_SPRITE 缺失（地图明雷与战斗立绘会双双退化成同一只）');
+  } else {
+    /* 野外三物种必须都登记，否则地图上会画出与设计不符的形象 */
+    ['青纹蛇', '赤炎狼', '树精'].forEach(function (sp) {
+      if (!SS[sp]) errors.push('物种 ' + sp + ' 没有立绘键（战斗/明雷会退回 snake）');
+    });
+    /* 明雷取图链：能拿到一张 40x40 的立绘，而不是空白 */
+    const spr = G.Sprites.beastResolve
+      ? G.Sprites.beastResolve(roam.artKey || null, SS[roam.species] || 'snake')
+      : null;
+    if (!spr) errors.push('明雷取图失败：' + roam.species + ' → 无立绘可用');
+  }
+}, 'roam.contract');
 
 /* 3b-0) m0-1 主线不能断链：进山打赢 1 场 → won1 → 回镇找沈伯领灵石 50 → m0-2
    此前 won1 全项目无人写入，主线会永久卡死在 m0-1（违反 v0.9 §验收「m0-1..5 无卡死」）。 */

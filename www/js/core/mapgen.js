@@ -250,13 +250,82 @@
     var gatherNodes = (G.Gather && G.Gather.buildNodes)
       ? G.Gather.buildNodes(save, mapId, { md: md, w: w, h: h, solid: solid, ground: ground })
       : {};
+
+    /* ===== 明雷（可见野怪，v0.68.0 用户第 22 点）=====
+       用户原话：「这个地图是有野怪的，而且我觉得当前暗雷遇怪的情况太频繁了，
+       需要改成明雷加暗雷，暗雷就是概率小一点，而且只有特定区域有暗雷，
+       而不是整个地图场景随处都能遇到，比如说像草地、山地、岩石地等等这种」。
+       明雷 = 地图上**站着的野怪**（看得见、可以绕着走）；暗雷 = 踩格子随机遇袭。
+       两者共用 `_encounter`，所以战利品/等级/世界加成完全一致。
+       ⚠️ 只在**野外**（非 safe、非 indoor）生成；安全区/室内一只都不放。 */
+    var roams = [];
+    if (!md.safe && !md.indoor) {
+      var world = (save && save.world) || null;
+      /* ⚠️ 世界种群表在 `save.world.beast`（由 `generateWorld` 从 `G.Data.xiang` 的 beast 权重写入），
+         **不是** `G.Data.worlds` —— 后者根本不存在（v0.68.0 初版照 "G.Data.xxx" 的命名习惯写错，
+         结果明雷一只都生成不出来、且完全静默：整个 if 分支被跳过）。 */
+      var beastTbl = (world && world.beast) || null;
+      var zones = md.zones || [];
+      /* 明雷数量按地图面积给，但设上限 —— 大图也不至于走两步撞一只 */
+      var area = w * h;
+      var want = Math.max(3, Math.min(10, Math.round(area / 220)));
+      var placedR = 0, triesR = 0;
+      while (placedR < want && triesR < want * 80) {
+        triesR++;
+        var rx = rng.int(2, w - 3), ry = rng.int(2, h - 3);
+        if (isMarked(rx, ry)) continue;
+        if (solid[ry][rx]) continue;
+        /* 不占出口、不堵门（门口那格已被 mark，这里再兜一道） */
+        if (exitCells[rx + ',' + ry]) continue;
+        if (interact[rx + ',' + ry]) continue;
+        /* 地形限制：只在**草地/山地/岩石地/荒漠/沼泽**这类"野地"上生成，
+           路面 / 室内砖地 / 大厅地面不放（用户在过道里看到野怪会很出戏）。 */
+        var gt = ground[ry][rx].t;
+        if (ROAM_FORBID[gt]) continue;
+        /* 等级取**该格所属分区**的区间 —— 与暗雷 `_zone(y)` 同一口径。
+           ⚠️ 不能用 zones[0]：翠微山前坡 5–16、后山 17–32，全按 zones[0] 取
+              会让后山站着一群 Lv5 的杂鱼（或反过来前坡出现 Lv32）。
+              契约 `roam.contract` 正是拿这个漂移抓住初版的。 */
+        var zr = null;
+        for (var zi = 0; zi < zones.length; zi++) {
+          if (ry >= zones[zi].y0 && ry <= zones[zi].y1) { zr = zones[zi]; break; }
+        }
+        if (!zr && zones.length) zr = zones[0];
+        var lv = zr ? rng.int(zr.enc.min, zr.enc.max) : 5;
+        var sp = null;
+        if (zr && zr.sp) {
+          /* 分区有种群权重就按权重掷，与暗雷完全同源 */
+          var pl = Object.keys(zr.sp).map(function (k) { return { k: k, w: zr.sp[k] }; });
+          sp = pl[rng.int(0, pl.length - 1)].k;
+        } else if (beastTbl) {
+          var keys = Object.keys(beastTbl);
+          if (keys.length) sp = keys[rng.int(0, keys.length - 1)];
+        }
+        roams.push({
+          x: rx, y: ry, species: sp || '青纹蛇', lv: lv,
+          /* 游荡相位：每只动画错开（纯确定性，不用 Math.random，截图才钉得住） */
+          ph: (rx * 7 + ry * 13) % 100 / 100
+        });
+        /* 明雷**占格可通行** —— 玩家撞上去即开战，但不像 NPC 那样把人挡住。
+           所以只 mark（避开树石），不设 solid。 */
+        mark(rx, ry);
+        placedR++;
+      }
+    }
+
     return {
       md: md, w: w, h: h, solid: solid, ground: ground,
       decor: decor, interact: interact, exitCells: exitCells,
       chests: chests, boss: boss, rng: rng, npcs: npcs, scriptBattles: scriptBattles,
-      gatherNodes: gatherNodes
+      gatherNodes: gatherNodes, roams: roams
     };
   }
 
-  G.MapGen = { buildMap: buildMap };
+  /* 明雷禁放地形：路面/室内地面/石厅 —— 这些都是"人走的路"，不该站野怪。
+     其余（grass / cave / sand / snow / marsh / lava …）都算野地，可以放。 */
+  var ROAM_FORBID = { path: 1, floor: 1, town: 1 };
+
+  /* 地形口径**唯一来源**：明雷生成（上面）与暗雷触发（explore.js）都读它。
+     改成两处各写一份 'path' 判断，就会出现"明雷不放路面、暗雷还是能在路面踩中"的错配。 */
+  G.MapGen = { buildMap: buildMap, ROAM_FORBID: ROAM_FORBID };
 })();
