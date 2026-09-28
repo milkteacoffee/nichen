@@ -1509,6 +1509,27 @@ step(() => {
 }, 'panel.quest.chapter');
 shot('51_panel_quest_chapter', 2);
 
+/* ③b 末章被九关闸卡住（v0.73.0）：境界拉满但**本世九关一关没过** ——
+   此前 c10 只看 gl>=649，"九关尽过"只是台词，打 6 关就能看到结局。
+   现在面板必须说清"为什么过不去"（挂一行进度引导，而不是让玩家以为卡 bug）。 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 700; s.maxGlobalLevel = 700;
+  /* 前九章全做完 → 只剩末章；但九关一关未过 */
+  s.chapters = G.Data.Chapters.list.slice(0, 9).map((c) => c.id);
+  s.daoCleared = [];
+  s.daoHeart = 2;
+  s.quest.step = 'm1done';
+  G.game.changeScene('town', { toSpawn: true });
+  clearStoryModal();
+  const sc = G.game.scene;
+  sc.questTab = 'main';
+  sc.questSel = 'ch:c10';
+  G.Overlays.openPanel(sc, 'quest', true);
+  clearStoryModal();
+}, 'panel.quest.daoGate');
+shot('51b_panel_quest_daogate', 2);
+
 /* ④ 三结局场景（v0.63.0）：证道 / 逆天各拍一张（配色与文案是两条分支） */
 step(() => {
   const s = G.game.save;

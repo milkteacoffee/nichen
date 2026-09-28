@@ -1178,7 +1178,18 @@
     G.UI.text(x, { x: dx, y: by }, isCur ? '当前进行中'
       : (selGi >= 0 && selGi < idx ? '已完成' : '未开始'),
       10, isCur ? G.UI.C.gold : G.UI.C.textDim);
-    G.UI.text(x, { x: dx, y: by + 20 }, '点左侧任一条可查看详情。', 10, G.UI.C.textDim);
+    /* 末章卡在哪个门槛上（v0.73.0）—— c10 除了境界还要求**本世九关尽过**，
+       光在面板上挂一行"章 · 道祖"却不说过不了的原因，玩家只会以为卡 bug。 */
+    var blk = (tab === 'main' && G.Data.Chapters && G.Data.Chapters.blockedBy)
+      ? G.Data.Chapters.blockedBy(save) : null;
+    if (blk && blk.reason === 'dao') {
+      G.UI.text(x, { x: dx, y: by + 20 },
+        '需先过道则回廊九关（本世 ' + blk.have + '/' + blk.need + '）',
+        10, G.UI.C.goldHi);
+      G.UI.text(x, { x: dx, y: by + 36 }, '底栏「角色」→ 秘境 → 道界。', 10, G.UI.C.textDim);
+    } else {
+      G.UI.text(x, { x: dx, y: by + 20 }, '点左侧任一条可查看详情。', 10, G.UI.C.textDim);
+    }
   }
 
   function buildQuest(btns, scene) {

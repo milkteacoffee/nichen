@@ -106,7 +106,7 @@
         { t: '先在碑前坐三年', run: function (s) { heart(s, 3); s.ageBonus = (s.ageBonus || 0) + 3; return '你把碑上每一道裂纹都看了一遍。三年，换一份笃定。'; } }
       ] },
 
-    { id: 'c10', n: '道祖', gl: 649, title: '道 之 尽 头',
+    { id: 'c10', n: '道祖', gl: 649, requiresDao: 9, title: '道 之 尽 头',
       lines: ['九关尽过，你站到了道的尽头。回头看，身后是一条从青溪镇开始的、',
         '窄得只容一人的路。',
         '天道的声音第一次离你这么近：「走到这里，你想做什么？」'],
@@ -153,7 +153,25 @@
     var a = doneIds(save);
     if (a.indexOf(id) < 0) a.push(id);
   }
-  /* 下一章：**必须按顺序**（前章未了不跳章），且境界达标 */
+  /* 道界九关的进度读取（**唯一口**）。`save.daoCleared` 是**本世**记录（每世重爬，
+     见 storage.js:173），所以"九关尽过"永远指**本世真的打过九关** ——
+     不能靠跨世继承的境界把它糊过去。 */
+  function daoCleared(save) {
+    var a = (save && save.daoCleared) || [], n = 0;
+    for (var i = 0; i < a.length; i++) if (a[i]) n++;
+    return n;
+  }
+  function daoTotal() {
+    return (G.Data.dungeons && G.Data.dungeons.daoCount)
+      ? G.Data.dungeons.daoCount() : 9;
+  }
+
+  /* 下一章：**必须按顺序**（前章未了不跳章）、境界达标、且**额外门槛**满足。
+     ⚠️ v0.73.0 补上末章的 `requiresDao` 闸：此前 c10 只看 `gl >= 649`，
+        而九关第 6 关的锚点恰是 gl 648 —— 玩家只打通六关、再闭关修进道祖境，
+        就能看到末章那句「九关尽过，你站到了道的尽头」，**后三关（道则傀儡 /
+        大道化身 / 合道）一关没打**。台词说九关，代码只看境界，这是纯静默的
+        "剧情与数值分叉"（HANDOVER 记的"完整闭环不能销项"就是这条）。 */
   function pendingFor(save) {
     var gl = (save && save.globalLevel) || 1;
     for (var i = 0; i < LIST.length; i++) {
@@ -162,7 +180,27 @@
       /* 前面还有没做完的 → 这一章先不弹 */
       for (var j = 0; j < i; j++) if (!isDone(save, LIST[j].id)) return null;
       if (gl < c.gl) return null;
+      if (c.requiresDao && daoCleared(save) < c.requiresDao) return null;
       return c;
+    }
+    return null;
+  }
+
+  /* 下一章**为何不弹**（面板引导用）。返回 null 表示"没有待推进的章"，
+     否则 `{ chapter, reason:'realm'|'dao', need, have }`。
+     ⚠️ 必须与 pendingFor **同源**：pendingFor 每次 `return null` 都在这儿有对应支，
+        两处判据要一起改 —— 否则会出现"面板说差 3 关、其实卡在境界"这种反向误导。 */
+  function blockedBy(save) {
+    var gl = (save && save.globalLevel) || 1;
+    for (var i = 0; i < LIST.length; i++) {
+      var c = LIST[i];
+      if (isDone(save, c.id)) continue;
+      for (var j = 0; j < i; j++) if (!isDone(save, LIST[j].id)) return null;
+      if (gl < c.gl) return { chapter: c, reason: 'realm', need: c.gl, have: gl };
+      if (c.requiresDao && daoCleared(save) < c.requiresDao) {
+        return { chapter: c, reason: 'dao', need: c.requiresDao, have: daoCleared(save) };
+      }
+      return null;
     }
     return null;
   }
@@ -187,6 +225,9 @@
     isDone: isDone,
     markDone: markDone,
     pendingFor: pendingFor,
+    blockedBy: blockedBy,
+    daoCleared: daoCleared,
+    daoTotal: daoTotal,
     progressOf: progressOf,
     endingOf: endingOf,
     heartOf: function (save) { return (save && save.daoHeart) || 0; }

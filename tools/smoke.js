@@ -1449,19 +1449,42 @@ step(function () {
      ⑧ 是静态扫源码，只能证明"写了 autoEquip 这句"；这里证的是"这句真的有用"。
      为什么单挑 inscribe：它是唯一**由 G.rng 决定学到哪本**的路径 ——
      门市部/宗门兑换/主线赠书的 id 都是外部传入的，只有参悟是内部掷骰，
-     最容易出现"掷到 A 却激发了 B"这类漂移。 */
+     最容易出现"掷到 A 却激发了 B"这类漂移。
+
+     ⚠️ **不能"掷到啥测啥"**：碎片池里主动/被动混着（凡阶有铁布衫/吐纳术/回春诀），
+       若任其随机，掷中主动就永远测不到"被动不占栏"、反之亦然 —— 那是拿概率
+       当覆盖面（本项目纪律明令禁止"概率分支进契约"，v0.70.0 还因此偶发红过）。
+       改为**显式各钉死一次 RNG**：挑一本主动、一本被动，两个分支都真跑到。 */
   {
-    const s9 = JSON.parse(JSON.stringify(save));
-    s9.skills = {}; s9.skillEquip = [];
-    s9.items = {};
-    /* 喂够任意一品的碎片，保证 inscribe 一定成功 */
     const tier9 = Object.keys(G.Data.shardByTier)[0];
-    s9.items[G.Data.shardByTier[tier9]] = (G.Data.shardCost || 10) + 5;
     const pool9 = G.Data.shardPool(tier9);
-    const r9 = P.inscribe(s9, tier9);
-    if (!r9.ok) {
-      errors.push('端到端：碎片参悟应成功（碎片足够），实为 ' + r9.reason);
-    } else {
+    const isActiveSk = (id) => {
+      const d = G.Data.skills[id] || {};
+      return (d.kind === '攻击' && d.mult) || !!d.active;
+    };
+    const actId = pool9.filter(isActiveSk)[0];
+    const pasId = pool9.filter((id) => !isActiveSk(id))[0];
+    if (!actId) errors.push('端到端：' + tier9 + '阶碎片池里没有主动功法，无法验证"参悟即入栏"');
+    if (!pasId) errors.push('端到端：' + tier9 + '阶碎片池里没有被动功法，无法验证"被动不占栏"');
+
+    const realPick = G.rng.pick;
+    /* 钉死 rng 只包住 inscribe 这一次调用（战斗里也要 rng 掷掉落，别误伤） */
+    const runOne = (target, expectInBar) => {
+      if (!target) return;
+      const s9 = JSON.parse(JSON.stringify(save));
+      s9.skills = {}; s9.skillEquip = []; s9.items = {};
+      /* 喂够碎片，保证 inscribe 一定成功 */
+      s9.items[G.Data.shardByTier[tier9]] = (G.Data.shardCost || 10) + 5;
+      G.rng.pick = () => target;
+      let r9 = null;
+      try { r9 = P.inscribe(s9, tier9); } finally { G.rng.pick = realPick; }
+      if (!r9 || !r9.ok) {
+        errors.push('端到端：碎片参悟应成功（碎片足够），实为 ' + ((r9 && r9.reason) || '未返回'));
+        return;
+      }
+      if (r9.id !== target) {
+        errors.push('端到端：钉死 RNG 后参悟到的应是「' + target + '」，实为「' + r9.id + '」（id 被换过）');
+      }
       if (!r9.learned) errors.push('端到端：新档首次参悟应为"新习"（learned=true）');
       if (s9.skills[r9.id] == null) errors.push('端到端：参悟后功法未进 save.skills');
       /* 核心断言：参悟到的那本，**必须**同时在激发位里 */
@@ -1469,7 +1492,7 @@ step(function () {
         errors.push('端到端：参悟得到「' + r9.id + '」却没自动激发（'
           + '战斗栏会是空的 —— 玩家看到"学了功法但不能用"）');
       }
-      /* 再证一步：进战斗后技能栏里真的有这本 */
+      /* 再证一步：进战斗后技能栏里到底有没有这本 */
       s9.quest = { step: 'free', flags: {} };
       s9.globalLevel = 20; s9.hp = 99999;
       G.game.save = s9;
@@ -1478,17 +1501,21 @@ step(function () {
       const b9 = G.game.scene;
       if (!b9 || typeof b9._cmd !== 'function') {
         errors.push('端到端：参悟后没能进入战斗');
-      } else {
-        const inBar = b9.p.skills.map((k) => k.id);
-        if (inBar.indexOf(r9.id) < 0) {
-          errors.push('端到端：参悟到的「' + r9.id + '」没出现在战斗技能栏（实为 ['
-            + inBar.join(',') + ']）');
-        }
+        return;
       }
-      if (pool9.indexOf(r9.id) < 0) {
-        errors.push('端到端：参悟到的「' + r9.id + '」不属于该品阶池（数据串了）');
+      const inBar = b9.p.skills.map((k) => k.id);
+      const has = inBar.indexOf(r9.id) >= 0;
+      if (expectInBar && !has) {
+        errors.push('端到端：参悟到的**主动**功法「' + r9.id + '」没出现在战斗技能栏（实为 ['
+          + inBar.join(',') + ']）');
       }
-    }
+      if (!expectInBar && has) {
+        errors.push('端到端：**被动**功法「' + r9.id + '」不该占战斗栏（实为 ['
+          + inBar.join(',') + ']）');
+      }
+    };
+    runOne(actId, true);      /* 主动分支：必须进栏 */
+    runOne(pasId, false);     /* 被动分支：必须在激发位、但不进栏 */
     G.game.save = save;
   }
 
@@ -8249,6 +8276,33 @@ step(function () {
   if (pr.done !== 2 || pr.total !== L.length) {
     errors.push('progressOf 应报 2/' + L.length + '，实为 ' + pr.done + '/' + pr.total);
   }
+
+  /* ②b 末章的**九关闸**（v0.73.0）：c10 的台词是"九关尽过"，光看境界会让玩家
+     只打六关（第 6 关锚点 gl 648）再闭关进道祖境就吃到结局。断言四件事：
+     ① c10 必须挂 requiresDao；② 境界够但九关不满 → 不弹；③ 九关满 → 弹；
+     ④ blockedBy 能说出卡在"九关"而不是别的原因。 */
+  const c10 = L[L.length - 1];
+  if (!c10 || c10.requiresDao !== C.daoTotal()) {
+    errors.push('末章 ' + (c10 && c10.id) + ' 必须要求本世九关尽过（requiresDao=' +
+      (c10 && c10.requiresDao) + '，应为 ' + C.daoTotal() + '）—— 否则"九关尽过"只是台词');
+  }
+  const sd = JSON.parse(JSON.stringify(save));
+  sd.chapters = L.slice(0, L.length - 1).map(function (c) { return c.id; });
+  sd.globalLevel = 700; sd.daoCleared = [];
+  if (C.pendingFor(sd)) {
+    errors.push('境界拉满但九关一关没过时，末章不该弹出（台词与数值分叉）');
+  }
+  const blk0 = C.blockedBy(sd);
+  if (!blk0 || blk0.reason !== 'dao' || blk0.have !== 0 || blk0.need !== C.daoTotal()) {
+    errors.push('blockedBy 应报"卡在九关 0/' + C.daoTotal() + '"，实为 ' +
+      (blk0 ? blk0.reason + ' ' + blk0.have + '/' + blk0.need : 'null'));
+  }
+  sd.daoCleared = C.daoTotal() && new Array(C.daoTotal()).fill(true);
+  const last2 = C.pendingFor(sd);
+  if (!last2 || last2.id !== c10.id) {
+    errors.push('九关尽过 + 境界达标时末章必须弹出，实为 ' + (last2 && last2.id));
+  }
+  if (C.blockedBy(sd)) errors.push('九关尽过后 blockedBy 应为 null');
 
   /* ③ 道心三档分界 + 三条结局都在 */
   const E = C.ENDINGS;
