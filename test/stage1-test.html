@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>v0.76.0 阶段一功能测试</title>
+  <style>
+    body {
+      font-family: 'Microsoft YaHei', Arial, sans-serif;
+      background: #1a1d2e;
+      color: #e0e0e0;
+      padding: 20px;
+      margin: 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #ffd870;
+      border-bottom: 2px solid #ffd870;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #9ac8ff;
+      margin-top: 30px;
+    }
+    .test-section {
+      background: #252836;
+      border: 1px solid #3a3f5c;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+    .test-button {
+      background: #4a7ba7;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+      transition: all 0.2s;
+    }
+    .test-button:hover {
+      background: #5a8bb7;
+      transform: translateY(-2px);
+    }
+    .test-button:active {
+      transform: translateY(0);
+    }
+    .status {
+      margin: 15px 0;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+    }
+    .status.success {
+      background: #1a4d2e;
+      border: 1px solid #2d7a4f;
+      color: #7fff7f;
+    }
+    .status.error {
+      background: #4d1a1a;
+      border: 1px solid #7a2d2d;
+      color: #ff7f7f;
+    }
+    .status.info {
+      background: #1a2a4d;
+      border: 1px solid #2d4a7a;
+      color: #7fafff;
+    }
+    #gameFrame {
+      width: 100%;
+      height: 500px;
+      border: 2px solid #ffd870;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+    .instruction {
+      background: #2a2d3e;
+      border-left: 4px solid #ffd870;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    .code {
+      background: #1a1d2e;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+      color: #7fff7f;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 v0.76.0 阶段一功能测试</h1>
+
+    <div class="instruction">
+      <strong>📋 测试说明：</strong><br>
+      1. 点击下方按钮在新窗口打开游戏<br>
+      2. 使用开发者控制台测试功能<br>
+      3. 查看测试结果并反馈
+    </div>
+
+    <!-- 测试1: 震动系统 -->
+    <div class="test-section">
+      <h2>🔹 测试1: 镜头震动系统</h2>
+      <p><strong>功能：</strong>cameraShake(intensity, duration)</p>
+      <button class="test-button" onclick="testCameraShake()">测试镜头震动</button>
+      <div id="shake-status"></div>
+      <div class="instruction">
+        <strong>手动测试：</strong>打开游戏后，在Console执行：
+        <div class="code">G.game.cameraShake(0.8, 500);</div>
+        预期效果：屏幕震动500ms，强度0.8
+      </div>
+    </div>
+
+    <!-- 测试2: 顿帧系统 -->
+    <div class="test-section">
+      <h2>🔹 测试2: 顿帧暂停系统</h2>
+      <p><strong>功能：</strong>pauseGame(ms)</p>
+      <button class="test-button" onclick="testPauseGame()">测试顿帧</button>
+      <div id="pause-status"></div>
+      <div class="instruction">
+        <strong>手动测试：</strong>在Console执行：
+        <div class="code">G.game.pauseGame(100);</div>
+        预期效果：画面暂停100ms
+      </div>
+    </div>
+
+    <!-- 测试3: 突破特效 -->
+    <div class="test-section">
+      <h2>🔹 测试3: 突破全屏特效</h2>
+      <p><strong>功能：</strong>playBreakthroughEffect(realmName, oldStats, newStats)</p>
+      <button class="test-button" onclick="testBreakthroughEffect()">测试突破特效</button>
+      <div id="breakthrough-status"></div>
+      <div class="instruction">
+        <strong>手动测试：</strong>在Console执行：
+        <div class="code">
+G.game.playBreakthroughEffect('炼气', <br>
+&nbsp;&nbsp;{maxhp: 100, atk: 10}, <br>
+&nbsp;&nbsp;{maxhp: 150, atk: 15}<br>
+);
+        </div>
+        预期效果：金色粒子爆发 + "突破 炼气 境！"文字 + 镜头震动
+      </div>
+    </div>
+
+    <!-- 测试4: 战斗打击感 -->
+    <div class="test-section">
+      <h2>🔹 测试4: 战斗打击感</h2>
+      <p><strong>功能：</strong>集成在battle.js的_impact函数</p>
+      <button class="test-button" onclick="openGame()">打开游戏测试战斗</button>
+      <div id="battle-status"></div>
+      <div class="instruction">
+        <strong>战斗测试步骤：</strong><br>
+        1. 进入游戏，选择"新的开始"<br>
+        2. 从城镇离开进入野外<br>
+        3. 遇敌进入战斗<br>
+        4. 观察攻击时的效果：<br>
+        &nbsp;&nbsp;✅ 普通攻击：顿帧50ms + 震动<br>
+        &nbsp;&nbsp;✅ 暴击攻击：顿帧80ms + 强震动 + 红色数字放大
+      </div>
+    </div>
+
+    <!-- 测试5: 综合测试 -->
+    <div class="test-section">
+      <h2>🔹 测试5: 综合功能验证</h2>
+      <button class="test-button" onclick="openGame()">打开游戏进行完整测试</button>
+      <button class="test-button" onclick="showConsoleCommands()">显示Console命令</button>
+      <div id="comprehensive-status"></div>
+    </div>
+
+    <div class="instruction" style="margin-top: 30px;">
+      <strong>⚠️ 注意事项：</strong><br>
+      • 确保游戏服务器在 http://localhost:8173 运行<br>
+      • 测试时打开浏览器开发者工具 (F12)<br>
+      • Chrome/Edge 浏览器效果最佳<br>
+      • 如遇问题请截图反馈
+    </div>
+  </div>
+
+  <script>
+    function showStatus(elementId, message, type = 'info') {
+      const el = document.getElementById(elementId);
+      el.innerHTML = `<div class="status ${type}">${message}</div>`;
+    }
+
+    function openGame() {
+      window.open('http://localhost:8173', '_blank');
+      showStatus('battle-status', '✅ 游戏已在新窗口打开！请按步骤进行测试', 'success');
+    }
+
+    function testCameraShake() {
+      const code = `G.game.cameraShake(0.8, 500);`;
+      showStatus('shake-status',
+        `✅ 测试代码已准备好！<br><br>` +
+        `请在游戏Console中执行：<br>` +
+        `<div class="code">${code}</div>` +
+        `预期效果：屏幕震动500ms，强度较高`,
+        'info'
+      );
+    }
+
+    function testPauseGame() {
+      const code = `G.game.pauseGame(100);`;
+      showStatus('pause-status',
+        `✅ 测试代码已准备好！<br><br>` +
+        `请在游戏Console中执行：<br>` +
+        `<div class="code">${code}</div>` +
+        `预期效果：画面暂停100ms（观察秒表或动画暂停）`,
+        'info'
+      );
+    }
+
+    function testBreakthroughEffect() {
+      const code = `G.game.playBreakthroughEffect('炼气', {maxhp: 100, atk: 10}, {maxhp: 150, atk: 15});`;
+      showStatus('breakthrough-status',
+        `✅ 测试代码已准备好！<br><br>` +
+        `请在游戏Console中执行：<br>` +
+        `<div class="code">${code}</div>` +
+        `预期效果：<br>` +
+        `• 全屏金色渐变<br>` +
+        `• 50个金色粒子从中心爆发<br>` +
+        `• 中央显示"突破 炼气 境！"<br>` +
+        `• 持续3秒后淡出<br>` +
+        `• 轻微镜头震动`,
+        'info'
+      );
+    }
+
+    function showConsoleCommands() {
+      showStatus('comprehensive-status',
+        `<strong>📝 Console测试命令集合：</strong><br><br>` +
+        `1️⃣ <strong>镜头震动（轻度）</strong><br>` +
+        `<div class="code">G.game.cameraShake(0.3, 300);</div><br>` +
+        `2️⃣ <strong>镜头震动（重度）</strong><br>` +
+        `<div class="code">G.game.cameraShake(1.0, 800);</div><br>` +
+        `3️⃣ <strong>顿帧测试</strong><br>` +
+        `<div class="code">G.game.pauseGame(200);</div><br>` +
+        `4️⃣ <strong>突破特效（炼气境）</strong><br>` +
+        `<div class="code">G.game.playBreakthroughEffect('炼气', {maxhp:100}, {maxhp:150});</div><br>` +
+        `5️⃣ <strong>突破特效（金丹境）</strong><br>` +
+        `<div class="code">G.game.playBreakthroughEffect('金丹', {maxhp:500}, {maxhp:800});</div><br>` +
+        `6️⃣ <strong>连续测试（震动+顿帧+特效）</strong><br>` +
+        `<div class="code">
+G.game.cameraShake(0.5, 300);<br>
+setTimeout(() => G.game.pauseGame(100), 500);<br>
+setTimeout(() => G.game.playBreakthroughEffect('元婴', {}, {}), 1000);
+        </div>`,
+        'info'
+      );
+    }
+
+    // 页面加载时显示欢迎信息
+    window.onload = function() {
+      console.log('%c🎮 v0.76.0 阶段一功能测试工具已加载', 'color: #ffd870; font-size: 16px; font-weight: bold;');
+      console.log('%c📋 使用页面上的按钮获取测试代码', 'color: #9ac8ff; font-size: 14px;');
+    };
+  </script>
+</body>
+</html>

@@ -364,6 +364,18 @@
          自动战斗中不计时（auto 自己跑）；非 command 阶段（已出手/等待）也暂停。 */
       this.cmdTimer = CMD_TIMER;
 
+      /* v0.76.0 连击系统（阶段二）：3秒内连续攻击累加combo，伤害+1%/combo（上限50%） */
+      this.comboCount = 0;        // 当前连击数
+      this.comboTimer = 0;        // 连击倒计时（秒）
+      this.comboBest = 0;         // 本场最高连击
+      this.COMBO_TIMEOUT = 3.0;   // 连击超时时间（秒）
+      this.COMBO_MAX_BONUS = 0.5; // 最大加成50%
+
+      /* v0.76.0 副本评级统计（阶段二） */
+      this.battleStartTime = performance.now();  // 战斗开始时间
+      this.damageTaken = 0;       // 累计受击次数
+      this.itemsUsed = 0;         // 使用药剂次数
+
       this._initUnits();
       if (this.params.script === 'heartDemon') {
         this._log('服下突破丹，气机冲关——心魔现前。');
@@ -1500,7 +1512,7 @@
       }
     },
 
-    /* 伤害 = (攻×倍率×增益×狂暴 − 防×0.55×(1−破防)) × 属性克制 × 浮动 × 守御 × 暴击 */
+    /* 伤害 = (攻×倍率×增益×狂暴 − 防×0.55×(1−破防)) × 属性克制 × 浮动 × 守御 × 暴击 × 连击加成 */
     _calc: function (atk, def, skill) {
       var mult = skill.mult == null ? 1 : skill.mult;
       var buff = 1 + (atk.buffs && atk.buffs.atk || 0);
@@ -1513,6 +1525,9 @@
       var base = Math.max(1, atk.atk * mult * buff * rage * (1 + jusha) - defTerm);
       var ec = G.Data.elem.coef(skill.elem, def.elem);
       base *= ec;
+      /* v0.76.0 连击加成：每combo +1%伤害，上限50% */
+      var comboBonus = Math.min(this.COMBO_MAX_BONUS, this.comboCount * 0.01);
+      base *= (1 + comboBonus);
       var guard = def.guard ? 0.55 : 1;
       var v = base * (0.9 + Math.random() * 0.2) * guard;
       var crit = Math.random() < (atk.crit || 0.05);
@@ -1622,6 +1637,14 @@
       var u = this._unit(key);
       if (!u) return 0;
       var dmg = r.dmg;
+
+      /* v0.76.0 连击累加：只有攻击敌人且造成伤害才累加 */
+      if (dmg > 0 && key !== 'P') {
+        this.comboCount++;
+        this.comboTimer = this.COMBO_TIMEOUT;
+        this.comboBest = Math.max(this.comboBest, this.comboCount);
+      }
+
       /* 护盾池优先吸收；吸收完才扣气血 */
       if (u.shield > 0) {
         var ab = Math.min(u.shield, dmg);
@@ -1637,6 +1660,12 @@
         if (this.mount.hp <= 0) this._forceDismount('坐骑力竭，翻身落马！');
       }
       u.hp = Math.max(0, u.hp - dmg);
+
+      /* v0.76.0 评级统计：主角受伤累计 */
+      if (key === 'P' && dmg > 0) {
+        this.damageTaken = (this.damageTaken || 0) + 1;
+      }
+
       /* 睡眠：受直接气血伤害即醒（DOT 不醒，护盾全挡也不醒，v0.2 §8.1） */
       if (dmg > 0 && u.statuses && u.statuses['睡']) {
         delete u.statuses['睡'];
@@ -2169,6 +2198,14 @@
         if (f.t > 1.05) this.floaters.splice(i, 1);
       }
 
+      /* v0.76.0 连击倒计时：超时清零 */
+      if (this.comboTimer > 0) {
+        this.comboTimer -= dt;
+        if (this.comboTimer <= 0) {
+          this.comboCount = 0;
+        }
+      }
+
       /* 思考倒计时（v0.11.2）：仅在 command 阶段、未开自动、未结束 时计 */
       if (!this.over && !this.auto && this.phase === 'command') {
         this.cmdTimer = Math.max(0, this.cmdTimer - dt);
@@ -2252,6 +2289,28 @@
       /* 已装备法宝常显（v0.69.0）：**必须画在按钮之后** —— 它占的是指令区
          「取消防御」后空出来的那格（318,240），按钮先渲染会把图标压掉。 */
       this._drawEquip(x);
+
+      /* v0.76.0 连击HUD：右上角显示Combo计数 */
+      if (this.comboCount > 0) {
+        var color = this.comboCount >= 30 ? '#ff4a3a' :
+                    this.comboCount >= 15 ? '#f5e3a8' : '#eae6da';
+        x.save();
+        x.textAlign = 'right';
+        x.textBaseline = 'top';
+        x.font = G.UI.F(this.comboCount >= 30 ? 18 : 16);
+        x.strokeStyle = 'rgba(8,8,14,0.85)';
+        x.lineWidth = 3;
+        x.lineJoin = 'round';
+        x.strokeText('Combo: ' + this.comboCount, 470, 10);
+        x.fillStyle = color;
+        x.fillText('Combo: ' + this.comboCount, 470, 10);
+
+        // 倒计时进度条
+        var progress = this.comboTimer / this.COMBO_TIMEOUT;
+        x.fillStyle = 'rgba(245,227,168,0.3)';
+        x.fillRect(390, 30, 80 * progress, 3);
+        x.restore();
+      }
     },
 
     /* 本场战斗的背景主题名（表见 BG_THEME）。
