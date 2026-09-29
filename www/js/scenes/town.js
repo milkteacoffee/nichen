@@ -616,24 +616,27 @@
     }
     if (q.step === 'm0-1' && q.flags.won1) {
       save.stone += 50; q.step = 'm0-2';
-      /* ===== 入门功法由**任务授予**（v0.25.0）=====
+      /* ===== 入门功法由**任务授予**（v0.25.0；v0.75.0 改为只送下品两门）=====
          用户口径：「主角轮回转世，是没有功法的；功法只能通过完成散修任务或者宗门任务去获得」。
          入世时 `skills = {}`，第一门功法在**拜入药铺复命**这一刻由沈伯传授 ——
          这就是散修路线的第一个任务奖励（顺带给玩家一个"任务 → 变强"的因果认知）。
+         ⚠️ v0.75.0（用户口径「一进来新手任务只会送**下品**功法，只有一个被动和一个
+            主动技能，而且威力特别小」）：不再按灵根送开局技，也不送铁布衫/吐纳术，
+            只给**两本最粗浅的下品** —— 主动「引气诀」(mult 1.05)、被动「粗浅吐纳」。
+            参考凡人修仙传/仙逆：入门那本《长春功》能引气入体而已，不是战力。
+            玩家必须靠宗门/悬赏/参悟去换真正的功法。
          ⚠️ 用 `if (!save.skills[id])` 兜底：旧档若已有这几门，不覆盖其等级。 */
-      var firstElem = (save.linggen && save.linggen.elems && save.linggen.elems[0]) || '金';
-      var given = [G.Data.startSkillByElem[firstElem], '铁布衫', '吐纳术'];
+      var given = ['引气诀', '粗浅吐纳'];
       save.skills = save.skills || {};
       given.forEach(function (id) {
         if (id && !save.skills[id]) save.skills[id] = { lv: 1 };
       });
-      /* 入门三本**全部激发**（v0.69.0）：攻击那本占槽，铁布衫/吐纳术是纯被动、不占槽。
-         全激上之后玩家一进功法页就看到"三本都在用"，不必先自己摸索激发机制。 */
+      /* 入门两本**全部激发**（v0.75.0 单本激发制：主动那本占唯一槽，被动不占位）。 */
       if (!save.skillEquip || !save.skillEquip.length) {
         save.skillEquip = [];
         given.forEach(function (id) { if (id) G.Player.autoEquip(save, id); });
       }
-      G.game.toast('灵石 +50；沈伯传你三门入门功法（已激发）');
+      G.game.toast('灵石 +50；沈伯传你两门下品入门功法');
       scene.clearOverlay();
       return;
     }

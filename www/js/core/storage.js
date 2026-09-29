@@ -35,6 +35,28 @@
       this._slotKey(K_SAVE, slot);
       localStorage.setItem('nichen_active_slot', String(slot));
     },
+    /* 删除一个存档槽（v0.75.0，用户口径「存档要支持删除」）。
+       清掉 **save + meta + 各自的 .bak** 三份 —— `_read` 会在主键缺失时回落到
+       `.bak`，只删主键的话"删完还在"（读 bak 又读回来了），这是最容易漏的一步。
+       返回是否真的删干净（调用方据此给 toast）。
+       ⚠️ 删除是**不可逆**的，所以 UI 侧必须二次确认（见 title._buildSlotButtons）。 */
+    deleteSlot: function (slot) {
+      slot = this._slotKey(K_SAVE, slot) && slot;   /* 触发 1–3 校验 */
+      try {
+        [K_SAVE, K_META].forEach(function (k) {
+          var key = G.Storage._slotKey(k, slot);
+          localStorage.removeItem(key);
+          localStorage.removeItem(key + '_bak');
+        });
+      } catch (e) { return false; }
+      /* 删的是当前活动槽 → 活动槽退回 1，避免后续读写落在空槽上 */
+      try {
+        if (String(localStorage.getItem('nichen_active_slot')) === String(slot)) {
+          localStorage.setItem('nichen_active_slot', '1');
+        }
+      } catch (e) {}
+      return true;
+    },
     listSlots: function () {
       var out = [];
       for (var i = 1; i <= this.SLOT_COUNT; i++) {

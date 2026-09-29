@@ -1183,10 +1183,12 @@ step(() => {
   const s = G.game.save;
   s.cult = 'free'; s.sectId = null; s.sectRep = 0; s.cultSwitchUsed = false;
   G.game.changeScene('town', { toSpawn: true });
-  G.Overlays.openPanel(G.game.scene, 'sect');
+  /* ⚠️ 先设 sectTab **再** openPanel：openPanel 内部会按 save.cult 兜底
+     （sectTab 为空时取 'free'），顺序反了拍到的就是散修页。 */
   G.game.scene.sectTab = 'sect';
+  G.Overlays.openPanel(G.game.scene, 'sect');
 }, 'panel.sect.grid');
-shot('34a_panel_sect_grid', 6);
+shot('34a_panel_sect_grid', 8);
 step(() => {
   const s = G.game.save;
   s.cult = 'sect'; s.sectId = 'qxj'; s.sectRep = 120; s.sectRank = 'inner';
@@ -1291,6 +1293,16 @@ step(() => {
   G.Overlays.openPanel(G.game.scene, 'char', true);
 }, 'panel.linggen');
 shot('29b_panel_linggen', 6);
+/* 天赋子页（v0.75.0，用户口径「角色界面需要新增天赋子界面」）：
+   天赋是本世唯一随机禀赋、也是灵石加成的唯一来源。 */
+step(() => {
+  const s = G.game.save;
+  s.talents = s.talents && s.talents.length ? s.talents : ['T014'];
+  s.charTab = 'talent';
+  G.Overlays.openPanel(G.game.scene, 'char', true);
+}, 'panel.talent');
+step(() => { G.game.scene.charTab = 'talent'; }, 'panel.talent.pin');
+shot('29c_panel_talent', 6);
 /* 储物格子的悬浮说明（鼠标落在第一个格子里：BG.x0=26, BG.y0=84, cell=46） */
 step(() => { G.Input.mouse = { x: 49, y: 107 }; }, 'bag.tip');
 shot('33b_bag_tip', 2);

@@ -1314,7 +1314,8 @@ step(function () {
   try {
 
   /* ① 常量口径：战斗装配上限必须来自 Player.ACTIVE_SLOTS（不许第二处写 3） */
-  if (P.ACTIVE_SLOTS !== 3) errors.push('Player.ACTIVE_SLOTS 应为 3，实为 ' + P.ACTIVE_SLOTS);
+  /* v0.75.0：上限 3 → 1（用户口径「最多只能激发一本功法」） */
+  if (P.ACTIVE_SLOTS !== 1) errors.push('Player.ACTIVE_SLOTS 应为 1（单本激发），实为 ' + P.ACTIVE_SLOTS);
 
   /* ② 九重系数：单调递增、两端钉死、九重巅峰明显更强 */
   const c1 = P.progCoef(1), c36 = P.progCoef(G.Data.SKILL_MAX_PROG);
@@ -1337,7 +1338,7 @@ step(function () {
   s.quest = { step: 'free', flags: {} };
   s.globalLevel = 20; s.hp = 99999;
   s.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 寒水诀: { lv: 1 }, 疾风诀: { lv: 1 }, 铁布衫: { lv: 1 } };
-  s.skillEquip = ['崩岩掌', '寒水诀'];           /* 只激 2 本，且顺序与 skills 的键序不同 */
+  s.skillEquip = ['崩岩掌'];                     /* 单本激发：只激 1 本 */
   G.game.save = s;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
   pump(6, 'actv.enter');
@@ -1347,8 +1348,8 @@ step(function () {
   if (names.indexOf('烈焰指') >= 0 || names.indexOf('疾风诀') >= 0) {
     errors.push('未激发的功法进了战斗技能栏：' + names.join(',') + '（激发制没生效）');
   }
-  if (names.join(',') !== '崩岩掌,寒水诀') {
-    errors.push('战斗技能栏应严格按 skillEquip 顺序 [崩岩掌,寒水诀]，实为 [' + names.join(',') + ']');
+  if (names.join(',') !== '崩岩掌') {
+    errors.push('战斗技能栏应只含已激发的 1 本 [崩岩掌]，实为 [' + names.join(',') + ']');
   }
 
   /* ④ 九重系数**真的乘进战斗倍率**（把 prog 拉高，倍率必须跟着涨） */
@@ -1372,21 +1373,23 @@ step(function () {
   s2.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 寒水诀: { lv: 1 }, 疾风诀: { lv: 1 }, 铁布衫: { lv: 1 } };
   s2.skillEquip = [];
   if (!P.activateSkill(s2, '烈焰指').ok) errors.push('空激发位应能激上「烈焰指」');
-  if (!P.activateSkill(s2, '崩岩掌').ok) errors.push('第 2 本应能激上');
-  if (!P.activateSkill(s2, '寒水诀').ok) errors.push('第 3 本应能激上');
-  const full = P.activateSkill(s2, '疾风诀');
-  if (full.ok) errors.push('激发位满（3）后仍能激上第 4 本 —— 上限失效');
+  /* 上限 1：激上第 2 本必须被拒（单本激发） */
+  const full = P.activateSkill(s2, '崩岩掌');
+  if (full.ok) errors.push('已激 1 本后仍能激上第 2 本 —— 单本激发上限失效');
   if (!full.reason) errors.push('激满被拒时应给出原因文案');
   const dup = P.activateSkill(s2, '烈焰指');
   if (dup.ok) errors.push('重复激发同一本应被拒');
-  if (P.slotsLeft(s2) !== 0) errors.push('槽满时 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
+  if (P.slotsLeft(s2) !== 0) errors.push('已激 1 本时 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
   /* 被动功法：不占槽 → 槽满也能激 —— 这是"按品级配置主被动"的落点 */
   const pas = P.activateSkill(s2, '铁布衫');
   if (!pas.ok) errors.push('被动功法（铁布衫）不占主动槽，槽满时也应能激，实被拒：' + pas.reason);
   if (!P.occupiesSlot('崩岩掌')) errors.push('攻击功法必须占槽');
   if (P.occupiesSlot('铁布衫')) errors.push('纯被动功法不该占槽');
-  if (!P.cancelSkill(s2, '崩岩掌').ok) errors.push('卸下已激发的功法应成功');
-  if (P.slotsLeft(s2) !== 1) errors.push('卸下一本后应空出 1 位，实为 ' + P.slotsLeft(s2));
+  if (!P.cancelSkill(s2, '烈焰指').ok) errors.push('卸下已激发的功法应成功');
+  if (P.slotsLeft(s2) !== 1) errors.push('卸下唯一一本后应空出 1 位，实为 ' + P.slotsLeft(s2));
+  /* 卸空后应能改激另一本（单本激发的"换功法"路径） */
+  if (!P.activateSkill(s2, '崩岩掌').ok) errors.push('卸空后应能改激「崩岩掌」');
+  if (P.slotsLeft(s2) !== 0) errors.push('改激后 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
   if (P.cancelSkill(s2, '从未学过的').ok) errors.push('卸下未激发的功法应被拒');
 
   /* ⑥ 未习得 / 被废功的功法不能激发 */
@@ -1402,6 +1405,31 @@ step(function () {
   const asm = bs2.slice(bs2.indexOf('_initUnits: function'), bs2.indexOf('this.p = {'));
   if (asm.indexOf('equippedIds') < 0) {
     errors.push('源码闸：battle._initUnits 未走 Player.equippedIds（激发制会退回"全装"）');
+  }
+  /* ⑦b 未激发时的默认（v0.75.0，用户口径「没有激发，进入战斗会默认选择
+        第一本等级最高的功法」）：战斗必须读 defaultSkillId 顶上，
+        否则学会了功法却点不了，玩家会以为坏了。 */
+  if (asm.indexOf('defaultSkillId') < 0) {
+    errors.push('源码闸：battle._initUnits 未接 defaultSkillId（未激发时技能栏会空着）');
+  }
+  {
+    const sd = JSON.parse(JSON.stringify(save));
+    sd.skills = { 烈焰指: { lv: 3 }, 崩岩掌: { lv: 7 }, 寒水诀: { lv: 5 }, 铁布衫: { lv: 9 } };
+    sd.skillEquip = [];
+    /* 铁布衫 lv 最高但是**纯被动**（不进技能栏）→ 应挑崩岩掌 lv7 */
+    if (P.defaultSkillId(sd) !== '崩岩掌') {
+      errors.push('defaultSkillId 应挑「等级最高的**主动**功法」=崩岩掌，实为 ' + P.defaultSkillId(sd));
+    }
+    sd.skills['铁布衫'] = { lv: 1 };
+    const sd2 = JSON.parse(JSON.stringify(sd));
+    sd2.skills = {}; sd2.skillEquip = [];
+    if (P.defaultSkillId(sd2) !== null) errors.push('无任何功法时 defaultSkillId 应为 null');
+    /* 废功的不该顶上 */
+    const sd3 = JSON.parse(JSON.stringify(sd));
+    sd3.skills['崩岩掌'].voided = true;
+    if (P.defaultSkillId(sd3) === '崩岩掌') {
+      errors.push('defaultSkillId 不应挑已废功的功法顶上');
+    }
   }
   if (asm.indexOf('ACTIVE_SLOTS') < 0) {
     errors.push('源码闸：battle._initUnits 未读 Player.ACTIVE_SLOTS（上限会各写一份）');
@@ -1525,7 +1553,83 @@ step(function () {
     errors.forEach((e) => console.log('  ✗ ' + e));
     throw new Error('激发契约失败：' + errors.length + ' 条');
   }
-  console.log('  ✓ 激发制：只装已激发的 / 上限 3 / 被动不占位 / 九重进倍率 / 参悟得功即入栏');
+  /* 属性徽记（v0.75.0，用户口径「功法必须要有属性图标」）：素材 skill.<拼音> 早已存在，
+     但此前从未被画出来。源码闸：面板必须引用 skill. 前缀的属性徽记。 */
+  const pnm = stripC(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
+  if (pnm.indexOf("'skill.'") < 0 && pnm.indexOf('\'skill.\'') < 0) {
+    if (pnm.indexOf('skill.') < 0) errors.push('源码闸：功法面板未画属性徽记 skill.<拼音>（用户要求属性图标）');
+  }
+  console.log('  ✓ 激发制：只装已激发的 / 单本上限 / 未激发默认最高级 / 被动不占位 / 九重进倍率 / 属性徽记');
+
+  /* ⑧ 功法增幅不得压过境界（v0.75.0，用户口径「现在功法的增幅特别大，这个也要好好设计」）：
+       旧口径 `lv*5*m` 是**裸线性**：实测单本满级 +600% ATK、全学满 +34225%，
+       功法彻底压倒境界成长，"练功"成了唯一有意义的事。
+       新口径改 sqrt 边际递减。这条断言钉住**份额上限**，防将来又被改成线性。
+       ⚠️ 用"份额"而非绝对值 —— 绝对值会随境界基础公式变动而漂。 */
+  {
+    const mkB = (gl, sk) => ({
+      linggen: { kind: '单灵根', elems: ['金'], coef: { 金: 1.2 } },
+      talents: [], skillEquip: [], items: {}, qi: 0, stone: 0, po: 0,
+      globalLevel: gl, age: 16, quest: { step: 'free', flags: {} }, hp: 100,
+      skills: sk, equip: {}, world: { seed: 1, anchor: true, names: {} }, worldSeed: 1
+    });
+    const bare = P.computeStats(mkB(37, {}));
+    /* 单本满级：增量应为境界基础的**同一量级**（≤2 倍），不是数量级碾压 */
+    const one = P.computeStats(mkB(37, { 烈焰诀: { lv: 36 } }));
+    const share = (one.atk - bare.atk) / bare.atk;
+    if (share > 2) {
+      errors.push('单本满级功法对 ATK 的增幅占比 ' + (share * 100).toFixed(0)
+        + '% 过大（应 ≤200%）—— 功法不该压过境界');
+    }
+    if (share < 0.2) {
+      errors.push('单本满级功法增幅 ' + (share * 100).toFixed(0) + '% 过小 —— 精进将失去意义');
+    }
+    /* 九重仍须看得出成长：lv1 → lv36 至少 4 倍 */
+    const l1 = P.computeStats(mkB(37, { 烈焰诀: { lv: 1 } })).atk - bare.atk;
+    const l36 = one.atk - bare.atk;
+    if (!(l36 >= l1 * 4)) {
+      errors.push('功法一重到九重的成长过小（' + l1 + ' → ' + l36 + '），"精进"看不出效果');
+    }
+    /* 品阶差距必须保留（否则"高品功法难得"失去价值）——灵阶应明显强于凡阶 */
+    const ling = P.computeStats(mkB(37, { 流云剑诀: { lv: 36 } })).atk - bare.atk;
+    if (!(ling > l36 * 1.2)) {
+      errors.push('灵阶功法应明显强于凡阶（灵 ' + ling + ' vs 凡 ' + l36 + '）——品阶差距被抹平');
+    }
+    /* 全被动堆叠同样要收敛（旧口径 DEF +3750%） */
+    const allP = {};
+    Object.keys(G.Data.skills).forEach(function (id) {
+      if (G.Data.skills[id].passive) allP[id] = { lv: 36 };
+    });
+    const wp = P.computeStats(mkB(37, allP));
+    const dShare = (wp.def - bare.def) / bare.def;
+    if (dShare > 12) {
+      errors.push('全被动功法堆叠 DEF 增幅 ' + (dShare * 100).toFixed(0)
+        + '% 过大（应 ≤1200%）—— 被动不该无上限叠加');
+    }
+  }
+
+  /* ⑨ 功法「难得难练」（v0.75.0，用户口径「一个功法非常难获得，也非常难练」）：
+       难得 = 碎片掉率够低（野外不给灵气，碎片是主要来源之一）；
+       难练 = 一重到九重的总灵力成本够高。两条腿都要，只砍一边会卡死玩家。 */
+  {
+    const y1s = G.Data.skills['烈焰诀'] || G.Data.skills['崩岩掌'];
+    if (!y1s) { errors.push('功法数据缺凡阶样本（难练契约无法判定）'); }
+    else {
+      let sum = 0;
+      for (let lv = 1; lv < 36; lv++) sum += P.skillCost(y1s, lv);
+      if (sum < 30000) {
+        errors.push('凡阶功法 1→36 重总灵力仅 ' + sum + '（应 ≥30000）—— "难练"没体现');
+      }
+    }
+    /* 掉率源码闸：野外碎片掉率必须已收敛（<0.04） */
+    const bsrc2 = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+    const dm = bsrc2.match(/G\.rng\.next\(\)\s*<\s*(0?\.\d+)/g) || [];
+    const shardRate = dm.map(function (t) { return parseFloat(t.split('<')[1]); });
+    if (shardRate.length && Math.min.apply(null, shardRate) >= 0.04) {
+      errors.push('野外碎片掉率仍偏高（' + Math.min.apply(null, shardRate)
+        + '）—— 功法应"非常难获得"');
+    }
+  }
 }, 'skill.activate.contract');
 
 /* 4b-2) 战斗法宝常显（v0.69.0，用户第 11 点「新资源及戒指战斗图标」）
@@ -1800,9 +1904,29 @@ step(function () {
     if (bb2.ok) break;
   }
   if (!bb2.ok) errors.push('持丹却无法开始大境界突破（重试 6 次仍失败）：' + bb2.reason);
-  if (s.items['淬体突破丹']) errors.push('心魔战开始时未消耗突破丹');
+  if (s.items['淬体突破丹']) errors.push('破境开始时未消耗突破丹');
+  /* 天劫触发（v0.75.0，用户口径「吃完破镜丹不一定会触发天劫」）：
+     `storm` 必须显式返回，且**两种取值都可达** —— 硬编码 true/false 都违背口径。 */
+  if (typeof bb2.storm !== 'boolean') {
+    errors.push('startBigBreak 未返回 storm（天劫是否触发）—— 用户口径是"不一定"');
+  }
+  if (!(P.TRIB_CHANCE > 0 && P.TRIB_CHANCE < 1)) {
+    errors.push('TRIB_CHANCE 应在 (0,1) 开区间（"不一定触发"），实为 ' + P.TRIB_CHANCE);
+  }
+  {
+    /* 钉死随机各跑一次：0 → 必触发；0.999 → 必不触发。
+       ⚠️ 概率分支必须显式钉死（项目纪律）—— 不钉就是"掷到啥测啥"。 */
+    const sA = JSON.parse(JSON.stringify(s));
+    sA.items = { 淬体突破丹: 1 }; sA.qi = 999999;
+    const rA = P.startBigBreak(sA, null, 0, 0);       // 破境成功 + 必触发天劫
+    if (!rA.ok || !rA.storm) errors.push('stormRoll=0 时天劫应必触发');
+    const sB = JSON.parse(JSON.stringify(s));
+    sB.items = { 淬体突破丹: 1 }; sB.qi = 999999;
+    const rB = P.startBigBreak(sB, null, 0, 0.999);   // 必不触发
+    if (!rB.ok || rB.storm) errors.push('stormRoll=0.999 时天劫应不触发');
+  }
   const info = P.winBigBreak(s);
-  if (s.globalLevel !== 37) errors.push('心魔战胜利后应为炼气一重初期(gl37)，实为 ' + s.globalLevel);
+  if (s.globalLevel !== 37) errors.push('破境胜利后应为炼气一重初期(gl37)，实为 ' + s.globalLevel);
   if (info.n !== '炼气一重初期') errors.push('境界名异常：' + info.n);
   if (s.qi !== 996807) errors.push('突破后灵气应为 999999-3192=996807，实为 ' + s.qi);
   /* 失败：不降级、灵气保留 80% */
@@ -1894,6 +2018,81 @@ step(function () {
   if (b.resultWin !== false) errors.push('心魔战失败结果标记异常');
   if (!(s.hp > 0)) errors.push('心魔战失败回镇气血不应为 0，实为 ' + s.hp);
 }, 'battle.heartDemon.lose.check');
+
+/* 4e) 天劫镜像战（v0.75.0，用户口径）：
+   「天劫的镜像战力和主角是一模一样的，血量、攻击、防御都是一样的，但是出招是随机的，
+    功法也是和当前的主角学的功法是一样的，只不过是随机激发一本九重的功法」。
+   本契约钉四件事：
+     ① 面板**逐项等于主角**（hp/atk/def，不打折）—— 心魔是 ×0.9，天劫必须是 ×1.0；
+     ② 技能**取自主角已学功法**（不是外挂一套）；
+     ③ 技能按**九重满级**（prog=36）编译 —— 不是主角当前 lv；
+     ④ 未学任何攻击功法时有兜底招式（否则天劫零技能、必被秒）。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 36; s.qi = 999999; s.items = { 淬体突破丹: 1 };
+  s.quest = { step: 'm0-4', flags: {} };
+  /* 给主角两本攻击 + 一本治疗，且 lv 故意压到 1（天劫该按 36 编译，不受此影响） */
+  s.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 } };
+  s.skillEquip = [];
+  G.game.save = s;
+  const stSnap = G.Player.computeStats(s);
+  G.game.changeScene('battle', { script: 'tribulation', mapId: 'town' });
+}, 'trib.enter');
+pump(10, 'trib.enter');
+step(function () {
+  const b = G.game.scene;
+  if (G.game.sceneName !== 'battle') { errors.push('天劫脚本未进入战斗场景'); return; }
+  if (b.es.length !== 1) { errors.push('天劫应为单敌，实为 ' + b.es.length + ' 只'); return; }
+  const e = b.es[0];
+  if (e.name !== '天劫') errors.push('天劫单位名应为「天劫」，实为 ' + e.name);
+  /* ① 逐项等于主角 */
+  if (e.maxhp !== b.p.maxhp) errors.push('天劫气血应等于主角（' + b.p.maxhp + '），实为 ' + e.maxhp);
+  if (e.atk !== b.p.atk) errors.push('天劫攻击应等于主角（' + b.p.atk + '），实为 ' + e.atk);
+  if (e.def !== b.p.def) errors.push('天劫防御应等于主角（' + b.p.def + '），实为 ' + e.def);
+  if (e.spd !== b.p.spd) errors.push('天劫身法应等于主角（' + b.p.spd + '），实为 ' + e.spd);
+  /* ② 技能取自主角已学功法（技能 id 应命中 save.skills 的键） */
+  if (!e.skills || !e.skills.length) { errors.push('天劫没有技能（会站着挨打）'); return; }
+  const learned = Object.keys((G.game.save && G.game.save.skills) || {});
+  const fromPlayer = e.skills.filter(function (k) { return learned.indexOf(k.id) >= 0; });
+  if (!fromPlayer.length) {
+    errors.push('天劫技能不是取自主角已学功法（实为 [' + e.skills.map(k => k.id).join(',') + ']）');
+  }
+  /* ③ 九重满级编译：主角 lv=1，若天劫照搬 lv 就会是 ×1.00；满级应是 ×2.15 */
+  const pc1 = G.Player.progCoef(1), pc36 = G.Player.progCoef(36);
+  const atkSk = fromPlayer[0];
+  if (atkSk && atkSk.kind === 'atk') {
+    const sd = G.Data.skills[atkSk.id];
+    const want = +(sd.mult * pc36).toFixed(3);
+    if (Math.abs(atkSk.mult - want) > 0.002) {
+      errors.push('天劫技能未按九重满级编译：' + atkSk.id + ' mult=' + atkSk.mult
+        + '，应为 ' + want + '（主角 lv=1 时 ×' + pc1.toFixed(2) + '，满级 ×' + pc36.toFixed(2) + '）');
+    }
+  }
+  /* ④ 禁逃（与心魔一致：破境战不能逃） */
+  const run = (b.buttons || []).filter(function (x) { return /逃跑/.test(x.label || ''); })[0];
+  if (run && !run.disabled) errors.push('天劫战不应允许逃跑');
+  /* 胜利 → 破镜完成 */
+  e.hp = 0;
+  b._victory();
+}, 'trib.battle');
+pump(30, 'trib.result');
+step(function () {
+  const s = G.game.save;
+  if (s.globalLevel !== 37) errors.push('渡过天劫后应为炼气一重初期(gl37)，实为 ' + s.globalLevel);
+  if (s.quest.step !== 'm0-5') errors.push('渡过天劫后未推进到 m0-5（当前 ' + s.quest.step + '）');
+}, 'trib.win');
+
+/* 天劫零功法兜底：未学任何攻击功法时必须有招式（否则必被秒，玩家无从应对） */
+step(function () {
+  const e = G.Data.makeTribulation({
+    level: 36, maxhp: 100, atk: 10, def: 5, spd: 5, skills: []
+  });
+  if (!e.skills || !e.skills.length) errors.push('天劫无技能池时缺兜底招式');
+  if (e.maxhp !== 100 || e.atk !== 10 || e.def !== 5) {
+    errors.push('天劫兜底路径未保持"逐项等于主角"');
+  }
+}, 'trib.fallback');
+
 pump(20, 'battle.heartDemon.lose.result');
 
 /* 4f) 蓄力预告：敌方蓄力技必须先预告一回合 */
@@ -2236,6 +2435,55 @@ step(function () {
   const r2 = T.meditate(sb, 'y100');
   if (r2.ok) errors.push('寿元不足时不该能枯坐百年');
   if (!r2.reason) errors.push('闭关失败必须给出可读原因');
+
+  /* ⑤ 修炼节奏（v0.75.0，用户口径「闭关灵气太多、太容易破境」）：
+     参数整组 ÷2；且**必须**保住"淬体寿元内修得到筑基"这条硬约束 ——
+     淬体段 36 小阶而淬体寿元仅 100 岁，砍供给砍过头会直接卡死在淬体
+     （v0.67.0 踩过同一个坑："修不到炼气就坐化"）。这条断言是那次教训的防线。 */
+  const y1g = T.tierById('y1').gain;
+  if (y1g > 1.5) errors.push('闭关一年 gain 应已下调（≤1.5），实为 ' + y1g);
+  {
+    /* 模拟：理性玩家总选「每岁收益最高且坐得起」的档，从 16 岁一路修。
+       灵根系数取 1.0（**最坏情况** —— 无灵根加成的人也必须有出路）。 */
+    const lf = { 淬体: 100, 炼气: 150, 筑基: 200 };
+    const lifeOf = (gl) => lf[P.realmOf(gl).n] || 100;
+    const sim = function (targetGL) {
+      const st = { linggen: { elems: ['金'], coef: { '金': 1 } },
+        skills: {}, items: {}, qi: 0, globalLevel: 1, age: 16 };
+      let age = 16, guard = 0;
+      while (st.globalLevel < targetGL && guard++ < 100000) {
+        const life = lifeOf(st.globalLevel);
+        if (age >= life) return { stuck: true, gl: st.globalLevel };
+        let best = null;
+        T.MEDITATE_TIERS.forEach(function (t) {
+          const yrs = t.days / 365;
+          if (age + yrs > life) return;             /* 坐不起（会坐化） */
+          const eff = t.gain / yrs;
+          if (!best || eff > best.eff) best = { eff: eff, t: t, yrs: yrs };
+        });
+        if (!best) return { stuck: true, gl: st.globalLevel };
+        const need = P.needQi(st, st.globalLevel);
+        st.qi += Math.max(1, Math.round(need * best.t.gain * 1.0));
+        age += best.yrs;
+        let g = 0;
+        while (st.qi >= P.needQi(st, st.globalLevel) && st.globalLevel < targetGL && g++ < 500) {
+          st.qi -= P.needQi(st, st.globalLevel);
+          st.globalLevel++;
+        }
+      }
+      return { stuck: false, gl: st.globalLevel };
+    };
+    const rMed = sim(39);                             /* 炼气三重初期 */
+    if (rMed.stuck) {
+      errors.push('无灵根加成时会卡死在 ' + P.realmOf(rMed.gl).n
+        + '：闭关收益下调过度（淬体寿元 100 岁内必须能修到炼气）');
+    }
+    const rBuild = sim(74);                           /* 筑基一重初期 */
+    if (rBuild.stuck) {
+      errors.push('无灵根加成时卡在 ' + P.realmOf(rBuild.gl).n
+        + ' 而够不到筑基：供给仍偏低，需回头调 MEDITATE_TIERS 或寿元表');
+    }
+  }
   /* 离线打坐：上限 12 现实小时，且不足阈值不结算 */
   const sc2 = mkS(1.0);
   sc2.lastSeen = 1000000;
@@ -2904,6 +3152,17 @@ step(function () {
   if (sc.overlay !== 'settings') { errors.push('openSettings 未设置 overlay'); return; }
   if (!sc.buttons.some(function (b) { return (b.label || '').indexOf('界域') >= 0; })) {
     errors.push('设置页里没有「界域难度」入口');
+  }
+  /* 设置页：返回主菜单（v0.75.0，用户口径「设置界面需要新增返回主菜单的按钮，
+     方便玩家去查看成就与称号收集图鉴」）+ 世内难度锁定。 */
+  {
+    const back = sc.buttons.filter(function (b) { return (b.label || '').indexOf('主菜单') >= 0; })[0];
+    if (!back) errors.push('设置页缺「返回主菜单」按钮');
+    else if (back.disabled) errors.push('已在世内时「返回主菜单」不该禁用');
+    const wd = sc.buttons.filter(function (b) { return (b.label || '').indexOf('界域') >= 0; })[0];
+    if (wd && !wd.disabled) {
+      errors.push('已进入游戏时「界域难度」应被锁定（用户口径：只能在主菜单选）');
+    }
   }
   /* 三种协议都得能选（缺口：天道原先只支持 OpenAI 兼容接口） */
   ['OpenAI', 'Claude', '原生 Response'].forEach(function (n) {
@@ -4388,7 +4647,24 @@ step(function () {
   if (!sc.hooks || !sc.hooks.onNpc) { errors.push('场景未暴露 hooks.onNpc'); return; }
   sc.hooks.onNpc(npc, sc);
   const n = Object.keys(s2.skills || {}).length;
-  if (n < 3) errors.push('m0-1 复命后应授予入门功法（实得 ' + n + ' 门）');
+  /* v0.75.0：入门只送**下品两门**（一主动 + 一被动），不再送三本开局技。
+     且必须是"弱"的那两本 —— 用户口径「威力特别小」。 */
+  if (n !== 2) errors.push('m0-1 复命后应授予入门功法 2 门（下品），实得 ' + n + ' 门');
+  if (!s2.skills['引气诀'] || !s2.skills['粗浅吐纳']) {
+    errors.push('入门功法应是「引气诀」+「粗浅吐纳」（下品两门）');
+  }
+  {
+    const inS = G.Data.skills['引气诀'];
+    if (!inS || inS.mult > 1.1) {
+      errors.push('入门主动「引气诀」必须威力极小（mult ≤ 1.1），实为 ' + (inS && inS.mult));
+    }
+    const psS = G.Data.skills['粗浅吐纳'];
+    if (!psS || !psS.passive) errors.push('入门被动「粗浅吐纳」应为 passive');
+    /* 旧的三本开局技不该再送 */
+    ['铁布衫', '吐纳术'].forEach(function (id) {
+      if (s2.skills[id]) errors.push('新手不该再送「' + id + '」（v0.75.0 只送下品两门）');
+    });
+  }
   if (!(s2.skillEquip || []).length) errors.push('授予功法后应自动装上一门');
   if (s2.quest.step !== 'm0-2') errors.push('m0-1 复命后任务应推进到 m0-2');
 }, 'skills.origin.contract');
@@ -7589,7 +7865,8 @@ step(function () {
      ③ 从别的面板切进来要回到「总览」（不能停在上一页）。 */
   {
     const tabs = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-    if (tabs.length !== 7) errors.push('角色面板应有 7 个子页签（总览/灵根/属性/境界/法宝/功法/秘术），实际 ' + tabs.length);
+    /* v0.75.0：新增「天赋」子页 → 8 个 */
+    if (tabs.length !== 8) errors.push('角色面板应有 8 个子页签（总览/灵根/天赋/属性/境界/法宝/功法/秘术），实际 ' + tabs.length);
     G.Overlays.openPanel(sc, 'char');
     const subs = sc.buttons.filter(function (b) { return b.variant === 'subtab'; });
     if (subs.length !== tabs.length) {
@@ -7780,8 +8057,8 @@ step(function () {
      ⚠️ 角色面板有四个子页签（v0.11.0），**每一页都要过同一套断言** ——
      只跑默认的「总览」会漏掉灵根/属性/境界三页的越界（越界是静默的）。 */
   const charTabIds = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-  if (charTabIds.length !== 7) {
-    errors.push('角色面板子页签应为 7 个（总览/灵根/属性/境界/法宝/功法/秘术），实际 ' + charTabIds.length);
+  if (charTabIds.length !== 8) {
+    errors.push('角色面板子页签应为 8 个（总览/灵根/天赋/属性/境界/法宝/功法/秘术），实际 ' + charTabIds.length);
   }
   [
     { id: 'skills', R: G.Overlays.CHAR_PANEL },
@@ -9737,6 +10014,19 @@ step(function () {
       try { G.Storage.selectSlot(n); } catch (e) { refused = true; }
       check(refused && G.Storage.activeSlot() === 3, '无效槽位未拒绝：' + n);
     });
+    /* 删除存档（v0.75.0，用户口径「存档要支持删除」）：
+       必须把 **主键 + .bak** 都清掉 —— `_read` 会在主键缺失时回落 `.bak`，
+       只删主键会"删完还在"（读 bak 又读回来），这是最容易漏的一步。 */
+    G.Storage.selectSlot(2);
+    G.Storage.saveCurrent({ life: 2, stone: 999, globalLevel: 1, age: 16 });
+    G.Storage.saveCurrent({ life: 2, stone: 998, globalLevel: 1, age: 16 });  /* 制造 bak */
+    check(G.Storage.deleteSlot(2), 'deleteSlot 应返回成功');
+    G.Storage.selectSlot(2);
+    check(G.Storage.loadCurrent() === null, '删除后仍能从 .bak 读回存档（只删了主键）');
+    check(!G.Storage.listSlots()[1].occupied, '删除后槽二仍标记为占用');
+    /* 不该误伤邻槽 */
+    G.Storage.selectSlot(1); check(G.Storage.loadCurrent().stone === 11, '删除槽二误伤槽一');
+    G.Storage.selectSlot(3); check(G.Storage.loadCurrent().stone === 31, '删除槽二误伤槽三');
   }
   function birthCheck() {
     reset(); G.Storage.selectSlot(1); G.game.meta = null;
@@ -9841,6 +10131,108 @@ step(function () {
     G.game.save = realSave; G.game.meta = realMeta; G.UI.hover = realHover; G.scenes.town.overlay = oldOverlay;
   }
 }, 'birth.ui.details.contract');
+
+/* ---------- 灵根方向性 + 天赋职责（v0.75.0，用户口径）----------
+   用户原话：「灵根的属性就决定主角本世应该往哪个方向收集功法和提升战力……
+             还有灵根不能增加灵石获取，只有天赋可以，角色界面需要新增天赋子界面」。
+   本契约钉三件事：
+     ① 灵根**不得**影响灵石收入（唯一来源是天赋/世界特质）；
+     ② 抽灵根时不再产生 stoneBonus（否则"刷金灵根"就成了经济优势）；
+     ③ 角色面板有「天赋」子页，且能显示本世天赋。 */
+step(function () {
+  const P = G.Player;
+  const mkS = function (elems, coef, talents) {
+    return {
+      life: 1, world: { seed: 1, anchor: true, names: {} }, worldSeed: 1,
+      linggen: { kind: '单灵根', elems: elems, coef: coef, stoneBonus: 0.5 },
+      talents: talents || [], skills: {}, skillEquip: [], items: {}, stone: 0, qi: 0, po: 0,
+      globalLevel: 1, age: 16, quest: { step: 'free', flags: {} }, hp: 100, equip: {}
+    };
+  };
+
+  /* ① 即便存档里 stoneBonus=0.5（老档），rates.st **不得**认它 */
+  const rNo = P.rates(mkS(['木'], { 木: 1.2 }, []));
+  if (rNo.st !== 0) {
+    errors.push('灵根 stoneBonus 仍在影响灵石收入（rates.st=' + rNo.st + '）—— 用户要求只由天赋给');
+  }
+  /* ② 只有天赋能给：带 st 天赋时应有加成 */
+  const tSt = G.Data.talents.filter(function (t) { return (t.e || {}).st; })[0];
+  if (!tSt) errors.push('天赋池里找不到带灵石加成（e.st）的天赋');
+  else {
+    const rT = P.rates(mkS(['木'], { 木: 1.2 }, [tSt.id]));
+    if (!(rT.st > 0)) errors.push('带 st 的天赋应给灵石加成，实为 ' + rT.st);
+  }
+  /* ③ 换灵根属性不得改变灵石收入（两者必须解耦） */
+  const rA = P.rates(mkS(['金'], { 金: 1.5 }, []));
+  const rB = P.rates(mkS(['暗'], { 暗: 2.5 }, []));
+  if (rA.st !== rB.st) {
+    errors.push('换灵根属性改变了灵石收入（金 ' + rA.st + ' vs 暗 ' + rB.st + '）—— 两者必须解耦');
+  }
+
+  /* ④ 源码闸：抽灵根处不得再写 stoneBonus 赋值 */
+  const stripCs = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const rs = stripCs(fs.readFileSync(path.join(WWW, 'js/scenes/reincarnation.js'), 'utf8'));
+  if (/lg\.stoneBonus\s*=/.test(rs)) {
+    errors.push('源码闸：抽灵根仍在写 stoneBonus（玩家会"刷金灵根"换经济优势）');
+  }
+
+  /* ⑤ 天赋子页存在且能画（渲染不抛 + 悬停挂着天赋说明） */
+  const realSave = G.game.save, realHover = G.UI.hover;
+  const tips2 = [];
+  G.UI.hover = function (r, info) { tips2.push({ r: r, info: info }); };
+  try {
+    const s = JSON.parse(JSON.stringify(save));
+    s.talents = [tSt ? tSt.id : (G.Data.talents[0] || {}).id];
+    s.charTab = 'talent';
+    G.game.save = s;
+    const ctx2 = makeCtx();
+    G.Overlays.renderPanel(ctx2, { overlay: 'char', charTab: 'talent' });
+    if (!tips2.length || !/天赋|品/.test(tips2[0].info.title || '')) {
+      errors.push('天赋子页未挂悬停说明（截图看不出这一世拿了什么天赋）');
+    }
+    if (!/天赋/.test((G.Overlays.CHAR_TABS || []).map(function (t) { return t.n; }).join(''))) {
+      errors.push('角色面板缺「天赋」子页签');
+    }
+  } catch (e) {
+    errors.push('天赋子页渲染抛异常：' + e.message);
+  } finally {
+    G.game.save = realSave; G.UI.hover = realHover;
+  }
+  console.log('  ✓ 灵根方向性：灵石只由天赋给 / 抽灵根不再写 stoneBonus / 天赋子页在位');
+}, 'linggen.talent.contract');
+
+/* ---------- 界面收口（v0.75.0）----------
+   ① HUD **不展示头像**（用户口径「这里不要展示头像了，我们不支持替换头像，
+      我们要尽量模拟真实修仙世界」）—— 源码闸：探索 HUD 不得再调 G.UI.avatar；
+   ② 追踪栏可**缩到最小**（用户口径「这些内容支持缩到最小，鼠标点击展开，
+      不要占用游戏窗口」）—— 收起时高度必须显著小于展开态，且命中区跟着缩。 */
+step(function () {
+  const stripCu = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const exSrc = stripCu(fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8'));
+  /* ① HUD 去头像：_drawHud 段内不得出现 avatar 调用 */
+  const hud0 = exSrc.indexOf('_drawHud: function');
+  const hud1 = exSrc.indexOf('_drawTracker: function');
+  const hudBody = (hud0 >= 0 && hud1 > hud0) ? exSrc.slice(hud0, hud1) : exSrc;
+  if (/G\.UI\.avatar\s*\(/.test(hudBody)) {
+    errors.push('HUD 仍在画头像（用户口径：不展示头像，不支持替换头像）');
+  }
+  /* ② 追踪栏两档高度：收起态必须显著更矮，且命中区跟随 */
+  const openH = exSrc.match(/TR_TAB_H\s*=\s*(\d+)/);
+  const minH = exSrc.match(/TR_TAB_MIN_H\s*=\s*(\d+)/);
+  if (!openH || !minH) {
+    errors.push('追踪栏缺两档高度常量（TR_TAB_H / TR_TAB_MIN_H）');
+  } else {
+    const oh = +openH[1], mh = +minH[1];
+    if (!(mh < oh * 0.6)) {
+      errors.push('追踪栏收起高度 ' + mh + ' 不够小（展开 ' + oh + '）—— "缩到最小"没体现');
+    }
+  }
+  /* 命中区必须跟着外观：收起态按钮 h 要取 TR_TAB_MIN_H */
+  if (exSrc.indexOf('TR_TAB_MIN_H') < 0 || exSrc.split('TR_TAB_MIN_H').length < 3) {
+    errors.push('源码闸：TR_TAB_MIN_H 未被外观与命中区共同引用（收起时多出的空区会吞地图点击）');
+  }
+  console.log('  ✓ 界面收口：HUD 无头像 / 追踪栏可缩到最小且命中区跟随');
+}, 'ui.tighten.contract');
 
 step(function () {
   const old = { ls: sandbox.localStorage, save: G.game.save, meta: G.game.meta,

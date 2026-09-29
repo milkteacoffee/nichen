@@ -717,6 +717,9 @@
         /* 激发位的功法在行首标「激」—— 一眼看出哪几本正在战斗里用。
            不用符号（'★' 之类）是因为字体回退会出豆腐块（项目老坑）。 */
         var eq = equippedNow.indexOf(id) >= 0 ? '激　' : '';
+        /* 列表行**不画属性图标** —— 行高只有 20px、图标 14px 会把标签挤到行外。
+           （`panels.bounds.contract` 只查面板自绘文字，按钮 label 不过闸，
+             所以挤出来也不会报，只能靠截图看。）属性徽记统一画在**详情区**。 */
         btns.push(new G.UI.Btn({
           x: SK.head.x, y: SK.listY + i * SK.rowH, w: SK.head.w, h: SK.rowH - 1,
           small: true,
@@ -860,9 +863,24 @@
     }
 
     /* ---- 收起态：详情 ---- */
+    /* 属性徽记（v0.75.0，用户口径「这些功法必须要有属性图标」）：
+       素材 `skill.<拼音>`（十张，v0.40.0 就已生成）此前**从未被画出来** ——
+       面板只显示"属性 火"四个字。这里补上：徽记画在标题行左端，
+       文字整体右移让位。拼音表走 `G.Data.elem.pinyin` 的**唯一口**
+       （`root.<拼音>` 灵珠与它共用，加属性只改一处）。 */
+    var pin = (G.Data.elem && G.Data.elem.pinyin) || {};
+    var eIcon = (sd.elem && sd.elem !== '无' && pin[sd.elem]) ? ('skill.' + pin[sd.elem]) : null;
+    var tx0 = SP.x + 14;
+    if (eIcon && G.Art.itemIcon) {
+      var eo = G.Art.itemIcon(eIcon, 18);
+      if (eo && eo.c) {
+        x.drawImage(eo.c, SP.x + 14, SK.infoY - 8 + eo.oy, eo.w, eo.h);
+        tx0 = SP.x + 14 + 22;
+      }
+    }
     var info = (sd.tier || '凡') + '阶　' + sd.kind
       + '　属性 ' + (sd.elem || '无') + '　' + G.Data.skillRealm(lv).n;
-    G.UI.text(x, { x: SP.x + 14, y: SK.infoY }, info, 11.5, G.UI.C.text);
+    G.UI.text(x, { x: tx0, y: SK.infoY }, info, 11.5, G.UI.C.text);
 
     /* 激发状态 + 九重威力（v0.69.0）：
        ① 让玩家一眼看到"这本是否在战斗里能用"（此前完全无处可看）；
@@ -870,9 +888,18 @@
     var eqIds = G.Player.equippedIds(save);
     var on = eqIds.indexOf(sel) >= 0;
     var pc = G.Player.progCoef ? G.Player.progCoef(lv) : 1;
-    G.UI.text(x, { x: SP.x + 14, y: SK.stateY },
-      on ? '已激发：本功法参与战斗' : '未激发：战斗技能栏不会出现',
-      10.5, on ? G.UI.C.jadeHi : G.UI.C.textDim);
+    if (on) {
+      G.UI.text(x, { x: SP.x + 14, y: SK.stateY },
+        '已激发：本功法参与战斗', 10.5, G.UI.C.jadeHi);
+    } else {
+      /* 未激发（v0.75.0）：单本激发制下"没激发"是常态 —— 必须告诉玩家
+         战斗实际会用哪一本，否则他会以为"学了功法不能用"（静默）。 */
+      var dftId = G.Player.defaultSkillId ? G.Player.defaultSkillId(save) : null;
+      var dftN = dftId ? ((G.Data.skills[dftId] || {}).n || dftId) : null;
+      G.UI.text(x, { x: SP.x + 14, y: SK.stateY },
+        dftN ? ('未激发：战斗默认用「' + dftN + '」') : '未激发：战斗只有普攻',
+        10.5, G.UI.C.textDim);
+    }
     /* ⚠️ 用**左对齐 + 手动左移**而不是 align:'right' ——
        `panels.bounds.contract` 的 `box()` 不认 align（按左对齐算宽度），
        用 'right' 会被判成"文字从 x 向右越界"（项目老坑 G49 同族）。
@@ -890,7 +917,7 @@
       skillContrib(sd, lv, save), 11, COL[sd.elem] || G.UI.C.jadeHi);
 
     G.UI.text(x, { x: SP.x + 14, y: SK.hintY },
-      '激发后才进战斗技能栏（至多 3 本，被动不占位）；精进耗灵力。', 10, G.UI.C.textDim);
+      '主修功法只此一本（被动不占位）；未激发时战斗默认用等级最高的一本。', 10, G.UI.C.textDim);
   }
 
 
@@ -2064,17 +2091,10 @@
         (WN[wid0] || '凡界') + '宗门 · 择一拜入', 12, G.UI.C.goldHi);
       G.UI.text(x, { x: P.x + 14, y: P.y + 78 },
         '通过入门试炼即入；拜入后散修自悟功法将废功。', 10, G.UI.C.textDim);
-      /* 宗门徽记（v0.61.0，用户第 12 点）：贴在**每格按钮的左缘内**。
-         ⚠️ 不能走 `Btn.icon` —— 那个字段会把标签下移到 `y+27`（为 46px 方格设计），
-            26px 高的列表行会被顶出按钮外。所以由面板体直接 drawImage。
-         ⚠️ 迭代顺序必须与 `buildSect` 一致 → 共用 `sectListOf`。 */
-      sectListOf(G.game.meta).forEach(function (sc4, i) {
-        var col = i % 3, row = Math.floor(i / 3);
-        var ex = P.x + 14 + col * (SEC.gridW + SEC.gridGap);
-        var ey = P.y + 96 + row * (SEC.gridH + SEC.gridGapY);
-        var ic = G.Art.itemIcon(sectEmblem(sc4.id), 15);
-        x.drawImage(ic.c, ex + 5 + ic.ox, ey + (SEC.gridH - 15) / 2 + ic.oy, ic.w, ic.h);
-      });
+      /* 宗门徽记**不在这里画**（v0.75.0）：原先贴在这里，但按钮在其后自绘会
+         把它整个盖住（截图反馈"宗门图标怎么没有了"）。现在由 `buildSect` 的
+         按钮走 `icon` + `iconLeft` 自绘 —— 顺序天然正确。
+         ⚠️ 顺序仍必须与 `buildSect` 一致 → 两边共用 `sectListOf`。 */
       /* 底部说明：size10 用 top 基线，y 须保证文字不越出面板下框（FRAME 底 238）。
          放 P.y+198(abs224，止于237)；第三行按钮止于 P.y+190(abs216)，留 8px。 */
       G.UI.text(x, { x: P.x + 14, y: P.y + 198 },
@@ -2238,6 +2258,12 @@
           y: P.y + 96 + row * (SEC.gridH + SEC.gridGapY),
           w: SEC.gridW, h: SEC.gridH, small: true, fs: 10,
           variant: ready2 ? 'default' : 'ghost',
+          /* 宗门徽记（v0.61.0 引入；v0.75.0 改为**由按钮自绘**）：
+             ⚠️ 原先由面板体 drawImage、按钮后绘会把徽记整个盖住
+                （截图反馈"宗门图标怎么没有了"——素材与取图链都正常，纯绘制顺序）。
+             改走 Btn 的 `iconLeft`：按钮自己画，顺序天然正确。 */
+          icon: sectEmblem(sc3.id), iconLeft: true, iconSize: 15,
+          lalign: true,
           label: '拜入 ' + sc3.n,
           onClick: function () {
             if (!ready2) { G.game.toast('修为不足（需炼气一重初期），先去历练'); return; }

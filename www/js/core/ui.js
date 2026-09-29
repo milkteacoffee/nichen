@@ -901,6 +901,13 @@
           `panels.bounds.contract` 会判"面板自绘的文字压在按钮上"，
           而列表行的文字与命中框必然重叠 —— 只能让按钮自己画标签。 */
     this.lalign = !!o.lalign;
+    /* iconLeft（v0.75.0）：把图标画在标签**左缘**（默认是上方居中）。
+       解决的问题：宗门徽记原先由**面板体**绘制，而按钮在其后自绘会把它整个盖住
+       （截图反馈"宗门图标怎么没有了"——素材与取图链其实都正常，纯粹是绘制顺序）。
+       让按钮自己画徽记，顺序天然正确，且滚动/换页时跟随按钮。 */
+    this.iconLeft = !!o.iconLeft;
+    /* iconSize：左缘图标的尺寸（默认 15）。 */
+    this.iconSize = o.iconSize || 15;
     this._p = 0;
   }
   Btn.prototype.hit = function (p) {
@@ -968,8 +975,22 @@
     x.fillStyle = col;
     x.textAlign = this.lalign ? 'left' : 'center';
     x.textBaseline = 'middle';
+    /* 左缘图标（v0.75.0）：先画图标、再把文字起点右移，避免压在一起。
+       与上面的"上方居中图标"互斥 —— 同时给两者会让文字被挤到按钮外。 */
+    var leftIconW = 0;
+    if (this.iconLeft && this.icon && G.Art && G.Art.itemIcon) {
+      var isz2 = this.iconSize;
+      var io2 = G.Art.itemIcon(this.icon, isz2);
+      if (io2 && io2.c) {
+        x.save();
+        x.globalAlpha = (this.disabled && !this.passive) ? 0.45 : 1;
+        x.drawImage(io2.c, this.x + 5 + io2.ox, this.y + (h - isz2) / 2 + io2.oy, io2.w, io2.h);
+        x.restore();
+        leftIconW = isz2 + 4;
+      }
+    }
     /* 左对齐时文字起点；居中时是中心点 */
-    var tx0 = this.lalign ? this.x + 8 : this.x + w / 2;
+    var tx0 = this.lalign ? this.x + 8 + leftIconW : this.x + w / 2;
     /* 副行（sub）：格子类按钮要在一格里同时放"名称 + 数量/等级"。
        为什么不让面板体自己画这两行：`panels.bounds.contract` 会判"文字压在按钮上"，
        而格子**必须**是可点的按钮（点格子即用）—— 面板体再往上画字就必然报。
@@ -977,8 +998,10 @@
     var cy = this.y + h / 2 + 1 + dy;
     if (this.sub) cy -= 5.5;
     /* 图标（v0.19.0）：有 icon 时图标占上半格、文字整体下移，避免和图标叠在一起。
-       图标走 art.js: A.itemIcon（素材优先 `item.<id>`，缺图程序化兜底）。 */
-    if (this.icon && G.Art && G.Art.itemIcon) {
+       图标走 art.js: A.itemIcon（素材优先 `item.<id>`，缺图程序化兜底）。
+       ⚠️ `iconLeft` 时**跳过这一支** —— 否则同一个图标会被画两次
+          （左缘一次、上方居中一次，实测每格出现两枚徽记）。 */
+    if (this.icon && !this.iconLeft && G.Art && G.Art.itemIcon) {
       var isz = 15;
       var io = G.Art.itemIcon(this.icon, isz);
       if (io && io.c) {

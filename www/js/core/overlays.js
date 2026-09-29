@@ -28,6 +28,10 @@
   var CHAR_TABS = [
     { id: 'overview', n: '总览', panel: 'char' },
     { id: 'linggen', n: '灵根', panel: 'char' },
+    /* 天赋独立子页（v0.75.0，用户口径「角色界面需要新增天赋子界面」）。
+       天赋是**本世唯一的随机先天禀赋**（每世一种），也是**灵石加成的唯一来源** ——
+       放在角色面板里与灵根并列，玩家一进来就能看清"这一世我拿的是什么"。 */
+    { id: 'talent', n: '天赋', panel: 'char' },
     { id: 'attr', n: '属性', panel: 'char' },
     { id: 'realm', n: '境界', panel: 'char' },
     /* 法宝独立子页（v0.29.0）：用户口径「总览只能查看，在角色界面新增法宝子界面，
@@ -286,18 +290,30 @@
       if (r.big) {
         var b = G.Player.startBigBreak(save);
         if (!b.ok) { G.game.toast(b.reason); ret(); return; }
-        G.game.toast('「' + b.pill + '」已服下……问心魔劫起');
+        /* 天劫（v0.75.0，用户口径）：「吃完破镜丹**不一定**触发天劫，
+           打过天劫才破镜完成」。所以两道分派：
+             · b.storm = true  → 演天劫 → 打**天劫镜像战**（打不过不破镜）
+             · b.storm = false → 天道未降劫，直接破镜（不必历劫）
+           为什么不是"必打"：用户明确写"不一定会触发"；也不是"不打也能破"
+           —— 那两句合起来就是"掷一次，中了才要打"。 */
+        if (!b.storm) {
+          var info0 = G.Player.winBigBreak(save);
+          G.game.toast('「' + b.pill + '」化开，气机贯通 —— ' + info0.n + '（天道未降劫）');
+          ret();
+          return;
+        }
+        G.game.toast('「' + b.pill + '」已服下……劫云压顶，天劫将至');
         scene.clearOverlay();
-        /* 破境天劫（v0.26.0）：先演天劫 + 天道问话，玩家点「承受」再进心魔战。
+        /* 破境天劫（v0.26.0）：先演天劫 + 天道问话，玩家点「承受」再进镜像战。
            ⚠️ 只在**探索场景**上演（珠内空间那种没有探索渲染管线，
               硬演会什么都不显示）——不支持就直接进战斗。 */
         if (scene && scene._px && this.startTribulation) {
           var self2 = this;
           this.startTribulation(scene, save, function () {
-            G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
+            G.game.changeScene('battle', { script: 'tribulation', mapId: mapId });
           });
         } else {
-          G.game.changeScene('battle', { script: 'heartDemon', mapId: mapId });
+          G.game.changeScene('battle', { script: 'tribulation', mapId: mapId });
         }
         return;
       }
@@ -429,6 +445,7 @@
       G.UI.divider(x, CHAR_BODY.x + CHAR_BODY.w / 2, CHAR_BODY.y + 30,
         CHAR_BODY.w - 42, 'rgba(216,183,104,0.18)');
       if (tab === 'linggen') { this.charLinggen(x, save); return; }
+      if (tab === 'talent') { this.charTalent(x, save); return; }
       if (tab === 'attr') { this.charAttr(x, save); return; }
       if (tab === 'realm') { this.charRealm(x, save); return; }
       if (tab === 'equip') { this.charEquip(x, save); return; }
@@ -604,6 +621,71 @@
 
        顺序固定按 NINE 常量，**不按拥有的排**：按拥有的排的话，
        每次轮回灵根一变，格子的位置就全跳了，玩家记不住"金在哪一格"。 */
+    /* ---- ③ 天赋（v0.75.0，用户口径「角色界面需要新增天赋子界面」）----
+       天赋是**本世唯一的随机先天禀赋**（每世一种、不可重随），也是**灵石加成的唯一来源**
+       （灵根不给灵石 —— 见 Player.rates）。所以这一页要回答两个问题：
+         · 这一世我拿到了什么？
+         · 它具体给了我什么（数值 + 尚未接入的项要**明说没生效**，不能拿配置冒充收益）。
+       效果文案直接读 `G.Data.talentDetail`（唯一口径，不为同一天赋维护第二份数值）。 */
+    charTalent: function (x, save) {
+      var P = CHAR_BODY, LX = P.x + 14;
+      var ids = (save && save.talents) || [];
+      var t = ids.length ? G.Data.talentById(ids[0]) : null;
+
+      O.sec(x, LX, P.y + 38, '天 赋');
+      G.UI.textOut(x, { x: P.x + P.w - 38, y: P.y + 39 },
+        '本世唯一', 11, G.UI.C.goldHi, 'right');
+
+      /* 无天赋（旧档/异常）→ 明说，不留白 */
+      if (!t) {
+        G.UI.text(x, { x: LX, y: P.y + 70 },
+          '本世未记录先天禀赋。', 12, G.UI.C.textDim);
+        G.UI.text(x, { x: LX, y: P.y + 92 },
+          '每世降世时随机抽取一种，不可重随。', 10.5, G.UI.C.textDim);
+        return;
+      }
+
+      /* 品阶配色：仙/上/良/凡 */
+      var TC = { '仙': G.UI.C.goldHi, '上': G.UI.C.goldHi, '良': G.UI.C.jadeHi,
+        '凡': G.UI.C.text, '下': G.UI.C.textDim };
+      var tierCol = TC[t.t] || G.UI.C.text;
+
+      /* 卡片：品阶徽标 + 天赋名 */
+      var cy0 = P.y + 58;
+      G.UI.rr(x, { x: LX, y: cy0, w: P.w - 28, h: 40 }, 5);
+      x.fillStyle = 'rgba(9,12,20,0.72)'; x.fill();
+      x.lineWidth = 1; x.strokeStyle = 'rgba(216,183,104,0.42)'; x.stroke();
+      G.UI.text(x, { x: LX + 14, y: cy0 + 14 }, t.t + '品', 11, tierCol);
+      G.UI.text(x, { x: LX + 58, y: cy0 + 14 }, t.n, 15, G.UI.C.goldHi);
+      G.UI.text(x, { x: LX + 14, y: cy0 + 31 },
+        '同源组 ' + (t.g || '—') + '　每世随机一种、不可重随', 10, G.UI.C.textDim);
+
+      /* 效果明细（走 talentDetail 唯一口径） */
+      O.sec(x, LX, cy0 + 54, '效 果');
+      var det = G.Data.talentDetail(t);
+      var lines = (det.text || '').split('\n').filter(function (l) { return l; });
+      var yy = cy0 + 70;
+      var maxLines = 5;                     /* 面板底 238，再往下会压到底栏 */
+      lines.slice(0, maxLines).forEach(function (l) {
+        /* 缩进换行：太长会被面板右沿截断，用 wrap 折行 */
+        G.UI.wrap(x, l, 10.5, P.w - 42).forEach(function (row) {
+          if (yy > P.y + 168) return;
+          G.UI.text(x, { x: LX + 4, y: yy }, row, 10.5, G.UI.C.text);
+          yy += 14;
+        });
+      });
+      if (lines.length > maxLines) {
+        G.UI.text(x, { x: LX + 4, y: yy }, '…（悬停查看完整效果）', 10, G.UI.C.textDim);
+      }
+
+      /* 底注：说明"灵石只由天赋给"，把灵根与天赋的职责边界写死，免得玩家误解 */
+      G.UI.text(x, { x: LX + 4, y: P.y + 184 },
+        '灵石加成只来自天赋（灵根只管修行方向）。', 10, G.UI.C.textDim);
+      /* 悬停给完整效果（长天赋的全文在这里） */
+      G.UI.hover({ x: LX, y: cy0, w: P.w - 28, h: P.h - 66 },
+        { title: t.n + '　' + t.t + '品', text: det.text });
+    },
+
     charLinggen: function (x, save) {
       var P = CHAR_BODY, LX = P.x + 14;
       var lg = save.linggen || { kind: '五行', elems: ['无'], coef: {}, stoneBonus: 0 };
@@ -688,8 +770,12 @@
       [
         ['普攻属性', elems[0] + '（首灵根）'],
         ['打坐收益', '×' + coefOf(elems[0]) + ' / 分钟'],
-        ['灵石加成', lg.stoneBonus ? '+' + Math.round(lg.stoneBonus * 100) + '%' : '无'],
-        ['功法匹配', '同属功法 ×1.2']
+        /* v0.75.0：不再显示「灵石加成」—— 灵根不给灵石（用户口径「灵根不能增加
+           灵石获取，只有天赋可以」）。改为展示**修行为何有方向**：
+           属性匹配倍率决定"哪一类功法/宗门/悬赏对你更划算"。 */
+        ['功法匹配', '同属功法 ×1.2'],
+        /* ⚠️ 文案要短：右栏从 RX 起、面板右沿 436，超了会被 bounds 契约判越界 */
+        ['修行方向', elems[0] + '系优先']
       ].forEach(function (r, i) {
         var ry = P.y + 56 + i * 16;
         G.UI.text(x, { x: RX, y: ry }, r[0], 10.5, G.UI.C.textDim);

@@ -185,6 +185,51 @@
     };
   }
 
+  /* ===== 天劫镜像（v0.75.0，用户口径）=====
+     用户原话：「吃完破镜丹不一定会触发天劫，天劫的镜像战力和主角是一模一样的，
+     血量、攻击、防御都是一样的，但是出招是随机的，功法也是和当前的主角学的功法
+     是一样的，只不过是随机激发一本九重的功法，所以需要靠策略和对放技能的控制」。
+
+     与心魔（剧情战）的分工：
+       · **心魔** = M0/M1 主线剧本战，固定面板（×0.9 / ×1.05），台词驱动，不进不复。
+       · **天劫** = 大境界破境的**镜像试炼**，面板**逐项等于主角**（×1.0，不打折），
+         技能 = 主角已学功法里**随机一本、按九重满级（prog=36）**放大。
+         所以它既是"打自己"，也是"打一本你还没练到顶的功法" —— 靠策略与控制取胜。
+
+     `p` 由 battle.js 传入主角快照：{ level, maxhp, atk, def, spd, skills }
+       · skills = 主角**已激发功法**（Player.equippedIds）编译出的技能数组；
+         为空时由 battle.js 传 `save.skills` 的全量池，这里再抽一本。
+     镜像名字取「天劫」，species 用 '天劫' → SPECIES_SPRITE 兜到心魔立绘（同为人形虚影）。 */
+  function makeTribulation(p) {
+    var pool = (p.skills && p.skills.length) ? p.skills : null;
+    var sk = [];
+    if (pool) {
+      /* 抽一本（用 G.rng.pick 保持可复现 —— 与战斗其它随机同序列） */
+      var pick = G.rng ? G.rng.pick(pool) : pool[0];
+      sk = [Object.assign({ cdLeft: 0 }, pick)];
+      /* 若主角只有一本，补一招"劫雷"让它有变化（否则天劫只有一招，玩家无策略空间） */
+      if (pool.length < 2) {
+        sk.push(Object.assign({ cdLeft: 0 },
+          sp('劫雷加身', 1.35, { cd: 3, status: { t: '封', chance: .25 } })));
+      }
+    } else {
+      sk = [
+        Object.assign({ cdLeft: 0 }, sp('劫雷加身', 1.35, { cd: 3 })),
+        Object.assign({ cdLeft: 0 }, sp('天罚一击', 1.6, { cd: 4, charge: true }))
+      ];
+    }
+    return {
+      name: '天劫', species: '天劫', elem: '无', level: p.level,
+      /* artKey 显式给 null → 让取图链回退 SPECIES_SPRITE['天劫']（= 心魔的虚影形象） */
+      artKey: null, sprite: null,
+      /* **逐项等于主角**（用户口径："血量、攻击、防御都是一样的"）。
+         整数化只在最后一步做，避免先行取整让三项悄悄低于主角。 */
+      maxhp: Math.round(p.maxhp * 1.0), hp: Math.round(p.maxhp * 1.0),
+      atk: Math.round(p.atk * 1.0), def: Math.round(p.def * 1.0), spd: Math.round(p.spd * 1.0),
+      skills: sk, statuses: {}, buffs: {}, side: 'right'
+    };
+  }
+
   /* 物种 → 程序化立绘键（`battle.enemy.<key>` 素材名与 BAKE 兜底名都用它）。
      **唯一真相源**：战斗（battle.js）与地图明雷（explore.js）共用这一份。
      v0.68.0 之前它只写死在 battle.js 的闭包里，explore 想画野怪只能再抄一份 ——
@@ -193,7 +238,9 @@
     '青纹蛇': 'snake', '赤炎狼': 'wolf', '树精': 'tree',
     '赤炎狼王': 'wolfking', '杀手': 'killer', '心魔': 'heartDemon',
     /* M1：血煞教（设计 M1 v1.0 §5.3）。心魔残影与心魔同形象（本就是它的影）。 */
-    '血煞教徒': 'cultist', '血蝠': 'bloodbat', '血面': 'xuemian', '心魔残影': 'heartDemon'
+    '血煞教徒': 'cultist', '血蝠': 'bloodbat', '血面': 'xuemian', '心魔残影': 'heartDemon',
+    /* 天劫（v0.75.0）：镜像虚影，借心魔立绘（都是"你自己的影子"）。 */
+    '天劫': 'heartDemon'
   };
 
   G.Data = G.Data || {};
@@ -205,4 +252,5 @@
   G.Data.makeHeartDemon = makeHeartDemon;
   G.Data.makeXuemian = makeXuemian;
   G.Data.makeHeartDemon2 = makeHeartDemon2;
+  G.Data.makeTribulation = makeTribulation;
 })();

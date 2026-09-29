@@ -125,17 +125,19 @@
       SIXIANG.forEach(function (e) { add([e], 7.5, '四象'); });
 
       var pick = entries[rng.weighted(entries)];
+      /* 灵根只给**属性匹配系数**（coef），不再给灵石加成（v0.75.0，用户口径
+         「灵根不能增加灵石获取，只有天赋可以」）。
+         ⚠️ 保留 `stoneBonus: 0` 字段：老档与别处代码仍会读它，
+            删字段会让反序列化后的判空逻辑各处开花（而它恒为 0 = 无加成）。 */
       var lg = { kind: pick.kind, elems: pick.elems, coef: {}, stoneBonus: 0 };
       if (pick.kind === '四象') {
         pick.elems.forEach(function (e) {
           lg.coef[e] = (e === '光' || e === '暗') ? 2.5 : 2.0;
-          lg.stoneBonus = (e === '光' || e === '暗') ? .25 : .15;
         });
       } else {
         var map = { 1: 1.5, 2: 1.2, 3: 1.0, 4: 0.8, 5: 0.6 };
         var cv = map[pick.elems.length];
         pick.elems.forEach(function (e) { lg.coef[e] = cv; });
-        if (pick.elems.indexOf('金') >= 0) lg.stoneBonus = .15;
       }
       draft.linggen = JSON.parse(JSON.stringify(lg));
       G.Storage.saveMeta(G.game.meta);
@@ -430,8 +432,12 @@
       coefLines.slice(0, 2).forEach(function (line, n) {
         G.UI.text(x, { x: r.x + 18, y: r.y + 88 + n * 14 }, line, 11, G.UI.C.textDim);
       });
-      var stT = '灵石获取 ' + (lg.stoneBonus > 0 ? '+' + Math.round(lg.stoneBonus * 100) + '%' : '无加成');
-      G.UI.text(x, { x: r.x + 18, y: r.y + 110 }, stT, 12, G.UI.C.textDim);
+      /* v0.75.0：不再显示"灵石获取"（灵根不给灵石，只有天赋给）。
+         改为把**修行方向**讲清楚 —— 用户口径：「灵根的属性就决定主角本世应该
+         往哪个方向收集功法和提升战力……去拜师相应属性的宗门或选择相应属性的悬赏任务」。 */
+      var firsE = lg.elems[0];
+      var dirT = '修行方向：' + firsE + '系功法 / 宗门 / 悬赏（同属加成最高）';
+      G.UI.text(x, { x: r.x + 18, y: r.y + 110 }, dirT, 11, G.UI.C.goldHi);
     },
 
     /* ===== 入世成长演出（v0.71.0）=====

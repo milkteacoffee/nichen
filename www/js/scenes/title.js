@@ -83,13 +83,28 @@
     _openSlots: function () {
       var self = this;
       this.slots = true; this.ach = false; this.about = false;
+      this._delArm = null;                 /* 待确认删除的槽（见下） */
       this.slotRows = G.Storage.listSlots();
+      this._buildSlotButtons();
+    },
+
+    /* 存档槽按钮（v0.75.0 抽出成函数：删除要**两段确认** —— 第一次点变「确认删除」，
+       第二次才真删。直接在 onClicki 里删太危险：玩家想点「读取」手滑点到旁边就没了存档）。
+       ⚠️ 删除是**不可逆**操作（用户口径「存档要支持删除」），所以：
+          ① 必须有二次确认；
+          ② 按钮文案明确写「确认删除存档 N」，不留模糊空间。 */
+    _buildSlotButtons: function () {
+      var self = this;
       this.buttons = [];
       this.slotRows.forEach(function (row, i) {
-        self.buttons.push(new G.UI.Btn({ x: 346, y: 68 + i * 48, w: 80, h: 25,
+        var y = 68 + i * 48;
+        var armed = self._delArm === row.slot;
+        /* 主操作：读取 / 续轮回 / 新建 */
+        self.buttons.push(new G.UI.Btn({ x: 306, y: y, w: 64, h: 25,
           small: true, variant: 'gold',
           label: row.current ? '读取' : (row.occupied ? '续轮回' : '新建'),
           onClick: function () {
+            self._delArm = null;
             /* 存档与跨世记录必须成对切换，禁止用另一槽的仙力/进度。 */
             G.Storage.selectSlot(row.slot);
             G.game.meta = G.Storage.loadMeta();
@@ -102,9 +117,30 @@
               G.game.changeScene(G.game.meta ? 'reincarnation' : 'difficulty');
             }
           } }));
+        /* 删除：仅**已占用**的槽才有（空槽没什么可删） */
+        if (row.occupied) {
+          self.buttons.push(new G.UI.Btn({ x: 376, y: y, w: 64, h: 25,
+            small: true, variant: armed ? 'danger' : 'ghost',
+            label: armed ? '确认删除' : '删除',
+            onClick: function () {
+              if (self._delArm !== row.slot) {
+                /* 第一段：进入待确认态，重画按钮 */
+                self._delArm = row.slot;
+                self._buildSlotButtons();
+                G.game.toast('再点一次「确认删除」将永久删除存档 ' + row.slot);
+                return;
+              }
+              var ok = G.Storage.deleteSlot && G.Storage.deleteSlot(row.slot);
+              self._delArm = null;
+              self.slotRows = G.Storage.listSlots();
+              self._buildSlotButtons();
+              G.game.toast(ok ? ('已删除存档 ' + row.slot) : ('删除失败：存档 ' + row.slot + ' 未删除'));
+            } }));
+        }
       });
       this.buttons.push(new G.UI.Btn({ x: 190, y: 224, w: 100, h: 24,
-        small: true, variant: 'ghost', label: '返回', onClick: function () { self._buildMenu(); } }));
+        small: true, variant: 'ghost', label: '返回',
+        onClick: function () { self._delArm = null; self._buildMenu(); } }));
     },
 
     _renderSlots: function (x) {

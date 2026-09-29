@@ -658,7 +658,7 @@
        两道都掷会让实际成功率变成"概率²"，玩家算不明白。
        `roll` 只给测试用（传 0..1），不传才真掷；用 `Math.random` 而不是 `G.rng`
        —— 破境是玩家行为，不该消耗全局序列（那会带歪回归基线）。 */
-    startBigBreak: function (save, meta, roll) {
+    startBigBreak: function (save, meta, roll, stormRoll) {
       var st = this.breakState(save);
       if (st.maxed) return { ok: false, reason: st.reason };
       if (st.worldcap) return { ok: false, worldcap: true, reason: st.reason };
@@ -688,9 +688,28 @@
       save.items[st.pill] -= 1;
       if (save.items[st.pill] <= 0) delete save.items[st.pill];
       save.breakFails = 0;                      /* 成功即清零（道基不再累积） */
+      /* 天劫触发（v0.75.0，用户口径）：「吃完破镜丹**不一定会**触发天劫，
+         打过天劫才破镜完成」。所以服丹成功后**再掷一次**：
+           命中 → 打「天劫」镜像战（面板=主角、技能=随机一本九重功法）；
+           未命中 → 天道未降劫，直接破镜（天资/丹力够，不必历劫）。
+         `stormRoll` 只给测试钉死；概率走 `TRIB_CHANCE`（唯一口径）。
+         ⚠️ 与上面那道"破境成功率"是**两道不同的门**：
+            第一道 = 服丹能不能成（失败扣丹+损道基）；
+            第二道 = 成了之后要不要历劫（不损丹、只是多一场试炼）。
+            用户明确要的是后者"不一定"，所以这里不复用前者。 */
+      var sr = typeof stormRoll === 'number' ? stormRoll : Math.random();
+      var storm = sr < this.TRIB_CHANCE;
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
-      return { ok: true, pill: st.pill, need: st.need, from: st.gl, to: st.gl + 1, chance: ch };
+      return {
+        ok: true, pill: st.pill, need: st.need, from: st.gl, to: st.gl + 1,
+        chance: ch, storm: storm
+      };
     },
+
+    /* 天劫触发概率（v0.75.0）：**唯一口径**。0.5 = 一半几率历劫。
+       为什么不是 100%：用户口径「不一定会触发」；也不是很低 ——
+       太低天劫就成了稀有演出、玩家练不到应对它的策略。 */
+    TRIB_CHANCE: 0.5,
 
     /* 心魔战胜利：扣突破灵气并升入下一大境界 */
     winBigBreak: function (save, meta) {
@@ -826,17 +845,22 @@
 
        口径（三处收敛到这一个口，战斗/面板/回归都调它）：
          · **可学多本**：`save.skills` 不限数量（本就如此）。
-         · **激发上限 = 战斗主动槽数**（`ACTIVE_SLOTS = 3`）：
-           只有 `save.skillEquip` 里的功法才进战斗技能栏。
-         · **激发顺序即出招顺序**：槽位按数组顺序排，玩家可自行调序。
+         · **激发上限 = 1**（`ACTIVE_SLOTS`，v0.75.0 用户口径「最多只能激发一本功法」）：
+           只有 `save.skillEquip` 里的那一本才进战斗技能栏。
+           ⚠️ 与法术装备的区别：这是"**主修功法**"只此一本 —— 参考凡人修仙传/仙逆，
+              功法是专精而非收集，"什么都练一点"等于什么都不精。
+         · **未激发时战斗自动取等级最高的一本**（`defaultSkillId`）：
+           空白技能栏会让玩家在战斗里点不了功法、还以为坏了。宁可自动顶上，
+           也不要静默留空。面板明示"未激发：战斗将默认使用「X」"。
          · **被动功法不受上限约束**：它们不占主动槽，只要学会就参与角色属性
            （`computeStats` 里按 kind 分派攻击/防御/仙术三条）——
            这正是"按品级配置主被动"的落点：主进槽、被动常驻。
          · `voided`（废功）与宗门归属（`canUseSkill`）在**生效期**再过滤一次：
            面板可能停在旧世，`skillEquip` 里残留已失效的 id。 —— 见 `activeSkills()`。 */
 
-    /* 激发上限（战斗主动槽数）。**唯一口径**：战斗 `_initUnits` 与面板按钮都用它。 */
-    ACTIVE_SLOTS: 3,
+    /* 激发上限（主修功法只此一本）。**唯一口径**：战斗 `_initUnits` 与面板按钮都用它。
+       v0.75.0：3 → 1（用户口径「最多只能激发一本功法」）。 */
+    ACTIVE_SLOTS: 1,
 
     /* 玩家可见的激发列表：`save.skillEquip` 里**当前真的可用**的那些，按数组顺序。
        判据复用 `canUseSkill`（唯一授权口），不在别处重写一遍。 */
@@ -846,6 +870,26 @@
       return ids.filter(function (id) {
         return G.Data.skills[id] && self.canUseSkill(save, id);
       });
+    },
+
+    /* 未激发时战斗该用哪本（v0.75.0，用户口径）：
+       「没有激发，进入战斗会默认选择第一本等级最高的功法」。
+       判据（严格按用户原话的顺序）：
+         ① 只在**占主动槽**的功法里挑（被动不进技能栏，挑了也没用）；
+         ② `canUseSkill` 过滤（废功 / 门派不符的不能顶上）；
+         ③ 取 `lv` 最大者；同 lv 时取 `skillIdsSorted` 的次序（**稳定**，不随帧抖）；
+         ④ 一本都没有 → null（战斗走普攻兜底）。
+       **唯一口径**：战斗 `_initUnits` 与面板提示都读它，不许各挑一次。 */
+    defaultSkillId: function (save) {
+      var ids = Object.keys((save && save.skills) || {});
+      var self = this, best = null;
+      ids.forEach(function (id) {
+        if (!self.occupiesSlot(id)) return;
+        if (!self.canUseSkill(save, id)) return;
+        var lv = (save.skills[id] && save.skills[id].lv) || 1;
+        if (!best || lv > best.lv) best = { id: id, lv: lv };
+      });
+      return best ? best.id : null;
     },
 
     /* 该功法能否激发。返回 { ok, reason? }，reason 直接给 toast 用。
@@ -1317,7 +1361,17 @@
          不新增"第六个来源"，仍走「境界成长 + 功法」这两条老口径。 */
       var mp = 20 + Ls * 2;
 
-      /* 功法 */
+      /* 功法（v0.75.0 重设：用户口径「现在功法的增幅特别大，这个也要好好设计」）
+         ⚠️ 旧口径 = `lv * 5 * m`（**裸线性叠加，无上限**）：实测单本满级 +600% ATK、
+            全学满 **+34225%**、全被动 DEF +3750% / HP +4426% —— 功法彻底压过境界，
+            "练功"变成唯一有意义的事（参考凡人修仙传是反过来的：境界才是主，功法是辅）。
+         新口径：**境界成长为主、功法为辅**，且**收益随重数边际递减**（sqrt 曲线）：
+           · 攻击 → `sqrt(lv) * 3 * m`   ：lv1 = +3、lv36 = +18（满级 ×6 于入门）
+           · 防御 → `sqrt(lv) * 2 * m`
+           · 仙术 → `sqrt(lv) * 9 * m`（HP）+ 少量 MP
+         `m` 仍含品阶系数与灵根匹配（品阶差距 = 真正的强度差距，这是"高品功法难得"的价值）。
+         ⚠️ 用 sqrt 而不砍掉品阶：保证"九重"仍看得出成长（lv1→36 有 6 倍），
+            但**不会**让一本满级功法碾压同境界对手 —— 差额要靠品阶、灵根与法宝补。 */
       Object.keys(save.skills || {}).forEach(function (id) {
         var sd = G.Data.skills[id], lv = (save.skills[id] && save.skills[id].lv) || 1;
         if (!sd) return;
@@ -1325,9 +1379,10 @@
         var matched = sd.elem !== '无' && coef[sd.elem] ? 1.2 : 1;
         var lgCoef = coef[sd.elem] || 1;
         var m = base * matched * lgCoef;
-        if (sd.kind === '攻击') atk += lv * 5 * m;
-        else if (sd.kind === '防御') def += lv * 3 * m;
-        else { hp += lv * 20 * m; mp += lv * 6 * m; }
+        var g = Math.sqrt(lv);
+        if (sd.kind === '攻击') atk += g * 3 * m;
+        else if (sd.kind === '防御') def += g * 2 * m;
+        else { hp += g * 9 * m; mp += g * 3 * m; }
       });
 
       /* 仙躯灌注 */
@@ -1403,15 +1458,27 @@
       return {
         qi: te.qi + we.qi + (bonus.qi || 0) + fQi,
         po: te.po + we.po + (bonus.po || 0),
+        /* 灵石加成（v0.75.0，用户口径「灵根不能增加灵石获取，只有天赋可以」）：
+           来源只剩 **天赋/世界特质**（`te.st` / `we.st`）——
+           ⚠️ 此前这里还加了 `save.linggen.stoneBonus`，已**删除**：
+              灵根管的是"往哪个方向修炼"（属性匹配），不该同时是印钞机，
+              否则"刷到金灵根"就变成了经济优势，与"灵根决定修行方向"的设计相悖。
+           老档兼容：`stoneBonus` 字段保留在存档里但**不再读取**（不删字段，
+           免得旧档反序列化时字段缺失引发别处判空）。 */
         st: te.st + we.st
-          + ((save.linggen && save.linggen.stoneBonus) || 0)
       };
     },
 
     /* 修炼灵力消耗：30 × 当前等级 × 品阶系数 */
+    /* 功法精进成本（灵力）。v0.75.0 上调（用户口径「非常难练」）——
+       旧口径 `30 * lv * tc`：凡阶 1→36 重共 **18,900** 灵力，
+       而野外每场只给 `1×L`，几十场就能练满一本 —— "难练"完全没体现。
+       新口径 `90 * lv * tc`（×3）：凡阶满级 **56,700** / 灵阶 **85,050** 灵力。
+       ⚠️ 与掉率（碎片 6% → 2.5%）一起收敛，才是"难得 + 难练"两条腿；
+          只砍一边会让玩家卡在"有功法但练不动"（更糟的体验）。 */
     skillCost: function (sd, currentLv) {
       var tc = G.Data.tierCoef[sd.tier] || 1;
-      return Math.round(30 * currentLv * tc);
+      return Math.round(90 * currentLv * tc);
     },
 
     /* ===== 破境成功率（v0.18.0）=====

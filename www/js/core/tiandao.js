@@ -562,15 +562,41 @@
               function (v) { cfg.apiKey = v; self.saveCfg(); rebuild(); }, { secret: true });
           } }),
 
-        /* ④ 自检 + 其它入口 + 关闭（一行四键；关闭原先单占一行，会压住底部提示） */
-        new G.UI.Btn({ x: 26, y: 216, w: 96, h: 22, small: true, variant: 'gold',
+        /* ④ 自检 + 其它入口 + 关闭。
+           v0.75.0 两处改动（用户口径）：
+             ① 新增「返回主菜单」—— 方便玩家回主菜单看成就与称号图鉴
+                （用户原话：「设置界面需要新增返回主菜单的按钮，方便玩家去查看
+                 成就与称号收集图鉴」）。回标题前**先存档**，否则进度会丢。
+             ② 「界域难度」**仅主菜单可选**（见 openWorlds 的守卫）——
+                世内不再提供入口，按钮改为提示"需回主菜单更改"。
+           ⚠️ 五行按钮必须均分且不叠：可用横段 26..450（424 宽），
+              5 键各 78 + 12 间距 = 78×5 + 12×4 = 438 > 424，所以取 76+11 = 424 正好。 */
+        new G.UI.Btn({ x: 26, y: 216, w: 76, h: 22, small: true, variant: 'gold',
           label: '问天道',
           onClick: function () { self.openHeavenChat(scene); } }),
-        new G.UI.Btn({ x: 132, y: 216, w: 104, h: 22, small: true,
-          label: '界域难度', onClick: function () { self.openWorlds(scene); } }),
-        new G.UI.Btn({ x: 246, y: 216, w: 90, h: 22, small: true, variant: 'ghost',
+        new G.UI.Btn({ x: 113, y: 216, w: 76, h: 22, small: true,
+          label: '界域难度', disabled: !!G.game.meta, title: '界域难度只能在主菜单选择',
+          onClick: function () {
+            /* 世内锁定（v0.75.0）：当前世界的规则受难度影响，中途改会推翻已生成的
+               世界与 Boss 面板。所以这里**只是提示**，不改任何东西。 */
+            if (G.game.meta) { G.game.toast('界域难度只能在主菜单选择'); return; }
+            self.openWorlds(scene);
+          } }),
+        new G.UI.Btn({ x: 200, y: 216, w: 76, h: 22, small: true, variant: 'ghost',
+          label: '主菜单', disabled: !G.game.meta,
+          onClick: function () {
+            if (!G.game.meta) { G.game.toast('尚未开始历程'); return; }
+            /* 回标题前存一次档：标题场景会重建 meta/save 引用，
+               不存的话这一段的进度（境界/物品/任务步）就丢了。 */
+            try {
+              if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(G.game.save);
+              if (G.Storage && G.Storage.saveMeta) G.Storage.saveMeta(G.game.meta);
+            } catch (e) { /* 存档失败也要让玩家走得掉，不卡死 */ }
+            G.game.changeScene('title');
+          } }),
+        new G.UI.Btn({ x: 287, y: 216, w: 76, h: 22, small: true, variant: 'ghost',
           label: '关　于', onClick: function () { self.openAbout(scene); } }),
-        new G.UI.Btn({ x: 346, y: 216, w: 104, h: 22, small: true, variant: 'ghost',
+        new G.UI.Btn({ x: 374, y: 216, w: 76, h: 22, small: true, variant: 'ghost',
           label: '关　闭', onClick: function () { scene.clearOverlay(); } })
       ]);
     },

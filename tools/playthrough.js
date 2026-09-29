@@ -341,7 +341,7 @@ while (save.qi < G.Player.needQi(save, 36) && guard++ < 400) {
 }
 note('⑨ 灵气备足');
 
-/* ---- 6) 大境界突破 → 心魔战 ---- */
+/* ---- 6) 大境界突破 → 天劫镜像战（v0.75.0；Math.random 钉死 0 → 必触发天劫）---- */
 enterMap('town');
 step(() => enterDoor('home'), 'm0-4.home');
 step(() => interactFurn('cult', '逆命珠'), 'm0-4.cult');
@@ -368,17 +368,21 @@ step(function () {
 }, 'm0-4.tribulation');
 pump(6);
 step(function () {
-  if (G.game.sceneName !== 'battle') { errors.push('突破未进入心魔战（当前 ' + G.game.sceneName + '）'); return; }
+  if (G.game.sceneName !== 'battle') { errors.push('突破未进入破境战（当前 ' + G.game.sceneName + '）'); return; }
   const b = G.game.scene;
-  if (b.es.length !== 1) errors.push('心魔战应为单敌，实为 ' + b.es.length + ' 只');
-  if (b.es[0].name !== '心魔') errors.push('心魔战敌人异常：' + b.es[0].name);
+  if (b.es.length !== 1) errors.push('破境战应为单敌，实为 ' + b.es.length + ' 只');
+  /* v0.75.0：大境界破境有**两条分支**（用户口径「不一定会触发天劫」）：
+       · 天劫镜像（`storm`）→ 敌人名「天劫」，面板逐项等于主角
+       · 天道未降劫 → 直接破镜，不进战斗（这条分支由 overlays 短路，走不到这里）
+     所以走到战斗时**只可能是天劫**；心魔是 M0/M1 剧情战，不由本路径进入。 */
+  if (b.es[0].name !== '天劫') errors.push('破境战敌人异常：' + b.es[0].name);
   b.es[0].hp = 0;
   b._victory();
-}, 'm0-4.heartdemon');
+}, 'm0-4.tribulation.battle');
 pump(40);
 if (save.globalLevel !== 37) errors.push('心魔战后应为炼气一重初期（37），实为 ' + save.globalLevel);
 if (save.quest.step !== 'm0-5') errors.push('心魔战后未推进到 m0-5（当前 ' + save.quest.step + '）');
-note('⑩ 心魔战 → 炼气一重');
+note('⑩ 天劫战 → 炼气一重');
 
 /* ---- 7) 炼气 1 → 3（赤牙洞门槛）：同样**只能闭关**（v0.67.0） ---- */
 enterMap('field');

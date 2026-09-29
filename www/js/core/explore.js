@@ -12,6 +12,12 @@
      面板本体只画、不登记按钮 —— 登记了就会吞掉地图点击（G19 同族：登记了却没人画 / 画了却没人管）。
      高度 = 顶距 8 + 4 个竖排字 × 12 + 8 + 折角 14 + 底距 6。 */
   var TR_TAB_X = 0, TR_TAB_W = 20, TR_TAB_H = 76;
+  /* 收起态的**紧凑**高度（v0.75.0，用户口径「这些内容支持缩到最小，鼠标点击展开，
+     不要占用游戏窗口」）：收起时只剩一个 20×30 的小竖标（两个字），
+     把屏幕左缘让给地图；点它才展开成完整面板。
+     ⚠️ 两个高度都必须**是稳定值**（用户明确「任务左右上下都在浮动」）——
+        不随时间/内容变化，只在开合时切换一次。 */
+  var TR_TAB_MIN_H = 30;
   /* 起点在场景铭牌之下（铭牌 y = HUD_H + 5、高 19） */
   var TR_Y = 78;
   var TR_W = 118, TR_PANEL_X = TR_TAB_W + 3;
@@ -203,7 +209,12 @@
            走的仍是 onTap 的"点地面走过去"，不会出现"面板一盖地图就点不动"。 */
         if (G.Overlays && G.Overlays.trackInfo) {
           this.buttons.push(new G.UI.Btn({
-            x: TR_TAB_X, y: TR_Y, w: TR_TAB_W, h: TR_TAB_H, small: true, variant: 'plain',
+            /* 收起态用**紧凑**高度（30），展开态用完整高度（76）——
+               命中区必须跟着外观走，否则收起时那截 46px 的空区还会吞地图点击
+               （G19 同族：画了却没人管 / 管了却没画）。 */
+            x: TR_TAB_X, y: TR_Y, w: TR_TAB_W,
+            h: (this.trackOpen === false) ? TR_TAB_MIN_H : TR_TAB_H,
+            small: true, variant: 'plain',
             label: '任务追踪',
             onClick: function () {
               self.trackOpen = (self.trackOpen === false);
@@ -1829,16 +1840,15 @@
         x.fillStyle = 'rgba(216,183,104,0.26)';
         x.fillRect(0, HUD_H - 1.6, 480, 0.8);
 
-        /* --- 左：圆形头像 --- */
-        G.UI.avatar(x, 26, 24, 18, 'luchen');
-
         /* --- 左：境界 · 第N世 ---
-           新境界名为「{境}{X}重{初/中/后/巅}」（最长如「太乙金仙九重巅峰」8 字），
-           「第N世」不能再写死 x114 —— 否则会与境界名末尾叠字（旧 bug）。
-           按境界名实测宽度顺延 8px 摆放；textOut 已把 x.font 设为该字号，可直接量。 */
-        G.UI.textOut(x, { x: 52, y: 4 }, ri.n, 14, G.UI.C.goldHi);
+           v0.75.0（用户口径「这里不要展示头像了，我们不支持替换头像，
+           我们要尽量模拟真实修仙世界」）：**删掉了圆形头像**，左块整体左移利用空出来的宽度。
+           去掉头像后起点从 52 收到 14，两条进度条也相应左移 38 —— 多出的横向空间
+           让「太乙金仙九重巅峰」这类长境界名与百分比都不再挤。
+           ⚠️ 百分比居中锚点也要跟着左移，否则会偏出条外。 */
+        G.UI.textOut(x, { x: 14, y: 4 }, ri.n, 14, G.UI.C.goldHi);
         var nameW = x.measureText(ri.n).width;
-        G.UI.textOut(x, { x: 52 + nameW + 8, y: 7.5 }, '第 ' + save.life + ' 世',
+        G.UI.textOut(x, { x: 14 + nameW + 8, y: 7.5 }, '第 ' + save.life + ' 世',
           10.5, G.UI.C.textDim);
 
         /* 气血/灵气上下排列，条内只画百分比；纪年独立放在右上。 */
@@ -1846,21 +1856,21 @@
         var low = ratio <= 0.3;
         var qiNeed = G.Player.needQi(save);
         var qiRatio = Math.max(0, Math.min(1, qiNeed > 0 ? (save.qi || 0) / qiNeed : 1));
-        G.UI.text(x, { x: 52, y: 20 }, '气血', 9.5, G.UI.C.textDim);
-        G.UI.bar(x, { x: 80, y: 20, w: 132, h: 11 }, ratio, low ? '#e2605a' : G.UI.C.hp);
-        G.UI.textOut(x, { x: 146, y: 20.5 }, Math.round(ratio * 100) + '%', 9.5, '#ffffff', 'center');
-        G.UI.text(x, { x: 52, y: 34 }, '灵气', 9.5, G.UI.C.textDim);
-        G.UI.bar(x, { x: 80, y: 34, w: 132, h: 11 }, qiRatio, G.UI.C.jadeHi);
-        G.UI.textOut(x, { x: 146, y: 34.5 }, Math.round(qiRatio * 100) + '%', 9.5, '#ffffff', 'center');
+        G.UI.text(x, { x: 14, y: 20 }, '气血', 9.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: 42, y: 20, w: 132, h: 11 }, ratio, low ? '#e2605a' : G.UI.C.hp);
+        G.UI.textOut(x, { x: 108, y: 20.5 }, Math.round(ratio * 100) + '%', 9.5, '#ffffff', 'center');
+        G.UI.text(x, { x: 14, y: 34 }, '灵气', 9.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: 42, y: 34, w: 132, h: 11 }, qiRatio, G.UI.C.jadeHi);
+        G.UI.textOut(x, { x: 108, y: 34.5 }, Math.round(qiRatio * 100) + '%', 9.5, '#ffffff', 'center');
         if (G.Time) G.UI.text(x, { x: 244, y: 8 }, G.Time.label(save), 9.5, G.UI.C.jadeHi);
-        if (!self.overlay) G.UI.hover({ x: 80, y: 34, w: 132, h: 11 }, {
+        if (!self.overlay) G.UI.hover({ x: 42, y: 34, w: 132, h: 11 }, {
           title: bs.ready ? '灵气已足 · 可尝试突破' : '灵气修炼进度',
           text: '当前 ' + num(save.qi) + ' / 所需 ' + num(qiNeed) + '。突破还需满足境界条件。'
         });
         if (low) {
           x.save();
           x.globalAlpha = 0.30 + 0.30 * Math.sin(t / 220);
-          G.UI.rr(x, { x: 78.5, y: 18.5, w: 135, h: 14 }, 3);
+          G.UI.rr(x, { x: 40.5, y: 18.5, w: 135, h: 14 }, 3);
           x.strokeStyle = '#ff8a80'; x.lineWidth = 1.2; x.stroke();
           x.restore();
         }
@@ -1931,7 +1941,10 @@
          折角**矢量画**，不用 '‹' '›' 字符（无 @font-face，缺字会变豆腐块）。 */
       _drawTrackTab: function (x, tk, open) {
         var C = G.UI.C;
-        var h = TR_TAB_H, by = TR_Y;
+        /* 收起态 = 紧凑小竖标（2 字），展开态 = 完整竖标（4 字 + 折角）。
+           v0.75.0（用户口径「支持缩到最小，不要占用游戏窗口」）。 */
+        var h = open ? TR_TAB_H : TR_TAB_MIN_H;
+        var by = TR_Y;
         /* 左边两个圆角落在屏外（x = -4）→ 视觉上就是"贴住屏幕左缘的一条" */
         G.UI.panel(x, { x: -4, y: by, w: TR_TAB_W + 4, h: h },
           'rgba(6,9,16,0.86)', 'rgba(216,183,104,0.42)', 4,
@@ -1940,16 +1953,17 @@
         x.fillStyle = open ? 'rgba(245,227,168,0.75)' : 'rgba(216,183,104,0.42)';
         x.fillRect(TR_TAB_W - 1.4, by + 6, 1.4, h - 12);
 
-        /* 竖排「任务追踪」：4 字 × 12px，起点 by + 8 */
-        var ty = by + 8;
-        for (var i = 0; i < 4; i++) {
-          G.UI.textOut(x, { x: TR_TAB_W / 2 - 1, y: ty }, '任务追踪'.charAt(i), 11,
+        /* 竖排标题：展开 4 字「任务追踪」，收起只 2 字「任务」（省高度） */
+        var title = open ? '任务追踪' : '任务';
+        var ty = by + (open ? 8 : 6);
+        for (var i = 0; i < title.length; i++) {
+          G.UI.textOut(x, { x: TR_TAB_W / 2 - 1, y: ty }, title.charAt(i), 11,
             i === 0 ? C.goldHi : 'rgba(206,196,172,0.88)', 'center');
           ty += 12;
         }
 
         /* 底部折角：收起时指右（点它展开），展开时指左（点它收起） */
-        var ax = TR_TAB_W / 2 - 1, ay = by + h - 13;
+        var ax = TR_TAB_W / 2 - 1, ay = by + h - 8;
         x.save();
         x.strokeStyle = open ? C.goldHi : 'rgba(216,183,104,0.72)';
         x.lineWidth = 1.6; x.lineCap = 'round'; x.lineJoin = 'round';

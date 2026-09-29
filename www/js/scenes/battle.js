@@ -414,6 +414,27 @@
       /* 主动槽为空时的兜底普攻：**不耗法力**（耗了就会出现"一点法力都没有时只能站着"的死局）。
          注意这不是"没激发功法"的惩罚 —— 普攻本来就一直存在（指令区的「攻击」）。 */
       var skills = atkSkills.concat(healSkills).slice(0, G.Player.ACTIVE_SLOTS || 3);
+      /* 未激发功法时的默认（v0.75.0，用户口径「没有激发，进入战斗会默认选择第一本
+         等级最高的功法」）：激发上限已收成 1 本，但玩家可能一本都没激发 ——
+         空白技能栏会让人以为"学了功法不能用"（正是 v0.69.0 修过的那类静默）。
+         这里补一本**等级最高**的顶上；`defaultSkillId` 是唯一挑选口径。 */
+      if (!skills.length && G.Player.defaultSkillId) {
+        var dft = G.Player.defaultSkillId(save);
+        if (dft) {
+          var dd = G.Data.skills[dft];
+          var dlv = (save.skills[dft] && save.skills[dft].lv) || 1;
+          var dpc = G.Player.progCoef ? G.Player.progCoef(dlv) : 1;
+          if (dd && dd.kind === '攻击' && dd.mult) {
+            skills.push({ id: dft, n: dd.n, mult: +(dd.mult * dpc).toFixed(3), cd: dd.cd || 0,
+              cdLeft: 0, hit: dd.hit, elem: dd.elem, status: dd.status, target: dd.target,
+              kind: 'atk', lv: dlv, progCoef: dpc, cost: G.Player.manaCost(dd, dlv) });
+          } else if (dd && dd.active) {
+            skills.push({ id: dft, n: dd.active.n, mult: 0, heal: +(dd.active.heal * dpc).toFixed(3),
+              cd: dd.active.cd || 0, cdLeft: 0, hit: dd.active.hit, elem: dd.elem,
+              kind: 'heal', lv: dlv, progCoef: dpc, cost: G.Player.manaCost(dd, dlv) });
+          }
+        }
+      }
       if (!skills.length) {
         skills.push({ id: 'basic', n: '凝气拳', mult: 1.0, cd: 0, cdLeft: 0,
           elem: st.attackElem, kind: 'atk', lv: 1, progCoef: 1, cost: 0 });
@@ -472,6 +493,30 @@
             atk: st.atk, def: st.def, spd: st.spd
           })];
         }
+      } else if (p.script === 'tribulation') {
+        /* 天劫镜像（v0.75.0，用户口径）：面板**逐项等于主角**，技能 =
+           主角已学功法里**随机一本、按九重满级**编译（"随机激发一本九重的功法"）。
+           为什么把 lv 钉成 36：用户原话要的是"九重"；若照搬主角当前 lv，
+           天劫会跟着玩家一起弱，镜像就失去"越级试炼"的意义。 */
+        var tPool = [];
+        Object.keys(save.skills || {}).forEach(function (id) {
+          var sd2 = G.Data.skills[id];
+          if (!sd2) return;
+          if (G.Player.canUseSkill && !G.Player.canUseSkill(save, id)) return;
+          if (sd2.kind === '攻击' && sd2.mult) {
+            tPool.push({ id: id, n: sd2.n, mult: +(sd2.mult * G.Player.progCoef(36)).toFixed(3),
+              cd: sd2.cd || 0, hit: sd2.hit, elem: sd2.elem, status: sd2.status,
+              target: sd2.target, kind: 'atk' });
+          } else if (sd2.active) {
+            tPool.push({ id: id, n: sd2.active.n, mult: 0,
+              heal: +(sd2.active.heal * G.Player.progCoef(36)).toFixed(3),
+              cd: sd2.active.cd || 0, hit: sd2.active.hit, elem: sd2.elem, kind: 'heal' });
+          }
+        });
+        list = [G.Data.makeTribulation({
+          level: save.globalLevel, maxhp: st.maxhp,
+          atk: st.atk, def: st.def, spd: st.spd, skills: tPool
+        })];
       } else if (p.script === 'probe') {
         /* M1 §4 m1-2：外堂探子撕下伪装。L = 本世 gl+1，上限 17
            （设计明写"上限 17" —— 别让高境界玩家把这场的等级抬到荒谬）。 */
@@ -1803,6 +1848,32 @@
         return;
       }
 
+      /* 天劫镜像胜（v0.75.0）：**打过天劫才破镜完成**（用户口径）。
+         与心魔同一结算出口（winBigBreak），差别只在文案与记录键 ——
+         两条路都是"大境界 +1"，不能各写一套升境逻辑（必然漂）。 */
+      if (p.script === 'tribulation') {
+        var infoT = G.Player.winBigBreak(save);
+        save.qi += 300;
+        this.keepHp = true;
+        G.Player.chronicle(save, 'tribulation', '渡过天劫，入' + infoT.n);
+        var askT = G.Player.askDao(save, G.game.meta);
+        if (askT) this._loot('问道 · ' + askT.text, askT.k === 'good');
+        /* 任务步与心魔胜**同源分派**：M1 筑基→m1-7；M0 炼气→m0-5。
+           ⚠️ 两处各写一遍必然分叉（改了一处漏另一处）—— 所以这里逐字对齐。 */
+        if (save.quest.step === 'm1-6') {
+          save.quest.flags.based = true;
+          save.quest.step = 'm1-7';
+          this._log('劫云散去！道基初成——' + infoT.n + '。');
+          this._log('灵气 +300　下一步：去刘记与掌柜道别。');
+        } else {
+          save.quest.step = 'm0-5';
+          this._log('劫云散去，气机贯通——' + infoT.n + '。');
+          this._log('灵气 +300　下一步：修至炼气三段，再探赤牙洞。');
+        }
+        this._finish(true, 'town');
+        return;
+      }
+
       if (p.script === 'sectTrial') {
         /* 试炼通过 → 正式入门。**转阵营的统一入口是 `Player.switchCult`** ——
            面板与战斗都调它，不各写一份（两份"废功"迟早分叉）。 */
@@ -1937,7 +2008,12 @@
       var shardItem = (G.Data.shardByTier || {})[shardTier];
       var shardGot = 0;
       if (shardItem) {
-        this.es.forEach(function () { if (G.rng.next() < 0.06) shardGot += 1; });
+        /* 掉率 v0.75.0：0.06 → 0.025（用户口径「功法非常难获得」）。
+           旧 6% 时一场 L=10 的战斗期望 0.6 片，10 片参悟一本 ≈ 17 场就有新功法 ——
+           功法成了路边货（参考凡人修仙传：一本粗浅功法都要抢破头）。
+           新 2.5% → 约 40 场一本，且野外战斗本来就不给灵气（v0.67.0），
+           玩家必须**权衡**"刷碎片"还是"闭关修炼"，而不是无脑刷。 */
+        this.es.forEach(function () { if (G.rng.next() < 0.025) shardGot += 1; });
         if (shardGot > 0) {
           save.items = save.items || {};
           save.items[shardItem] = (save.items[shardItem] || 0) + shardGot;
@@ -1970,6 +2046,18 @@
         this.keepHp = true;
         this._log('心魔未破……你从梦魇中跌落。灵气散逸，余 ' + left + '。');
         this._log('突破丹已耗，可再购一枚，重头再来。');
+        this._finish(false, 'town', true);
+        return;
+      }
+      /* 天劫镜像败（v0.75.0）：与心魔同样"不是死亡"—— 天劫是试炼，不是处决。
+         破镜丹已耗、灵气保留 80%，回镇可重炼一枚再来。 */
+      if (this.params.script === 'tribulation') {
+        var leftT = G.Player.loseBigBreak(save);
+        this.p.hp = Math.max(1, Math.round(this.p.maxhp * 0.25));
+        save.hp = this.p.hp;
+        this.keepHp = true;
+        this._log('天劫未渡……劫雷散尽，你自云中坠落。灵气散逸，余 ' + leftT + '。');
+        this._log('破境丹已耗，可再炼一枚，重头再来。');
         this._finish(false, 'town', true);
         return;
       }
