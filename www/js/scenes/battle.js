@@ -838,12 +838,32 @@
           var ec = sk.elem && sk.elem !== '无' ? '　' + sk.elem : '';
           var tail = sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）'
             : (sk.cost > 0 ? '（法力 ' + sk.cost + '）' : '');
+
+          /* v0.76.0 阶段六：属性克制提示 */
+          var restrain = '';
+          var subText = poor ? '法力不足 ' + self.p.mp + '/' + sk.cost : null;
+          var subColor = '#e08a7a';
+          if (sk.elem && G.Data.elemCoef) {
+            var alive = self._aliveEs();
+            if (alive.length > 0) {
+              var target = alive[0].u;
+              var coef = G.Data.elemCoef(sk.elem, target.elem || '无');
+              if (coef > 1.2) {
+                restrain = '　克制！';
+                if (!poor) { subText = '对 ' + target.elem + ' 克制 ×' + coef.toFixed(1); subColor = '#a7e29a'; }
+              } else if (coef < 0.9) {
+                restrain = '　被克';
+                if (!poor) { subText = '被 ' + target.elem + ' 克制 ×' + coef.toFixed(1); subColor = '#e08a7a'; }
+              }
+            }
+          }
+
           dropdown.push(new G.UI.Btn({
             x: x0, y: y, w: w, h: 20, small: true, disabled: !ready || poor,
             variant: 'battle',
-            label: sk.n + ec + tail,
-            sub: poor ? '法力不足 ' + self.p.mp + '/' + sk.cost : null,
-            subFs: 9, subColor: '#e08a7a',
+            label: sk.n + ec + restrain + tail,
+            sub: subText,
+            subFs: 9, subColor: subColor,
             onClick: function () {
               if (sk.kind === 'heal') { self._playerAction(sk, 'P'); return; }
               self._pickTarget(sk);
