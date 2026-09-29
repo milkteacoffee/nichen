@@ -777,9 +777,31 @@
         label: G.Data.skillAtTop(lv) ? '已至九重巅峰' : ('精进 ' + cost + ' 灵力'),
         disabled: save.po < cost || G.Data.skillAtTop(lv),
         onClick: function () {
+          var oldLv = save.skills[sel].lv;
           save.po -= cost; save.skills[sel].lv += 1;
+          var newLv = save.skills[sel].lv;
           G.Storage.saveCurrent(save);
-          G.game.toast(sd.n + ' 精进至 ' + G.Data.skillRealm(save.skills[sel].lv).n);
+
+          /* v0.76.0 里程碑特效：达成lv9/18/27/36时播放震撼特效 */
+          var milestones = [9, 18, 27, 36];
+          var isMilestone = milestones.indexOf(newLv) >= 0;
+
+          if (isMilestone && G.Data.getMilestones) {
+            var ms = G.Data.getMilestones(sd);
+            var milestone = ms.find(function (m) { return m.lv === newLv; });
+            if (milestone) {
+              /* 播放里程碑特效：金色全屏闪光 + 文字提示 */
+              var realmName = G.Data.skillRealm(newLv).n;
+              var effectText = sd.n + ' · ' + realmName + '\n' + milestone.desc;
+              if (G.game && G.game.playBreakthroughEffect) {
+                G.game.playBreakthroughEffect(effectText, '#ffd45a');
+              }
+              G.game.toast('【' + sd.n + '】' + realmName + '！' + milestone.desc + '！');
+            }
+          } else {
+            G.game.toast(sd.n + ' 精进至 ' + G.Data.skillRealm(newLv).n);
+          }
+
           G.Overlays.openPanel(scene, 'skills');
         }
       }));

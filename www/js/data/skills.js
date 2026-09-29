@@ -194,6 +194,60 @@
     S[id].src = (COMMON_IDS.indexOf(id) >= 0 || START_IDS[id]) ? 'common' : 'free';
   });
 
+  /* ============================================================
+     功法里程碑系统（v0.76.0 阶段五-3）
+     ------------------------------------------------------------
+     用户口径：「前期要快，后期要慢，每个里程碑（lv9/18/27/36）都要有仪式感」
+
+     里程碑结构：每9级（一重）解锁1个被动效果
+       - lv9（一重）：基础威力提升
+       - lv18（二重）：属性加成（暴击/穿透/吸血等）
+       - lv27（三重）：进阶效果（倍率提升/特殊机制）
+       - lv36（四重·九重巅峰）：终极效果（大幅提升/特殊能力）
+
+     effect类型：
+       - mult: 技能倍率加成（乘法，如1.2 = 提升20%）
+       - crit: 暴击率加成（加法，如0.05 = +5%）
+       - pierce: 穿透率加成（加法，如0.10 = +10%）
+       - vamp: 吸血率加成（加法，如0.08 = +8%）
+       - atk/def/hp: 属性百分比加成（如0.15 = +15%属性）
+       - cost: 法力消耗降低（如-0.20 = 降低20%消耗）
+     ============================================================ */
+  var SKILL_MAX_PROG = 36;  // 九重巅峰
+  var MILESTONES = [9, 18, 27, 36];  // 四个里程碑
+
+  /* 通用里程碑模板（按功法kind分类）*/
+  var MILESTONE_TEMPLATES = {
+    /* 攻击类功法：重视输出与爆发 */
+    '攻击': [
+      { lv: 9, desc: '威力初显', effect: { mult: 1.15 } },          // +15%倍率
+      { lv: 18, desc: '破敌锋芒', effect: { crit: 0.05 } },         // +5%暴击
+      { lv: 27, desc: '凌厉攻势', effect: { pierce: 0.10 } },       // +10%穿透
+      { lv: 36, desc: '九重巅峰', effect: { mult: 1.30, crit: 0.08 } }  // +30%倍率+8%暴击
+    ],
+    /* 防御类功法：重视生存与韧性 */
+    '防御': [
+      { lv: 9, desc: '金刚不坏', effect: { def: 0.20 } },          // +20%防御
+      { lv: 18, desc: '铜墙铁壁', effect: { hp: 0.15 } },          // +15%气血
+      { lv: 27, desc: '护体神功', effect: { def: 0.35 } },         // 额外+35%防御
+      { lv: 36, desc: '九重巅峰', effect: { def: 0.50, hp: 0.30 } } // +50%防御+30%气血
+    ],
+    /* 仙术类功法：重视续航与法力 */
+    '仙术': [
+      { lv: 9, desc: '灵气充盈', effect: { hp: 0.15 } },           // +15%气血
+      { lv: 18, desc: '仙家妙法', effect: { cost: -0.15 } },       // 法力消耗-15%
+      { lv: 27, desc: '灵台清明', effect: { hp: 0.25 } },          // 额外+25%气血
+      { lv: 36, desc: '九重巅峰', effect: { hp: 0.40, vamp: 0.05 } } // +40%气血+5%吸血
+    ]
+  };
+
+  /* 为每个功法生成里程碑数据 */
+  function getMilestones(skillData) {
+    var kind = skillData.kind || '攻击';
+    var template = MILESTONE_TEMPLATES[kind] || MILESTONE_TEMPLATES['攻击'];
+    return template;
+  }
+
   G.Data = G.Data || {};
   G.Data.skills = S;
   G.Data.skillDropPool = dropPool;
@@ -205,4 +259,7 @@
   G.Data.shardCost = SHARD_COST;
   G.Data.tierByWorld = TIER_BY_WORLD;
   G.Data.shardPool = shardPool;
+  G.Data.SKILL_MAX_PROG = SKILL_MAX_PROG;
+  G.Data.MILESTONES = MILESTONES;
+  G.Data.getMilestones = getMilestones;
 })();

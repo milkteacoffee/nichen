@@ -1380,6 +1380,7 @@
          `m` 仍含品阶系数与灵根匹配（品阶差距 = 真正的强度差距，这是"高品功法难得"的价值）。
          ⚠️ 用 sqrt 而不砍掉品阶：保证"九重"仍看得出成长（lv1→36 有 6 倍），
             但**不会**让一本满级功法碾压同境界对手 —— 差额要靠品阶、灵根与法宝补。 */
+      var skillMilestones = { mult: 1.0, crit: 0, pierce: 0, vamp: 0, atk: 0, def: 0, hp: 0 };
       Object.keys(save.skills || {}).forEach(function (id) {
         var sd = G.Data.skills[id], lv = (save.skills[id] && save.skills[id].lv) || 1;
         if (!sd) return;
@@ -1391,6 +1392,23 @@
         if (sd.kind === '攻击') atk += g * 3 * m;
         else if (sd.kind === '防御') def += g * 2 * m;
         else { hp += g * 9 * m; mp += g * 3 * m; }
+
+        /* v0.76.0 功法里程碑加成：lv9/18/27/36解锁被动效果 */
+        if (G.Data.getMilestones) {
+          var milestones = G.Data.getMilestones(sd);
+          milestones.forEach(function (ms) {
+            if (lv >= ms.lv && ms.effect) {
+              var fx = ms.effect;
+              if (fx.mult) skillMilestones.mult = Math.max(skillMilestones.mult, fx.mult);
+              if (fx.crit) skillMilestones.crit += fx.crit;
+              if (fx.pierce) skillMilestones.pierce += fx.pierce;
+              if (fx.vamp) skillMilestones.vamp += fx.vamp;
+              if (fx.atk) skillMilestones.atk += fx.atk;
+              if (fx.def) skillMilestones.def += fx.def;
+              if (fx.hp) skillMilestones.hp += fx.hp;
+            }
+          });
+        }
       });
 
       /* 仙躯灌注 */
@@ -1399,6 +1417,13 @@
 
       /* 天赋百分比 */
       var te = this.talentEffects(save);
+      /* v0.76.0 功法里程碑效果并入天赋系统 */
+      te.a += skillMilestones.atk;
+      te.f += skillMilestones.def;
+      te.h += skillMilestones.hp;
+      te.c += skillMilestones.crit;
+      te.pierce = (te.pierce || 0) + skillMilestones.pierce;
+      te.vamp = (te.vamp || 0) + skillMilestones.vamp;
       /* 副本内临时增益（每层三选一）：**并进 te** —— 一处生效，
          面板 / HUD / 战斗三处自动都认到。另起一套应用点必然有一处漏
          （表现是"面板涨了、战斗没涨"，且完全静默）。 */
