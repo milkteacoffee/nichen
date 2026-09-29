@@ -767,6 +767,7 @@
     },
 
     _applyBreak: function (save, meta, big) {
+      var oldStats = this.computeStats(save, meta);  // 保存旧属性
       save.globalLevel = Math.min(MAX_GL, (save.globalLevel || 1) + 1);
       /* 本世到达过的最高等级（仙力结算用，规格 v0.4 §4） */
       save.maxGlobalLevel = Math.max(save.maxGlobalLevel || 1, save.globalLevel);
@@ -783,6 +784,13 @@
       var st = this.computeStats(save, meta);
       save.hp = st.maxhp;     /* 突破刷新上限并回满气血 */
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+
+      /* v0.76.0 突破特效：大境界突破时播放全屏特效 */
+      if (big && G.game && G.game.playBreakthroughEffect) {
+        var realmInfo = this.realmInfo(save.globalLevel);
+        G.game.playBreakthroughEffect(realmInfo.n, oldStats, st);
+      }
+
       /* 天道注视 + 低语（v2.7：注视累加与阈值判定统一走 TianDao） */
       if (G.TianDao) G.TianDao.notify(big ? 'breakBig' : 'breakSmall');
       if (G.Story) G.Story.onBreak(meta, save, save.globalLevel);

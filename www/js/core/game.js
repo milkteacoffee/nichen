@@ -54,6 +54,13 @@
     speedMul: 1,
     S: 2,   // 内部分辨率倍率（逻辑坐标仍为 480×272）
 
+    /* ===== 打击感系统（v0.76.0 阶段一）===== */
+    _shakeIntensity: 0,    // 震动强度（0-1）
+    _shakeDuration: 0,     // 震动持续时间（ms）
+    _shakeTime: 0,         // 震动已持续时间
+    _pauseUntil: 0,        // 顿帧暂停到的时间戳
+    _breakthroughEffect: null,  // 突破特效数据
+
     start: function () {
       this.canvas = document.getElementById('game');
       this.ctx = this.getContext();
@@ -183,6 +190,13 @@
     },
 
     loop: function (now) {
+      /* 顿帧检测：如果在暂停期内，直接跳过本帧 */
+      if (this._pauseUntil > 0 && now < this._pauseUntil) {
+        requestAnimationFrame(this.loop.bind(this));
+        return;
+      }
+      this._pauseUntil = 0;
+
       /* dt 必须**上下都夹**：上夹 50ms 防切回前台时一帧跳几秒；
          下夹 0 防时间源回拨 —— 只要 dt 变负，所有 `-= dt` 的计时器就一起倒着走
          （闪白越收越亮、战斗 cue 永不结束、Toast 永不消失）。
@@ -229,7 +243,15 @@
       if (G.Story) G.Story.update(dt);
 
       /* 高分渲染：逻辑坐标 480×272；UI 场景开平滑，像素场景关平滑 */
-      x.setTransform(this.S, 0, 0, this.S, 0, 0);
+      /* 震动效果：在 setTransform 时添加偏移 */
+      var shakeX = 0, shakeY = 0;
+      if (this._shakeTime < this._shakeDuration) {
+        var progress = this._shakeTime / this._shakeDuration;
+        var intensity = this._shakeIntensity * (1 - progress);  // 衰减
+        shakeX = (Math.random() - 0.5) * intensity * 8;
+        shakeY = (Math.random() - 0.5) * intensity * 8;
+      }
+      x.setTransform(this.S, 0, 0, this.S, shakeX * this.S, shakeY * this.S);
       x.imageSmoothingEnabled = !!this.scene.smooth;
       x.fillStyle = '#0b0d14';
       x.fillRect(0, 0, this.W, this.H);
@@ -247,6 +269,24 @@
       var allBtns = this.scene.buttons || [];
       for (var bi = 0; bi < allBtns.length; bi++) {
         if (allBtns[bi].tick) allBtns[bi].tick(dt);
+      }
+
+      /* 更新震动和突破特效（v0.76.0） */
+      if (this._shakeTime < this._shakeDuration) {
+        this._shakeTime += dt * 1000;
+      }
+      if (this._breakthroughEffect) {
+        this._breakthroughEffect.t += dt;
+        // 更新粒子位置
+        for (var pi = 0; pi < this._breakthroughEffect.particles.length; pi++) {
+          var p = this._breakthroughEffect.particles[pi];
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vy += 30 * dt;  // 重力
+        }
+        if (this._breakthroughEffect.t >= this._breakthroughEffect.duration) {
+          this._breakthroughEffect = null;
+        }
       }
 
       this.time += dt;
@@ -269,6 +309,8 @@
       }
       this._renderLoot(x);
       this._renderToasts(x);
+      /* 突破特效：画在最上层 */
+      this._renderBreakthroughEffect(x);
       if (G.Story) G.Story.render(x);
 
       inp.endFrame();
@@ -483,6 +525,99 @@
         G.UI.textOut(x, { x: this.W / 2, y: y0 + pad / 2 + i * lineH + 4 },
           this.toasts[i].text, 13, G.UI.C.text, 'center');
       }
+    },
+
+    /* ===== 打击感方法（v0.76.0 阶段一）===== */
+
+    /* 镜头震动：intensity 强度0-1，duration 持续时间ms */
+    cameraShake: function (intensity, duration) {
+      this._shakeIntensity = Math.max(0, Math.min(1, intensity || 0.5));
+      this._shakeDuration = duration || 200;
+      this._shakeTime = 0;
+    },
+
+    /* 顿帧暂停：ms 毫秒 */
+    pauseGame: function (ms) {
+      this._pauseUntil = performance.now() + (ms || 50);
+    },
+
+    /* 突破特效：realmName 境界名, oldStats 旧属性, newStats 新属性 */
+    playBreakthroughEffect: function (realmName, oldStats, newStats) {
+      this._breakthroughEffect = {
+        realm: realmName,
+        old: oldStats || {},
+        new: newStats || {},
+        t: 0,
+        duration: 3.0,  // 持续3秒
+        particles: []   // 粒子数组
+      };
+
+      // 生成金光粒子（50个）
+      for (var i = 0; i < 50; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var speed = 20 + Math.random() * 80;
+        this._breakthroughEffect.particles.push({
+          x: this.W / 2,
+          y: this.H / 2,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.8 + Math.random() * 0.4,
+          size: 1.5 + Math.random() * 2
+        });
+      }
+
+      // 触发震动
+      this.cameraShake(0.6, 400);
+    },
+
+    /* 渲染突破特效 */
+    _renderBreakthroughEffect: function (x) {
+      var fx = this._breakthroughEffect;
+      if (!fx) return;
+
+      var t = fx.t;
+      var dur = fx.duration;
+
+      // 淡入淡出alpha
+      var alpha = Math.min(1, t * 3) * Math.min(1, (dur - t) / 0.8);
+
+      x.save();
+      x.globalAlpha = alpha;
+
+      // 全屏金色渐变
+      var grad = x.createRadialGradient(this.W / 2, this.H / 2, 0,
+        this.W / 2, this.H / 2, this.W * 0.8);
+      grad.addColorStop(0, 'rgba(255,240,180,' + (0.4 * alpha).toFixed(3) + ')');
+      grad.addColorStop(0.5, 'rgba(255,220,140,' + (0.2 * alpha).toFixed(3) + ')');
+      grad.addColorStop(1, 'rgba(255,200,100,0)');
+      x.fillStyle = grad;
+      x.fillRect(0, 0, this.W, this.H);
+
+      // 绘制粒子
+      x.globalCompositeOperation = 'lighter';
+      for (var i = 0; i < fx.particles.length; i++) {
+        var p = fx.particles[i];
+        var pAlpha = Math.min(1, p.life - t / dur) * alpha;
+        if (pAlpha <= 0) continue;
+
+        x.fillStyle = 'rgba(255,235,160,' + pAlpha.toFixed(3) + ')';
+        x.beginPath();
+        x.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        x.fill();
+      }
+
+      x.globalCompositeOperation = 'source-over';
+
+      // 中央文字：突破XXX境！
+      if (t < 2.5) {
+        var textAlpha = Math.min(1, t * 2) * Math.min(1, (2.5 - t) / 0.5) * alpha;
+        x.globalAlpha = textAlpha;
+        var text = '突破 ' + fx.realm + ' 境！';
+        G.UI.textOut(x, { x: this.W / 2, y: this.H / 2 - 20 }, text,
+          22, '#ffe8a0', 'center', 'rgba(40,20,0,0.9)', 4);
+      }
+
+      x.restore();
     }
   };
 

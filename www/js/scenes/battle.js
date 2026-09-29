@@ -1609,6 +1609,16 @@
       this.knock[key] = (key === 'P') ? -7 : 7;
       /* 暴击顿帧（90ms）：整个演出短暂冻结，压出命中重量 */
       if (r.crit) this.hitStop = Math.max(this.hitStop || 0, 0.09);
+
+      /* v0.76.0 打击感强化：顿帧+震屏（使用全局系统） */
+      if (G.game) {
+        var isHero = (key === 'P');
+        var intensity = r.crit ? 0.8 : (isHero ? 0.5 : 0.3);
+        var pauseDur = r.crit ? 80 : 50;
+        G.game.pauseGame(pauseDur);
+        G.game.cameraShake(intensity, 200);
+      }
+
       var u = this._unit(key);
       if (!u) return 0;
       var dmg = r.dmg;
@@ -1640,7 +1650,8 @@
         this._heal(key, kh);
         this._log('枯荣轮转，受创反生，回复 ' + kh + ' 气血。');
       }
-      if (dmg > 0) this._float(key, '-' + dmg, r.crit ? '#ffd45a' : '#ffd8d0', r.crit);
+      /* v0.76.0 伤害数字：暴击红色放大 */
+      if (dmg > 0) this._float(key, '-' + dmg, r.crit ? '#ff4a3a' : '#ffd8d0', r.crit);
       else this._float(key, '格挡', '#9ac8ff');
       /* 命中特效（v0.54.0）：五行技能走对应色爆发，普攻走刀光；暴击统一金色 */
       var ELEM_FX_COL = { '金': '#ffd870', '木': '#8fd878', '水': '#7ab8ff', '火': '#ff8a5a', '土': '#e0b878', '雷': '#c89aff' };
@@ -1660,11 +1671,24 @@
 
     /* 无来源伤害（剧情演出用，例：沈伯燃命重创血面）。
        min 是**保命下限** —— 演出不该替玩家补刀，见 _runPhase 的 ally 分支。 */
-    _hurt: function (key, amt, min) {
+    _hurt: function (key, amt, min, isCrit) {
       var u = this._unit(key);
       if (!u) return;
       u.hp = Math.max(min == null ? 0 : min, u.hp - amt);
-      this._float(key, '-' + amt, '#ff9a7a', true);
+
+      /* v0.76.0 打击感强化：顿帧+震屏 */
+      if (G.game) {
+        var isHero = (key === 'P');
+        var intensity = isCrit ? 0.8 : (isHero ? 0.4 : 0.3);
+        var pauseDur = isCrit ? 80 : 50;
+        G.game.pauseGame(pauseDur);
+        G.game.cameraShake(intensity, 200);
+      }
+
+      /* 伤害数字：暴击红色放大 */
+      var color = isCrit ? '#ff4a3a' : '#ff9a7a';
+      var size = isCrit ? 1.3 : 1.0;
+      this._float(key, '-' + amt, color, true, size);
     },
 
     /* B4 骑乘作战：画人车一体的坐骑（在主角之前画，主角叠在其上） */
@@ -1752,13 +1776,14 @@
       }
     },
 
-    _float: function (key, txt, col, big) {
+    _float: function (key, txt, col, big, scale) {
       var pos = this._pos(key);
       this.floaters.push({
         x: pos.x + (Math.random() - 0.5) * 18,
         /* 起点压低、上浮距离缩短：原来会一路飘进名牌血条面板里 */
         y: pos.y - pos.s * 0.40,
-        txt: txt, col: col || '#fff', t: 0, big: !!big, rise: 24
+        txt: txt, col: col || '#fff', t: 0, big: !!big, rise: 24,
+        scale: scale || 1.0  // v0.76.0 暴击放大
       });
     },
 
@@ -2503,7 +2528,8 @@
         var p = f.t / 1.05;
         var alpha = p < 0.75 ? 1 : (1 - (p - 0.75) / 0.25);
         var y = f.y - p * (f.rise || 24);
-        var sc = f.big ? 1 + Math.max(0, 0.5 - p * 1.6) : 1;
+        /* v0.76.0 暴击放大：基础缩放 × scale参数 */
+        var sc = (f.big ? 1 + Math.max(0, 0.5 - p * 1.6) : 1) * (f.scale || 1.0);
         x.save();
         x.globalAlpha = Math.max(0, alpha);
         x.font = G.UI.F(Math.round((f.big ? 20 : 15) * sc));
