@@ -108,14 +108,20 @@
       if (e.fx.vamp) parts.push('吸血 +' + Math.round(e.fx.vamp * 100) + '%');
       return parts.join('　');
     },
-    /* 把三槽的加成汇总成 {a,f,h,s,c,cd,vamp}（与 dungeonBuffs.sum 同形） */
+    /* 把三槽的加成汇总成 {a,f,h,s,c,cd,vamp}（与 dungeonBuffs.sum 同形）
+       v0.76.0 阶段九：支持装备强化，使用强化后的属性 */
     sum: function (equip) {
       var o = { a: 0, f: 0, h: 0, s: 0, c: 0, cd: 0, vamp: 0 };
       if (!equip) return o;
       Object.keys(equip).forEach(function (slot) {
-        var e = index[equip[slot]];
+        var equipId = equip[slot];
+        var e = index[equipId];
         if (!e) return;
-        Object.keys(e.fx).forEach(function (k) { o[k] = (o[k] || 0) + e.fx[k]; });
+        /* 使用强化后的属性（如果有强化模块） */
+        var fx = (G.Enhance && G.Enhance.enhancedFx)
+          ? G.Enhance.enhancedFx(equipId, e.fx)
+          : e.fx;
+        Object.keys(fx).forEach(function (k) { o[k] = (o[k] || 0) + fx[k]; });
       });
       return o;
     }

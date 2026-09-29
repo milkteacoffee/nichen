@@ -580,9 +580,10 @@
         titles.length ? G.UI.C.goldHi : G.UI.C.textDim, 'right');
     },
 
-    /* ---- 法宝子页（v0.29.0）----
+    /* ---- 法宝子页（v0.29.0 + v0.76.0 阶段九强化）----
        用户口径：「在角色界面新增法宝子界面，可以装备已有的法宝……总览不需要法宝操作」。
        版式：左栏三槽（大格，看得出穿了什么）+ 右栏"已拥有法宝"列表（点一件即穿）。
+       v0.76.0 阶段九：添加装备强化功能，点击已装备的法宝可进行强化。
        ⚠️ 格子与列表**都用真按钮**（label+sub+icon）—— 面板自绘文字压到按钮上会被
           `panels.bounds.contract` 判违规（这条在法宝三槽第一版上踩过）。 */
     charEquip: function (x, save) {
@@ -594,7 +595,8 @@
       G.UI.divider(x, LX + LW / 2, P.y + 50, LW, 'rgba(216,183,104,0.22)');
       G.UI.text(x, { x: LX, y: P.y + 60 }, '三槽：武器 / 防具 / 饰品', 10, G.UI.C.textDim);
       G.UI.text(x, { x: LX, y: P.y + 76 }, '来自炼器 · 任务', 10, G.UI.C.textDim);
-      G.UI.text(x, { x: LX, y: P.y + 90 }, '刷怪 · 首领掉落', 10, G.UI.C.textDim);
+      /* v0.76.0 阶段九：添加强化提示 */
+      G.UI.text(x, { x: LX, y: P.y + 90 }, '点击已装备法宝可强化', 10, G.UI.C.jadeHi);
       var fx = EQ ? EQ.sum(save.equip) : null;
       if (fx) {
         var parts = [];
@@ -1007,6 +1009,63 @@
           ? (bs.big ? '服下「' + bs.pill + '」，迎问心魔劫。' : '灵气已足，即刻破境。')
           : (bs.reason || '条件未满足')
       });
+    },
+
+    /* ---- 装备强化弹窗（v0.76.0 阶段九）---- */
+    renderEnhanceDialog: function (x, equipId) {
+      var save = G.game.save;
+      var eq = G.Data.equips.byId(equipId);
+      if (!eq) return;
+
+      this.dim(x);
+      var P = { x: 90, y: 50, w: 300, h: 172 };
+      G.UI.frame(x, P, null, { tex: true });
+
+      var lv = G.Enhance.getLevel(save, equipId);
+      var cost = G.Enhance.calcCost(eq.tier, lv);
+      var rate = G.Enhance.SUCCESS_RATE[lv + 1] || 0;
+
+      /* 标题 */
+      G.UI.text(x, { x: P.x + P.w / 2, y: P.y + 20 }, '装备强化', 14, G.UI.C.gold, 'center');
+
+      /* 装备信息 */
+      var cy = P.y + 45;
+      G.UI.text(x, { x: P.x + 20, y: cy }, eq.n, 12, G.UI.C.goldHi);
+      G.UI.text(x, { x: P.x + P.w - 20, y: cy }, '当前 +' + lv, 11, G.UI.C.jadeHi, 'right');
+
+      /* 属性显示 */
+      cy += 20;
+      var desc = G.Enhance.enhancedDesc(equipId);
+      G.UI.text(x, { x: P.x + 20, y: cy }, desc, 10, G.UI.C.text);
+
+      /* 下一级属性预览 */
+      if (lv < 10) {
+        cy += 18;
+        var nextFx = G.Enhance.enhancedFx(equipId, eq.fx);
+        Object.keys(nextFx).forEach(function (k) { nextFx[k] *= 1.1; });
+        var parts = [];
+        if (nextFx.a) parts.push('攻+' + (nextFx.a * 100).toFixed(0) + '%');
+        if (nextFx.f) parts.push('防+' + (nextFx.f * 100).toFixed(0) + '%');
+        if (nextFx.h) parts.push('血+' + (nextFx.h * 100).toFixed(0) + '%');
+        G.UI.text(x, { x: P.x + 20, y: cy },
+          '下级 +' + (lv + 1) + '：' + parts.join(' '), 10, G.UI.C.textDim);
+      }
+
+      /* 消耗与成功率 */
+      cy += 24;
+      G.UI.text(x, { x: P.x + 20, y: cy }, '消耗：', 10.5, G.UI.C.textDim);
+      G.UI.text(x, { x: P.x + 60, y: cy },
+        cost.stone + '灵石 + ' + cost.matCnt + cost.mat, 10.5, G.UI.C.text);
+
+      cy += 18;
+      G.UI.text(x, { x: P.x + 20, y: cy }, '成功率：', 10.5, G.UI.C.textDim);
+      G.UI.text(x, { x: P.x + 70, y: cy },
+        (rate * 100).toFixed(0) + '%', 11,
+        rate >= 0.75 ? G.UI.C.jadeHi : (rate >= 0.5 ? G.UI.C.goldHi : '#ff9a6a'));
+
+      cy += 18;
+      G.UI.text(x, { x: P.x + 20, y: cy },
+        '失败不损坏装备', 10, G.UI.C.textDim);
     }
   };
 
