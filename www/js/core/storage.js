@@ -147,6 +147,8 @@
           /* v0.76.0 评级与扫荡系统 */
           data.dungeonRecords = data.dungeonRecords || {}; /* 副本评级记录 {archId: {bestRank, clearTime, bestCombo}} */
           data.sweepTickets = data.sweepTickets != null ? data.sweepTickets : 3; /* 扫荡券（每日3张） */
+          /* v0.76.0 阶段七：突破进度条系统 */
+          data.breakProgress = data.breakProgress != null ? data.breakProgress : 0; /* 突破进度 0-100 */
         }
         data.version = 2;
       }

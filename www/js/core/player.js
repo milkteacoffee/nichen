@@ -666,27 +666,47 @@
       if (!st.big) return { ok: false, reason: '尚未修至大圆满' };
       if (st.have < st.need) return { ok: false, reason: st.reason };
       if (!st.pillOwned) return { ok: false, reason: '需「' + st.pill + '」' };
+
+      /* v0.76.0 阶段七：进度条模式突破
+         改进：将"概率突破"改为"进度累积"
+         - 进度≥100%：必定成功
+         - 进度<100%：失败，增加50%进度
+         - 失败代价：丹药消耗 + 气血减半
+         - 取消：灵气散失、寿命惩罚（降低挫败感） */
       var ch = this.breakChance(save, meta);
-      var r = typeof roll === 'number' ? roll : Math.random();
-      if (r * 100 >= ch.total) {
-        /* 失败：丹照扣（"大道五十，天衍四九"—— 试错是有代价的） */
+      var progress = save.breakProgress || 0;
+
+      // 进度已满：必定成功
+      if (progress >= 100) {
         save.items[st.pill] -= 1;
         if (save.items[st.pill] <= 0) delete save.items[st.pill];
-        save.breakFails = (save.breakFails || 0) + 1;
-        /* v0.60 失败代价加重（修仙残酷，用户第 10 点）：灵气散 15%、
-           道基受损 +3 岁、气血折半 —— 破境不是无成本的反复尝试。 */
-        save.qi = Math.floor((save.qi || 0) * 0.85);
-        save.age = (save.age == null ? 16 : save.age) + 3;
+        save.breakProgress = 0;  // 成功后清空进度
+        save.breakFails = 0;
+      } else {
+        // 进度未满：失败，增加进度
+        save.items[st.pill] -= 1;
+        if (save.items[st.pill] <= 0) delete save.items[st.pill];
+
+        // 增加进度50%
+        var oldProgress = progress;
+        save.breakProgress = Math.min(100, progress + 50);
+
+        // 只保留气血减半惩罚，取消灵气散失和寿命惩罚
         var _fb = this.computeStats(save);
         save.hp = Math.max(1, Math.round(_fb.maxhp * 0.5));
+
         if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+
         return {
-          ok: false, failed: true, chance: ch, from: st.gl,
-          reason: '破境失败（成功率 ' + ch.total + '%）—— 道基受损、气血大伤，再寻破境丹可增胜算'
+          ok: false, failed: true,
+          progress: save.breakProgress,
+          oldProgress: oldProgress,
+          from: st.gl,
+          reason: '破境失败 —— 突破进度 +50%（' + oldProgress + '% → ' + save.breakProgress + '%）' +
+                  (save.breakProgress >= 100 ? '，下次必定成功！' : '')
         };
       }
-      save.items[st.pill] -= 1;
-      if (save.items[st.pill] <= 0) delete save.items[st.pill];
+
       save.breakFails = 0;                      /* 成功即清零（道基不再累积） */
       /* 天劫触发（v0.75.0，用户口径）：「吃完破镜丹**不一定会**触发天劫，
          打过天劫才破镜完成」。所以服丹成功后**再掷一次**：
@@ -781,6 +801,12 @@
       if (big) this.agePush(save, 'break');
       if (big) this.chronicle(save, 'break:' + save.globalLevel,
         '破入' + this.realmInfo(save.globalLevel).n);
+
+      /* v0.76.0 阶段七：成功突破时清空进度 */
+      if (big && save.breakProgress != null) {
+        save.breakProgress = 0;
+      }
+
       var st = this.computeStats(save, meta);
       save.hp = st.maxhp;     /* 突破刷新上限并回满气血 */
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
@@ -1558,22 +1584,47 @@
     },
     /* 筑基的 gl（"失败累计道基"从这一刻起才生效 —— 用户口径"筑基之后才有"） */
     BASE_GL: 73,
+    /* v0.76.0 阶段七：突破成功率（进度条模式）
+       改进：将"概率突破"改为"进度累积"，彻底解决"假95%"问题
+       参考游戏：烟雨江湖（突破进度条模式）
+
+       机制：
+       - 每次尝试突破增加进度50%
+       - 进度达到100%时必定成功
+       - 透明可控，玩家知道"最多2次必过"
+       - 降低挫败感：失败不是"浪费"，而是"进度"
+
+       保留旧逻辑（注释）供参考：
+       旧口径：base = 85 - (q - 1) * 5.5（基础率：85/79.5/.../24.5）
+       旧口径：dao = Math.min(20, breakFails * 6)（失败累积道基）
+       旧口径：core = Math.min(95, base + dao + pill)（封顶95，"天衍四九"）
+    */
     breakChance: function (save, meta) {
       var st = this.breakState(save);
       var gl = st.gl;
-      var q = this.pillQualityIdx(gl);
-      var base = 85 - (q - 1) * 5.5;                       /* v0.60 更残酷：85 / 79.5 / … / 24.5（早期+丹仍封顶95） */
-      var dao = 0;
-      if (gl >= this.BASE_GL) dao = Math.min(20, (save.breakFails || 0) * 6);
-      var pill = this.PILL_QUALITY[q - 1].add;
-      var b = (meta && meta.blessing) || 0;
-      var bless = b > 0 ? Math.max(1, Math.min(5, b)) : 0;
-      var jing = (G.Formations && G.Formations.has(save, 'jingxin')) ? 10 : 0;
-      var core = Math.min(95, base + dao + pill);        /* 「天衍四九」：前三项封顶 95 */
+      var progress = save.breakProgress || 0;
+
+      // 进度条模式：进度≥100%则必定成功
+      if (progress >= 100) {
+        return {
+          mode: 'progress',
+          progress: 100,
+          guaranteed: true,
+          total: 100,
+          display: '必定成功（进度已满）'
+        };
+      }
+
+      // 否则显示当前进度
+      var nextAttempt = Math.min(100, progress + 50);
       return {
-        base: base, dao: dao, pill: pill, bless: bless, jing: jing,
-        core: core, total: Math.min(100, core + bless + jing),
-        q: q, pillName: this.PILL_QUALITY[q - 1].n, fails: save.breakFails || 0
+        mode: 'progress',
+        progress: progress,
+        nextProgress: nextAttempt,
+        total: progress,
+        display: progress === 0
+          ? '首次尝试（失败后进度+50%）'
+          : '当前进度 ' + progress + '%（再尝试' + (nextAttempt >= 100 ? '必定成功' : '达到' + nextAttempt + '%') + '）'
       };
     },
 

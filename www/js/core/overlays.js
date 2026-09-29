@@ -289,7 +289,17 @@
       }
       if (r.big) {
         var b = G.Player.startBigBreak(save);
-        if (!b.ok) { G.game.toast(b.reason); ret(); return; }
+        if (!b.ok) {
+          /* v0.76.0 阶段七：失败时显示进度条提示 */
+          if (b.failed) {
+            G.game.toast(b.reason);
+            ret();
+            return;
+          }
+          G.game.toast(b.reason);
+          ret();
+          return;
+        }
         /* 天劫（v0.75.0，用户口径）：「吃完破镜丹**不一定**触发天劫，
            打过天劫才破镜完成」。所以两道分派：
              · b.storm = true  → 演天劫 → 打**天劫镜像战**（打不过不破镜）
@@ -944,6 +954,20 @@
       G.UI.textOut(x, { x: P.x + P.w - 14, y: P.y + 80 },
         '寿元 ' + (save.age || 16) + ' / ' + G.Player.lifespanOf(gl), 10.5,
         G.UI.C.textDim, 'right');
+
+      /* v0.76.0 阶段七：突破进度条（大境界突破时显示） */
+      if (bs.big) {
+        var ch = G.Player.breakChance(save, G.game.meta);
+        var progress = ch.progress || 0;
+        var progressPct = progress / 100;
+
+        G.UI.text(x, { x: LX, y: P.y + 94 }, '进度', 10.5, G.UI.C.textDim);
+        G.UI.bar(x, { x: LX + 32, y: P.y + 95, w: 150, h: 8 }, progressPct,
+          progress >= 100 ? '#7fdcc4' : '#f5e3a8');
+        G.UI.textOut(x, { x: LX + 190, y: P.y + 94 },
+          progress + '%' + (progress >= 100 ? ' 必成' : ''), 10.5,
+          progress >= 100 ? '#7fdcc4' : G.UI.C.textDim);
+      }
 
       /* 破境丹缺失 → **面板里常驻显示去哪拿**（v0.15.0）。
          只弹一次 toast 是不够的：玩家关掉提示就再也看不到（截图反馈的原话是
