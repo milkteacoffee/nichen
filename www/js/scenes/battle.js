@@ -2017,7 +2017,8 @@
             var gap = ((save.globalLevel || 1) - L) > 20 ? .5 : 1;
             if (gap < 1) dcut = true;
             dqi += Math.round(80 * L * dlgCoef * (1 + (dr.qi || 0)) * gap * G.Player.realmQiCoef(L));
-            dpo += Math.round(8 * L * (1 + (dr.po || 0)) * gap);
+            /* v0.76.0 灵力×2：副本灵力从8×L提升到16×L */
+            dpo += Math.round(16 * L * (1 + (dr.po || 0)) * gap);
             dst += Math.round(6 * L * (1 + (dr.st || 0)) * gap);
           });
           save.qi = (save.qi || 0) + dqi;
@@ -2047,8 +2048,8 @@
         var L = e.level;
         var gap = ((save.globalLevel || 1) - L) > 20 ? 0.5 : 1;
         if (gap < 1) cut = true;
-        /* 灵力：只给"一点点"（1×L），且同样受境界压制 */
-        po += Math.max(1, Math.round(1 * L * gap));
+        /* v0.76.0 灵力×2：原"只给一点点(1×L)"提升为2×L，缓解功法精进成本过高问题 */
+        po += Math.max(1, Math.round(2 * L * gap));
         /* 灵石：每只固定 1~5 下品（不随 L 放大） */
         st += G.rng.int(1, 5);
       });
