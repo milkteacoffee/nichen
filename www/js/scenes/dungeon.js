@@ -90,6 +90,16 @@
               onClick: function () { self._startOrResume(slot); }
             }));
           }
+
+          /* v0.76.0 扫荡按钮：S评级解锁，已通关副本可扫荡 */
+          var rec = (G.game.save.dungeonRecords || {})[a.id];
+          if (rec && rec.bestRank === 'S' && slot < cur) {
+            self.buttons.push(new G.UI.Btn({
+              x: rect.x + rect.w - 148, y: rect.y + 6, w: 64, h: 20,
+              small: true, variant: 'gold', label: '扫荡',
+              onClick: function () { self._sweepDungeon(slot, a); }
+            }));
+          }
         })(i, r, arch);
       }
 
@@ -1076,6 +1086,48 @@
 
     _rankIcon: function (rank) {
       return { 'S': '★', 'A': '◆', 'B': '●', 'C': '○' }[rank] || '';
+    },
+
+    /* v0.76.0 扫荡功能：S评级解锁，消耗扫荡券直接获得奖励 */
+    _sweepDungeon: function (slot, arch) {
+      var save = G.game.save;
+
+      // 检查扫荡券
+      if (!save.sweepTickets || save.sweepTickets < 1) {
+        G.game.toast('扫荡券不足（每日刷新3张）');
+        return;
+      }
+
+      // 消耗扫荡券
+      save.sweepTickets--;
+
+      // 直接给S评级奖励（模拟_rewardClear的逻辑，但翻倍）
+      var L = D().anchorGL(this._worldId(), slot);
+      var rf = D().DIFF[this._diff()].res;
+
+      var stone = Math.round(25 * L * rf * 2);  // S评级翻倍
+      var qi = Math.round(320 * L * rf * G.Player.realmQiCoef(L) * 2);
+
+      save.stone += stone;
+      save.qi += qi;
+      this._addDan(4);  // S评级妖丹×4
+
+      // 宗门贡献
+      if (save.cult === 'sect') {
+        var rep = 16;  // 扫荡给重刷的2倍
+        G.Player.addRep(save, rep);
+      }
+
+      G.Storage.saveCurrent(save);
+
+      // 浮层提示
+      G.game.toast('扫荡完成！灵石+' + stone + ' 灵气+' + qi + ' 妖丹×4');
+      G.game.loot('灵石 +' + stone, false);
+      G.game.loot('灵气 +' + qi, false);
+      G.game.loot('妖丹 ×4', false);
+
+      // 刷新枢纽
+      this._showHub();
     }
   };
 
