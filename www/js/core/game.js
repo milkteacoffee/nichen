@@ -331,8 +331,9 @@
     },
 
     _renderAmbient: function (x) {
-      if (G.Story && G.Story.modalOpen && G.Story.modalOpen()) return;
-      if (this.scene && this.scene.overlay) return;
+      /* 覆盖层打开就不画（含面板、战斗下拉、剧情模态）—— 判据走统一口，
+         不在这里再写一份（此前只查 Story + overlay，战斗下拉时会漏）。 */
+      if (this._overlayOpen()) return;
       var A2 = this._ambientFor(this.sceneName), cfg = A2.cfg, t = this.time;
       x.save();
       x.globalCompositeOperation = 'lighter';
@@ -392,6 +393,34 @@
       return this._hpMax;
     },
 
+    /* 覆盖层打开时浮层的"让位线"= **底部动作排之上**。
+       实测各面板"最低那排内容按钮"上沿：功法 178（参悟/激发/精进）、
+       剧情 175、洞府 170、炼丹·锻造·阵法·传承 212、兽栏·打坐 214~216。
+       取 166 → 盖住所有 ≥170 的底部动作排，且留 4px 余量。
+       ⚠️ 面板内部的**列表行**（剧情/洞府/妖囊那种每 15px 一行）盖不住 ——
+          面板体布满可点控件，屏幕内不存在"全空带"。这里只保证
+          **不再压住底部动作排**（G32 报的就是这一处）；列表行被浮层
+          临时压住是可接受的（浮层 2 秒即散，且列表可滚动）。
+       52 是上界：再往上会顶进面板子页签（11..31）。 */
+    FLOAT_CLEAR_Y: 166,
+    FLOAT_TOP_MIN: 52,
+
+    /* 当前是否有覆盖层打开（面板 / 战斗下拉 / 剧情模态）。
+       **唯一判定口** —— 浮层让位、环境粒子跳过等多处共用，禁止各写一份。
+       三个来源：
+         · 探索/城镇/副本：scene.overlay 是面板 id（panels.js 里 openPanel 设的）
+         · 战斗：没有 overlay 字段，用 phase（skill/item/target 才是覆盖层；
+           command 是指令区本身、exec/result 是演出，都不算）
+         · 剧情：G.Story.modalOpen()（忆起/图鉴浮层，任何场景都可能弹） */
+    _overlayOpen: function () {
+      if (G.Story && G.Story.modalOpen && G.Story.modalOpen()) return true;
+      var sc = this.scene;
+      if (!sc) return false;
+      if (sc.overlay) return true;
+      var ph = sc.phase;
+      return ph === 'skill' || ph === 'item' || ph === 'target';
+    },
+
     _renderLoot: function (x) {
       if (!this.lootFeed.length) return;
       /* 位置：**HUD 下方、靠右**。
@@ -402,6 +431,15 @@
       /* 起点 54 = HUD（48）之下 —— 探索场景里浮层画在场景之后，
          起点压进 HUD 会把它盖住。战斗顶栏只有 30 高，54 也仍在单位之上。 */
       var base = 54;
+      /* G32（v0.74.0）：战利品**锚在顶部**（54、每行 +15、上限 5 行 → 底 ≈143），
+         结构上够不到按钮带（208），所以常态**一个像素都不动**。
+         这里只加一道**下沿守卫**：若某天放宽行数上限、或改大行高，
+         整块会被抬到让位线之上，而不会静默压进按钮带。 */
+      var lh = 15, need = base + this.lootFeed.length * lh;
+      if (need > this.FLOAT_CLEAR_Y) {
+        base = Math.max(this.FLOAT_TOP_MIN,
+          this.FLOAT_CLEAR_Y - this.lootFeed.length * lh);
+      }
       x.save();
       for (var i = 0; i < this.lootFeed.length; i++) {
         var it = this.lootFeed[i];
@@ -432,6 +470,13 @@
       /* 底部要让开探索场景的功能栏（28px），否则提示被压在底栏底下看不见 */
       var bot = (G.Explore && G.Explore.BOT_H) || 0;
       var y0 = this.H - h - 14 - bot;
+      /* G32（v0.74.0）：覆盖层打开时整体上移到"安全带" —— 否则正好压住
+         面板那排「参悟/精进/激发」（实测重叠 18px），点了看不见反馈。
+         上移量固定，不随 toast 条数变；未打开覆盖层时 y0 与历史完全一致。 */
+      if (this._overlayOpen()) {
+        var wantY = this.FLOAT_CLEAR_Y - h;     /* 末行贴住让位线 */
+        y0 = Math.max(this.FLOAT_TOP_MIN, Math.min(y0, wantY));
+      }
       G.UI.panel(x, { x: this.W / 2 - w / 2, y: y0, w: w, h: h },
         '#161b28', 'rgba(216,183,104,0.65)', 5);
       for (var i = 0; i < this.toasts.length; i++) {

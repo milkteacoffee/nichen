@@ -1788,14 +1788,18 @@
       },
 
       /* 当前场景名：室内图取地图自带 label（洞府/药铺/…），
-         室外图按 mapId 取世界随机名（青溪镇/翠微山/赤牙洞）。 */
+         室外图走 `regions.nameOf` 的**唯一口**（v0.74.0，区域名按世随机）。
+         ⚠️ 老图三张（town/field/cave）的名字由 `save.world.names` 供，
+            生成型区域由 `regions.nameOf` 供 —— 两者都由 nameOf 转发，
+            所以这里不再自己写 mapId 分支（历史就是这么漂的：地图面板改名了、
+            进图场景名还是老的）。 */
       _sceneName: function () {
         var md = this.map.md;
-        if (md.label) return md.label;
-        var names = G.game.save.world && G.game.save.world.names;
-        if (this.mapId === 'town') return (names && names.town) || '青溪镇';
-        if (this.mapId === 'field') return (names && names.mountain) || '翠微山';
-        if (this.mapId === 'cave') return (names && names.cave) || '赤牙洞';
+        if (md && md.label) return md.label;
+        if (G.Data.regions && G.Data.regions.nameByMapId) {
+          var nm = G.Data.regions.nameByMapId(this.mapId, G.game.save);
+          if (nm) return nm;
+        }
         return this.mapId;
       },
 
@@ -1992,9 +1996,15 @@
         if (!open) return;
 
         var s = tk.s, C = G.UI.C;
+        /* 地名随世替换（v0.74.0，用户第 24 点）：章节标题/目标/子任务里写死的
+           "赤牙洞""翠微山"要显示成本世区名 —— 否则地图节点叫「白骨窟」、
+           追踪栏还写「赤牙洞」，正是用户点名的"场景与地图名不一致"。
+           锚世恒等（零回归）；只用于显示。 */
+        var TX = (G.Data.regions && G.Data.regions.textOf) || function (v) { return v; };
+        var SV = G.game.save;
 
         /* 目标文案：折行最多 2 行（面板只有 118 宽，第 3 行就顶到面板底了） */
-        var dl = G.UI.wrap(x, s.d, 9.5, TR_W - 14);
+        var dl = G.UI.wrap(x, TX(s.d, SV), 9.5, TR_W - 14);
         if (dl.length > 2) { dl = dl.slice(0, 2); dl[1] = dl[1].replace(/.$/, '') + '…'; }
         /* 支线（v0.72.0）：有支线时主线段少放两条子任务 —— 面板高度写死，总预算必须守住：
            by=78、底栏上沿 244 → 可用高 ≤ 158。主线段满配（2 行目标 + 3 条子任务 + 路引）
@@ -2025,7 +2035,7 @@
         /* 当前步：金点 + 标题 */
         x.fillStyle = C.goldHi;
         x.beginPath(); x.arc(bx + 10, cy + 5, 2.2, 0, 6.2832); x.fill();
-        G.UI.text(x, { x: bx + 16, y: cy }, s.t, 11, C.goldHi);
+        G.UI.text(x, { x: bx + 16, y: cy }, TX(s.t, SV), 11, C.goldHi);
         cy += 14;
 
         dl.forEach(function (ln) {
@@ -2047,7 +2057,7 @@
             x.beginPath(); x.arc(sx2, sy2, 2.4, 0, 6.2832); x.stroke();
           }
           x.restore();
-          G.UI.text(x, { x: bx + 16, y: cy }, sb.t, 9.5, done ? C.jadeHi : C.text);
+          G.UI.text(x, { x: bx + 16, y: cy }, TX(sb.t, SV), 9.5, done ? C.jadeHi : C.text);
           cy += 11;
         });
 
@@ -2090,9 +2100,10 @@
         }
 
         /* 目标名：同图用 NPC / 地点名，跨图用"下一跳地图名 · 出口名" */
+        var _tx = (G.Data.regions && G.Data.regions.textOf) || function (v) { return v; };
         var who = onMap
-          ? guide.who
-          : this._mapName(guide.map) + (hop && hop.name ? ' · ' + hop.name : '');
+          ? _tx(guide.who, G.game.save)
+          : this._mapName(guide.map) + (hop && hop.name ? ' · ' + _tx(hop.name, G.game.save) : '');
         G.UI.text(x, { x: bx + 28, y: cy }, this._ellip(x, who, 10, bw - 35), 10, C.text);
         var line2 = ok
           ? this._dirName(dx, dy) + '　约 ' + Math.round(Math.sqrt(dx * dx + dy * dy)) + ' 格'
@@ -2127,7 +2138,7 @@
             G.UI.text(x, { x: bx + 16, y: cy },
               self._ellip(x, sd.n, 10, bw - 24), 10, sd.canTurnIn ? C.goldHi : C.text);
             cy += 11;
-            var sl = G.UI.wrap(x, sd.hint || sd.d, 9, TR_W - 24);
+            var sl = G.UI.wrap(x, TX(sd.hint || sd.d, SV), 9, TR_W - 24);
             if (sl.length > 1) { sl = sl.slice(0, 1); sl[0] = sl[0].replace(/.$/, '') + '…'; }
             if (sl[0]) { G.UI.text(x, { x: bx + 16, y: cy }, sl[0], 9, C.textDim); cy += 10; }
           });
@@ -2153,22 +2164,24 @@
       },
 
       /* 地图显示名。手写图有 label，生成型区域查 regions 表，
-         最后才是兜底表 —— 三层都查不到就直接显示 id（不静默成空串）。 */
+         最后才是兜底表 —— 三层都查不到就直接显示 id（不静默成空串）。
+         ⚠️ v0.74.0：缓存键带**世代标签**（`world.seed`）—— 区域名按世随机后，
+            沿用跨世缓存会让"白鹿集"这一世的地图面板里列出上一世的区名。 */
       _mapName: function (id) {
         if (!id) return '';
-        if (NAME_CACHE[id]) return NAME_CACHE[id];
+        var w = G.game.save && G.game.save.world;
+        var ck = ((w && w.seed) || 0) + '|' + id;
+        if (NAME_CACHE[ck]) return NAME_CACHE[ck];
         var md = G.Data.maps[id], nm = '';
         if (md && (md.label || md.n)) nm = md.label || md.n;
-        if (!nm && G.Data.regions) {
-          var Rg = G.Data.regions;
-          var r = Rg.byId ? Rg.byId(Rg.regionIdOf ? Rg.regionIdOf(id) : id) : null;
-          if (r && r.n) nm = r.n;
+        if (!nm && G.Data.regions && G.Data.regions.nameByMapId) {
+          nm = G.Data.regions.nameByMapId(id, G.game.save) || '';
         }
         if (!nm) {
           nm = { town: '青溪镇', field: '翠微山', cave: '赤牙洞', town_home: '洞府',
             town_shop: '药铺', town_market: '刘记杂货', field_temple: '山神庙' }[id] || id;
         }
-        NAME_CACHE[id] = nm;
+        NAME_CACHE[ck] = nm;
         return nm;
       },
 

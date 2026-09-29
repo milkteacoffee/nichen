@@ -285,11 +285,167 @@
     dao4: 'chaos', dao5: 'dao_altar'
   };
 
+  /* ============================================================
+     区域名按世随机（v0.74.0，用户第 24 点）
+     ============================================================
+     用户口径：「每次转世的世界名称不一样，地图也要保持随机名称，
+                并且**实际场景和地图名称要一致**」。
+
+     设计：
+       · `REGNAME_POOL` 登记"哪些区参与改名、用哪个词池"。
+         **没登记 = 固定名**（原样用 `r.n`）。这是刻意的边界：
+         云州城（fan10）是 M2 主线与 chapters.js 文案的引用对象，改名会把
+         整条主线文案与既有截图基线一起推翻 —— 剧情锚定区一律不参与。
+       · `'@town'` 这种带 `@` 的值 = **复用 `save.world.names` 的对应键**
+         （老图三张：镇/山/洞）。这一条正是"场景名与地图名一致"的关键：
+         进图后左上角场景名走 `save.world.names.town`（explore._sceneName），
+         地图节点名如果另抽一套就会两边对不上。
+       · 锚世（第 1 世）整界保持原名 → 新档第一天与旧回归基线**逐字一致**。
+       · 种子 = `'regname:' + worldSeed`，走**独立 RNG**。
+         ⚠️ 不要蹭全局 `G.rng` —— 任何新增的随机调用都会推移全局序列，
+            污染所有依赖 rng 的回归基线。
+       · 同一世整表**一次生成 + used 去重**，不能逐区各自抽（会撞名）。 */
+  var REGNAME_POOL = {
+    fan1: '@town', fan2: '@mountain', fan3: '@cave',
+    fan4: 'town', fan5: 'ridge', fan6: 'valley',
+    fan7: 'moor', fan8: 'mine', fan9: 'lava',
+    ling1: 'marsh', ling2: 'water', ling3: 'ruin',
+    ling4: 'desert', ling5: 'ridge'
+    /* fan10（云州城）与仙界/道界 15 区**不登记**：天界固有结构 / 剧情锚定，不随凡世轮回改名 */
+  };
+  var REGNAME = {
+    town: { pre: ['白鹿', '石泉', '暮云', '柳泊', '鹤栖', '横塘', '枫林', '渔阳', '稻花', '桃夭', '梅坞', '杏村'],
+      suf: ['镇', '集', '埠', '驿'] },
+    ridge: { pre: ['断龙', '卧虎', '听松', '照胆', '落雁', '孤鹰', '铁脊', '黑石'],
+      suf: ['岭', '崖', '隘', '关'] },
+    valley: { pre: ['幽篁', '竹溪', '兰渚', '云岫', '药王', '蝶栖', '青萝'],
+      suf: ['谷', '坞', '坳', '涧'] },
+    moor: { pre: ['乱葬', '白骨', '荒冢', '野哭', '阴风', '枯柳', '断碑'],
+      suf: ['岗', '冢', '滩', '坡'] },
+    mine: { pre: ['玄铁', '赤铜', '寒晶', '落霞', '紫金', '乌金', '灵石'],
+      suf: ['矿', '坑', '窟', '场'] },
+    lava: { pre: ['火云', '炎心', '赤焰', '熔金', '地火', '硫磺'],
+      suf: ['谷', '渊', '窟', '壑'] },
+    marsh: { pre: ['雷泽', '泥沼', '毒瘴', '蒹葭', '黑水', '沉沙'],
+      suf: ['荒原', '泽', '沼', '滩'] },
+    water: { pre: ['寒渊', '碧落', '沧浪', '沉玉', '水晶', '玄冰'],
+      suf: ['水府', '海', '湖', '泽'] },
+    ruin: { pre: ['血煞', '枯骨', '残阳', '荒丘', '断壁', '鬼哭'],
+      suf: ['总坛', '废墟', '遗址', '旧堡'] },
+    desert: { pre: ['黄沙', '流金', '鸣沙', '大漠', '孤烟', '落照'],
+      suf: ['古堡', '沙丘', '绿洲', '驿'] }
+  };
+
+  function pickRegionName(rng, p, used) {
+    for (var t = 0; t < 24; t++) {
+      var s = rng.pick(p.pre) + rng.pick(p.suf);
+      if (used.indexOf(s) < 0) { used.push(s); return s; }
+    }
+    return rng.pick(p.pre) + rng.pick(p.suf);
+  }
+
+  /* 整表缓存：key 带种子与锚世标记，跨世自动隔离（每世一份，量很小） */
+  var _regionNameCache = {};
+  function regionNames(seed, anchor, worldNames) {
+    var ck = 'rn|' + seed + '|' + (anchor ? 'a' : 'n');
+    if (_regionNameCache[ck]) return _regionNameCache[ck];
+    var out = {};
+    var allR = fan.concat(ling, xian, dao);
+    if (anchor) {
+      allR.forEach(function (r) { out[r.id] = r.n; });
+      return (_regionNameCache[ck] = out);
+    }
+    var rng = new G.RNG(G.RNG.hash('regname:' + seed));
+    var used = [];
+    allR.forEach(function (r) {
+      var key = REGNAME_POOL[r.id];
+      /* `@xxx` = 复用世界随机名（老图三张），保证地图名与进图后的场景名一致 */
+      if (key && key.charAt(0) === '@') {
+        var nk = key.slice(1);
+        out[r.id] = (worldNames && worldNames[nk]) || r.n;
+        return;
+      }
+      var p = key && REGNAME[key];
+      if (!p) { out[r.id] = r.n; return; }        /* 未登记 = 固定名 */
+      out[r.id] = pickRegionName(rng, p, used);
+    });
+    return (_regionNameCache[ck] = out);
+  }
+
   G.Data = G.Data || {};
+  /* 叙事文案替换表：`{re, map}`，re = 所有"旧名"的长词优先正则。
+     整世缓存（同 seed 只建一次），避免每句台词都重建正则。
+     只收录 **旧名 ≠ 本世名** 的区（恒等项进表只会白白加长正则）。 */
+  var _regnameTblCache = {};
+  function regnameTable(save) {
+    var w = (save && save.world) || null;
+    var ck = 'tbl|' + (w ? w.seed : 'x') + '|' + (w && w.names ? (w.names.town + w.names.mountain + w.names.cave) : '');
+    if (_regnameTblCache[ck]) return _regnameTblCache[ck];
+    var pairs = [];
+    Object.keys(index).forEach(function (rid) {
+      var r = index[rid];
+      var now = G.Data.regions.nameOf(rid, save);
+      if (now && now !== r.n) pairs.push([r.n, now]);
+    });
+    /* 长词优先：避免「翠微山」被更短的词部分吃掉 */
+    pairs.sort(function (a, b) { return b[0].length - a[0].length; });
+    var map = {}, esc = [];
+    pairs.forEach(function (p) {
+      map[p[0]] = p[1];
+      esc.push(p[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    });
+    var out = { map: map, re: esc.length ? new RegExp(esc.join('|'), 'g') : null };
+    return (_regnameTblCache[ck] = out);
+  }
+
   G.Data.regions = {
     byWorld: byWorld,
     index: index,
     worldNames: { fan: '凡界', ling: '灵界', xian: '仙界', dao: '道界' },
+    REGNAME_POOL: REGNAME_POOL,
+    /* 区域名的**唯一读取口**。凡"显示某个区域叫什么"的地方都必须走它
+       （场景名 / 地图节点名 / 出口名牌 / 追踪栏路引），否则两边会分叉。 */
+    nameOf: function (regionId, save) {
+      var r = index[regionId];
+      if (!r) return '';
+      var w = (save && save.world) || null;
+      var anchor = !w || w.anchor !== false;
+      var nm = regionNames(w ? w.seed : null, anchor, w && w.names);
+      return nm[regionId] || r.n;
+    },
+    /* 老图三张的随机名走 `save.world.names`，这里给一个统一的读取口，
+       免得 explore/panels 各写一套 mapId 分支（历史就是这么漂的）。 */
+    nameByMapId: function (mapId, save) {
+      var rid = null;
+      Object.keys(index).forEach(function (k) {
+        if ((index[k].map || index[k].id) === mapId) rid = k;
+      });
+      return rid ? G.Data.regions.nameOf(rid, save) : null;
+    },
+    /* ---- 叙事文案的地名替换（v0.74.0，用户第 24 点）----
+       台词 / 任务描述 / 章节文案里写死着"青溪镇""翠微山""赤牙洞"等旧名，
+       区域随机改名之后，地图节点叫「白鹿集」、对话里却还叫「青溪镇」——
+       正是用户点名的"实际场景和地图名称不一致"。
+       这里把写死的地名换成**本世的区域名**。
+
+       设计：
+         · 替换表 = 每个**登记过改名**的区：`r.n`（原文里的旧名）→ 本世名。
+           未登记区（云州城/天界）本就不改名，`旧名 === 新名`，替换是恒等 ——
+           所以不必特判，进表也无害。
+         · **只在非锚世替换**（`world.anchor !== false`）→ 锚世走的还是原名，
+           新档第一天与旧回归基线**逐字一致**（零回归）。
+         · 一次正则替换（长词优先）避免链式替换：若先把「青溪镇」换成
+           「白鹿集」，而某新名恰好含「青溪」，二轮会误伤。
+         · 只用于**显示**，绝不用于逻辑判定（id / 存档键仍是原值）。 */
+    textOf: function (s, save) {
+      if (s == null || s === '') return s;
+      var w = (save && save.world) || null;
+      if (!w || w.anchor !== false) return s;      /* 锚世：原名即本世名，不动 */
+      if (typeof s !== 'string') return s;
+      var tbl = regnameTable(save);
+      if (!tbl.re) return s;
+      return s.replace(tbl.re, function (m) { return tbl.map[m]; });
+    },
     PAL: PAL,
     TINT: TINT,
     /* 区域调色板：预设覆盖 ground/dark/grass/rock，其余字段从世界调色板透传。

@@ -988,6 +988,16 @@ step(() => {
   G.Overlays.openPanel(G.game.scene, 'skills');
 }, 'panel.skills');
 shot('30_panel_skills', 6);
+
+/* G32 收口（v0.74.0）：面板打开 + toast 同屏 —— toast 必须落在按钮带**之上**，
+   不能压住那排「参悟 / 卸下激发 / 精进」。这是 G32 修法的直接肉眼验收：
+   修前这张图里 toast 会横糊在三个按钮上。 */
+step(() => {
+  G.game.toasts.length = 0;
+  G.game.toast('「碎星剑诀」精进至 三重·后期');
+}, 'panel.skills.toast');
+shot('30b_panel_skills_toast', 3);
+step(() => { G.game.toasts.length = 0; }, 'panel.skills.toast.clear');
 step(() => { G.Overlays.openPanel(G.game.scene, 'secrets'); }, 'panel.secrets');
 shot('31_panel_secrets', 6);
 step(() => { G.Overlays.openPanel(G.game.scene, 'quest'); }, 'panel.quest');
@@ -1246,6 +1256,33 @@ shot('55_sect_txjz_gongxian', 24);
 
 step(() => { G.Overlays.openPanel(G.game.scene, 'map'); }, 'panel.map');
 shot('36_panel_map', 6);
+
+/* 区域名按世随机（v0.74.0，用户第 24 点）：第 2 世地图节点应换成随机名，
+   且**与进图后的场景名一致**。这里故意造一个非锚世 + 自定义 world.names，
+   拍两张对照：① 地图面板（节点名）② 进镇后左上角（场景名）。 */
+step(() => {
+  const s = G.game.save;
+  s.world = s.world || {};
+  s.world.seed = 987654321;
+  s.world.anchor = false;
+  s.world.names = { gj: '越国', town: '白鹿集', mountain: '断龙岭', cave: '白骨窟', sect: '栖霞宗' };
+  G.RegionGen && G.RegionGen.resetGen && G.RegionGen.resetGen();
+  G.Overlays.openPanel(G.game.scene, 'map');
+}, 'panel.map.renamed');
+shot('36b_panel_map_renamed', 4);
+step(() => {
+  const s = G.game.save;
+  s.pos = null;
+  G.game.changeScene('town', { toSpawn: true });
+}, 'town.renamed');
+shot('36c_town_renamed', 20);
+/* 对话台词里的地名也要随世替换（用户第 24 点"场景与地图名一致"）：
+   这句原写「你留在青溪镇，只会给镇子招祸。」——非锚世应变成本世镇名。 */
+step(() => {
+  G.game.scene.setOverlay('m1_7', []);
+}, 'town.renamed.dialog');
+shot('36d_town_renamed_dialog', 4);
+step(() => { G.game.scene.clearOverlay(); }, 'town.renamed.dialog.clear');
 /* 灵根页（v0.40.0）：九宫格改用**文生图灵珠**，未激活的压暗 */
 step(() => {
   const s = G.game.save;

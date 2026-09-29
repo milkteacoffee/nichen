@@ -78,7 +78,9 @@
       var c = exitCellOf(r, e.side);
       var x0 = c.x, x1 = c.x, ey = c.y;
       if (e.side === 'north' || e.side === 'south') { x0 = Math.max(1, c.x - 1); x1 = Math.min(w - 2, c.x + 1); }
-      exits.push({ x0: x0, x1: x1, y: ey, to: G.Data.regions.mapIdOf(e.to), spawn: targetSpawn(e.to, e.side), label: (G.Data.regions.byId(e.to) || {}).n || '' });
+      /* 出口名牌也走 `nameOf`（v0.74.0）—— 否则出口写着"青溪镇"、点进去场景名却是
+         "白鹿集"（区域名按世随机后必然分叉）。 */
+      exits.push({ x0: x0, x1: x1, y: ey, to: G.Data.regions.mapIdOf(e.to), spawn: targetSpawn(e.to, e.side), label: G.Data.regions.nameOf(e.to, save) });
       /* 出口内侧一格 → 枢纽 */
       if (e.side === 'north') for (var yy = 1; yy <= cy; yy++) road(cx, yy);
       else if (e.side === 'south') for (var yy2 = cy; yy2 <= h - 2; yy2++) road(cx, yy2);
@@ -258,8 +260,13 @@
       || (r.safe ? { trees: 6, rocks: 2 }
         : (r.ground === 'cave' ? { rocks: 12 } : { trees: 14, rocks: 6 }));
 
+    /* 区域名（v0.74.0）：走 `regions.nameOf` 的**唯一口** —— 场景名 / 地图节点名 /
+       出口名牌都从 md.label 取，所以只要这里按世随机，三处显示自动一致。
+       （用户第 24 点：「实际场景和地图名称要一致」。） */
+    var rn = G.Data.regions.nameOf(regionId, save);
+
     var md = {
-      id: regionId, regionId: regionId, n: r.n, label: r.n,
+      id: regionId, regionId: regionId, n: rn, label: rn,
       tex: regionId,   /* 区域专属底图键（ground.<regionId>） */
       w: w, h: h, ground: r.ground, safe: !!r.safe,
       zones: r.zones || [],
@@ -273,14 +280,41 @@
   }
 
   /* ===== 注册（幂等） ===== */
+  /* ⚠️ v0.74.0：地图缓存必须**按世失效**。`G.Data.maps[regionId]` 里烘着区域名
+     （`md.label` / 出口名牌 / NPC 名）与装饰散布，区域名按世随机之后，
+     跨世沿用旧缓存 = 第 2 世地图上还写着第 1 世的区名。
+
+     世代标签取 `world.seed | worldSeed` 两段：
+       · `world.seed` 供区域名（regions.nameOf 的种子）—— 换世变；
+       · `worldSeed` 供地图内容（build 的 rng）—— 契约里改它会重抽入口落位。
+     只取一个会漏（无头契约换 worldSeed 却不清缓存 → 取到旧图的入口落位）。
+
+     ⚠️ 判定是**逐区**的（标记挂在 md 上），**不做全局清空**。
+        全局 `delete G.Data.maps[k]` 会改变别处"缓存存不存在"的前提：
+        调用方普遍写 `G.Data.maps[id] || ensure(...)`（缓存优先短路），
+        被我一清就会重新生成，把后续契约拿到的对象换掉（踩过：区域可见性
+        差分探针静默报"落位区没有入口裂隙"）。逐区标记只影响被访问的那个区。 */
   function ensure(save, regionId) {
     if (!save) return null;
     var r = G.Data.regions.byId(regionId);
     if (!r) return null;
     var mapId = r.map || regionId;
     if (r.map) return G.Data.maps[mapId];          /* 复用型：现成地图 */
-    if (!G.Data.maps[regionId]) G.Data.maps[regionId] = build(save, regionId);
-    return G.Data.maps[regionId];
+    var tag = ((save.world && save.world.seed) || 0) + '|' + (save.worldSeed || 0);
+    var md = G.Data.maps[regionId];
+    if (md && md._genTag === tag) return md;
+    md = build(save, regionId);
+    if (md) md._genTag = tag;
+    G.Data.maps[regionId] = md;
+    return md;
+  }
+  /* 供契约/测试显式复位（清掉全部生成型的世代标记 → 下次访问强制重建）。
+     ⚠️ 只清标记、**不删对象**；确实要丢弃对象时由调用方自行备份还原。 */
+  function resetGen() {
+    Object.keys(G.Data.maps).forEach(function (k) {
+      if (G.Data.regions.byId(k) && G.Data.maps[k]) delete G.Data.maps[k]._genTag;
+      if (k.indexOf('int.') === 0 && G.Data.maps[k]) delete G.Data.maps[k]._genTag;
+    });
   }
 
   /* ===== 场景工厂（惰性、幂等） ===== */
@@ -391,6 +425,7 @@
   G.RegionGen = {
     build: build,
     ensure: ensure,
+    resetGen: resetGen,
     sceneFor: sceneFor,
     openGate: openGate,
     travelTo: travelTo,

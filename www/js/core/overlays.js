@@ -133,6 +133,18 @@
        立绘走 G.Art.portrait(key)：装了 portrait.<key> 素材用素材，否则程序化半身像。 */
     dialog: function (x, opt) {
       opt = opt || {};
+      /* 地名随世替换（v0.74.0，用户第 24 点）：台词/标题里写死的"青溪镇"
+         要显示成**本世**的区名。所有对话都走这里 → 一处替换覆盖全场景。
+         `textOf` 在锚世是恒等（零回归），只用于显示、不改逻辑。 */
+      if (G.Data.regions && G.Data.regions.textOf) {
+        var _t = G.Data.regions.textOf;
+        opt = {
+          title: _t(opt.title, G.game.save), name: opt.name,
+          portrait: opt.portrait, reward: _t(opt.reward, G.game.save),
+          lines: (opt.lines || []).map(function (l) { return _t(l, G.game.save); }),
+          note: _t(opt.note, G.game.save)
+        };
+      }
       var P = this.PANEL;
       this.dim(x);
       /* 对话框 = 云海玉牌（深青紫底 + 浅字）。**只包住绘制、不包 dim** ——

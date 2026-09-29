@@ -1131,14 +1131,18 @@
     var dx = QP.detX, dy = QP.detY;
     G.UI.text(x, { x: dx, y: dy - 16 }, selCh ? '主线 · 章节' : (selSide ? '支线' : '主线'),
       10, G.UI.C.gold);
-    G.UI.text(x, { x: dx, y: dy + 2 }, selSide ? selSide.n : sel.t, 13.5, G.UI.C.goldHi);
+    /* 地名随世替换（v0.74.0，用户第 24 点）：章节/支线描述里写死的旧地名
+       要显示成本世区名。锚世恒等（零回归）。 */
+    var QT = (G.Data.regions && G.Data.regions.textOf) || function (v) { return v; };
+    G.UI.text(x, { x: dx, y: dy + 2 },
+      QT(selSide ? selSide.n : sel.t, save), 13.5, G.UI.C.goldHi);
     var sideDesc = '';
     if (selSide) {
       var st0 = G.Data.sideQuests.stepOf(save, selSide.id);
       sideDesc = st0 === 0 ? selSide.intro
         : selSide.steps[Math.min(st0, 3) - 1].d;
     }
-    var dl = wrapCJK(selSide ? sideDesc : sel.d, 11, QP.detW, 3);
+    var dl = wrapCJK(QT(selSide ? sideDesc : sel.d, save), 11, QP.detW, 3);
     dl.slice(0, 3).forEach(function (l, i) {
       G.UI.text(x, { x: dx, y: dy + 22 + i * 15 }, l, 11, G.UI.C.text);
     });
@@ -1197,6 +1201,9 @@
     var q = save.quest || { step: 'free', flags: {} };
     var tab = scene.questTab || 'main';
     var selId = scene.questSel || (tab === 'main' ? q.step : (G.Data.sideQuests.list[0] || {}).id);
+    /* 地名随世替换（v0.74.0，用户第 24 点）—— 本函数与 drawQuest 各持一份，
+       不跨函数引用（`QT` 是局部名，drawQuest 里那份只服务它自己）。 */
+    var QT = (G.Data.regions && G.Data.regions.textOf) || function (v) { return v; };
 
     /* 页签：主线 / 支线 */
     [{ id: 'main', n: '主线' }, { id: 'side', n: '支线' }].forEach(function (t, i) {
@@ -1222,7 +1229,7 @@
         x: QP.listX, y: QP.listY + i * QP.rowH - 5, w: QP.listW, h: QP.rowH - 1,
         small: true, fs: 10.5, lalign: true,
         variant: on ? 'gold' : 'ghost',
-        label: r.ch ? ('章 · ' + r.ch.n) : (r.sq ? r.sq.n : r.s.t),
+        label: QT(r.ch ? ('章 · ' + r.ch.n) : (r.sq ? r.sq.n : r.s.t), save),
         onClick: function () {
           scene.questSel = r.id;
           G.Overlays.openPanel(scene, 'quest', true);
@@ -2741,7 +2748,7 @@
     L.push('秘境　' + (mine.length ? ('有入口 ×' + mine.length) : '无'));
     L.push('界门　' + (r.gate ? '有' : '无'));
     L.push(visited[r.id] ? '已到访' : '未曾至');
-    return { title: r.n + '　' + (r.theme || ''), text: L.join('\n') };
+    return { title: G.Data.regions.nameOf(r.id, save) + '　' + (r.theme || ''), text: L.join('\n') };
   }
 
   /* ============================================================
@@ -2917,10 +2924,12 @@
         && np.y + 13 > zb.y && np.y - 4 < zb.y + zb.h) return;
       var fs = isCur ? 10.5 : 9.5;
       x.font = G.UI.F(fs);
-      var tw = x.measureText(r.n).width;
+      /* 节点名按世随机（v0.74.0）：走 nameOf 唯一口，与进图场景名同源 */
+      var nodeName = G.Data.regions.nameOf(r.id, save);
+      var tw = x.measureText(nodeName).width;
       var lx = Math.max(V.vx + tw / 2 + 1, Math.min(V.vx + V.vw - tw / 2 - 1, np.x));
       var ly = Math.max(V.vy + 2, Math.min(V.vy + V.vh - 13, np.y + 5));
-      G.UI.textOut(x, { x: lx, y: ly }, r.n, fs,
+      G.UI.textOut(x, { x: lx, y: ly }, nodeName, fs,
         isCur ? G.UI.C.goldHi : (seen ? 'rgba(228,236,248,0.95)' : 'rgba(140,152,176,0.9)'),
         'center', 'rgba(6,10,20,0.9)', 2.2);
     });

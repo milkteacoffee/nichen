@@ -2581,6 +2581,129 @@ step(function () {
   console.log(`  · 区域 ${regionN} 个 / 建筑 ${buildingN} 栋 / 内部 ${interiorN} 间`);
 }, 'regions.contract');
 
+/* ---------- 区域名按世随机契约（v0.74.0，用户第 24 点） ----------
+   用户口径：「每次转世的世界名称不一样，地图也要保持随机名称，
+              并且**实际场景和地图名称要一致**」。
+
+   ① 锚世（第 1 世）整界保持原名 → 新档第一天与旧基线逐字一致（零回归）；
+   ② 非锚世：凡界/灵界登记区**必须换名**，同一世内**不得重名**；
+   ③ 同一世**可复现**（同 seed 两次生成结果相同）—— 走独立 RNG，不吃全局 G.rng；
+   ④ 不同世**必然不同**（换 seed 至少有一半区名变化）；
+   ⑤ **未登记区必须保持固定名**（云州城 / 天界 15 区）—— 剧情锚定与天界固有结构；
+   ⑥ **场景名 == 地图节点名**（同一个 `nameOf`，不许两处各写一套）。
+   ⑦ 地图缓存按世失效：`ensure` 换 seed 后 md.label 必须跟着变（缓存不跨世）。 */
+step(function () {
+  const Rg = G.Data.regions;
+  const mkSave = (seed, anchor, names) => ({
+    world: { seed: seed, anchor: !!anchor, names: names || { town: '青溪镇', mountain: '翠微山', cave: '赤牙洞' } },
+    globalLevel: 1
+  });
+
+  /* ① 锚世保持原名 */
+  const aSave = mkSave(20260924, true);
+  Rg.all().forEach(function (r) {
+    const nm = Rg.nameOf(r.id, aSave);
+    if (nm !== r.n) errors.push(`锚世 ${r.id} 应保持原名「${r.n}」，实际「${nm}」`);
+  });
+
+  /* ② 非锚世换名 + 不重名 */
+  const bSave = mkSave(987654321, false);
+  const changed = [];
+  const seenName = {};
+  Rg.all().forEach(function (r) {
+    const nm = Rg.nameOf(r.id, bSave);
+    if (nm !== r.n) changed.push(r.id);
+    if (seenName[nm]) errors.push(`非锚世区名重复：「${nm}」同时被 ${seenName[nm]} 与 ${r.id} 使用`);
+    seenName[nm] = r.id;
+  });
+  if (changed.length < 10) errors.push(`非锚世只有 ${changed.length} 个区换了名（应 ≥10）`);
+
+  /* ③ 同一世可复现 */
+  const cSave = mkSave(987654321, false);
+  Rg.all().forEach(function (r) {
+    if (Rg.nameOf(r.id, bSave) !== Rg.nameOf(r.id, cSave)) errors.push(`同种子不可复现：${r.id}`);
+  });
+
+  /* ④ 不同世不同名（在**可改名区**里比较，锚定区本来就不参与） */
+  const dSave = mkSave(13579, false);
+  const rebindable = Object.keys(Rg.REGNAME_POOL);
+  let diff = 0;
+  rebindable.forEach(function (rid) { if (Rg.nameOf(rid, bSave) !== Rg.nameOf(rid, dSave)) diff++; });
+  if (diff < Math.ceil(rebindable.length * 0.6)) {
+    errors.push(`换世只有 ${diff}/${rebindable.length} 个可改名区变名（应 ≥60%）`);
+  }
+
+  /* ⑤ 未登记区保持固定名（云州城 + 天界 15 区） */
+  ['fan10', 'xian1', 'xian3', 'dao1', 'dao5'].forEach(function (rid) {
+    const r = Rg.byId(rid);
+    if (Rg.nameOf(rid, bSave) !== r.n) errors.push(`未登记区 ${rid} 不应改名（剧情锚定/天界固有）`);
+  });
+
+  /* ⑥ 场景名 == 地图节点名（老图三张走 save.world.names，与 nameByMapId 同源） */
+  const names = { town: '白鹿集', mountain: '断龙岭', cave: '白骨窟' };
+  const eSave = mkSave(24680, false, names);
+  if (Rg.nameByMapId('town', eSave) !== '白鹿集') errors.push('老图 town 的场景名应取 save.world.names.town');
+  if (Rg.nameByMapId('field', eSave) !== '断龙岭') errors.push('老图 field 的场景名应取 save.world.names.mountain');
+  if (Rg.nameByMapId('cave', eSave) !== '白骨窟') errors.push('老图 cave 的场景名应取 save.world.names.cave');
+
+  /* ⑦ 地图缓存按世失效：换 seed 后 ensure 重建，md.label 必须跟着变。
+     ⚠️ 这里**必须 resetGen 收尾**：ensure 会刷新 `G.Data.maps` 的生成型区域缓存，
+        若不复位，后面的契约（区域可见性差分探针）跑在同一模块作用域里会拿到
+        被本段 seed 生成的旧图 → 静默报"落位区里没有生成入口裂隙"。 */
+  const g1 = mkSave(11111, false); g1.scene = 'fan1'; g1.worldSeed = 'gen-a';
+  const g2 = mkSave(22222, false); g2.scene = 'fan1'; g2.worldSeed = 'gen-b';
+  G.RegionGen.resetGen();
+  const md1 = G.RegionGen.ensure(g1, 'fan5');
+  const lbl1 = md1 && md1.label;
+  G.RegionGen.resetGen();
+  const md2 = G.RegionGen.ensure(g2, 'fan5');
+  const lbl2 = md2 && md2.label;
+  G.RegionGen.resetGen();                 /* ← 收尾复位，别把缓存留给后面的契约 */
+  if (!lbl1 || !lbl2) errors.push('fan5 地图生成失败');
+  else if (lbl1 === lbl2) errors.push(`地图缓存未按世失效：两世 fan5 的 label 都是「${lbl1}」`);
+  else if (lbl1 !== Rg.nameOf('fan5', g1) || lbl2 !== Rg.nameOf('fan5', g2)) {
+    errors.push('md.label 与 nameOf 不一致（两处各写一套）');
+  }
+
+  /* 源码闸：场景名 / 地图节点名都不得再自己写 mapId 分支取死名 */
+  const ex = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const sn = strip(ex.slice(ex.indexOf('_sceneName: function'), ex.indexOf('_sceneName: function') + 900));
+  if (/names\.town/.test(sn)) errors.push('源码闸：_sceneName 仍在自取 save.world.names（应走 nameByMapId）');
+  if (sn.indexOf('nameByMapId') < 0) errors.push('源码闸：_sceneName 未走 regions.nameByMapId');
+
+  /* ⑧ 叙事文案地名替换（v0.74.0）：台词/任务/章节里写死的旧地名必须换成
+     本世区名 —— 否则地图节点叫「白鹿集」、对话里还喊「青溪镇」（用户第 24 点
+     点名的"实际场景和地图名称不一致"）。锚世恒等（零回归）。 */
+  const tSave = mkSave(24680, false, names);
+  const probe = '回到青溪镇，往翠微山去，再入赤牙洞。';
+  const got = Rg.textOf(probe, tSave);
+  if (got.indexOf('青溪镇') >= 0 || got.indexOf('翠微山') >= 0 || got.indexOf('赤牙洞') >= 0) {
+    errors.push('非锚世 textOf 未替换旧地名（实为「' + got + '」）');
+  }
+  ['白鹿集', '断龙岭', '白骨窟'].forEach(function (nm) {
+    if (got.indexOf(nm) < 0) errors.push('非锚世 textOf 未换成本世名「' + nm + '」（实为「' + got + '」）');
+  });
+  /* 锚世必须**逐字不变**（零回归） */
+  const anchorProbe = '回到青溪镇。';
+  if (Rg.textOf(anchorProbe, aSave) !== anchorProbe) {
+    errors.push('锚世 textOf 不应改动文案（零回归被破坏）');
+  }
+  /* 未登记区（云州城）本就不改名 → 替换后仍是原字 */
+  if (Rg.textOf('去云州城', tSave).indexOf('云州城') < 0) {
+    errors.push('textOf 误改了未登记区名（云州城不该变）');
+  }
+  /* 源码闸：追踪栏 / 对话 / 任务面板必须走 textOf，不能自己写死地名 */
+  ['js/core/explore.js', 'js/core/panels.js', 'js/core/overlays.js'].forEach(function (rel) {
+    const src = fs.readFileSync(path.join(WWW, rel), 'utf8');
+    if (src.indexOf('textOf') < 0) {
+      errors.push('源码闸：' + rel + ' 未接 textOf（叙事文案的地名不会随世替换）');
+    }
+  });
+
+  console.log(`  · 非锚世改名 ${changed.length} 区 / 换世变名 ${diff} 区 / 锚世保持原名`);
+}, 'region.name.contract');
+
 /* ---------- 区域连通性契约 ----------
    每个界的区域必须**从该界首区全部可达**。挡的是"地图生成得出来、玩家永远走不到"的孤岛 ——
    区域层与手写地图没接上时就是这样（fan4–fan9 曾经完全走不到）。
@@ -4922,9 +5045,14 @@ step(function () {
   s.entrances.fan = G.Data.regions.rollEntrances('fan', s.worldSeed);
 
   /* 渲染一帧并数 drawImage 次数；dropKind 指定时临时摘掉该类物件。
-     摘/还都**原地改数组**（不换引用）—— mapgen 可能把这张数组交给 map.md。 */
+     摘/还都**原地改数组**（不换引用）—— mapgen 可能把这张数组交给 map.md。
+     ⚠️ 地图一律走 `RegionGen.ensure`（**唯一口**），不许写 `G.Data.maps[id] || ensure(...)`
+        这种"缓存优先"短路：按世缓存（v0.74.0）之后，短路会取到**别的上下文**
+        （别的契约用另一个 worldSeed）遗留的同名地图，症状是"落位区里没有入口裂隙"
+        这类看似与本次改动无关的假红。ensure 会按 tag 自动重建，语义才正确。 */
   function frames(regionId, dropKind) {
-    const md = G.Data.maps[regionId] || G.RegionGen.ensure(s, regionId);
+    const md = G.RegionGen.ensure(s, regionId);
+    if (!md) { errors.push(`视觉探针：区域 ${regionId} 生成失败`); return 0; }
     const bak = md.special.slice();
     if (dropKind) {
       for (let i = md.special.length - 1; i >= 0; i--) {
@@ -4943,9 +5071,10 @@ step(function () {
 
   /* ① 裂隙：本世入口落位所在的区域 */
   const entRegion = s.entrances.fan[0].region;
-  const emd = G.Data.maps[entRegion] || G.RegionGen.ensure(s, entRegion);
+  const emd = G.RegionGen.ensure(s, entRegion);
   if (!(emd.special || []).some(function (x) { return x.kind === 'entrance'; })) {
-    errors.push(`${entRegion}: 落位区里没有生成入口裂隙`);
+    errors.push(`${entRegion}: 落位区里没有生成入口裂隙`
+      + `（cached=${!!G.Data.maps[entRegion]}, label=${emd.label}, special=${(emd.special || []).map(function (x) { return x.kind; }).join('/') || '空'}）`);
   } else {
     const a = frames(entRegion, null), b = frames(entRegion, 'entrance');
     if (!(a > b)) errors.push(`裂隙没有画出来：摘掉 entrance 后每帧 drawImage 次数没减少（${a} vs ${b}）`);
@@ -4955,7 +5084,7 @@ step(function () {
   const gr = G.Data.regions.of('fan').filter(function (r) { return r.gate && !r.map; })[0];
   if (!gr) errors.push('fan: 没有标记 gate 的生成型区域');
   else {
-    const gmd = G.Data.maps[gr.id] || G.RegionGen.ensure(s, gr.id);
+    const gmd = G.RegionGen.ensure(s, gr.id);
     if (!(gmd.special || []).some(function (x) { return x.kind === 'worldgate'; })) {
       errors.push(`${gr.id}: 没有生成界门`);
     } else {
@@ -9026,6 +9155,176 @@ step(function () {
   console.log('  ✓ 战斗表现：倒计时 15s 无进度条 / 战利品纯文字无框约 3s / 特殊物品带特效');
 }, 'battle.hud.contract');
 pump(6, 'hud.leave');
+
+/* ---------- 浮层纵向分区（v0.74.0 · G32）----------
+   用户口径：「任务左右上下都在浮动」「不遮挡地图」；G32 是自记欠账：
+   toast 单条固定画在 y=201..230，而面板那排「参悟/精进/激发」按钮上沿 212
+   —— 实测重叠 18px，且 toast 在 scene.render **之后**绘制，等于 toast 盖住按钮。
+   约定：**覆盖层打开时**把 toast 与战利品浮层整体上移到"安全带"，
+   下沿不越过 FLOAT_CLEAR_Y；未打开覆盖层时与历史**逐像素一致**。
+   ⚠️ 反例钉法：删掉任一处的 `if (this._overlayOpen())` 让位，本契约必须红。 */
+step(function () {
+  const errors = [];
+  const gsrc = fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8');
+  const g = G.game;
+
+  /* ① 唯一判定口：只许定义一次 */
+  const defs = (gsrc.match(/_overlayOpen:\s*function/g) || []).length;
+  if (defs !== 1) errors.push('_overlayOpen 应只定义一次（唯一判定口），实为 ' + defs);
+
+  /* ② 环境粒子必须复用同一口 —— 否则第二份判据会与主口漂移 */
+  const ai = gsrc.indexOf('_renderAmbient: function');
+  const ambBody = ai >= 0 ? gsrc.slice(ai, ai + 420) : '';
+  if (ambBody.indexOf('_overlayOpen') < 0) {
+    errors.push('_renderAmbient 未复用 _overlayOpen（第二份判据会漂）');
+  }
+
+  /* ③ 实测：无覆盖层时公式与历史一致；有覆盖层时下沿 ≤ 让位线 */
+  const realPanel = G.UI.panel, realTextOut = G.UI.textOut;
+  let cap = null, capYs = [];
+  const stubCtx = { save: function () {}, restore: function () {}, globalAlpha: 1,
+    shadowColor: '', shadowBlur: 0 };
+  G.UI.panel = function (x, r) { cap = { x: r.x, y: r.y, w: r.w, h: r.h }; };
+  G.UI.textOut = function (x, o) { capYs.push(o.y); };
+
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  const BOT = (G.Explore && G.Explore.BOT_H) || 0;
+
+  const toastRect = function () {
+    g.toasts.length = 0;
+    g.toast('G32 测试提示');
+    cap = null;
+    g._renderToasts(stubCtx);
+    return cap;
+  };
+  const lootRows = function () {
+    g.lootFeed.length = 0;
+    g.loot('战利品 A'); g.loot('战利品 B');
+    capYs = [];
+    g._renderLoot(stubCtx);
+    return capYs.slice();
+  };
+
+  /* 无覆盖层：toast y0 必须等于历史公式（= H - h - 14 - BOT） */
+  sc.overlay = null;
+  const nRect = toastRect();
+  if (!nRect) errors.push('_renderToasts 没画面板（capture 失败）');
+  else {
+    const wantY = g.H - nRect.h - 14 - BOT;
+    if (nRect.y !== wantY) {
+      errors.push('无覆盖层时 toast y 应与历史一致（' + wantY + '），实为 ' + nRect.y);
+    }
+  }
+  /* 无覆盖层：战利品首行仍从 54 起 */
+  const nLoot = lootRows();
+  if (nLoot.length && nLoot[0] !== 54) {
+    errors.push('无覆盖层时战利品首行应从 54 起，实为 ' + nLoot[0]);
+  }
+
+  /* 有覆盖层：toast 下沿 ≤ 让位线 */
+  sc.overlay = 'skills';
+  const oRect = toastRect();
+  if (oRect) {
+    if (oRect.y + oRect.h > g.FLOAT_CLEAR_Y) {
+      errors.push('覆盖层打开时 toast 下沿 ' + (oRect.y + oRect.h)
+        + ' 越过让位线 ' + g.FLOAT_CLEAR_Y + '（仍压住面板按钮）');
+    }
+    if (oRect.y < g.FLOAT_TOP_MIN) {
+      errors.push('覆盖层打开时 toast 顶到安全带之上（' + oRect.y + ' < ' + g.FLOAT_TOP_MIN + '）');
+    }
+  }
+  /* ⚠️ 战利品**锚在顶部**（54、上限 5 行 → 底 ≈129），结构上够不到按钮带（208），
+     所以覆盖层打开时它**也不该位移** —— 断言"恒为 54"正是钉住这一点。
+     我第一版照抄 toast 的公式，把它**向下推**到了 178（方向反了），
+     这条断言就是那次错误的防线。 */
+  const oLoot = lootRows();
+  if (oLoot.length && oLoot[0] !== 54) {
+    errors.push('战利品锚在顶部、够不到按钮带，覆盖层打开时也不该位移（实为 ' + oLoot[0] + '）');
+  }
+
+  /* 源码闸：战利品必须有一道"越线才上移"的下沿守卫（防将来放宽行数上限） */
+  const li = gsrc.indexOf('_renderLoot: function');
+  const lt = gsrc.indexOf('_renderToasts: function');
+  const lootBody = (li >= 0 && lt > li) ? gsrc.slice(li, lt) : '';
+  if (lootBody.indexOf('FLOAT_CLEAR_Y') < 0) {
+    errors.push('源码闸：_renderLoot 缺下沿守卫（放宽行数上限会静默压进按钮带）');
+  }
+
+  /* 判定口本身：overlay 设/清 各自为真/假 */
+  if (!g._overlayOpen()) errors.push('scene.overlay 已设，_overlayOpen 应为真');
+  sc.overlay = null;
+  if (g._overlayOpen()) errors.push('overlay 清空后 _overlayOpen 应为假');
+
+  /* ④ 战斗：下拉三阶段算覆盖层，command/exec/result 不算 */
+  G.game.changeScene('battle', {
+    enemy: G.Data.makeEnemy('青纹蛇', 3, '青纹蛇'), mapId: 'field'
+  });
+  pump(4, 'g32.battle');
+  const bb = G.game.scene;
+  if (!bb) bail('G32 契约：没能进入战斗场景');
+  bb.phase = 'command';
+  if (g._overlayOpen()) errors.push('战斗 command 阶段不该算覆盖层（那是普通指令区）');
+  bb.phase = 'skill';
+  if (!g._overlayOpen()) errors.push('战斗 skill 阶段应算覆盖层（功法下拉浮在指令区上）');
+  bb.phase = 'item';
+  if (!g._overlayOpen()) errors.push('战斗 item 阶段应算覆盖层');
+  bb.phase = 'target';
+  if (!g._overlayOpen()) errors.push('战斗 target 阶段应算覆盖层（选靶浮层）');
+  bb.phase = 'exec';
+  if (g._overlayOpen()) errors.push('战斗 exec 阶段不该算覆盖层（在播演出）');
+  bb.phase = 'result';
+  if (g._overlayOpen()) errors.push('战斗 result 阶段不该算覆盖层');
+
+  /* ⑤ 剧情模态也算覆盖层 */
+  const realModal = G.Story && G.Story.modalOpen;
+  if (realModal) {
+    G.Story.modalOpen = function () { return true; };
+    if (!g._overlayOpen()) errors.push('剧情模态打开时 _overlayOpen 应为真');
+    G.Story.modalOpen = realModal;
+  }
+
+  G.UI.panel = realPanel;
+  G.UI.textOut = realTextOut;
+
+  /* ⑥ 让位线必须**真的清掉**最靠上的底部动作排。
+     实测 15 个面板的"最低内容按钮上沿"：功法 178（参悟/卸下/精进，全部面板里
+     最高的一排）> 剧情 175 > 洞府 170 > 炼丹/锻造/阵法/传承 212 > 兽栏/打坐 214~216。
+     所以 FLOAT_CLEAR_Y 只要 ≤178−4 就清掉全部底部动作排。
+     ⚠️ 这条专防我犯过的错：我第一版按**字面量**解析量到 212，误以为够，
+        结果功法面板那排（SK.btn 间接引用，解析漏掉）仍被压 —— 截图一眼看穿。
+        判据必须是**真开面板读按钮矩形**，不能读源码字面量。 */
+  G.game.changeScene('town', { toSpawn: true });
+  const sk2 = G.game.scene;
+  sk2.buttons = [];
+  try { G.Overlays.openPanel(sk2, 'skills'); } catch (e) { /* 面板打不开就跳过 */ }
+  const actRow = (sk2.buttons || []).filter(function (b) {
+    return b && typeof b.y === 'number' && b.y > 100 && b.y < 244;
+  }).sort(function (a, b) { return b.y - a.y; })[0];
+  if (!actRow) {
+    errors.push('G32：功法面板未找到底部动作排（几何变了，本守卫需更新）');
+  } else if (g.FLOAT_CLEAR_Y > actRow.y - 4) {
+    errors.push('让位线 ' + g.FLOAT_CLEAR_Y + ' 未清掉功法面板底部动作排（上沿 '
+      + actRow.y + '，会让 toast 压住「参悟/精进」）');
+  }
+  sk2.buttons = [];
+  sk2.overlay = null;
+
+  G.game.toasts.length = 0;
+  G.game.lootFeed.length = 0;
+  G.game.save = save;
+  G.game.changeScene('title');
+
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('浮层分区契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 浮层让位：覆盖层打开时 toast/战利品上移不压按钮；未打开时与历史一致');
+}, 'overlay.float.contract');
+pump(6, 'overlay.leave');
 
 /* ---------- 门口必有路（v0.17.0）----------
    用户口径：「这个道路必须延伸到建筑的前面，必须是挨着靠近着建筑」。
