@@ -555,6 +555,26 @@
       if (isFinal) {
         var slot = this._slotIndex(run.archId);
         var ascendTo = this._planAscend(slot, run, arch);
+
+        /* v0.76.0 评级计算：首次通关计算并保存评级 */
+        if (!run.farm) {
+          var rank = this._calculateRank(run);
+          run.finalRank = rank;
+          lines.push('');
+          lines.push('通关评级：' + this._rankIcon(rank) + ' ' + rank + ' 级');
+
+          // 保存最佳评级
+          save.dungeonRecords = save.dungeonRecords || {};
+          var rec = save.dungeonRecords[run.archId] || {};
+          if (!rec.bestRank || this._rankValue(rank) > this._rankValue(rec.bestRank)) {
+            rec.bestRank = rank;
+            rec.clearTime = run.battleTime;
+            rec.bestCombo = run.bestCombo;
+            lines.push('（刷新最佳评级！）');
+          }
+          save.dungeonRecords[run.archId] = rec;
+        }
+
         this._pending = { complete: true, slot: slot, ascendTo: ascendTo };
         this.briefLines = lines;
         G.Storage.saveCurrent(save);
@@ -976,6 +996,17 @@
         G.UI.text(x, { x: r.x + 36, y: r.y + 19 },
           kindTag + ' · ' + a.elem + '属性', 9.5, kindCol);
 
+        /* v0.76.0 评级徽章显示 */
+        var rec = (G.game.save.dungeonRecords || {})[a.id];
+        if (rec && rec.bestRank) {
+          var rankColor = rec.bestRank === 'S' ? '#ffd45a' :
+                          rec.bestRank === 'A' ? '#7fdcc4' :
+                          rec.bestRank === 'B' ? '#9ac8ff' : '#8f95a6';
+          x.font = G.UI.F(11);
+          x.fillStyle = rankColor;
+          x.fillText(this._rankIcon(rec.bestRank) + rec.bestRank, r.x + r.w - 102, r.y + 22);
+        }
+
         var status;
         if (i < cur) status = '已通关';
         else if (i === cur) {
@@ -995,6 +1026,56 @@
         G.UI.text(x, { x: BRIEF.x + 22, y: BRIEF.y + 48 + i * 20 },
           this.briefLines[i], 12, '#d8d2c0');
       }
+    },
+
+    /* v0.76.0 评级系统：计算副本通关评级（S/A/B/C） */
+    _calculateRank: function (run) {
+      var score = 100;
+
+      // 时间评分（目标：每层30秒，9层共270秒=4.5分钟）
+      var targetTime = 270;
+      var timeScore = 30;
+      if (run.battleTime > targetTime * 1.5) timeScore = 0;      // 超6分钟：0分
+      else if (run.battleTime > targetTime) timeScore = 15;      // 超4.5分钟：15分
+      // 否则满分30
+      score = score - 30 + timeScore;
+
+      // 受伤评分（目标：受击<5次）
+      var damageScore = 30;
+      if (run.totalDamage === 0) damageScore = 40;              // 无伤：额外+10分
+      else if (run.totalDamage <= 5) damageScore = 30;          // ≤5次：满分
+      else if (run.totalDamage <= 15) damageScore = 15;         // ≤15次：15分
+      else damageScore = 0;                                     // >15次：0分
+      score = score - 30 + damageScore;
+
+      // 连击评分（目标：50+连击）
+      var comboScore = 20;
+      if (run.bestCombo >= 50) comboScore = 30;                 // ≥50：额外+10分
+      else if (run.bestCombo >= 30) comboScore = 20;            // ≥30：满分
+      else if (run.bestCombo >= 15) comboScore = 10;            // ≥15：10分
+      else comboScore = 0;                                      // <15：0分
+      score = score - 20 + comboScore;
+
+      // 药剂使用评分（目标：不用药）
+      var itemScore = 20;
+      if (run.totalItems === 0) itemScore = 20;                 // 未用：满分
+      else if (run.totalItems <= 3) itemScore = 10;             // ≤3次：10分
+      else itemScore = 0;                                       // >3次：0分
+      score = score - 20 + itemScore;
+
+      // 评级阈值
+      if (score >= 95) return 'S';
+      if (score >= 80) return 'A';
+      if (score >= 60) return 'B';
+      return 'C';
+    },
+
+    _rankValue: function (rank) {
+      return { 'S': 4, 'A': 3, 'B': 2, 'C': 1 }[rank] || 0;
+    },
+
+    _rankIcon: function (rank) {
+      return { 'S': '★', 'A': '◆', 'B': '●', 'C': '○' }[rank] || '';
     }
   };
 

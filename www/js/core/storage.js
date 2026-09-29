@@ -144,6 +144,9 @@
           data.dungeonFarm = data.dungeonFarm || 0;     /* 刷本次数（影响产出衰减） */
           data.secrets = data.secrets || {};            /* 秘境奇遇/秘术拾取记录 */
           data.daoCrystal = data.daoCrystal || 0;       /* 道晶（道界货币） */
+          /* v0.76.0 评级与扫荡系统 */
+          data.dungeonRecords = data.dungeonRecords || {}; /* 副本评级记录 {archId: {bestRank, clearTime, bestCombo}} */
+          data.sweepTickets = data.sweepTickets != null ? data.sweepTickets : 3; /* 扫荡券（每日3张） */
         }
         data.version = 2;
       }

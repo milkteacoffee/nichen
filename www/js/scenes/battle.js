@@ -2136,6 +2136,17 @@
       this.phase = 'result';
       var save = G.game.save;
       save.hp = Math.max(1, this.p.hp);
+
+      /* v0.76.0 评级数据保存到dungeonRun */
+      var run = save.dungeonRun;
+      if (run) {
+        var battleTime = (performance.now() - this.battleStartTime) / 1000;
+        run.battleTime = (run.battleTime || 0) + battleTime;
+        run.totalDamage = (run.totalDamage || 0) + this.damageTaken;
+        run.totalItems = (run.totalItems || 0) + this.itemsUsed;
+        run.bestCombo = Math.max(run.bestCombo || 0, this.comboBest);
+      }
+
       this._cut([[0.9, function () {
         /* 不再 toast「战斗胜利」—— 结算画面本身已经明示（用户口径） */
         G.game.changeScene('dungeon', { fromBattle: true });
