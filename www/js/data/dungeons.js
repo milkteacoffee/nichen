@@ -509,6 +509,283 @@
         ],
         phases: [ { kind: 'clone', trig: .4, pct: .4, n: 2 } ]
       }
+    },
+
+    /* ===== v0.76.0 阶段八：第二批副本扩展（B6-B10大型 + S26-S35小型）===== */
+
+    /* ---------------- B6 血月魔窟 ---------------- */
+    { id: 'B6', n: '血月魔窟', kind: 'big', stages: 9, elem: '暗', drop: 'n_xuemo',
+      leader: {
+        artKey: 'b1', sprite: 'cultist', tier: 'mid',
+        title: { fan: '血月邪修', ling: '血月魔修', xian: '血月魔尊' },
+        skills: [
+          { n: '邪血爪', mult: 1.0, cd: 2, elem: '暗', status: { t: '吸', chance: .30 } },
+          { n: '血祭术', mult: 0.8, cd: 3, target: '全体', elem: '暗' }
+        ]
+      },
+      boss: {
+        artKey: 'b1', sprite: 'demon', tier: 'boss',
+        title: { fan: '血月魔君', ling: '血海魔主', xian: '血煞魔神' },
+        skills: [
+          { n: '血月斩', mult: 1.3, cd: 2, elem: '暗', status: { t: '吸', chance: .40 } },
+          { n: '血海滔天', mult: 1.0, cd: 3, target: '全体', elem: '暗', status: { t: '流', chance: .50 } },
+          { n: '血魔再生', kind: 'heal', pct: .25, cd: 4, charge: true }
+        ],
+        phases: [
+          { kind: 'enrage', trig: .6, atk: .30 },
+          { kind: 'heal', trig: .3, pct: .25 }
+        ]
+      }
+    },
+
+    /* ---------------- B7 极寒冰狱 ---------------- */
+    { id: 'B7', n: '极寒冰狱', kind: 'big', stages: 9, elem: '水', drop: 'n_bingpo',
+      leader: {
+        artKey: 'b2', sprite: 'ice_warrior', tier: 'mid',
+        title: { fan: '冰狱守卫', ling: '冰狱卫士', xian: '冰狱统领' },
+        skills: [
+          { n: '冰刺', mult: 1.1, cd: 2, elem: '水', status: { t: '冻', chance: .30 } },
+          { n: '冰墙', kind: 'shield', pct: .20, cd: 3 }
+        ]
+      },
+      boss: {
+        artKey: 'b2', sprite: 'ice_dragon', tier: 'boss',
+        title: { fan: '冰狱霜龙', ling: '极寒霜龙', xian: '冰封龙王' },
+        skills: [
+          { n: '霜龙吐息', mult: 1.4, cd: 2, elem: '水', status: { t: '冻', chance: .45 } },
+          { n: '极寒领域', mult: 0.9, cd: 4, target: '全体', elem: '水', status: { t: '冻', chance: .35 } },
+          { n: '冰封万里', mult: 1.2, cd: 5, target: '全体', elem: '水', status: { t: '冻', chance: .60 }, charge: true }
+        ],
+        phases: [
+          { kind: 'summon', trig: .5, spec: { base: 'assassin', name: '冰晶' }, n: 2 },
+          { kind: 'enrage', trig: .2, atk: .40 }
+        ]
+      }
+    },
+
+    /* ---------------- B8 雷霆神殿 ---------------- */
+    { id: 'B8', n: '雷霆神殿', kind: 'big', stages: 9, elem: '雷', drop: 'n_leijing',
+      leader: {
+        artKey: 'b3', sprite: 'thunder_warrior', tier: 'mid',
+        title: { fan: '雷殿侍卫', ling: '雷殿护法', xian: '雷殿长老' },
+        skills: [
+          { n: '雷击', mult: 1.0, cd: 2, elem: '雷', status: { t: '麻', chance: .25 } },
+          { n: '雷网', mult: 0.7, cd: 3, target: '全体', elem: '雷', status: { t: '麻', chance: .20 } }
+        ]
+      },
+      boss: {
+        artKey: 'b3', sprite: 'thunder_god', tier: 'boss',
+        title: { fan: '雷神化身', ling: '雷霆天尊', xian: '九天雷帝' },
+        skills: [
+          { n: '天雷降世', mult: 1.5, cd: 2, elem: '雷', status: { t: '麻', chance: .40 } },
+          { n: '雷霆万钧', mult: 1.1, cd: 3, target: '全体', elem: '雷', status: { t: '麻', chance: .35 } },
+          { n: '神雷审判', mult: 2.0, cd: 6, elem: '雷', charge: true }
+        ],
+        phases: [
+          { kind: 'clone', trig: .6, pct: .35, n: 2 },
+          { kind: 'enrage', trig: .3, atk: .50 }
+        ]
+      }
+    },
+
+    /* ---------------- B9 业火炼狱 ---------------- */
+    { id: 'B9', n: '业火炼狱', kind: 'big', stages: 9, elem: '火', drop: 'n_yehuo',
+      leader: {
+        artKey: 'b4', sprite: 'fire_demon', tier: 'mid',
+        title: { fan: '炼狱炎魔', ling: '业火炎魔', xian: '炼狱魔将' },
+        skills: [
+          { n: '业火焚身', mult: 1.2, cd: 2, elem: '火', status: { t: '灼', chance: .40 } },
+          { n: '炼狱之火', mult: 0.9, cd: 3, target: '全体', elem: '火', status: { t: '灼', chance: .35 } }
+        ]
+      },
+      boss: {
+        artKey: 'b4', sprite: 'inferno_lord', tier: 'boss',
+        title: { fan: '业火魔神', ling: '炼狱魔主', xian: '业火魔帝' },
+        skills: [
+          { n: '魔神之焰', mult: 1.6, cd: 2, elem: '火', status: { t: '灼', chance: .50 } },
+          { n: '业火滔天', mult: 1.2, cd: 3, target: '全体', elem: '火', status: { t: '灼', chance: .45 } },
+          { n: '炼狱终焉', mult: 2.5, cd: 7, target: '全体', elem: '火', status: { t: '灼', chance: .60 }, charge: true }
+        ],
+        phases: [
+          { kind: 'enrage', trig: .5, atk: .35 },
+          { kind: 'summon', trig: .2, spec: { base: 'mook', name: '业火小鬼' }, n: 3 }
+        ]
+      }
+    },
+
+    /* ---------------- B10 虚空裂隙 ---------------- */
+    { id: 'B10', n: '虚空裂隙', kind: 'big', stages: 9, elem: '无', drop: 'n_xukong',
+      leader: {
+        artKey: 'b5', sprite: 'void_warrior', tier: 'mid',
+        title: { fan: '虚空守卫', ling: '虚空战士', xian: '虚空将军' },
+        skills: [
+          { n: '虚空斩', mult: 1.3, cd: 2, elem: '无' },
+          { n: '空间扭曲', mult: 0.8, cd: 3, target: '全体' }
+        ]
+      },
+      boss: {
+        artKey: 'b5', sprite: 'void_lord', tier: 'boss',
+        title: { fan: '虚空主宰', ling: '虚空魔主', xian: '虚空至尊' },
+        skills: [
+          { n: '虚空湮灭', mult: 1.8, cd: 2, elem: '无' },
+          { n: '次元裂缝', mult: 1.4, cd: 3, target: '全体' },
+          { n: '时空崩塌', mult: 2.8, cd: 8, target: '全体', charge: true },
+          { n: '虚空重生', kind: 'heal', pct: .20, cd: 5, charge: true }
+        ],
+        phases: [
+          { kind: 'clone', trig: .7, pct: .45, n: 2 },
+          { kind: 'enrage', trig: .4, atk: .40 },
+          { kind: 'heal', trig: .1, pct: .20 }
+        ]
+      }
+    },
+
+    /* ---------------- S26 迷雾沼泽 ---------------- */
+    { id: 'S26', n: '迷雾沼泽', kind: 'small', stages: 5, elem: '木', drop: 'n_duzhao',
+      leader: {
+        artKey: 's5', sprite: 'poison_toad', tier: 'leader',
+        title: { fan: '沼泽毒蟾', ling: '剧毒魔蟾', xian: '瘴气蟾王' },
+        skills: [
+          { n: '毒雾', mult: 0.9, cd: 2, target: '全体', elem: '木', status: { t: '毒', chance: .45 } },
+          { n: '剧毒喷射', mult: 1.2, cd: 3, elem: '木', status: { t: '毒', chance: .60 } },
+          { n: '沼泽治愈', kind: 'heal', pct: .20, cd: 4, charge: true }
+        ]
+      }
+    },
+
+    /* ---------------- S27 荒漠遗迹 ---------------- */
+    { id: 'S27', n: '荒漠遗迹', kind: 'small', stages: 5, elem: '风', drop: 'n_shajing',
+      leader: {
+        artKey: 's6', sprite: 'sand_scorpion', tier: 'leader',
+        title: { fan: '沙漠巨蝎', ling: '荒漠蝎王', xian: '沙暴蝎皇' },
+        skills: [
+          { n: '沙暴', mult: 0.8, cd: 2, target: '全体', elem: '风', status: { t: '盲', chance: .35 } },
+          { n: '毒尾刺', mult: 1.3, cd: 2, elem: '木', status: { t: '毒', chance: .50 } },
+          { n: '沙遁', kind: 'shield', pct: .25, cd: 3 }
+        ]
+      }
+    },
+
+    /* ---------------- S28 水晶洞窟 ---------------- */
+    { id: 'S28', n: '水晶洞窟', kind: 'small', stages: 5, elem: '光', drop: 'n_jingshi',
+      leader: {
+        artKey: 's7', sprite: 'crystal_golem', tier: 'leader',
+        title: { fan: '水晶魔像', ling: '晶石巨像', xian: '水晶泰坦' },
+        skills: [
+          { n: '水晶碎裂', mult: 1.4, cd: 2, target: '全体', elem: '光' },
+          { n: '能量护盾', kind: 'shield', pct: .30, cd: 3 },
+          { n: '水晶再生', kind: 'heal', pct: .25, cd: 5, charge: true }
+        ],
+        phases: [ { kind: 'enrage', trig: .3, atk: .40 } ]
+      }
+    },
+
+    /* ---------------- S29 腐朽墓地 ---------------- */
+    { id: 'S29', n: '腐朽墓地', kind: 'small', stages: 5, elem: '暗', drop: 'n_wugu',
+      leader: {
+        artKey: 's8', sprite: 'lich', tier: 'leader',
+        title: { fan: '亡灵巫妖', ling: '幽冥巫妖', xian: '死灵大巫' },
+        skills: [
+          { n: '死亡之触', mult: 1.1, cd: 2, elem: '暗', status: { t: '弱', chance: .40 } },
+          { n: '瘟疫爆发', mult: 0.9, cd: 3, target: '全体', elem: '木', status: { t: '毒', chance: .50 } },
+          { n: '召唤骷髅', kind: 'summon', cd: 4 }
+        ],
+        phases: [ { kind: 'summon', trig: .4, spec: { base: 'mook', name: '骷髅战士' }, n: 2 } ]
+      }
+    },
+
+    /* ---------------- S30 熔岩地狱 ---------------- */
+    { id: 'S30', n: '熔岩地狱', kind: 'small', stages: 5, elem: '火', drop: 'n_yanjiang',
+      leader: {
+        artKey: 's9', sprite: 'lava_titan', tier: 'leader',
+        title: { fan: '熔岩巨兽', ling: '岩浆泰坦', xian: '熔岩魔神' },
+        skills: [
+          { n: '熔岩拳', mult: 1.5, cd: 2, elem: '火', status: { t: '灼', chance: .45 } },
+          { n: '火山爆发', mult: 1.2, cd: 3, target: '全体', elem: '火', status: { t: '灼', chance: .50 } },
+          { n: '熔岩护甲', kind: 'shield', pct: .30, cd: 4 }
+        ],
+        phases: [ { kind: 'enrage', trig: .3, atk: .50 } ]
+      }
+    },
+
+    /* ---------------- S31 极光冰原 ---------------- */
+    { id: 'S31', n: '极光冰原', kind: 'small', stages: 5, elem: '水', drop: 'n_jiguang',
+      leader: {
+        artKey: 's10', sprite: 'aurora_spirit', tier: 'leader',
+        title: { fan: '极光冰灵', ling: '极光仙灵', xian: '极光圣灵' },
+        skills: [
+          { n: '极光射线', mult: 1.3, cd: 2, elem: '光', status: { t: '盲', chance: .30 } },
+          { n: '冰封极光', mult: 1.1, cd: 3, target: '全体', elem: '水', status: { t: '冻', chance: .40 } },
+          { n: '极光再生', kind: 'heal', pct: .25, cd: 4, charge: true }
+        ],
+        phases: [ { kind: 'clone', trig: .5, pct: .35, n: 2 } ]
+      }
+    },
+
+    /* ---------------- S32 雷鸣峡谷 ---------------- */
+    { id: 'S32', n: '雷鸣峡谷', kind: 'small', stages: 5, elem: '雷', drop: 'n_leishi',
+      leader: {
+        artKey: 's11', sprite: 'thunder_titan', tier: 'leader',
+        title: { fan: '雷霆泰坦', ling: '雷鸣泰坦', xian: '雷神泰坦' },
+        skills: [
+          { n: '泰坦之锤', mult: 1.6, cd: 2, elem: '雷', status: { t: '晕', chance: .35 } },
+          { n: '连锁闪电', mult: 1.0, cd: 2, target: '全体', elem: '雷', status: { t: '麻', chance: .40 } },
+          { n: '雷霆护体', kind: 'shield', pct: .30, cd: 3 }
+        ],
+        phases: [ { kind: 'enrage', trig: .4, atk: .45 } ]
+      }
+    },
+
+    /* ---------------- S33 暗影深渊 ---------------- */
+    { id: 'S33', n: '暗影深渊', kind: 'small', stages: 5, elem: '暗', drop: 'n_anyuan',
+      leader: {
+        artKey: 's12', sprite: 'shadow_king', tier: 'leader',
+        title: { fan: '暗影魔王', ling: '深渊魔主', xian: '暗影至尊' },
+        skills: [
+          { n: '暗影之爪', mult: 1.4, cd: 2, elem: '暗', status: { t: '吸', chance: .40 } },
+          { n: '吸血鬼群', mult: 1.0, cd: 3, target: '全体', elem: '暗', status: { t: '吸', chance: .35 } },
+          { n: '暗影分身', kind: 'clone', cd: 4 }
+        ],
+        phases: [
+          { kind: 'clone', trig: .5, pct: .40, n: 2 },
+          { kind: 'heal', trig: .2, pct: .25 }
+        ]
+      }
+    },
+
+    /* ---------------- S34 圣光神殿 ---------------- */
+    { id: 'S34', n: '圣光神殿', kind: 'small', stages: 5, elem: '光', drop: 'n_shengguang',
+      leader: {
+        artKey: 's13', sprite: 'angel', tier: 'leader',
+        title: { fan: '圣光天使', ling: '大天使', xian: '炽天使' },
+        skills: [
+          { n: '圣光裁决', mult: 1.5, cd: 2, elem: '光', status: { t: '灼', chance: .30 } },
+          { n: '净化之光', mult: 1.1, cd: 3, target: '全体', elem: '光' },
+          { n: '圣光祝福', kind: 'heal', pct: .30, cd: 4, charge: true }
+        ],
+        phases: [
+          { kind: 'heal', trig: .5, pct: .30 },
+          { kind: 'enrage', trig: .2, atk: .50 }
+        ]
+      }
+    },
+
+    /* ---------------- S35 混沌虚空 ---------------- */
+    { id: 'S35', n: '混沌虚空', kind: 'small', stages: 5, elem: '无', drop: 'n_hundun',
+      leader: {
+        artKey: 's14', sprite: 'chaos_herald', tier: 'leader',
+        title: { fan: '混沌使者', ling: '混沌魔神', xian: '混沌主宰' },
+        skills: [
+          { n: '混沌冲击', mult: 1.7, cd: 2, elem: '无' },
+          { n: '虚空裂隙', mult: 1.3, cd: 3, target: '全体' },
+          { n: '混沌再生', kind: 'heal', pct: .25, cd: 5, charge: true },
+          { n: '混沌湮灭', mult: 2.2, cd: 6, target: '全体', charge: true }
+        ],
+        phases: [
+          { kind: 'clone', trig: .6, pct: .45, n: 2 },
+          { kind: 'enrage', trig: .3, atk: .60 }
+        ]
+      }
     }
   ];
 

@@ -431,6 +431,274 @@
         { t: '不知道', run: function () {
           return '你沉默了。声音说："这就是答案。"';
         }}
+      ] },
+
+    /* ===== v0.76.0 阶段八：第二批机缘事件扩展（se29-se43）===== */
+
+    { id: 'se29', gl: 60, title: '老 人 求 药',
+      lines: ['一位老人拦住你："我孙儿病重，求仙长赐一枚疗伤丹。"', '你包里正好有一枚回春丹，但那是你为突破准备的。'],
+      choices: [
+        { t: '赠药', run: function (s) {
+          if (has(s, '回春丁')) { take(s, '回春丹'); return '你给了老人回春丹。老人千恩万谢，你心中也轻松了些。'; }
+          return '你摸了摸药囊，已经没有了。老人失望地走了。';
+        }},
+        { t: '拒绝', run: function (s) {
+          s.stone = (s.stone || 0) + 150;
+          return '你给了些灵石让他去买。你知道，灵石买不到好药。';
+        }}
+      ] },
+
+    { id: 'se30', gl: 96, title: '山 贼 劫 道',
+      lines: ['一伙山贼拦路："此山是我开，此树是我栽！"', '为首的看着你，犹豫了："这位修仙的，您看……"'],
+      choices: [
+        { t: '给钱放行', run: function (s) {
+          s.stone -= 100;
+          return '你扔了一袋灵石。山贼让开了路。';
+        }},
+        { t: '出手教训', run: function (s) {
+          s.items['兽皮'] = (s.items['兽皮'] || 0) + 3;
+          return '你出手制服了山贼。搜出些兽皮和杂物。';
+        }},
+        { t: '劝其改邪归正', run: function (s) {
+          s.qi = (s.qi || 0) + 800;
+          return '你晓以大义。为首的跪下："多谢仙长点化！"';
+        }}
+      ] },
+
+    { id: 'se31', gl: 120, title: '同 门 竞 争',
+      lines: ['师门选拔真传弟子，你与师弟竞争最后一个名额。', '师弟找到你："师兄，我愿让出名额，但我家人需要宗门庇护……"'],
+      choices: [
+        { t: '接受让位', run: function (s) {
+          s.stone = (s.stone || 0) + 500;
+          s.items['精钢'] = (s.items['精钢'] || 0) + 3;
+          return '你成为真传，得到资源。但看着师弟的眼神，你心里不是滋味。';
+        }},
+        { t: '拒绝让位', run: function (s) {
+          s.qi = (s.qi || 0) + 2000;
+          return '你说："我们公平竞争。"最终你以实力取胜，师弟也心服口服。';
+        }},
+        { t: '推荐师弟', run: function (s) {
+          s.qi = (s.qi || 0) + 1500;
+          return '你向长老推荐师弟。长老破例收了你们两人为真传。';
+        }}
+      ] },
+
+    { id: 'se32', gl: 156, title: '妖 兽 报 恩',
+      lines: ['你救过的那只妖兽找到你，叼来一枚内丹："恩人，这是我省下的。"', '那内丹对你很有用，但你知道，那是它修行的根基。'],
+      choices: [
+        { t: '收下内丹', run: function (s) {
+          s.qi = (s.qi || 0) + 2500;
+          return '你收下了内丹。妖兽开心地走了，但你看出它修为跌落了一个境界。';
+        }},
+        { t: '婉拒', run: function (s) {
+          s.items['妖骨'] = (s.items['妖骨'] || 0) + 2;
+          return '你拒绝了。妖兽执意要报恩，留下两块妖骨后消失在密林中。';
+        }}
+      ] },
+
+    { id: 'se33', gl: 192, title: '魔 宝 诱 惑',
+      lines: ['你在古战场废墟中发现一件魔宝，威力惊人。', '但它上面沾满血煞之气，使用它可能会入魔。'],
+      choices: [
+        { t: '炼化魔宝', run: function (s) {
+          s.items['血煞剑'] = (s.items['血煞剑'] || 0) + 1;
+          s.ageBonus = (s.ageBonus || 0) + 4;
+          return '你炼化了魔宝。威力确实惊人，但你常做噩梦。';
+        }},
+        { t: '净化后使用', run: function (s) {
+          s.stone -= 300;
+          s.items['道纹剑'] = (s.items['道纹剑'] || 0) + 1;
+          return '你花费大量灵石净化魔宝。虽然威力减弱，但用起来心安。';
+        }},
+        { t: '销毁魔宝', run: function (s) {
+          s.qi = (s.qi || 0) + 1800;
+          return '你摧毁了魔宝。这种东西，留在世上就是祸害。';
+        }}
+      ] },
+
+    { id: 'se34', gl: 228, title: '宗 门 危 机',
+      lines: ['宗门遭到强敌围攻，掌门下令："愿留者留，愿走者走，绝不强求。"', '你知道留下来九死一生，但你也知道宗门养育之恩。'],
+      choices: [
+        { t: '留下死战', run: function (s) {
+          var survive = Math.random() > 0.3;
+          if (survive) {
+            s.items['聚灵珠'] = (s.items['聚灵珠'] || 0) + 1;
+            s.qi = (s.qi || 0) + 4000;
+            return '你拼死一战，宗门守住了。战后你被封为护法长老。';
+          } else {
+            s.hp = Math.max(1, Math.round(s.hp * 0.2));
+            s.qi = (s.qi || 0) + 2000;
+            return '你重伤垂死，被同门救出。宗门虽破，但情义还在。';
+          }
+        }},
+        { t: '离开', run: function (s) {
+          s.stone = (s.stone || 0) + 600;
+          return '你带着部分弟子撤退。活着，才有希望重建。';
+        }}
+      ] },
+
+    { id: 'se35', gl: 264, title: '天 才 少 年',
+      lines: ['你遇到一个天赋惊人的少年，求你收他为徒。', '你看得出来，他将来成就必定在你之上。'],
+      choices: [
+        { t: '收为弟子', run: function (s) {
+          s.qi = (s.qi || 0) + 3500;
+          return '你收他为徒。教学相长，你的修为也有所突破。';
+        }},
+        { t: '推荐他人', run: function (s) {
+          s.stone = (s.stone || 0) + 500;
+          return '你推荐他去找更强的师父。少年感激地离开了。';
+        }},
+        { t: '拒绝', run: function () {
+          return '你拒绝了。你还没准备好承担传承的责任。';
+        }}
+      ] },
+
+    { id: 'se36', gl: 300, title: '心 魔 劫',
+      lines: ['渡劫时，你的心魔化形而出，质问你："你真的无愧于心吗？"', '它列举你一路走来的所有选择。'],
+      choices: [
+        { t: '坦然面对', run: function (s) {
+          s.qi = (s.qi || 0) + 5000;
+          return '你说："我问心无愧。"心魔散去，你的道心更加坚定。';
+        }},
+        { t: '压制心魔', run: function (s) {
+          s.qi = (s.qi || 0) + 3000;
+          s.ageBonus = (s.ageBonus || 0) + 5;
+          return '你强行压制心魔。虽然过关了，但它还藏在心底深处。';
+        }}
+      ] },
+
+    { id: 'se37', gl: 336, title: '古 修 传 承',
+      lines: ['你找到一处上古修士的传承洞府，里面有完整的功法和法宝。', '但守护灵要求你立誓："得我传承者，必守我道统，不得入魔。"'],
+      choices: [
+        { t: '立誓', run: function (s) {
+          s.items['八卦盘'] = (s.items['八卦盘'] || 0) + 1;
+          s.qi = (s.qi || 0) + 6000;
+          return '你立下誓言。得到传承，但从此多了一份责任。';
+        }},
+        { t: '拒绝立誓', run: function (s) {
+          s.stone = (s.stone || 0) + 1000;
+          return '你拒绝立誓。守护灵叹息，给了些灵石作为补偿。';
+        }}
+      ] },
+
+    { id: 'se38', gl: 372, title: '生 死 抉 择',
+      lines: ['你和道友被困绝地，只有一人能活着出去。', '道友说："你走，我留下。你比我更有希望突破元婴。"'],
+      choices: [
+        { t: '接受牺牲', run: function (s) {
+          s.qi = (s.qi || 0) + 7000;
+          s.items['白玉如意'] = (s.items['白玉如意'] || 0) + 1;
+          return '你含泪离开。后来你突破元婴，为道友立了衣冠冢。';
+        }},
+        { t: '一起拼', run: function (s) {
+          var both = Math.random() > 0.5;
+          if (both) {
+            s.qi = (s.qi || 0) + 5000;
+            return '你们拼死一搏，竟然都活了下来。患难见真情。';
+          } else {
+            s.hp = Math.max(1, Math.round(s.hp * 0.3));
+            s.qi = (s.qi || 0) + 3000;
+            return '你们拼尽全力，但道友还是没能撑住。你重伤逃出。';
+          }
+        }}
+      ] },
+
+    { id: 'se39', gl: 408, title: '魔 道 大 战',
+      lines: ['正魔大战爆发，双方都在征召修士。', '你知道这是一场没有赢家的战争。'],
+      choices: [
+        { t: '加入正道', run: function (s) {
+          s.stone = (s.stone || 0) + 1200;
+          s.items['道纹甲'] = (s.items['道纹甲'] || 0) + 1;
+          return '你加入正道联盟。虽然艰苦，但你坚信这是对的。';
+        }},
+        { t: '保持中立', run: function (s) {
+          s.qi = (s.qi || 0) + 4000;
+          return '你选择中立，专心修炼。战争与你无关。';
+        }},
+        { t: '调停双方', run: function (s) {
+          var peace = Math.random() > 0.7;
+          if (peace) {
+            s.qi = (s.qi || 0) + 8000;
+            return '你奔走调停。虽然很难，但最终促成了停战。';
+          } else {
+            s.hp = Math.max(1, Math.round(s.hp * 0.4));
+            return '你尝试调停，却被双方都视为敌人。你重伤逃离。';
+          }
+        }}
+      ] },
+
+    { id: 'se40', gl: 444, title: '时 空 裂 缝',
+      lines: ['你发现一道时空裂缝，可以窥见过去。', '你看到了改变命运的关键时刻，有机会穿越回去改变一切。'],
+      choices: [
+        { t: '穿越回去', run: function (s) {
+          s.qi = (s.qi || 0) + 6000;
+          s.ageBonus = (s.ageBonus || 0) + 10;
+          return '你穿越回去改变了一个选择。回到现在，一切都不一样了。';
+        }},
+        { t: '不改变', run: function (s) {
+          s.qi = (s.qi || 0) + 5000;
+          return '你选择不改变。每个选择都造就了现在的你。';
+        }}
+      ] },
+
+    { id: 'se41', gl: 504, title: '仙 界 邀 请',
+      lines: ['一位仙人降临："你有资格进入仙界，但需放弃人间的一切。"', '你想起人间还有未了的牵挂。'],
+      choices: [
+        { t: '立即飞升', run: function (s) {
+          s.qi = (s.qi || 0) + 10000;
+          return '你斩断牵挂，踏入仙界。新的征程开始了。';
+        }},
+        { t: '了结牵挂', run: function (s) {
+          s.stone = (s.stone || 0) + 2000;
+          s.qi = (s.qi || 0) + 6000;
+          return '仙人同意等你。你回人间了结牵挂，三年后飞升。';
+        }},
+        { t: '留在人间', run: function (s) {
+          s.items['道纹剑'] = (s.items['道纹剑'] || 0) + 1;
+          return '你拒绝飞升。仙界虽好，但人间才是你的根。';
+        }}
+      ] },
+
+    { id: 'se42', gl: 576, title: '道 祖 考 验',
+      lines: ['道祖化身出现："你已走到这一步，还有最后一个考验。"', '他要你在力量和智慧之间选择。'],
+      choices: [
+        { t: '力量', run: function (s) {
+          s.items['道纹戟'] = (s.items['道纹戟'] || 0) + 1;
+          s.qi = (s.qi || 0) + 12000;
+          return '道祖点头："力量是根本。"你得到一柄「道纹戟」。';
+        }},
+        { t: '智慧', run: function (s) {
+          s.qi = (s.qi || 0) + 15000;
+          return '道祖微笑："智慧是永恒。"你顿悟大道真谛。';
+        }},
+        { t: '两者皆要', run: function (s) {
+          var succeed = Math.random() > 0.5;
+          if (succeed) {
+            s.items['道祖令'] = (s.items['道祖令'] || 0) + 1;
+            s.qi = (s.qi || 0) + 18000;
+            return '道祖大笑："好！这才是我要的传人！"';
+          } else {
+            s.qi = (s.qi || 0) + 8000;
+            return '道祖摇头："贪心了。"你只得到部分传承。';
+          }
+        }}
+      ] },
+
+    { id: 'se43', gl: 648, title: '终 极 选 择',
+      lines: ['你站在天道之门前。门内是真正的永生，但你将失去所有记忆。', '门外是轮回，你将带着所有经历重新开始。'],
+      choices: [
+        { t: '进入永生', run: function (s) {
+          s.qi = (s.qi || 0) + 20000;
+          return '你推开天道之门。一切归于虚无，又归于永恒。';
+        }},
+        { t: '选择轮回', run: function (s) {
+          s.stone = (s.stone || 0) + 5000;
+          s.qi = (s.qi || 0) + 15000;
+          return '你转身走向轮回。下一世，你会做得更好。';
+        }},
+        { t: '创造第三条路', run: function (s) {
+          s.items['道源石'] = (s.items['道源石'] || 0) + 1;
+          s.qi = (s.qi || 0) + 25000;
+          return '你以无上神通开辟第三条路——保留记忆的永生！';
+        }}
       ] }
   ];
 
