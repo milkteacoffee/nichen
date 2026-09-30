@@ -310,6 +310,205 @@
         ],
         phases: []
       }
+    },
+
+    /* ===== v0.76.0 阶段八：第一批副本扩展（S11-S25）===== */
+
+    /* ---------------- S11 冰封雪域 ---------------- */
+    { id: 'S11', n: '冰封雪域', kind: 'small', stages: 5, elem: '水', drop: 'n_xuehai',
+      leader: {
+        artKey: 's1', sprite: 'snake', tier: 'leader',
+        title: { fan: '冰霜巨蟒', ling: '寒冰蛇妖', xian: '玄冰蛇祖' },
+        skills: [
+          { n: '冰冻吐息', mult: 1.0, cd: 2, elem: '水', status: { t: '封', chance: .35 } },
+          { n: '寒冰缠绕', mult: 1.2, cd: 3, elem: '水', status: { t: '麻', chance: .25 } }
+        ],
+        phases: []
+      }
+    },
+
+    /* ---------------- S12 毒瘴沼泽 ---------------- */
+    { id: 'S12', n: '毒瘴沼泽', kind: 'small', stages: 5, elem: '木', drop: 'n_kurong',
+      leader: {
+        artKey: 's2', sprite: 'tree', tier: 'leader',
+        title: { fan: '毒瘴蛙王', ling: '剧毒妖蟾', xian: '万毒魔祖' },
+        skills: [
+          { n: '毒雾', mult: 0.9, cd: 2, elem: '木', status: { t: '毒', chance: .5 } },
+          { n: '剧毒喷吐', mult: 1.3, cd: 3, charge: true, target: '全体', elem: '木',
+            status: { t: '毒', chance: .4 } }
+        ],
+        phases: [ { kind: 'heal', trig: .4, pct: .2 } ]
+      }
+    },
+
+    /* ---------------- S13 雷霆峡谷 ---------------- */
+    { id: 'S13', n: '雷霆峡谷', kind: 'small', stages: 5, elem: '雷', drop: 's_longxiang',
+      leader: {
+        artKey: 's3', sprite: 'snake', tier: 'leader',
+        title: { fan: '雷鸟首领', ling: '雷霆妖禽', xian: '九天雷尊' },
+        skills: [
+          { n: '雷击', mult: 1.2, cd: 2, elem: '雷', status: { t: '麻', chance: .35 } },
+          { n: '连锁闪电', mult: 1.0, cd: 3, target: '全体', elem: '雷', status: { t: '麻', chance: .3 } }
+        ],
+        phases: []
+      }
+    },
+
+    /* ---------------- S14 幽冥鬼域 ---------------- */
+    { id: 'S14', n: '幽冥鬼域', kind: 'small', stages: 5, elem: '暗', drop: 'x_zhuxie',
+      leader: {
+        artKey: 's1', sprite: 'killer', tier: 'leader',
+        title: { fan: '幽魂将军', ling: '鬼王', xian: '幽冥鬼祖' },
+        skills: [
+          { n: '鬼爪', mult: 1.1, cd: 2, elem: '暗' },
+          { n: '夺魂', mult: 1.3, cd: 3, elem: '暗', vamp: .4 }
+        ],
+        phases: [ { kind: 'clone', trig: .5, pct: .35, n: 2 } ]
+      }
+    },
+
+    /* ---------------- S15 烈焰火山 ---------------- */
+    { id: 'S15', n: '烈焰火山', kind: 'small', stages: 5, elem: '火', drop: 's_dajingang',
+      leader: {
+        artKey: 's4', sprite: 'wolfking', tier: 'leader',
+        title: { fan: '炎魔首领', ling: '烈焰魔王', xian: '焚天魔祖' },
+        skills: [
+          { n: '火焰拳', mult: 1.3, cd: 2, elem: '火' },
+          { n: '烈焰冲击', mult: 1.4, cd: 3, charge: true, elem: '火', status: { t: '烧', chance: .4 } }
+        ],
+        phases: [ { kind: 'enrage', trig: .3, atk: .3 } ]
+      }
+    },
+
+    /* ---------------- S16 星辰古墓 ---------------- */
+    { id: 'S16', n: '星辰古墓', kind: 'small', stages: 5, elem: '光', drop: 'x_jiuxiao',
+      leader: {
+        artKey: 's5', sprite: 'killer', tier: 'leader',
+        title: { fan: '墓室守卫', ling: '古墓守护', xian: '星辰古尊' },
+        skills: [
+          { n: '星光斩', mult: 1.2, cd: 2, elem: '光' },
+          { n: '星辰爆发', mult: 1.3, cd: 3, target: '全体', elem: '光' }
+        ],
+        phases: []
+      }
+    },
+
+    /* ---------------- S17 暗影洞窟 ---------------- */
+    { id: 'S17', n: '暗影洞窟', kind: 'small', stages: 5, elem: '暗', drop: 's_taiyi',
+      leader: {
+        artKey: 's6', sprite: 'tree', tier: 'leader',
+        title: { fan: '暗影巨蝎', ling: '暗影妖蝎', xian: '暗影魔祖' },
+        skills: [
+          { n: '暗影突刺', mult: 1.3, cd: 2, elem: '暗', pierce: .15 },
+          { n: '剧毒尾针', mult: 1.1, cd: 3, elem: '暗', status: { t: '毒', chance: .45 } }
+        ],
+        phases: []
+      }
+    },
+
+    /* ---------------- S18 风暴高原 ---------------- */
+    { id: 'S18', n: '风暴高原', kind: 'small', stages: 5, elem: '风', drop: 'n_xuehai',
+      leader: {
+        artKey: 's7', sprite: 'wolfking', tier: 'leader',
+        title: { fan: '风暴巨鹰', ling: '风暴妖禽', xian: '九天风尊' },
+        skills: [
+          { n: '风刃', mult: 1.1, cd: 2, elem: '风' },
+          { n: '龙卷风暴', mult: 1.2, cd: 3, charge: true, target: '全体', elem: '风' }
+        ],
+        phases: [ { kind: 'enrage', trig: .4, atk: .25 } ]
+      }
+    },
+
+    /* ---------------- S19 深海裂谷 ---------------- */
+    { id: 'S19', n: '深海裂谷', kind: 'small', stages: 5, elem: '水', drop: 'n_kurong',
+      leader: {
+        artKey: 's8', sprite: 'snake', tier: 'leader',
+        title: { fan: '深海巨章', ling: '深海妖王', xian: '碧海魔祖' },
+        skills: [
+          { n: '触手缠绕', mult: 1.0, cd: 2, elem: '水', status: { t: '麻', chance: .3 } },
+          { n: '深渊吞噬', mult: 1.5, cd: 3, charge: true, elem: '水', vamp: .3 }
+        ],
+        phases: []
+      }
+    },
+
+    /* ---------------- S20 天火禁地 ---------------- */
+    { id: 'S20', n: '天火禁地', kind: 'small', stages: 5, elem: '火', drop: 's_longxiang',
+      leader: {
+        artKey: 's9', sprite: 'killer', tier: 'leader',
+        title: { fan: '天火道人', ling: '天火真君', xian: '天火魔祖' },
+        skills: [
+          { n: '天火术', mult: 1.2, cd: 2, elem: '火', status: { t: '烧', chance: .35 } },
+          { n: '三昧真火', mult: 1.4, cd: 3, charge: true, target: '全体', elem: '火',
+            status: { t: '烧', chance: .45 } }
+        ],
+        phases: [ { kind: 'heal', trig: .35, pct: .18 } ]
+      }
+    },
+
+    /* ---------------- S21 魔窟深渊 ---------------- */
+    { id: 'S21', n: '魔窟深渊', kind: 'small', stages: 5, elem: '暗', drop: 'x_zhuxie',
+      leader: {
+        artKey: 's10', sprite: 'killer', tier: 'leader',
+        title: { fan: '魔窟领主', ling: '深渊魔主', xian: '魔窟魔祖' },
+        skills: [
+          { n: '魔爪', mult: 1.3, cd: 2, elem: '暗', vamp: .25 },
+          { n: '暗黑冲击', mult: 1.4, cd: 3, charge: true, elem: '暗' }
+        ],
+        phases: [ { kind: 'summon', trig: .5, spec: { base: '杀手', name: '魔窟卫士' }, n: 2 } ]
+      }
+    },
+
+    /* ---------------- S22 灵泉秘境 ---------------- */
+    { id: 'S22', n: '灵泉秘境', kind: 'small', stages: 5, elem: '水', drop: 's_dajingang',
+      leader: {
+        artKey: 's1', sprite: 'tree', tier: 'leader',
+        title: { fan: '灵泉守护', ling: '灵泉真灵', xian: '灵泉古尊' },
+        skills: [
+          { n: '水波术', mult: 1.0, cd: 2, elem: '水' },
+          { n: '灵泉治愈', kind: 'shield', pct: .3, cd: 4 }
+        ],
+        phases: [ { kind: 'heal', trig: .5, pct: .25 } ]
+      }
+    },
+
+    /* ---------------- S23 仙府试炼 ---------------- */
+    { id: 'S23', n: '仙府试炼', kind: 'small', stages: 5, elem: '光', drop: 'x_jiuxiao',
+      leader: {
+        artKey: 's2', sprite: 'killer', tier: 'leader',
+        title: { fan: '试炼傀儡', ling: '试炼守护', xian: '仙府守护' },
+        skills: [
+          { n: '仙光斩', mult: 1.3, cd: 2, elem: '光' },
+          { n: '仙府禁制', mult: 1.2, cd: 3, target: '全体', elem: '光', status: { t: '封', chance: .3 } }
+        ],
+        phases: []
+      }
+    },
+
+    /* ---------------- S24 混沌殿堂 ---------------- */
+    { id: 'S24', n: '混沌殿堂', kind: 'small', stages: 5, elem: '无', drop: 's_taiyi',
+      leader: {
+        artKey: 's3', sprite: 'tree', tier: 'leader',
+        title: { fan: '混沌守卫', ling: '混沌魔将', xian: '混沌魔祖' },
+        skills: [
+          { n: '混沌之力', mult: 1.4, cd: 2, elem: '无' },
+          { n: '混沌风暴', mult: 1.3, cd: 3, charge: true, target: '全体', elem: '无' }
+        ],
+        phases: [ { kind: 'enrage', trig: .3, atk: .35 } ]
+      }
+    },
+
+    /* ---------------- S25 道源圣地 ---------------- */
+    { id: 'S25', n: '道源圣地', kind: 'small', stages: 5, elem: '光', drop: 'n_xuehai',
+      leader: {
+        artKey: 's4', sprite: 'killer', tier: 'leader',
+        title: { fan: '道源守护', ling: '道源真人', xian: '道源古尊' },
+        skills: [
+          { n: '道源之力', mult: 1.3, cd: 2, elem: '光' },
+          { n: '道法自然', mult: 1.2, cd: 3, target: '全体', elem: '光' }
+        ],
+        phases: [ { kind: 'clone', trig: .4, pct: .4, n: 2 } ]
+      }
     }
   ];
 
