@@ -786,6 +786,99 @@
           { kind: 'enrage', trig: .3, atk: .60 }
         ]
       }
+    },
+
+    /* ===== v0.76.0 阶段八：第三批副本扩展（S36-S40世界专属副本）===== */
+
+    /* ---------------- S36 凡界：血色禁地 ---------------- */
+    { id: 'S36', n: '血色禁地', kind: 'small', stages: 5, elem: '暗', drop: 'n_xieqi',
+      leader: {
+        artKey: 's15', sprite: 'blood_cult', tier: 'leader',
+        title: { fan: '血教护法', ling: '血教长老', xian: '血教教主' },
+        skills: [
+          { n: '血祭大法', mult: 1.5, cd: 2, elem: '暗', status: { t: '吸', chance: .50 } },
+          { n: '血海滔天', mult: 1.1, cd: 3, target: '全体', elem: '暗', status: { t: '流', chance: .40 } },
+          { n: '血魔降临', mult: 1.8, cd: 5, elem: '暗', charge: true }
+        ],
+        phases: [
+          { kind: 'heal', trig: .4, pct: .30 },
+          { kind: 'enrage', trig: .2, atk: .50 }
+        ]
+      }
+    },
+
+    /* ---------------- S37 灵界：天机阁 ---------------- */
+    { id: 'S37', n: '天机阁', kind: 'small', stages: 5, elem: '风', drop: 'n_tianjing',
+      leader: {
+        artKey: 's16', sprite: 'diviner', tier: 'leader',
+        title: { fan: '天机师', ling: '占星师', xian: '天机阁主' },
+        skills: [
+          { n: '天机演算', mult: 1.3, cd: 2, elem: '风', status: { t: '封', chance: .35 } },
+          { n: '星辰坠落', mult: 1.0, cd: 3, target: '全体', elem: '光', status: { t: '盲', chance: .30 } },
+          { n: '预知未来', kind: 'shield', pct: .35, cd: 4 },
+          { n: '命运逆转', mult: 1.9, cd: 6, elem: '无', charge: true }
+        ],
+        phases: [
+          { kind: 'clone', trig: .5, pct: .40, n: 2 },
+          { kind: 'heal', trig: .2, pct: .25 }
+        ]
+      }
+    },
+
+    /* ---------------- S38 仙界：紫霄天宫 ---------------- */
+    { id: 'S38', n: '紫霄天宫', kind: 'small', stages: 5, elem: '雷', drop: 'n_zixiao',
+      leader: {
+        artKey: 's17', sprite: 'celestial_guard', tier: 'leader',
+        title: { fan: '天宫侍卫', ling: '天宫将军', xian: '紫霄神将' },
+        skills: [
+          { n: '紫霄神雷', mult: 1.6, cd: 2, elem: '雷', status: { t: '麻', chance: .45 } },
+          { n: '天罚之光', mult: 1.2, cd: 3, target: '全体', elem: '光', status: { t: '灼', chance: .35 } },
+          { n: '神威护体', kind: 'shield', pct: .40, cd: 4 },
+          { n: '天地同寿', kind: 'heal', pct: .35, cd: 5, charge: true }
+        ],
+        phases: [
+          { kind: 'summon', trig: .6, spec: { base: 'assassin', name: '天兵' }, n: 2 },
+          { kind: 'enrage', trig: .3, atk: .55 }
+        ]
+      }
+    },
+
+    /* ---------------- S39 道界：太初圣域 ---------------- */
+    { id: 'S39', n: '太初圣域', kind: 'small', stages: 5, elem: '无', drop: 'n_taichu',
+      leader: {
+        artKey: 's18', sprite: 'primordial', tier: 'leader',
+        title: { fan: '太初守护', ling: '太初圣使', xian: '太初道尊' },
+        skills: [
+          { n: '太初之力', mult: 1.8, cd: 2, elem: '无' },
+          { n: '混元一气', mult: 1.4, cd: 3, target: '全体', elem: '无' },
+          { n: '道法自然', kind: 'heal', pct: .40, cd: 4 },
+          { n: '太初湮灭', mult: 2.5, cd: 7, target: '全体', charge: true }
+        ],
+        phases: [
+          { kind: 'clone', trig: .7, pct: .50, n: 2 },
+          { kind: 'heal', trig: .4, pct: .35 },
+          { kind: 'enrage', trig: .2, atk: .70 }
+        ]
+      }
+    },
+
+    /* ---------------- S40 跨界：轮回之门 ---------------- */
+    { id: 'S40', n: '轮回之门', kind: 'small', stages: 5, elem: '暗', drop: 'n_lunhui',
+      leader: {
+        artKey: 's19', sprite: 'reaper', tier: 'leader',
+        title: { fan: '轮回使者', ling: '轮回判官', xian: '轮回主宰' },
+        skills: [
+          { n: '轮回之刃', mult: 1.7, cd: 2, elem: '暗', status: { t: '弱', chance: .40 } },
+          { n: '生死轮转', mult: 1.3, cd: 3, target: '全体', elem: '无', status: { t: '封', chance: .35 } },
+          { n: '死神镰刀', mult: 2.0, cd: 4, elem: '暗', status: { t: '吸', chance: .50 } },
+          { n: '轮回终焉', mult: 2.8, cd: 8, target: '全体', elem: '无', charge: true }
+        ],
+        phases: [
+          { kind: 'summon', trig: .6, spec: { base: 'mook', name: '亡魂' }, n: 3 },
+          { kind: 'heal', trig: .4, pct: .30 },
+          { kind: 'enrage', trig: .2, atk: .80 }
+        ]
+      }
     }
   ];
 
