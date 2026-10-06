@@ -674,9 +674,10 @@
     var coef = (save.linggen && save.linggen.coef) || {};
     var m = (G.Data.tierCoef[sd.tier] || 1)
       * (sd.elem !== '无' && coef[sd.elem] ? 1.2 : 1) * (coef[sd.elem] || 1);
-    if (sd.kind === '攻击') return '攻击 +' + Math.round(lv * 5 * m);
-    if (sd.kind === '防御') return '防御 +' + Math.round(lv * 3 * m);
-    return '气血 +' + Math.round(lv * 20 * m);
+    var g = Math.sqrt(lv);
+    if (sd.kind === '攻击') return '攻击 +' + Math.round(g * 3 * m);
+    if (sd.kind === '防御') return '防御 +' + Math.round(g * 2 * m);
+    return '气血 +' + Math.round(g * 9 * m);
   }
 
   /* 参悟用哪一档碎片（v0.14.0）：
@@ -751,13 +752,14 @@
           G.Overlays.openPanel(scene, 'skills');
         };
       } else {
-        var chk = G.Player.canActivate(save, sel);
-        label = occupies
-          ? ('激发（余 ' + left + ' 位）')
-          : '激发（被动不占位）';
-        variant = chk.ok ? 'battle' : 'default';
-        disabled = !chk.ok;
+        /* 单本激发（v0.77.0）：已激发另一本时按钮即『切换激发』（先卸旧再激新）。 */
+        var otherEq = equippedNow.filter(function (id){ return id !== sel; });
+        var usableNow = G.Player.canUseSkill(save, sel);
+        label = otherEq.length ? '切换激发' : '激发';
+        variant = usableNow ? 'battle' : 'default';
+        disabled = !usableNow;
         onClick = function () {
+          if (otherEq.length) G.Player.cancelSkill(save, otherEq[0]);
           var r = G.Player.activateSkill(save, sel);
           if (!r.ok) { G.game.toast(r.reason); return; }
           G.Storage.saveCurrent(save);
@@ -929,10 +931,20 @@
     G.UI.text(x, { x: SP.x + SP.w - 84, y: SK.stateY },
       '威力 ×' + pc.toFixed(2), 10.5, G.UI.C.gold);
 
-    sec(x, SP.x + 14, SK.secY, '效 果');
-    skillEffects(sd).slice(0, 3).forEach(function (t, i) {
-      G.UI.text(x, { x: SP.x + 14, y: SK.effY + i * 14 }, t, 10.5, G.UI.C.textDim);
-    });
+    sec(x, SP.x + 14, SK.secY, '招 式');
+    /* 功法内部招式（v0.77.0）：主动列左、被动列右；未到解锁等级则置灰标注。 */
+    var allMoves = G.Data.gongfaMoves(sel);
+    var colAct = allMoves.filter(function (m){ return m.active || m.kind === '攻击'; });
+    var colPas = allMoves.filter(function (m){ return !!m.passive; });
+    function moveLine(m, px, py){
+      var unlocked = (m.unlock || 1) <= lv;
+      var col = unlocked ? (m.passive ? G.UI.C.textDim : (COL[m.elem] || G.UI.C.jadeHi)) : G.UI.C.textDim;
+      var tag = (m.passive ? '被·' : '攻·') + m.n;
+      if (!unlocked) tag = '锁·' + m.n + '（' + G.Data.skillRealm(m.unlock || 1).n + '）';
+      G.UI.text(x, { x: px, y: py }, tag, 10, col);
+    }
+    colAct.slice(0, 3).forEach(function (m, i){ moveLine(m, SP.x + 14, SK.effY + i * 12); });
+    colPas.slice(0, 2).forEach(function (m, i){ moveLine(m, SP.x + 178, SK.effY + i * 12); });
 
     G.UI.text(x, { x: SP.x + 14, y: SK.contribY }, '本功法贡献', 10.5, G.UI.C.textDim);
     G.UI.text(x, { x: SP.x + 84, y: SK.contribY },

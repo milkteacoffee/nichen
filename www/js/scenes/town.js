@@ -626,17 +626,18 @@
             参考凡人修仙传/仙逆：入门那本《长春功》能引气入体而已，不是战力。
             玩家必须靠宗门/悬赏/参悟去换真正的功法。
          ⚠️ 用 `if (!save.skills[id])` 兜底：旧档若已有这几门，不覆盖其等级。 */
-      var given = ['引气诀', '粗浅吐纳'];
+      /* v0.77.0 功法容器：只授**一本**《引气诀》，其内部含 1 主动（引气诀）+ 1 被动（粗浅吐纳）。 */
+      var given = ['引气诀'];
       save.skills = save.skills || {};
       given.forEach(function (id) {
         if (id && !save.skills[id]) save.skills[id] = { lv: 1 };
       });
-      /* 入门两本**全部激发**（v0.75.0 单本激发制：主动那本占唯一槽，被动不占位）。 */
+      /* 入门这本顺手激发（唯一主修位）。 */
       if (!save.skillEquip || !save.skillEquip.length) {
         save.skillEquip = [];
         given.forEach(function (id) { if (id) G.Player.autoEquip(save, id); });
       }
-      G.game.toast('灵石 +50；沈伯传你两门下品入门功法');
+      G.game.toast('灵石 +50；沈伯传你下品入门功法《引气诀》');
       scene.clearOverlay();
       return;
     }

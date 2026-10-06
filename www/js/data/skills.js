@@ -15,6 +15,13 @@
        · 被动只给极少属性（靠 kind 自动分派，凡阶 ×1 无灵根匹配）。
      它们的作用是"让你能打第一只怪"，不是"陪你到筑基" —— 玩家必须去换功法。 */
   S.引气诀 = atk('引气诀', '引气诀', '无', 1.05, { tier: '凡', starter: true });
+  /* 新功法模型（v0.77.0，用户口径）：一次只激发**一本功法**，深度来自功法**内部**——
+     功法随品级/修炼等级解锁招式，最多 5 个技能、其中最多 3 个主动。
+     入门下品《引气诀》= 1 主动（引气诀，威力极小）+ 1 被动（粗浅吐纳），皆 lv1 解锁。 */
+  S.引气诀.moves = [
+    { n: '引气诀', kind: '攻击', active: true, elem: '无', mult: 1.05, cd: 0, hit: 100, target: '前排', unlock: 1 },
+    { n: '粗浅吐纳', kind: '仙术', passive: true, elem: '无', unlock: 1 }
+  ];
   S.粗浅吐纳 = {
     id: '粗浅吐纳', n: '粗浅吐纳', kind: '仙术', tier: '凡', elem: '无',
     passive: true, starter: true
@@ -44,6 +51,14 @@
   /* Boss 掉落池（M0 随机 1 本，均为凡阶、强度略高于开局技） */
   S.崩岩掌 = atk('崩岩掌', '崩岩掌', '土', 1.4, { cd: 2, hit: 95, status: { t: '封', chance: .25 } });
   S.烈焰诀 = atk('烈焰诀', '烈焰诀', '火', 1.6, { cd: 3, hit: 95, status: { t: '烧', chance: .30 } });
+  /* 高品功法示范（v0.77.0）：5 技能（3主动+2被动），随修炼等级逐层解锁 */
+  S.烈焰诀.moves = [
+    { n: '烈焰诀', kind: '攻击', active: true, elem: '火', mult: 1.6, cd: 3, hit: 95, target: '前排', status: { t: '烧', chance: .30 }, unlock: 1 },
+    { n: '火灵', kind: '攻击', passive: true, elem: '火', unlock: 9 },
+    { n: '烈焰冲击', kind: '攻击', active: true, elem: '火', mult: 2.0, cd: 2, hit: 95, target: '前排', status: { t: '烧', chance: .35 }, unlock: 18 },
+    { n: '焚意', kind: '攻击', passive: true, elem: '火', unlock: 27 },
+    { n: '焚天', kind: '攻击', active: true, elem: '火', mult: 2.8, cd: 4, hit: 90, target: '全体', status: { t: '烧', chance: .50 }, unlock: 36 }
+  ];
   S.寒水诀 = atk('寒水诀', '寒水诀', '水', 1.4, { cd: 2, hit: 95 });
   S.疾风诀 = atk('疾风诀', '疾风诀', '风', 1.4, { cd: 2, hit: 95, status: { t: '麻', chance: .15 } });
   S.曜日诀 = atk('曜日诀', '曜日诀', '光', 1.5, { cd: 3, hit: 95, heal: .8 });
@@ -248,6 +263,45 @@
     return template;
   }
 
+  /* ============================================================
+     功法「招式」系统（v0.77.0，用户口径）
+     · 一本功法 = 容器，含 moves[]（最多 5、主动最多 3）
+     · 每个 move 有 unlock（功法 lv1..36 解锁）
+     · 未显式给 moves 的旧功法 → legacyMoves 自动封装，不破坏旧内容
+     ============================================================ */
+  var MAX_MOVES = 5, MAX_ACTIVE_MOVES = 3;
+  function isActiveMove(m){ return !!m.active || (m.kind === '攻击' && !m.passive); }
+  function legacyMoves(sd){
+    var mv = [];
+    if (sd.kind === '攻击' && sd.mult) {
+      mv.push({ n: sd.n, kind: '攻击', active: true, elem: sd.elem, mult: sd.mult, cd: sd.cd || 0,
+        hit: sd.hit, target: sd.target, status: sd.status, hits: sd.hits, pierce: sd.pierce, unlock: 1 });
+      /* 攻击功法亦有『功法本体』的被动修炼（贡献 ATK）——主动是招式、被动是根基 */
+      mv.push({ n: sd.n + '·功法', kind: '攻击', passive: true, elem: sd.elem, unlock: 1 });
+    }
+    if (sd.passive) {
+      mv.push({ n: sd.n, kind: sd.kind, passive: true, elem: sd.elem, unlock: 1 });
+    }
+    if (sd.active && sd.kind !== '攻击') {
+      var a = sd.active;
+      mv.push({ n: a.n, kind: sd.kind, active: true, elem: sd.elem, mult: a.mult || 0, heal: a.heal || 0,
+        cd: a.cd || 0, hit: a.hit, target: a.target, status: a.status, unlock: a.unlock || 1 });
+    }
+    if (!mv.length) mv.push({ n: sd.n, kind: sd.kind || '仙术', passive: true, elem: sd.elem || '无', unlock: 1 });
+    return mv;
+  }
+  function gongfaMoves(id){
+    var sd = S[id]; if (!sd) return [];
+    if (Array.isArray(sd.moves) && sd.moves.length) return sd.moves;
+    return legacyMoves(sd);
+  }
+  function unlockedMoves(id, lv){
+    lv = lv || 1;
+    return gongfaMoves(id).filter(function (m){ return (m.unlock || 1) <= lv; });
+  }
+  function activeMovesOf(id, lv){ return unlockedMoves(id, lv).filter(isActiveMove); }
+  function passiveMovesOf(id, lv){ return unlockedMoves(id, lv).filter(function (m){ return !!m.passive; }); }
+
   G.Data = G.Data || {};
   G.Data.skills = S;
   G.Data.skillDropPool = dropPool;
@@ -262,4 +316,10 @@
   G.Data.SKILL_MAX_PROG = SKILL_MAX_PROG;
   G.Data.MILESTONES = MILESTONES;
   G.Data.getMilestones = getMilestones;
+  G.Data.gongfaMoves = gongfaMoves;
+  G.Data.unlockedMoves = unlockedMoves;
+  G.Data.activeMovesOf = activeMovesOf;
+  G.Data.passiveMovesOf = passiveMovesOf;
+  G.Data.MAX_MOVES = MAX_MOVES;
+  G.Data.MAX_ACTIVE_MOVES = MAX_ACTIVE_MOVES;
 })();

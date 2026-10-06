@@ -691,9 +691,10 @@
         var oldProgress = progress;
         save.breakProgress = Math.min(100, progress + 50);
 
-        // 只保留气血减半惩罚，取消灵气散失和寿命惩罚
+        // 气血反噬：默认减半；有「静心阵」则反噬减轻（保留七成五）
         var _fb = this.computeStats(save);
-        save.hp = Math.max(1, Math.round(_fb.maxhp * 0.5));
+        var _calm = save.formations && save.formations.jingxin;
+        save.hp = Math.max(1, Math.round(_fb.maxhp * (_calm ? 0.75 : 0.5)));
 
         if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
 
@@ -892,10 +893,11 @@
          · `voided`（废功）与宗门归属（`canUseSkill`）在**生效期**再过滤一次：
            面板可能停在旧世，`skillEquip` 里残留已失效的 id。 —— 见 `activeSkills()`。 */
 
-    /* 激发上限（主修功法只此一本）。**唯一口径**：战斗 `_initUnits` 与面板按钮都用它。
-       v0.75.0：3 → 1（用户口径「最多只能激发一本功法」）。
-       v0.76.0 阶段六：1 → 3（增加策略深度，参考烟雨江湖4槽/鬼谷八荒8槽/宝可梦4槽）。 */
-    ACTIVE_SLOTS: 3,
+    /* 激发上限 = **同时激发的功法本数**（v0.77.0 用户口径「最多只能激发一本功法」）。
+       注意这是『功法本数』=1；一本功法**内部**随修炼等级解锁的主动招式最多 3 个
+       （见 data/skills.js 的 moves / MAX_ACTIVE_MOVES）——深度在功法之内，不在多装。
+       战斗 `_initUnits` 与面板按钮都读它。 */
+    ACTIVE_SLOTS: 1,
 
     /* 玩家可见的激发列表：`save.skillEquip` 里**当前真的可用**的那些，按数组顺序。
        判据复用 `canUseSkill`（唯一授权口），不在别处重写一遍。 */
@@ -968,10 +970,13 @@
        **纯数据操作，不落盘** —— 落盘由调用方（面板/场景）决定，
        免得"面板点一下"与"入世批量激发"两条路径各落一次盘、写坏存档。 */
     activateSkill: function (save, id) {
-      var chk = this.canActivate(save, id);
-      if (!chk.ok) return chk;
-      save.skillEquip = save.skillEquip || [];
-      save.skillEquip.push(id);
+      /* 单本激发（v0.77.0）：激发另一本即**切换**（收集流按需换功法）。
+         只校验『可用 / 未学 / 重复』，不被『槽满』挡住——唯一槽本来就是用来换的。 */
+      var blocked = this.skillBlockReason(save, id);
+      if (blocked) return { ok: false, reason: blocked };
+      if (!save.skills || !save.skills[id]) return { ok: false, reason: '尚未习得此功法' };
+      if (save.skillEquip && save.skillEquip[0] === id) return { ok: false, reason: '该功法已在激发位' };
+      save.skillEquip = [id];
       return { ok: true };
     },
 
@@ -992,10 +997,11 @@
        ⚠️ 已满槽时不强激（也不报错）：玩家的 3 个槽该由他自己编排，
          自动顶掉某一本会让"我明明装了 X 怎么没了"。 */
     autoEquip: function (save, id) {
+      var equipped = this.equippedIds(save);
+      if (equipped.length) return false;   /* 已有主修功法，不自动顶掉 */
       var chk = this.canActivate(save, id);
       if (!chk.ok) return false;
-      save.skillEquip = save.skillEquip || [];
-      save.skillEquip.push(id);
+      save.skillEquip = [id];
       return true;
     },
 
@@ -1408,23 +1414,28 @@
          ⚠️ 用 sqrt 而不砍掉品阶：保证"九重"仍看得出成长（lv1→36 有 6 倍），
             但**不会**让一本满级功法碾压同境界对手 —— 差额要靠品阶、灵根与法宝补。 */
       var skillMilestones = { mult: 1.0, crit: 0, pierce: 0, vamp: 0, atk: 0, def: 0, hp: 0 };
-      Object.keys(save.skills || {}).forEach(function (id) {
-        var sd = G.Data.skills[id], lv = (save.skills[id] && save.skills[id].lv) || 1;
-        if (!sd) return;
-        var base = G.Data.tierCoef[sd.tier] || 1;
-        var matched = sd.elem !== '无' && coef[sd.elem] ? 1.2 : 1;
-        var lgCoef = coef[sd.elem] || 1;
-        var m = base * matched * lgCoef;
-        var g = Math.sqrt(lv);
-        if (sd.kind === '攻击') atk += g * 3 * m;
-        else if (sd.kind === '防御') def += g * 2 * m;
-        else { hp += g * 9 * m; mp += g * 3 * m; }
-
-        /* v0.76.0 功法里程碑加成：lv9/18/27/36解锁被动效果 */
+      /* v0.77.0：只有**当前激发的那一本功法**生效（未激发则取等级最高者兜底，
+         与战斗技能栏同源）。属性来自该功法已解锁的**被动招式**（最多 2，天然有界），
+         主动招式只在战斗里施放、不直接加面板——收集多本只为按需切换。 */
+      var gfId = (G.Player.equippedIds(save)[0]) ||
+                 (G.Player.defaultSkillId ? G.Player.defaultSkillId(save) : null);
+      if (gfId && G.Data.skills[gfId]) {
+        var gsd = G.Data.skills[gfId];
+        var glv = (save.skills[gfId] && save.skills[gfId].lv) || 1;
+        var gbase = G.Data.tierCoef[gsd.tier] || 1;
+        var gg = Math.sqrt(glv);
+        (G.Data.passiveMovesOf ? G.Data.passiveMovesOf(gfId, glv) : []).forEach(function (mv) {
+          var matched = mv.elem !== '无' && coef[mv.elem] ? 1.2 : 1;
+          var lgCoef = coef[mv.elem] || 1;
+          var mm = gbase * matched * lgCoef;
+          if (mv.kind === '攻击') atk += gg * 3 * mm;
+          else if (mv.kind === '防御') def += gg * 2 * mm;
+          else { hp += gg * 9 * mm; mp += gg * 3 * mm; }
+        });
+        /* v0.76.0 功法里程碑加成（lv9/18/27/36）：随主修功法生效 */
         if (G.Data.getMilestones) {
-          var milestones = G.Data.getMilestones(sd);
-          milestones.forEach(function (ms) {
-            if (lv >= ms.lv && ms.effect) {
+          G.Data.getMilestones(gsd).forEach(function (ms) {
+            if (glv >= ms.lv && ms.effect) {
               var fx = ms.effect;
               if (fx.mult) skillMilestones.mult = Math.max(skillMilestones.mult, fx.mult);
               if (fx.crit) skillMilestones.crit += fx.crit;
@@ -1436,7 +1447,7 @@
             }
           });
         }
-      });
+      }
 
       /* 仙躯灌注 */
       var bk = (meta && meta.perfusion && meta.perfusion.body) || 0;

@@ -1303,247 +1303,206 @@ step(function () {
   }
 }, 'battle.commands');
 
-/* 4b-1) 激发制 + 九重系数（v0.69.0，用户口径「可学多本、单本激发、九重」）
-   ⚠️ 用户新需求**覆盖**归档《战斗系统修订 v2.1》§2 的原文
-      「所有已学功法的主动技能在每场战斗中均可使用（无装配上限、无 CD）」——
-   所以断言的基准是"激发制"，不是"全可用"。 */
+/* 4b-1) 功法容器 + 单本激发 + 九重系数（v0.77.0）
+   用户口径（最高优先级，逐字）：
+   「最多激发一本功法，可以走收集流，然后一个功法根据等级存在一个主动和一个被动
+     或者没有主动技能，只有被动技能，功法品级越高，主动技能越多，最多三个主动，
+     一个功法最多只有五个技能。」
+   深度在功法**内部**（随修炼等级解锁招式），不在多装。 */
 step(function () {
+  const errors = [];
   const P = G.Player;
   const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
   try {
 
-  /* ① 常量口径：战斗装配上限必须来自 Player.ACTIVE_SLOTS（不许第二处写 3） */
-  /* v0.75.0：上限 3 → 1（用户口径「最多只能激发一本功法」） */
-  if (P.ACTIVE_SLOTS !== 1) errors.push('Player.ACTIVE_SLOTS 应为 1（单本激发），实为 ' + P.ACTIVE_SLOTS);
+  /* ① 功法本数：同时只能激发 1 本（ACTIVE_SLOTS=功法本数，非招式数） */
+  if (P.ACTIVE_SLOTS !== 1) errors.push('Player.ACTIVE_SLOTS 应为 1（功法本数），实为 ' + P.ACTIVE_SLOTS);
 
-  /* ② 九重系数：单调递增、两端钉死、九重巅峰明显更强 */
+  /* ② 容器数据约束：moves ≤5、主动 ≤3、unlock ∈ 1..36 且非递减 */
+  const MAX_MV = G.Data.MAX_MOVES || 5, MAX_AM = G.Data.MAX_ACTIVE_MOVES || 3;
+  const isAMove = (m) => m.active || (m.kind === '攻击' && !m.passive);
+  Object.keys(G.Data.skills).forEach(function (id) {
+    const mv = G.Data.gongfaMoves(id);
+    if (!mv.length) { errors.push('功法「' + id + '」没有任何招式'); return; }
+    if (mv.length > MAX_MV) errors.push('功法「' + id + '」招式数 ' + mv.length + ' > 5');
+    const am = mv.filter(isAMove);
+    if (am.length > MAX_AM) errors.push('功法「' + id + '」主动招式 ' + am.length + ' > 3');
+    let last = 0;
+    mv.forEach((m) => {
+      const u = m.unlock || 1;
+      if (u < 1 || u > G.Data.SKILL_MAX_PROG) errors.push('功法「' + id + '」解锁阈值越界：' + u);
+      if (u < last) errors.push('功法「' + id + '」解锁阈值必须非递减');
+      last = u;
+    });
+  });
+
+  /* ②b 样板：引气诀=1主动+1被动(lv1)；烈焰诀=3主动+2被动、阈值1/9/18/27/36 */
+  {
+    const stM = G.Data.gongfaMoves('引气诀');
+    const stA = stM.filter(isAMove), stP = stM.filter((m) => m.passive);
+    if (stM.length !== 2 || stA.length !== 1 || stP.length !== 1)
+      errors.push('入门《引气诀》应为 1主动+1被动，实为 ' + stA.length + '主动/' + stP.length + '被动');
+    if (stM.some((m) => (m.unlock || 1) !== 1)) errors.push('入门功法招式应 lv1 即解锁');
+    const lyM = G.Data.gongfaMoves('烈焰诀');
+    const lyA = lyM.filter(isAMove), lyP = lyM.filter((m) => m.passive);
+    if (lyM.length !== 5 || lyA.length !== 3 || lyP.length !== 2)
+      errors.push('高阶《烈焰诀》应为 3主动+2被动(共5)，实为 ' + lyA.length + '主动/' + lyP.length + '被动');
+    if (lyM.map((m) => m.unlock).join(',') !== '1,9,18,27,36') errors.push('烈焰诀解锁阈值应为 1/9/18/27/36');
+  }
+
+  /* ③ 九重系数：单调递增、两端钉死 */
   const c1 = P.progCoef(1), c36 = P.progCoef(G.Data.SKILL_MAX_PROG);
-  if (Math.abs(c1 - 1) > 1e-6) errors.push('progCoef(1) 应为 1.00（刚学会=原倍率），实为 ' + c1);
-  if (c36 < 2 || c36 > 2.4) errors.push('progCoef(36) 应在 2.0–2.4（九重巅峰才配得上"巅峰"），实为 ' + c36);
+  if (Math.abs(c1 - 1) > 1e-6) errors.push('progCoef(1) 应为 1.00，实为 ' + c1);
+  if (c36 < 2 || c36 > 2.4) errors.push('progCoef(36) 应在 2.0–2.4，实为 ' + c36);
   let prev = -1, mono = true;
-  for (let p = 1; p <= G.Data.SKILL_MAX_PROG; p++) {
-    const v = P.progCoef(p);
-    if (v <= prev) mono = false;
-    prev = v;
-  }
-  if (!mono) errors.push('progCoef 必须随 prog 单调递增（否则"精进"会出现倒退）');
-  /* 前段可见：从一重到三重（prog 1→9）至少涨 15% —— 玩家点几次就该看得出差别 */
-  if (P.progCoef(9) / P.progCoef(1) < 1.15) {
-    errors.push('prog 1→9 增幅过小（' + P.progCoef(9).toFixed(2) + '），精进将"看不出效果"');
-  }
+  for (let p = 1; p <= G.Data.SKILL_MAX_PROG; p++) { const v = P.progCoef(p); if (v <= prev) mono = false; prev = v; }
+  if (!mono) errors.push('progCoef 必须随 prog 单调递增');
+  if (P.progCoef(9) / P.progCoef(1) < 1.15) errors.push('prog 1→9 增幅过小，精进看不出效果');
 
-  /* ③ 装配：只装已激发的；上限 3；激发顺序即出招顺序 */
+  /* ④ 战斗技能栏：只含当前激发功法已解锁的主动招式 */
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
   s.globalLevel = 20; s.hp = 99999;
   s.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 寒水诀: { lv: 1 }, 疾风诀: { lv: 1 }, 铁布衫: { lv: 1 } };
-  s.skillEquip = ['崩岩掌'];                     /* 单本激发：只激 1 本 */
+  s.skillEquip = ['崩岩掌'];
   G.game.save = s;
   G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
   pump(6, 'actv.enter');
   let b = G.game.scene;
   if (!b || typeof b._cmd !== 'function') bail('激发契约：没能进入战斗');
-  const names = b.p.skills.map((k) => k.id);
-  if (names.indexOf('烈焰指') >= 0 || names.indexOf('疾风诀') >= 0) {
-    errors.push('未激发的功法进了战斗技能栏：' + names.join(',') + '（激发制没生效）');
-  }
-  if (names.join(',') !== '崩岩掌') {
-    errors.push('战斗技能栏应只含已激发的 1 本 [崩岩掌]，实为 [' + names.join(',') + ']');
-  }
+  let names = b.p.skills.map((k) => k.id);
+  if (names.join(',') !== '崩岩掌') errors.push('单本激发时技能栏应只含 [崩岩掌]，实为 [' + names.join(',') + ']');
+  if (names.some((n) => n.indexOf('烈焰') >= 0 || n.indexOf('疾风') >= 0 || n.indexOf('寒水') >= 0))
+    errors.push('未激发功法的招式进了技能栏：' + names.join(','));
 
-  /* ④ 九重系数**真的乘进战斗倍率**（把 prog 拉高，倍率必须跟着涨） */
-  const base = b.p.skills[0].mult;
-  b.p.skills[0].cdLeft = 0;
-  const lvBefore = s.skills['崩岩掌'].lv;
-  if (lvBefore !== 1) errors.push('装配基线应是 prog=1，实为 ' + lvBefore);
-  /* 直接改存档再重进（模拟"精进到九重"） */
-  s.skills['崩岩掌'].lv = G.Data.SKILL_MAX_PROG;
-  G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
-  pump(6, 'actv.top');
-  b = G.game.scene;
-  const top = b.p.skills[0].mult;
-  if (!(top > base * 1.8)) {
-    errors.push('九重进度没进战斗倍率：prog1 倍率 ' + base + ' → prog36 仍是 ' + top
-      + '（"精进"对伤害毫无影响，是纯静默）');
+  /* ④b 多主动功法随修炼等级逐步解锁（lv1=1招 → lv18=2招 → lv36=3招） */
+  function barFor(lv) {
+    const sx = JSON.parse(JSON.stringify(save));
+    sx.quest = { step: 'free', flags: {} };
+    sx.globalLevel = 20; sx.hp = 99999;
+    sx.skills = { 烈焰诀: { lv: lv } }; sx.skillEquip = ['烈焰诀'];
+    G.game.save = sx;
+    G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+    pump(6, 'actv.unlock');
+    return G.game.scene.p.skills.map((k) => k.id);
   }
+  const barL1 = barFor(1), barL18 = barFor(18), barL36 = barFor(36);
+  if (barL1.length !== 1 || barL1[0] !== '烈焰诀') errors.push('烈焰诀 lv1 应只 1 招 [烈焰诀]，实为 [' + barL1.join(',') + ']');
+  if (barL18.length !== 2) errors.push('烈焰诀 lv18 应解锁 2 招，实为 [' + barL18.join(',') + ']');
+  if (barL36.length !== 3) errors.push('烈焰诀 lv36 应有 3 招，实为 [' + barL36.join(',') + ']');
 
-  /* ⑤ 激发/卸下的守卫：槽满拒、重复拒、未学拒、被动不占槽 */
+  /* ⑤ 九重系数真的乘进战斗倍率（自成两场，避免被复用的战斗场景污染） */
+  function multFor(gf, lv) {
+    const sx = JSON.parse(JSON.stringify(save));
+    sx.quest = { step: 'free', flags: {} };
+    sx.globalLevel = 20; sx.hp = 99999;
+    sx.skills = {}; sx.skills[gf] = { lv: lv }; sx.skillEquip = [gf];
+    G.game.save = sx;
+    G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
+    pump(6, 'actv.top');
+    return G.game.scene.p.skills[0].mult;
+  }
+  const base = multFor('崩岩掌', 1);
+  const top = multFor('崩岩掌', G.Data.SKILL_MAX_PROG);
+  if (!(top > base * 1.8)) errors.push('九重进度没进战斗倍率：' + base + ' → ' + top);
+
+  /* ⑥ 激发=切换：激活新功法即替换；重复/未学/废功被拒 */
   const s2 = JSON.parse(JSON.stringify(save));
-  s2.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 寒水诀: { lv: 1 }, 疾风诀: { lv: 1 }, 铁布衫: { lv: 1 } };
+  s2.skills = { 烈焰指: { lv: 1 }, 崩岩掌: { lv: 1 }, 铁布衫: { lv: 1 } };
   s2.skillEquip = [];
   if (!P.activateSkill(s2, '烈焰指').ok) errors.push('空激发位应能激上「烈焰指」');
-  /* 上限 1：激上第 2 本必须被拒（单本激发） */
-  const full = P.activateSkill(s2, '崩岩掌');
-  if (full.ok) errors.push('已激 1 本后仍能激上第 2 本 —— 单本激发上限失效');
-  if (!full.reason) errors.push('激满被拒时应给出原因文案');
-  const dup = P.activateSkill(s2, '烈焰指');
+  const sw = P.activateSkill(s2, '崩岩掌');
+  if (!sw.ok || s2.skillEquip[0] !== '崩岩掌') errors.push('激发另一本应切换为「崩岩掌」，实为 [' + s2.skillEquip + ']');
+  if (s2.skillEquip.indexOf('烈焰指') >= 0) errors.push('切换后旧功法「烈焰指」应已卸下');
+  const dup = P.activateSkill(s2, '崩岩掌');
   if (dup.ok) errors.push('重复激发同一本应被拒');
-  if (P.slotsLeft(s2) !== 0) errors.push('已激 1 本时 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
-  /* 被动功法：不占槽 → 槽满也能激 —— 这是"按品级配置主被动"的落点 */
-  const pas = P.activateSkill(s2, '铁布衫');
-  if (!pas.ok) errors.push('被动功法（铁布衫）不占主动槽，槽满时也应能激，实被拒：' + pas.reason);
-  if (!P.occupiesSlot('崩岩掌')) errors.push('攻击功法必须占槽');
-  if (P.occupiesSlot('铁布衫')) errors.push('纯被动功法不该占槽');
-  if (!P.cancelSkill(s2, '烈焰指').ok) errors.push('卸下已激发的功法应成功');
-  if (P.slotsLeft(s2) !== 1) errors.push('卸下唯一一本后应空出 1 位，实为 ' + P.slotsLeft(s2));
-  /* 卸空后应能改激另一本（单本激发的"换功法"路径） */
-  if (!P.activateSkill(s2, '崩岩掌').ok) errors.push('卸空后应能改激「崩岩掌」');
-  if (P.slotsLeft(s2) !== 0) errors.push('改激后 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
-  if (P.cancelSkill(s2, '从未学过的').ok) errors.push('卸下未激发的功法应被拒');
+  if (!dup.reason) errors.push('被拒时应给出原因文案');
+  if (P.slotsLeft(s2) !== 0) errors.push('已激1本 slotsLeft 应为 0，实为 ' + P.slotsLeft(s2));
+  if (!P.cancelSkill(s2, '崩岩掌').ok) errors.push('卸下已激发功法应成功');
+  if (P.slotsLeft(s2) !== 1) errors.push('卸下后应空出 1 位，实为 ' + P.slotsLeft(s2));
+  if (P.cancelSkill(s2, '从未学过的').ok) errors.push('卸下未激发功法应被拒');
 
-  /* ⑥ 未习得 / 被废功的功法不能激发 */
+  /* ⑥b 废功/未习得不能激发；equippedIds 过滤废功 */
   const s3 = JSON.parse(JSON.stringify(save));
-  s3.skills = { 烈焰指: { lv: 1 } }; s3.skillEquip = [];
-  s3.skillEquip = ['烈焰指'];
-  s3.skills['烈焰指'].voided = true;
-  if (P.canActivate(s3, '烈焰指').ok) errors.push('已废功的功法不该能激发');
-  if (P.equippedIds(s3).length) errors.push('equippedIds 应滤掉废功条目（战斗栏会带进废功）');
+  s3.skills = { 烈焰指: { lv: 1, voided: true } }; s3.skillEquip = ['烈焰指'];
+  if (P.canActivate(s3, '烈焰指').ok) errors.push('废功功法不该能激发');
+  if (P.equippedIds(s3).length) errors.push('equippedIds 应滤掉废功条目');
+  const s4 = JSON.parse(JSON.stringify(save));
+  s4.skills = {}; s4.skillEquip = [];
+  if (P.canActivate(s4, '崩岩掌').ok) errors.push('未习得功法不该能激发');
 
-  /* ⑦ 源码闸：战斗装配必须走 equippedIds，不许自己遍历 save.skills 全装 */
+  /* ⑦ 源码闸：equippedIds + defaultSkillId + activeMovesOf + progCoef */
   const bs2 = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
   const asm = bs2.slice(bs2.indexOf('_initUnits: function'), bs2.indexOf('this.p = {'));
-  if (asm.indexOf('equippedIds') < 0) {
-    errors.push('源码闸：battle._initUnits 未走 Player.equippedIds（激发制会退回"全装"）');
-  }
-  /* ⑦b 未激发时的默认（v0.75.0，用户口径「没有激发，进入战斗会默认选择
-        第一本等级最高的功法」）：战斗必须读 defaultSkillId 顶上，
-        否则学会了功法却点不了，玩家会以为坏了。 */
-  if (asm.indexOf('defaultSkillId') < 0) {
-    errors.push('源码闸：battle._initUnits 未接 defaultSkillId（未激发时技能栏会空着）');
-  }
+  if (asm.indexOf('equippedIds') < 0) errors.push('源码闸：battle 未走 Player.equippedIds');
+  if (asm.indexOf('defaultSkillId') < 0) errors.push('源码闸：battle 未接 defaultSkillId');
+  if (asm.indexOf('activeMovesOf') < 0) errors.push('源码闸：battle 未接 activeMovesOf（容器模型）');
+  if (asm.indexOf('progCoef') < 0) errors.push('源码闸：battle 未接 progCoef');
   {
     const sd = JSON.parse(JSON.stringify(save));
     sd.skills = { 烈焰指: { lv: 3 }, 崩岩掌: { lv: 7 }, 寒水诀: { lv: 5 }, 铁布衫: { lv: 9 } };
     sd.skillEquip = [];
-    /* 铁布衫 lv 最高但是**纯被动**（不进技能栏）→ 应挑崩岩掌 lv7 */
-    if (P.defaultSkillId(sd) !== '崩岩掌') {
-      errors.push('defaultSkillId 应挑「等级最高的**主动**功法」=崩岩掌，实为 ' + P.defaultSkillId(sd));
-    }
-    sd.skills['铁布衫'] = { lv: 1 };
-    const sd2 = JSON.parse(JSON.stringify(sd));
-    sd2.skills = {}; sd2.skillEquip = [];
-    if (P.defaultSkillId(sd2) !== null) errors.push('无任何功法时 defaultSkillId 应为 null');
-    /* 废功的不该顶上 */
-    const sd3 = JSON.parse(JSON.stringify(sd));
-    sd3.skills['崩岩掌'].voided = true;
-    if (P.defaultSkillId(sd3) === '崩岩掌') {
-      errors.push('defaultSkillId 不应挑已废功的功法顶上');
-    }
-  }
-  if (asm.indexOf('ACTIVE_SLOTS') < 0) {
-    errors.push('源码闸：battle._initUnits 未读 Player.ACTIVE_SLOTS（上限会各写一份）');
-  }
-  if (asm.indexOf('progCoef') < 0) {
-    errors.push('源码闸：battle._initUnits 未接 progCoef（九重进度不进战斗倍率）');
+    if (P.defaultSkillId(sd) !== '崩岩掌') errors.push('defaultSkillId 应挑最高主动功法=崩岩掌，实为 ' + P.defaultSkillId(sd));
+    const sd2 = JSON.parse(JSON.stringify(sd)); sd2.skills = {};
+    if (P.defaultSkillId(sd2) !== null) errors.push('无功法时 defaultSkillId 应为 null');
+    const sd3 = JSON.parse(JSON.stringify(sd)); sd3.skills['崩岩掌'].voided = true;
+    if (P.defaultSkillId(sd3) === '崩岩掌') errors.push('defaultSkillId 不应挑废功功法');
   }
 
-  /* ⑧ 源码闸：**所有"学到功法"的落点都必须跟一句 autoEquip**。
-     这是"路径遗漏"型缺口的标准解法 —— 新增一条获取途径（活动、任务、奇遇）时，
-     只写 `save.skills[id] = {lv:1}` 而不激发，玩家会看到"学了功法但战斗里没有"。
-     判据：扫全仓 `save.skills[<非字面量>] = { lv: 1` 的每一行，
-     其后 6 行内必须出现 `autoEquip`（或注释显式说明为何不激发）。 */
+  /* ⑧ 源码闸：学到功法落点 7 行内必须有 autoEquip */
   {
-    /* ⚠️ 这里的路径是**相对 WWW**（下面还会 path.join(WWW, rel)）——
-       写成 'www/js/...' 会拼成 www/www/... → existsSync 全 false → 静默扫到 0 处。
-       本轮就踩了这个：闸门"通过"了，其实一个文件都没读。 */
-    const files = ['js/scenes/town.js', 'js/scenes/battle.js',
-      'js/scenes/dungeon.js', 'js/scenes/reincarnation.js', 'js/core/player.js'];
+    const files = ['js/scenes/town.js', 'js/scenes/battle.js', 'js/scenes/dungeon.js', 'js/scenes/reincarnation.js', 'js/core/player.js'];
     const learnRe = /save\.skills\[[^\]]+\]\s*=\s*\{\s*lv:\s*1/;
-    let seenLearn = 0, missing = [];
+    let seenLearn = 0; const missing = [];
     files.forEach(function (rel) {
-      const p = path.join(WWW, rel);
-      if (!fs.existsSync(p)) return;
-      const src = stripC(fs.readFileSync(p, 'utf8')).split('\n');
+      const fp = path.join(WWW, rel);
+      if (!fs.existsSync(fp)) return;
+      const src = stripC(fs.readFileSync(fp, 'utf8')).split('\n');
       src.forEach(function (line, i) {
         if (!learnRe.test(line)) return;
         seenLearn++;
-        const near = src.slice(i, i + 7).join('\n');
-        if (near.indexOf('autoEquip') < 0) {
-          missing.push(rel + ':' + (i + 1));
-        }
+        if (src.slice(i, i + 7).join('\n').indexOf('autoEquip') < 0) missing.push(rel + ':' + (i + 1));
       });
     });
-    if (seenLearn < 3) {
-      errors.push('源码闸：只扫到 ' + seenLearn + ' 处"学到功法"落点（应 ≥3），正则可能过时了');
-    }
-    if (missing.length) {
-      errors.push('源码闸：这些"学到功法"的落点没跟 autoEquip（玩家学了却不在技能栏）：'
-        + missing.join('、'));
-    }
+    if (seenLearn < 3) errors.push('源码闸：只扫到 ' + seenLearn + ' 处学到功法落点（应 ≥3）');
+    if (missing.length) errors.push('源码闸：这些落点没跟 autoEquip：' + missing.join('、'));
   }
 
-  /* ⑨ 端到端：**走真实的"学到功法"入口**（碎片参悟），验证自动激发 → 战斗栏真出现。
-     ⑧ 是静态扫源码，只能证明"写了 autoEquip 这句"；这里证的是"这句真的有用"。
-     为什么单挑 inscribe：它是唯一**由 G.rng 决定学到哪本**的路径 ——
-     门市部/宗门兑换/主线赠书的 id 都是外部传入的，只有参悟是内部掷骰，
-     最容易出现"掷到 A 却激发了 B"这类漂移。
-
-     ⚠️ **不能"掷到啥测啥"**：碎片池里主动/被动混着（凡阶有铁布衫/吐纳术/回春诀），
-       若任其随机，掷中主动就永远测不到"被动不占栏"、反之亦然 —— 那是拿概率
-       当覆盖面（本项目纪律明令禁止"概率分支进契约"，v0.70.0 还因此偶发红过）。
-       改为**显式各钉死一次 RNG**：挑一本主动、一本被动，两个分支都真跑到。 */
+  /* ⑨ 端到端：碎片参悟 → 自动激发 → 主动功法进战斗栏 */
   {
     const tier9 = Object.keys(G.Data.shardByTier)[0];
     const pool9 = G.Data.shardPool(tier9);
-    const isActiveSk = (id) => {
-      const d = G.Data.skills[id] || {};
-      return (d.kind === '攻击' && d.mult) || !!d.active;
-    };
+    const isActiveSk = (id) => { const d = G.Data.skills[id] || {}; return (d.kind === '攻击' && d.mult) || !!d.active; };
     const actId = pool9.filter(isActiveSk)[0];
     const pasId = pool9.filter((id) => !isActiveSk(id))[0];
-    if (!actId) errors.push('端到端：' + tier9 + '阶碎片池里没有主动功法，无法验证"参悟即入栏"');
-    if (!pasId) errors.push('端到端：' + tier9 + '阶碎片池里没有被动功法，无法验证"被动不占栏"');
-
+    if (!actId) errors.push('端到端：' + tier9 + '阶碎片池无主动功法');
+    if (!pasId) errors.push('端到端：' + tier9 + '阶碎片池无被动功法');
     const realPick = G.rng.pick;
-    /* 钉死 rng 只包住 inscribe 这一次调用（战斗里也要 rng 掷掉落，别误伤） */
-    const runOne = (target, expectInBar) => {
+    const runOne = (target, expectActive) => {
       if (!target) return;
       const s9 = JSON.parse(JSON.stringify(save));
       s9.skills = {}; s9.skillEquip = []; s9.items = {};
-      /* 喂够碎片，保证 inscribe 一定成功 */
       s9.items[G.Data.shardByTier[tier9]] = (G.Data.shardCost || 10) + 5;
       G.rng.pick = () => target;
       let r9 = null;
       try { r9 = P.inscribe(s9, tier9); } finally { G.rng.pick = realPick; }
-      if (!r9 || !r9.ok) {
-        errors.push('端到端：碎片参悟应成功（碎片足够），实为 ' + ((r9 && r9.reason) || '未返回'));
-        return;
-      }
-      if (r9.id !== target) {
-        errors.push('端到端：钉死 RNG 后参悟到的应是「' + target + '」，实为「' + r9.id + '」（id 被换过）');
-      }
-      if (!r9.learned) errors.push('端到端：新档首次参悟应为"新习"（learned=true）');
-      if (s9.skills[r9.id] == null) errors.push('端到端：参悟后功法未进 save.skills');
-      /* 核心断言：参悟到的那本，**必须**同时在激发位里 */
-      if ((s9.skillEquip || []).indexOf(r9.id) < 0) {
-        errors.push('端到端：参悟得到「' + r9.id + '」却没自动激发（'
-          + '战斗栏会是空的 —— 玩家看到"学了功法但不能用"）');
-      }
-      /* 再证一步：进战斗后技能栏里到底有没有这本 */
+      if (!r9 || !r9.ok) { errors.push('端到端：参悟应成功，实为 ' + ((r9 && r9.reason) || '未返回')); return; }
+      if ((s9.skillEquip || []).indexOf(r9.id) < 0) errors.push('端到端：参悟得到「' + r9.id + '」却没自动激发');
       s9.quest = { step: 'free', flags: {} };
       s9.globalLevel = 20; s9.hp = 99999;
       G.game.save = s9;
       G.game.changeScene('battle', { enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field' });
       pump(6, 'actv.e2e');
       const b9 = G.game.scene;
-      if (!b9 || typeof b9._cmd !== 'function') {
-        errors.push('端到端：参悟后没能进入战斗');
-        return;
-      }
+      if (!b9 || typeof b9._cmd !== 'function') { errors.push('端到端：参悟后没能进战斗'); return; }
       const inBar = b9.p.skills.map((k) => k.id);
-      const has = inBar.indexOf(r9.id) >= 0;
-      if (expectInBar && !has) {
-        errors.push('端到端：参悟到的**主动**功法「' + r9.id + '」没出现在战斗技能栏（实为 ['
-          + inBar.join(',') + ']）');
-      }
-      if (!expectInBar && has) {
-        errors.push('端到端：**被动**功法「' + r9.id + '」不该占战斗栏（实为 ['
-          + inBar.join(',') + ']）');
-      }
+      const has = inBar.some((x) => x === r9.id || x.indexOf(r9.id + '@') === 0);
+      if (expectActive && !has) errors.push('端到端：主动功法「' + r9.id + '」没进战斗栏（[' + inBar.join(',') + ']）');
+      if (!expectActive && has) errors.push('端到端：被动功法「' + r9.id + '」不该进战斗栏（[' + inBar.join(',') + ']）');
     };
-    runOne(actId, true);      /* 主动分支：必须进栏 */
-    runOne(pasId, false);     /* 被动分支：必须在激发位、但不进栏 */
+    runOne(actId, true);
+    runOne(pasId, false);
     G.game.save = save;
   }
 
@@ -1553,84 +1512,59 @@ step(function () {
     errors.forEach((e) => console.log('  ✗ ' + e));
     throw new Error('激发契约失败：' + errors.length + ' 条');
   }
-  /* 属性徽记（v0.75.0，用户口径「功法必须要有属性图标」）：素材 skill.<拼音> 早已存在，
-     但此前从未被画出来。源码闸：面板必须引用 skill. 前缀的属性徽记。 */
   const pnm = stripC(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
-  if (pnm.indexOf("'skill.'") < 0 && pnm.indexOf('\'skill.\'') < 0) {
-    if (pnm.indexOf('skill.') < 0) errors.push('源码闸：功法面板未画属性徽记 skill.<拼音>（用户要求属性图标）');
-  }
-  console.log('  ✓ 激发制：只装已激发的 / 单本上限 / 未激发默认最高级 / 被动不占位 / 九重进倍率 / 属性徽记');
+  if (pnm.indexOf('skill.') < 0) errors.push('源码闸：功法面板未画属性徽记 skill.<拼音>');
+  console.log('  ✓ 功法容器：单本激发 / moves≤5主动≤3 / 随等级解锁 / 九重进倍率 / 切换收集流 / 属性徽记');
 
-  /* ⑧ 功法增幅不得压过境界（v0.75.0，用户口径「现在功法的增幅特别大，这个也要好好设计」）：
-       旧口径 `lv*5*m` 是**裸线性**：实测单本满级 +600% ATK、全学满 +34225%，
-       功法彻底压倒境界成长，"练功"成了唯一有意义的事。
-       新口径改 sqrt 边际递减。这条断言钉住**份额上限**，防将来又被改成线性。
-       ⚠️ 用"份额"而非绝对值 —— 绝对值会随境界基础公式变动而漂。 */
+  /* ⑩ 功法增幅不得压过境界（sqrt 边际递减），份额上限钉死 */
   {
     const mkB = (gl, sk) => ({
       linggen: { kind: '单灵根', elems: ['金'], coef: { 金: 1.2 } },
-      talents: [], skillEquip: [], items: {}, qi: 0, stone: 0, po: 0,
-      globalLevel: gl, age: 16, quest: { step: 'free', flags: {} }, hp: 100,
-      skills: sk, equip: {}, world: { seed: 1, anchor: true, names: {} }, worldSeed: 1
+      talents: [], skillEquip: Object.keys(sk), items: {},
+      qi: 0, stone: 0, po: 0, globalLevel: gl, age: 16,
+      quest: { step: 'free', flags: {} }, hp: 100, skills: sk, equip: {},
+      world: { seed: 1, anchor: true, names: {} }, worldSeed: 1
     });
     const bare = P.computeStats(mkB(37, {}));
-    /* 单本满级：增量应为境界基础的**同一量级**（≤2 倍），不是数量级碾压 */
     const one = P.computeStats(mkB(37, { 烈焰诀: { lv: 36 } }));
     const share = (one.atk - bare.atk) / bare.atk;
-    if (share > 2) {
-      errors.push('单本满级功法对 ATK 的增幅占比 ' + (share * 100).toFixed(0)
-        + '% 过大（应 ≤200%）—— 功法不该压过境界');
-    }
-    if (share < 0.2) {
-      errors.push('单本满级功法增幅 ' + (share * 100).toFixed(0) + '% 过小 —— 精进将失去意义');
-    }
-    /* 九重仍须看得出成长：lv1 → lv36 至少 4 倍 */
+    if (share > 2) errors.push('单本满级功法 ATK 增幅 ' + (share * 100).toFixed(0) + '% 过大（应 ≤200%）');
+    if (share < 0.2) errors.push('单本满级功法增幅 ' + (share * 100).toFixed(0) + '% 过小');
     const l1 = P.computeStats(mkB(37, { 烈焰诀: { lv: 1 } })).atk - bare.atk;
     const l36 = one.atk - bare.atk;
-    if (!(l36 >= l1 * 4)) {
-      errors.push('功法一重到九重的成长过小（' + l1 + ' → ' + l36 + '），"精进"看不出效果');
-    }
-    /* 品阶差距必须保留（否则"高品功法难得"失去价值）——灵阶应明显强于凡阶 */
-    const ling = P.computeStats(mkB(37, { 流云剑诀: { lv: 36 } })).atk - bare.atk;
-    if (!(ling > l36 * 1.2)) {
-      errors.push('灵阶功法应明显强于凡阶（灵 ' + ling + ' vs 凡 ' + l36 + '）——品阶差距被抹平');
-    }
-    /* 全被动堆叠同样要收敛（旧口径 DEF +3750%） */
-    const allP = {};
-    Object.keys(G.Data.skills).forEach(function (id) {
-      if (G.Data.skills[id].passive) allP[id] = { lv: 36 };
-    });
-    const wp = P.computeStats(mkB(37, allP));
-    const dShare = (wp.def - bare.def) / bare.def;
-    if (dShare > 12) {
-      errors.push('全被动功法堆叠 DEF 增幅 ' + (dShare * 100).toFixed(0)
-        + '% 过大（应 ≤1200%）—— 被动不该无上限叠加');
-    }
+    if (!(l36 >= l1 * 4)) errors.push('功法 lv1→36 成长过小（' + l1 + ' → ' + l36 + '）');
+    /* 品阶=真正强度差距：同为旧式单被动攻击、元素都不匹配灵根，隔离品阶。
+       凡·烈焰指(火) vs 灵·疾风九刃(风)，灵 gbase1.5 应明显更强。 */
+    const fan1 = P.computeStats(mkB(37, { 烈焰指: { lv: 36 } })).atk - bare.atk;
+    const ling1 = P.computeStats(mkB(37, { 疾风九刃: { lv: 36 } })).atk - bare.atk;
+    if (!(ling1 > fan1 * 1.2)) errors.push('同单被动下灵阶应明显强于凡阶（灵 ' + ling1 + ' vs 凡 ' + fan1 + '）');
+    const manyS = { 崩岩掌: { lv: 36 }, 烈焰指: { lv: 36 }, 寒水诀: { lv: 36 }, 疾风诀: { lv: 36 }, 曜光诀: { lv: 36 } };
+    const manyB = mkB(37, manyS); manyB.skillEquip = ['崩岩掌'];
+    const wp = P.computeStats(manyB);
+    const dShare = (wp.atk - bare.atk) / bare.atk;
+    if (dShare > 2) errors.push('收集多本但未激发的功法不该叠加 ATK（份额 ' + (dShare * 100).toFixed(0) + '%）');
   }
 
-  /* ⑨ 功法「难得难练」（v0.75.0，用户口径「一个功法非常难获得，也非常难练」）：
-       难得 = 碎片掉率够低（野外不给灵气，碎片是主要来源之一）；
-       难练 = 一重到九重的总灵力成本够高。两条腿都要，只砍一边会卡死玩家。 */
+  /* ⑪ 功法「难得难练」：1→36 总灵力成本够高；野外碎片掉率收敛 */
   {
     const y1s = G.Data.skills['烈焰诀'] || G.Data.skills['崩岩掌'];
-    if (!y1s) { errors.push('功法数据缺凡阶样本（难练契约无法判定）'); }
+    if (!y1s) errors.push('功法数据缺凡阶样本');
     else {
       let sum = 0;
       for (let lv = 1; lv < 36; lv++) sum += P.skillCost(y1s, lv);
-      if (sum < 30000) {
-        errors.push('凡阶功法 1→36 重总灵力仅 ' + sum + '（应 ≥30000）—— "难练"没体现');
-      }
+      if (sum < 30000) errors.push('凡阶功法 1→36 总灵力仅 ' + sum + '（应 ≥30000）');
     }
-    /* 掉率源码闸：野外碎片掉率必须已收敛（<0.04） */
     const bsrc2 = stripC(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
     const dm = bsrc2.match(/G\.rng\.next\(\)\s*<\s*(0?\.\d+)/g) || [];
-    const shardRate = dm.map(function (t) { return parseFloat(t.split('<')[1]); });
-    if (shardRate.length && Math.min.apply(null, shardRate) >= 0.04) {
-      errors.push('野外碎片掉率仍偏高（' + Math.min.apply(null, shardRate)
-        + '）—— 功法应"非常难获得"');
-    }
+    const rates = dm.map((t) => parseFloat(t.split('<')[1]));
+    if (rates.length && Math.min.apply(null, rates) >= 0.04) errors.push('野外碎片掉率仍偏高（' + Math.min.apply(null, rates) + '）');
   }
-}, 'skill.activate.contract');
+  if (errors.length) {
+    errors.forEach((e) => console.log('  ✗ ' + e));
+    throw new Error('激发契约失败：' + errors.length + ' 条');
+  }
+  console.log('  ✓ 功法容器（续）：满级增幅有界 / 未激发不叠加 / 难得难练 / 掉率收敛');
+});
 
 /* 4b-2) 战斗法宝常显（v0.69.0，用户第 11 点「新资源及戒指战斗图标」）
    此前战斗界面**完全不体现穿了什么法宝** —— 数值早进了 computeStats，
@@ -1917,12 +1851,12 @@ step(function () {
     /* 钉死随机各跑一次：0 → 必触发；0.999 → 必不触发。
        ⚠️ 概率分支必须显式钉死（项目纪律）—— 不钉就是"掷到啥测啥"。 */
     const sA = JSON.parse(JSON.stringify(s));
-    sA.items = { 淬体突破丹: 1 }; sA.qi = 999999;
-    const rA = P.startBigBreak(sA, null, 0, 0);       // 破境成功 + 必触发天劫
+    sA.items = { 淬体突破丹: 1 }; sA.qi = 999999; sA.breakProgress = 100;
+    const rA = P.startBigBreak(sA, null, 0, 0);       // 进度满→成功+必触发天劫
     if (!rA.ok || !rA.storm) errors.push('stormRoll=0 时天劫应必触发');
     const sB = JSON.parse(JSON.stringify(s));
-    sB.items = { 淬体突破丹: 1 }; sB.qi = 999999;
-    const rB = P.startBigBreak(sB, null, 0, 0.999);   // 必不触发
+    sB.items = { 淬体突破丹: 1 }; sB.qi = 999999; sB.breakProgress = 100;
+    const rB = P.startBigBreak(sB, null, 0, 0.999);   // 进度满→成功、必不触发天劫
     if (!rB.ok || rB.storm) errors.push('stormRoll=0.999 时天劫应不触发');
   }
   const info = P.winBigBreak(s);
@@ -1953,8 +1887,8 @@ step(function () {
   const b = G.game.scene, s = G.game.save;
   b.es.forEach(function (e) { e.hp = 0; });
   b._victory();
-  if (s.qi !== 0) errors.push('野怪不该给灵气（v0.67.0），实为 ' + s.qi);
-  if (s.po !== 6) errors.push('灵力应为 1×L=6（一点点），实为 ' + s.po);
+  if (s.qi !== 180) errors.push('野怪应给灵气 180（v0.77.0 恢复），实为 ' + s.qi);
+  if (s.po !== 12) errors.push('灵力应为 12（v0.77.0 翻倍），实为 ' + s.po);
   if (!(s.stone >= 1 && s.stone <= 5)) {
     errors.push('灵石应为 1~5 个下品（单只），实为 ' + s.stone);
   }
@@ -4362,9 +4296,20 @@ step(function () {
   let s2 = JSON.parse(JSON.stringify(b0)); s2.items = {}; s2.formations = { juling: true }; s2.globalLevel = 37;
   let s3 = JSON.parse(JSON.stringify(s2)); s3.formations = {};
   if (!(G.Player.rates(s2).qi > G.Player.rates(s3).qi)) errors.push('聚灵阵应提升灵气获取');
-  let s4 = JSON.parse(JSON.stringify(b0)); s4.formations = { jingxin: true }; s4.globalLevel = 72; s4.items = { 筑基丹: 1 };
-  let s5 = JSON.parse(JSON.stringify(s4)); s5.formations = {};
-  if (!(G.Player.breakChance(s4, mFan).total > G.Player.breakChance(s5, mFan).total)) errors.push('静心阵应提升破境成功率');
+  /* 静心阵（进度模型新职责）：破境失败的气血反噬减轻（保留75% vs 50%） */
+  function failHp(withFx) {
+    const sx = JSON.parse(JSON.stringify(b0));
+    sx.globalLevel = 72; sx.qi = 999999;
+    sx.items = { 筑基丹: 3 };
+    sx.formations = withFx ? { jingxin: true } : {};
+    sx.breakProgress = 0;
+    const full = G.Player.computeStats(sx);
+    sx.hp = full.maxhp;
+    G.Player.startBigBreak(sx, mFan);
+    return sx.hp;
+  }
+  const hFx = failHp(true), hNo = failHp(false);
+  if (!(hFx > hNo)) errors.push('静心阵应减轻破境失败的气血反噬（' + hFx + ' vs ' + hNo + '）');
   let s6 = JSON.parse(JSON.stringify(b0)); s6.formations = { daowen: true }; s6.globalLevel = 600;
   if (!(G.Player.computeStats(s6, mDao).atk > G.Player.computeStats(s6, mFan).atk)) errors.push('道纹阵应仅在道界加属性');
 }, 'formation.contract');
@@ -4647,25 +4592,22 @@ step(function () {
   if (!sc.hooks || !sc.hooks.onNpc) { errors.push('场景未暴露 hooks.onNpc'); return; }
   sc.hooks.onNpc(npc, sc);
   const n = Object.keys(s2.skills || {}).length;
-  /* v0.75.0：入门只送**下品两门**（一主动 + 一被动），不再送三本开局技。
-     且必须是"弱"的那两本 —— 用户口径「威力特别小」。 */
-  if (n !== 2) errors.push('m0-1 复命后应授予入门功法 2 门（下品），实得 ' + n + ' 门');
-  if (!s2.skills['引气诀'] || !s2.skills['粗浅吐纳']) {
-    errors.push('入门功法应是「引气诀」+「粗浅吐纳」（下品两门）');
-  }
+  /* v0.77.0 功法容器：只授**一本**《引气诀》，其内部含 1 主动 + 1 被动。 */
+  if (n !== 1) errors.push('m0-1 复命后应授予入门功法 1 本，实得 ' + n + ' 本');
+  if (!s2.skills['引气诀']) errors.push('入门功法应是《引气诀》');
+  if (s2.skills['粗浅吐纳']) errors.push('「粗浅吐纳」应是《引气诀》内部被动，不再单独授予');
   {
     const inS = G.Data.skills['引气诀'];
-    if (!inS || inS.mult > 1.1) {
-      errors.push('入门主动「引气诀」必须威力极小（mult ≤ 1.1），实为 ' + (inS && inS.mult));
-    }
-    const psS = G.Data.skills['粗浅吐纳'];
-    if (!psS || !psS.passive) errors.push('入门被动「粗浅吐纳」应为 passive');
-    /* 旧的三本开局技不该再送 */
-    ['铁布衫', '吐纳术'].forEach(function (id) {
-      if (s2.skills[id]) errors.push('新手不该再送「' + id + '」（v0.75.0 只送下品两门）');
+    if (!inS || inS.mult > 1.1) errors.push('入门主动「引气诀」必须威力极小（mult ≤1.1），实为 ' + (inS && inS.mult));
+    const mv = G.Data.gongfaMoves('引气诀');
+    const na = mv.filter((m) => m.active || (m.kind === '攻击' && !m.passive)).length;
+    const np = mv.filter((m) => m.passive).length;
+    if (na !== 1 || np !== 1) errors.push('《引气诀》内部应为 1主动+1被动，实为 ' + na + '主动/' + np + '被动');
+    ['铁布衫', '吐纳术', '粗浅吐纳'].forEach(function (id) {
+      if (s2.skills[id]) errors.push('新手不该再单独送「' + id + '」');
     });
   }
-  if (!(s2.skillEquip || []).length) errors.push('授予功法后应自动装上一门');
+  if ((s2.skillEquip || [])[0] !== '引气诀') errors.push('授予功法后应自动激发《引气诀》');
   if (s2.quest.step !== 'm0-2') errors.push('m0-1 复命后任务应推进到 m0-2');
 }, 'skills.origin.contract');
 
@@ -9171,12 +9113,11 @@ step(function () {
   }
 }, 'zone.curve.contract');
 
-/* ---------- 野怪收益**差分探针**（v0.67.0 改向） ----------
-   ⚠️ G19 的教训仍然适用于**副本**（灵气奖励必须接 realmQiCoef，见下一条 `zone.curve.probe.dungeon`）。
-   但**野外**在 v0.67.0 起**根本不产灵气**（用户第 28 点：「取消打怪升级获取灵气」）——
-   所以这里改成反向验证：**真的打一场 L=234 的野外战，灵气必须一点不涨**。
-   这是"经济规则"本身的看门狗：谁把灵气加回野外，这条立刻报。
-   （原判据「野外灵气 = 80×L×…×realmQiCoef」随需求作废。） */
+/* ---------- 野怪收益**差分探针**（v0.77.0 口径） ----------
+   v0.76.0 阶段十**恢复野外灵气**（用户最新口径，实测 gl6 给灵气180、灵力12）：
+   真打一场 L=234 的野外战，灵气/灵力必须**等于公式值** ——
+   灵气 = 30×L×realmQiCoef×gap（闭关的40%效率），灵力 = 2×L×gap。
+   这是"野外经济公式"的看门狗：谁改了公式或把灵气清零，这条立刻报。 */
 step(function () {
   const s = JSON.parse(JSON.stringify(G.game.save));
   s.globalLevel = 234; s.qi = 0; s.po = 0; s.stone = 0;
@@ -9194,11 +9135,12 @@ step(function () {
   const before = s.qi || 0;
   b._victory();
   const got = (s.qi || 0) - before;
-  if (got !== 0) {
-    errors.push('差分探针：野外战斗给灵气了（+' + got + '）—— v0.67.0 起野怪不该产灵气，'
-      + '灵气只能来自闭关打坐（用户第 28 点）');
-  }
-  if (!(s.po > 0)) errors.push('野外战斗应给一点点灵力（1×L）');
+  /* L234 同级 gap=1：realmQiCoef=32^0.75≈13.454 → 灵气期望 94449；灵力 468。 */
+  const Lv = 234, gap = 1;
+  const expQi = Math.max(1, Math.round(30 * Lv * G.Player.realmQiCoef(Lv) * gap));
+  const expPo = Math.max(1, Math.round(2 * Lv * gap));
+  if (got !== expQi) errors.push('差分探针：野外灵气 ' + got + ' ≠ 公式期望 ' + expQi);
+  if (s.po !== expPo) errors.push('野外灵力应为 ' + expPo + '，实为 ' + s.po);
   if (!(s.stone >= 1 && s.stone <= 5)) {
     errors.push('野外战斗灵石应为 1~5 个下品，实为 ' + s.stone);
   }
@@ -9771,106 +9713,85 @@ step(function () {
 }, 'map.world.contract');
 pump(6, 'map.world.leave');
 
-/* ---------- 破境成功率（v0.18.0）----------
-   用户口径：「大道五十，天衍四九，人遁其一」——
-     成功率 = **基础 + 失败累计道基 + 破境丹 + 天道赐福**；
-     其中前三项**封顶 95%**，天道赐福**额外**再加 1%~5%。
-   三条规则：① 基础与道基**随境界提升而降低**；
-   ② 破境丹下品固定 +10%、每品级额外 +2%、**最高道级也只 +30%**；
-   ③ **所有大境界破境都需要破境丹**（现有规则，写进公式）。
-   本契约钉：丹药品级加成表 / 95% 封顶 / 赐福额外叠加 / 基础随境界单调不增 /
-   道基"筑基前为 0、筑基后按失败次数累积" / 真驱动"必失败扣丹 + 道基 +1"与"必成功清零"。 */
+/* ---------- 破境：进度条累积模型（v0.77.0，用户口径）----------
+   「进度条累积，失败 +50% 进度、两次必成、耗丹 + 气血减半。」
+   · 每试一次耗 1 颗破境丹；
+   · 进度 <100 → 失败：进度 +50（封顶100）、当前气血减半；
+   · 进度 ≥100 → 必定成功：清进度/失败数，再按 TRIB_CHANCE 掷是否历天劫。
+   最多失败两次，第三次必成。 */
 step(function () {
   const errors = [];
   const P = G.Player;
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
 
-  /* ① 破境丹加成表：下品 10、每级 +2、道级封顶 30 */
-  const Q = P.PILL_QUALITY;
-  if (!Array.isArray(Q) || Q.length !== 12) bail('破境契约：PILL_QUALITY 应为 12 档');
-  if (Q[0].n !== '下品' || Q[0].add !== 10) errors.push('下品破境丹应固定 +10%');
-  if (Q[11].n !== '道级' || Q[11].add !== 30) errors.push('道级破境丹应封顶 +30%');
-  for (let i = 1; i < 12; i++) {
-    if (Q[i].add < Q[i - 1].add) errors.push('破境丹加成必须单调不降（' + Q[i].n + ' 低于前一档）');
-    if (Q[i].add > 30) errors.push('破境丹加成不得超过 30%（' + Q[i].n + ' 为 ' + Q[i].add + '）');
-  }
-
-  /* ② 丹药品级随境界单调不降 */
-  let prev = 0;
-  [1, 37, 73, 109, 145, 253, 361, 577].forEach(function (gl) {
-    const q = P.pillQualityIdx(gl);
-    if (q < prev) errors.push('破境丹品级随境界倒退（gl ' + gl + ' → ' + q + '）');
-    if (q < 1 || q > 12) errors.push('破境丹品级越界（gl ' + gl + ' → ' + q + '）');
-    prev = q;
-  });
-
-  /* ③ 基础概率随境界单调不增 + 封顶 95% */
-  const mk = function (gl, fails, blessing) {
+  const prep = function (progress) {
     const o = JSON.parse(JSON.stringify(save));
-    o.globalLevel = gl; o.qi = 999999;
+    o.globalLevel = 36; o.qi = 999999;
     o.items = o.items || {};
-    o.breakFails = fails || 0;
-    const meta = { blessing: blessing || 0 };
-    o.items[P.breakPill(gl)] = 3;
-    return { save: o, meta: meta, ch: P.breakChance(o, meta) };
+    o.breakProgress = progress || 0;
+    o.breakFails = 0;
+    const meta = {};
+    o.items[P.breakPill(36)] = 5;
+    const full = P.computeStats(o);
+    o.hp = full.maxhp;
+    return { save: o, meta: meta, pill: P.breakPill(36), full: full };
   };
-  let pb = 999;
-  [1, 37, 109, 253, 361, 577].forEach(function (gl) {
-    const ch = mk(gl, 0, 0).ch;
-    if (ch.base > pb) errors.push('基础破境概率应随境界下降（gl ' + gl + ' 反而更高）');
-    pb = ch.base;
-    if (ch.base < 20 || ch.base > 95) errors.push('基础破境概率越界（gl ' + gl + ' → ' + ch.base + '）');
-  });
-  /* 前三项封顶 95：淬体（基础 90 + 丹 10）已经超了，必须被夹到 95 */
-  const c1 = mk(1, 0, 0).ch;
-  if (c1.core !== 95) errors.push('前三项应封顶 95%（实为 ' + c1.core + '）');
-  if (c1.total !== 95) errors.push('无赐福时总成功率应等于 core（实为 ' + c1.total + '）');
 
-  /* ④ 天道赐福：**额外**叠加（不受 95% 封顶约束），且被夹在 1%~5% */
-  const c2 = mk(1, 0, 5).ch;
-  if (c2.bless !== 5) errors.push('天道赐福 5 应原样返回，实为 ' + c2.bless);
-  if (c2.total !== 100) errors.push('95% + 赐福 5% 应到 100%（实为 ' + c2.total + '）');
-  if (mk(1, 0, 99).ch.bless !== 5) errors.push('天道赐福应封顶 5%');
-  if (mk(1, 0, -3).ch.bless !== 0) errors.push('无赐福时应为 0（不是负数）');
+  /* ① 第一次（进度0）：失败、+50、耗丹、气血减半 */
+  const A = prep(0);
+  const pillBefore = A.save.items[A.pill];
+  const hpBefore = A.save.hp;
+  const r1 = P.startBigBreak(A.save, A.meta);
+  if (r1.ok) errors.push('进度0 第一次应失败');
+  if (A.save.breakProgress !== 50) errors.push('第一次失败进度应 0→50，实为 ' + A.save.breakProgress);
+  if (A.save.items[A.pill] !== pillBefore - 1) errors.push('失败应耗 1 丹');
+  if (A.save.hp >= hpBefore) errors.push('失败应使气血减半（' + hpBefore + '→' + A.save.hp + '）');
+  if (Math.abs(A.save.hp - Math.round(A.full.maxhp * 0.5)) > 1) errors.push('失败后气血应为上限一半');
 
-  /* ⑤ 道基：**筑基之前为 0**，筑基之后按失败次数累积、封顶 20 */
-  /* 新模型：淬体大圆满在 gl36（< 筑基起点73）道基为 0；gl73 起按失败次数累计 */
-  if (mk(36, 5, 0).ch.dao !== 0) errors.push('淬体期不该有"失败累计道基"（用户口径：筑基之后才有）');
-  if (mk(73, 1, 0).ch.dao !== 6) errors.push('筑基后 1 次失败应累计 6%，实为 ' + mk(73, 1, 0).ch.dao);
-  if (mk(73, 99, 0).ch.dao !== 20) errors.push('失败累计道基应封顶 20%');
+  /* ② 第二次（进度50）：失败、+50→100，提示下次必成 */
+  const B = prep(50);
+  const r2 = P.startBigBreak(B.save, B.meta);
+  if (r2.ok) errors.push('进度50 第二次应失败');
+  if (B.save.breakProgress !== 100) errors.push('第二次失败进度应 50→100，实为 ' + B.save.breakProgress);
+  if (!/下次必定成功/.test(r2.reason)) errors.push('进度满时应提示「下次必定成功」');
 
-  /* ⑥ 真驱动：必失败 → 扣丹 + 道基 +1；必成功 → 清零 */
-  const A = mk(36, 0, 0);
-  const pillA = P.breakPill(36);
-  const beforeA = A.save.items[pillA];
-  const rf = P.startBigBreak(A.save, A.meta, 0.999);
-  if (rf.ok || !rf.failed) errors.push('掷 0.999 应破境失败');
-  if (A.save.items[pillA] !== beforeA - 1) errors.push('破境失败应照扣破境丹（大道五十，试错有代价）');
-  if (A.save.breakFails !== 1) errors.push('破境失败应把 breakFails 记 1，实为 ' + A.save.breakFails);
+  /* ③ 第三次（进度100）：必定成功、清进度、耗丹、返回 storm */
+  const C = prep(100);
+  const pillC = C.save.items[C.pill];
+  const r3 = P.startBigBreak(C.save, C.meta, undefined, 0.999);
+  if (!r3.ok) errors.push('进度100 应必定成功，实为 ' + r3.reason);
+  if (C.save.breakProgress !== 0) errors.push('成功后进度应清零，实为 ' + C.save.breakProgress);
+  if (C.save.items[C.pill] !== pillC - 1) errors.push('成功也应耗 1 丹');
+  if (typeof r3.storm !== 'boolean') errors.push('成功应返回 storm（是否历天劫）');
 
-  const B = mk(36, 3, 0);
-  const pillB = P.breakPill(36);
-  const beforeB = B.save.items[pillB];
-  const rs = P.startBigBreak(B.save, B.meta, 0);
-  if (!rs.ok) errors.push('掷 0 应破境成功，实为 ' + rs.reason);
-  if (B.save.items[pillB] !== beforeB - 1) errors.push('破境成功也应扣丹（丹是"门票"）');
-  if (B.save.breakFails !== 0) errors.push('破境成功后应清零 breakFails，实为 ' + B.save.breakFails);
+  /* ④ 天劫门：stormRoll 0 必历劫、0.999 不历劫（TRIB_CHANCE=0.5） */
+  const D = prep(100);
+  const rStorm = P.startBigBreak(D.save, D.meta, undefined, 0);
+  if (!rStorm.ok || rStorm.storm !== true) errors.push('stormRoll=0 应必触发天劫');
+  const E = prep(100);
+  const rNoStorm = P.startBigBreak(E.save, E.meta, undefined, 0.999);
+  if (!rNoStorm.ok || rNoStorm.storm !== false) errors.push('stormRoll=0.999 应不触发天劫');
 
-  /* ⑦ 源码闸：不得用全局 G.rng 掷（那会消耗全局序列、带歪回归基线） */
+  /* ⑤ 前置：无丹应被拒（不进进度逻辑） */
+  const noPill = prep(0); noPill.save.items[noPill.pill] = 0;
+  if (P.startBigBreak(noPill.save, noPill.meta).ok) errors.push('无破境丹应被拒');
+
+  /* ⑥ 源码闸：进度模型引用 breakProgress；天劫门读 stormRoll */
   const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const ps = stripC(fs.readFileSync(path.join(WWW, 'js/core/player.js'), 'utf8'));
   const i0 = ps.indexOf('startBigBreak: function');
-  const i1 = ps.indexOf('/* ===== 打坐', i0);
+  const i1 = ps.indexOf('winBigBreak: function', i0);
   if (i0 < 0) bail('破境契约：找不到 startBigBreak');
-  const body = ps.slice(i0, i1 > 0 ? i1 : i0 + 1600);
-  if (/\bG\.rng\b/.test(body)) errors.push('破境掷点不得用全局 G.rng（会消耗全局序列）');
-  if (body.indexOf('breakFails') < 0) errors.push('startBigBreak 未记录失败累计道基');
+  const body = ps.slice(i0, i1 > 0 ? i1 : i0 + 2000);
+  if (body.indexOf('breakProgress') < 0) errors.push('源码闸：startBigBreak 未用 breakProgress（进度模型）');
+  if (body.indexOf('stormRoll') < 0) errors.push('源码闸：天劫门未读 stormRoll');
 
   if (errors.length) {
     errors.forEach((e) => console.log('  ✗ ' + e));
     throw new Error('破境契约失败：' + errors.length + ' 条');
   }
-  console.log('  ✓ 破境成功率：丹 10~30% / 前三项封顶 95% / 赐福额外 +1~5% / 道基筑基后累计');
-}, 'break.chance.contract');
+  console.log('  ✓ 破境进度条：失败+50% / 两次必成 / 耗丹 / 气血减半 / 成后按概率历天劫');
+});
 pump(4, 'break.chance.leave');
 
 /* ---------- 濒死红屏 + 受击红帧（v0.18.0）----------

@@ -400,53 +400,32 @@
          取数一律走 `Player.equippedIds`（它内含 canUseSkill 过滤），
          不在战斗里重写一遍门禁 —— 面板显示与这里必须同源。
          槽位上限 3 由 `Player.ACTIVE_SLOTS` 给（面板按钮读同一个常量）。 */
-      var atkSkills = [], healSkills = [];
-      var equipped = (G.Player.equippedIds ? G.Player.equippedIds(save) : [])
-        .slice(0, G.Player.ACTIVE_SLOTS || 3);
-      equipped.forEach(function (id) {
-        var sd = G.Data.skills[id];
-        if (!sd) return;
-        /* 法力消耗随**功法等级**涨（v0.14.0）：装配时算一次挂在技能条目上，
-           结算与按钮禁用读同一个数 —— 每处各算一遍必然漂。 */
-        var lv = (save.skills[id] && save.skills[id].lv) || 1;
-        var cost = G.Player.manaCost(sd, lv);
-        /* 九重进度系数（v0.69.0）：prog 只在**玩家侧**乘（敌方 skill 是即时构造的，
-           没有 prog）。挂在条目上，面板显示与结算读同一个数。 */
-        var pc = G.Player.progCoef ? G.Player.progCoef(lv) : 1;
-        if (sd.kind === '攻击' && sd.mult) {
-          atkSkills.push({ id: id, n: sd.n, mult: +(sd.mult * pc).toFixed(3), cd: sd.cd || 0, cdLeft: 0,
-            hit: sd.hit, elem: sd.elem, status: sd.status, target: sd.target, kind: 'atk',
-            lv: lv, progCoef: pc, cost: cost });
-        } else if (sd.active) {
-          healSkills.push({ id: id, n: sd.active.n, mult: 0, heal: +(sd.active.heal * pc).toFixed(3),
-            cd: sd.active.cd || 0, cdLeft: 0, hit: sd.active.hit, elem: sd.elem, kind: 'heal',
-            lv: lv, progCoef: pc, cost: cost });
-        }
-      });
-      /* 主动槽为空时的兜底普攻：**不耗法力**（耗了就会出现"一点法力都没有时只能站着"的死局）。
-         注意这不是"没激发功法"的惩罚 —— 普攻本来就一直存在（指令区的「攻击」）。 */
-      var skills = atkSkills.concat(healSkills).slice(0, G.Player.ACTIVE_SLOTS || 3);
-      /* 未激发功法时的默认（v0.75.0，用户口径「没有激发，进入战斗会默认选择第一本
-         等级最高的功法」）：激发上限已收成 1 本，但玩家可能一本都没激发 ——
-         空白技能栏会让人以为"学了功法不能用"（正是 v0.69.0 修过的那类静默）。
-         这里补一本**等级最高**的顶上；`defaultSkillId` 是唯一挑选口径。 */
-      if (!skills.length && G.Player.defaultSkillId) {
-        var dft = G.Player.defaultSkillId(save);
-        if (dft) {
-          var dd = G.Data.skills[dft];
-          var dlv = (save.skills[dft] && save.skills[dft].lv) || 1;
-          var dpc = G.Player.progCoef ? G.Player.progCoef(dlv) : 1;
-          if (dd && dd.kind === '攻击' && dd.mult) {
-            skills.push({ id: dft, n: dd.n, mult: +(dd.mult * dpc).toFixed(3), cd: dd.cd || 0,
-              cdLeft: 0, hit: dd.hit, elem: dd.elem, status: dd.status, target: dd.target,
-              kind: 'atk', lv: dlv, progCoef: dpc, cost: G.Player.manaCost(dd, dlv) });
-          } else if (dd && dd.active) {
-            skills.push({ id: dft, n: dd.active.n, mult: 0, heal: +(dd.active.heal * dpc).toFixed(3),
-              cd: dd.active.cd || 0, cdLeft: 0, hit: dd.active.hit, elem: dd.elem,
-              kind: 'heal', lv: dlv, progCoef: dpc, cost: G.Player.manaCost(dd, dlv) });
+      /* 技能栏（v0.77.0 功法容器模型）：只取**当前激发的那一本功法**（未激发则
+         defaultSkillId 兜底），把它在当前修炼等级下**已解锁的主动招式**逐个变成可用技能
+         （最多 3 个）。条目自包含，施放直接读条目字段。 */
+      var skills = [];
+      var gfId = ((G.Player.equippedIds ? G.Player.equippedIds(save) : [])[0]) ||
+                 (G.Player.defaultSkillId ? G.Player.defaultSkillId(save) : null);
+      if (gfId && G.Data.skills[gfId] && G.Data.activeMovesOf) {
+        var gsd = G.Data.skills[gfId];
+        var glv = (save.skills[gfId] && save.skills[gfId].lv) || 1;
+        var pc = G.Player.progCoef ? G.Player.progCoef(glv) : 1;
+        var cost = G.Player.manaCost(gsd, glv);
+        var actMoves = G.Data.activeMovesOf(gfId, glv);
+        actMoves.forEach(function (mv, i) {
+          var mid = actMoves.length === 1 ? gfId : (gfId + '@' + i);
+          if (mv.heal) {
+            skills.push({ id: mid, n: mv.n, mult: 0, heal: +(mv.heal * pc).toFixed(3),
+              cd: mv.cd || 0, cdLeft: 0, hit: mv.hit, elem: mv.elem, kind: 'heal',
+              lv: glv, progCoef: pc, cost: cost });
+          } else {
+            skills.push({ id: mid, n: mv.n, mult: +(mv.mult * pc).toFixed(3), cd: mv.cd || 0,
+              cdLeft: 0, hit: mv.hit, elem: mv.elem, status: mv.status, target: mv.target,
+              hits: mv.hits, pierce: mv.pierce, kind: 'atk', lv: glv, progCoef: pc, cost: cost });
           }
-        }
+        });
       }
+      /* 兜底普攻：不耗法力（避免"零法力只能站着"的死局）。 */
       if (!skills.length) {
         skills.push({ id: 'basic', n: '凝气拳', mult: 1.0, cd: 0, cdLeft: 0,
           elem: st.attackElem, kind: 'atk', lv: 1, progCoef: 1, cost: 0 });
