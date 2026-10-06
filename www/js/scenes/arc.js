@@ -114,6 +114,8 @@
           self.line = { pid: null, name: '', t: n.q, tw: new G.UI.Typewriter(n.q, 26) };
           self._after = function () { self._choiceButtons(n, go); };
           self._rebuildButtons();
+        } else if (n.k === 'branch') {
+          self._say(n.pid || null, n.if(G.game.save) ? n.then : n.else, go);
         } else if (n.k === 'stat') {
           var save = G.game.save, ok = true;
           if (n.glm) ok = (save.globalLevel || 1) >= n.glm;
@@ -343,8 +345,8 @@
         }
       }
       /* 框 */
-      x.fillStyle = 'rgba(8,11,20,0.92)';
-      x.strokeStyle = 'rgba(216,183,104,0.6)';
+      x.fillStyle = 'rgba(9,13,24,0.97)';
+      x.strokeStyle = 'rgba(216,183,104,0.8)';
       x.lineWidth = 1;
       G.UI.rr(x, DLG.x, DLG.y, DLG.w, DLG.h, 6); x.fill(); x.stroke();
       if (ln.name) {

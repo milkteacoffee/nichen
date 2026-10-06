@@ -1,4 +1,25 @@
-/* 第二世 · 山门〔师生 + 同门〕
+# -*- coding: utf-8 -*-
+"""E-C 准备：
+1) arc.js：crisis 增加 branch 节点（按 save 状态分支台词）；
+2) 覆盖 arc2.js：第二世·山门完整内容。"""
+import io
+
+def patch(path, pairs):
+    s = io.open(path, encoding='utf-8').read()
+    for a, b in pairs:
+        assert s.count(a) == 1, (path, a[:60])
+        s = s.replace(a, b)
+    io.open(path, 'w', encoding='utf-8', newline='').write(s)
+    print('patched', path)
+
+patch(r'D:\Projects\nichen\www\js\scenes\arc.js', [
+("""        } else if (n.k === 'stat') {""",
+"""        } else if (n.k === 'branch') {
+          self._say(n.pid || null, n.if(G.game.save) ? n.then : n.else, go);
+        } else if (n.k === 'stat') {"""),
+])
+
+arc2 = r'''/* 第二世 · 山门〔师生 + 同门〕
    《诸世情感与镜花水月主线设计 v1.0》§4 第二世
    师父玄玑子捡他回山、师兄裴长庚同食同练；天道以「窝藏轮回孽障」
    遣代行者问罪——师父为斩因果自散修为而亡、师兄断后战死。
@@ -104,3 +125,6 @@ G.Arcs.register({
   lossCta: '下山……',
   deathCause: 'sect'
 });
+'''
+io.open(r'D:\Projects\nichen\www\js\data\arc2.js', 'w', encoding='utf-8', newline='').write(arc2)
+print('arc2 written')

@@ -4651,7 +4651,7 @@ step(function () {
 
   /* ② 入世按钮 → grow 演出（源码闸 + 行为闸双保险） */
   const rcSrc = fs.readFileSync(path.join(WWW, 'js/scenes/reincarnation.js'), 'utf8');
-  if (!/self\.step = 'grow'/.test(rcSrc)) {
+  if (!/(self|this)\.step = 'grow'/.test(rcSrc)) {
     errors.push("入世按钮应先进 'grow' 演出（不能直调 finish）");
   }
   R.enter();
@@ -4663,6 +4663,12 @@ step(function () {
   if (!enterBtn) { errors.push('入世页没有「入世」按钮'); return; }
   R.step = 'talent';
   enterBtn.onClick();
+  /* v0.79：有命定世时先进入 arcpath 选择，选「浮世轮回」后才到 grow */
+  if (R.step === 'arcpath') {
+    const freeBtn = R.buttons.filter(function (x) { return x.label === '浮世轮回'; })[0];
+    if (!freeBtn) errors.push('命途步缺「浮世轮回」按钮');
+    else freeBtn.onClick();
+  }
   if (R.step !== 'grow') errors.push("点「入世」后 step 应为 'grow'，实为 " + R.step);
   if (G.game.save && G.game.save.age === 16 && R.step === 'grow') {
     /* 演出途中**不能**已经入世（save 还没产出来才算对） */

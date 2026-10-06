@@ -1,8 +1,14 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-10-06 · 代码版本 **v0.79.0（情感主线 Arc 引擎 + 第一世白鹿礁）** · 设计基线 **GDD v4.0（文档归档重构）** · 前一里程碑 v0.78.0
+> 最后更新：2026-10-06 · 代码版本 **v0.80.0（第二世山门 + 命途选择）** · 设计基线 **GDD v4.0（文档归档重构）** · 前一里程碑 v0.79.0
 >
 > **【v0.76.0 版本口径补登 2026-10-06】** 此前 v0.76.0 的功能提交（副本事件三批：+5 副本 +7 事件、完成 50+ 目标；装备强化；恢复野外灵气奖励）已推送，但 ns.js/HANDOVER 未随提交升版，本次补齐版本号。
+> **【v0.80.0 第二世·山门 + 命途选择 2026-10-06】** 《诸世情感》批次 E-C，**全量 smoke 归零、浏览器实测全链路**。
+> ① **arc2.js 完整内容**：师父玄玑子（elder）雪夜捡他回山、师兄裴长庚（keeper）同食同练，各 3 段相处小事；天道遣持尺白衣代行者以「窝藏轮回孽障」问罪；三抉择（劝暂避/挡身前/求留情，写 arc.flags）可改死法遗言；新增 **branch 节点**（按 save 状态分支台词）；师父自散修为撞代行者而亡、师兄断后战死；regret=玄玑子「活下去。别回头。」（半卷讲经手稿）。
+> ② **命途选择步（reincarnation）**：life≥2 天赋步后，若 Arcs.next 有命定世，主按钮显「择命途」→ arcpath 步两按钮「天道命定·n」（arcChoice=id）与「浮世轮回」（null），再播成长；finish 按 arcChoice 路由命定世。
+> ③ 对话框夜景对比增强（填充 0.97 / 金边 0.8）；smoke birth.grow 契约适配 arcpath。
+> 实测 meta：arcs.done=[arc1,arc2]、regrets 2 件、xuanjizi/changgeng fate doomed（deathLife=4、deathText 在）、各 3 共同记忆、next=arc3。
+>
 > **【v0.79.0 情感主线 Arc 引擎 + 第一世 2026-10-06】** 《诸世情感与镜花水月主线设计 v1.0》批次 E-A/E-B，**全量 smoke 归零**。
 > ① **Arc 引擎（data/arcs.js，G.Arcs）**：register/byId/list；ensure（建 story.arcs{done,current}、story.tokens、regrets，旧 bonds 补形 memories/fate）；bond/addMemory（共同记忆具体小事，上限 60）/addMeeting/addPeril/doom；门控 next（按登记序取未完成世）；begin（建 save.arc 运行态 intro→daily→crisis→loss→end）；dailyBeat/needMet；抉择 optionOk/runOption（item/glm/if 门控，consume/fx/then 真实结果）；complete（done 落定、fated 注定、tokens 信物、regrets 一件憾）。
 > ② **通用剧本场景（scenes/arc.js）**：开场对话（Typewriter + 名牌 + 立绘按 96px 目标高度自适应、正文避让）；日常相位程序化主题背景（reef/sect/cottage/manor/dojo/mirror 六套，昼/夜变体）+ 点击 NPC 相处热点（进度面板 0/need，满足后「入夜」按钮）；惊变相位节点 line/choice/stat/death/call + 雨丝；失去相位收场后 complete → 死（arc1-5）或 endFlow 进结局（arc6）。
