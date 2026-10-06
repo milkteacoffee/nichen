@@ -173,6 +173,10 @@
         大道化身 / 合道）一关没打**。台词说九关，代码只看境界，这是纯静默的
         "剧情与数值分叉"（HANDOVER 记的"完整闭环不能销项"就是这条）。 */
   function pendingFor(save) {
+    /* v0.84：旧十章链休眠，主线由 Arcs 情感世接管（诸世情感 v1.0 §9 E-G）。 */
+    return null;
+  }
+  function _pendingForLegacy(save) {
     var gl = (save && save.globalLevel) || 1;
     for (var i = 0; i < LIST.length; i++) {
       var c = LIST[i];
@@ -191,6 +195,10 @@
      ⚠️ 必须与 pendingFor **同源**：pendingFor 每次 `return null` 都在这儿有对应支，
         两处判据要一起改 —— 否则会出现"面板说差 3 关、其实卡在境界"这种反向误导。 */
   function blockedBy(save) {
+    /* v0.84：与 pendingFor 同源休眠。 */
+    return null;
+  }
+  function _blockedByLegacy(save) {
     var gl = (save && save.globalLevel) || 1;
     for (var i = 0; i < LIST.length; i++) {
       var c = LIST[i];

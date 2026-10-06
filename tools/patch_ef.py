@@ -1,4 +1,8 @@
-/* 终世 · 道界〔复活之路三阶〕
+# -*- coding: utf-8 -*-
+"""E-F：arc6.js 终世·道界（修至道祖，招魂→凝魄→重塑，镜碎）。"""
+import io
+
+arc6 = r'''/* 终世 · 道界〔复活之路三阶〕
    《诸世情感与镜花水月主线设计 v1.0》§4 第六世 / §5 复活三阶
    修至道祖，真获逆转生死之能：招魂（冷残影）→ 凝魄（夺生人/
    天地/道果，一人圆满另一人替死）→ 重塑（「完整复活」实为
@@ -90,3 +94,6 @@ G.Arcs.register({
 
   lossCta: '抉择……'
 });
+'''
+io.open(r'D:\Projects\nichen\www\js\data\arc6.js', 'w', encoding='utf-8', newline='').write(arc6)
+print('arc6 written')
