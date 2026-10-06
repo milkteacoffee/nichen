@@ -1,6 +1,6 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-10-06 · 代码版本 **v0.77.0（功法容器重构：单本激发 + 功法内部招式解锁）** · 设计基线 **GDD v4.0（文档归档重构）** · 前一里程碑 v0.76.0
+> 最后更新：2026-10-06 · 代码版本 **v0.78.0（Boss 程序化立绘：24 元素 Boss + 双路径立绘契约）** · 设计基线 **GDD v4.0（文档归档重构）** · 前一里程碑 v0.77.0
 >
 > **【v0.76.0 版本口径补登 2026-10-06】** 此前 v0.76.0 的功能提交（副本事件三批：+5 副本 +7 事件、完成 50+ 目标；装备强化；恢复野外灵气奖励）已推送，但 ns.js/HANDOVER 未随提交升版，本次补齐版本号。
 > **【情感主线定稿 2026-10-06】** 新增《诸世情感与镜花水月主线设计 v1.0》（情感/结局最高权威）：五类真情、六世牵挂、复活之路三阶、终局「沉梦/放手」；**取代本文件及《天道至恶 v1.0》中“打赢即可团圆”的旧结局口径**。竞品报告已补完（鬼谷/宝可梦/仙剑/造梦 + 现状对比 + 致命问题）。
@@ -13,7 +13,12 @@
 > ⑤ **破境沿用进度条模型并写进契约**：失败 +50% 进度、最多失败两次第三次必成、每次耗破境丹、失败气血减半；**静心阵在进度模型下的新职责 = 减轻失败气血反噬（保留75% vs 默认50%）**。
 > ⑥ **野怪奖励沿用恢复后的灵气/灵力**（实测 gl6 青纹蛇：灵气180、灵力12、灵石1~5）；差分探针由「反向（不产灵气）」改为「正向按公式复算」。
 > 契约：整体重写 `skill.activate.contract`（局部 errors、moves≤5/主动≤3、随等级解锁、切换语义、增幅份额上限、难得难练）与 `break.chance.contract`（进度条三次调用、天劫门 stormRoll）；修补 `break.rules`（天劫钉死用例先把进度设100）、reward（qi180/po12）、m0-1（单本）、formation（静心阵反噬）、zone 差分探针（正向）。
-> **已知独立欠账（非本轮引入）**：v0.76 副本扩展 B6–B10 / S26–S40 的 Boss 手绘 PNG 未产出，其 `sprite` 名（demon/ice_dragon/thunder_god 等 24 个）尚未在 `Sprites.BAKE` 表登记，当前会静默退回通用 snake 程序化兜底；待补程序化立绘并同步 `dungeon.boss.assets` 契约。
+> **【v0.78.0 Boss 程序化立绘 2026-10-06】** 结清 v0.77.0 头部登记的 Boss 立绘欠账，**全量 smoke 归零**。
+> ① **元素 Boss 生成器（core/sprites.js）**：「元素定调色板、角色定轮廓」——`bossPal(elem)` 给 10 套元素色（冰/雷/火/暗/虚空/土/木/光/血/风），10 种轮廓方案（人形 humanoid / 巨兽 beast / 龙 dragon / 魔物 monster / 蟾蜍 toad / 蝎 scorpion / 魔像 golem / 巫妖 lich / 灵体 spirit / 太初 primordial），通用部件（翼/角/光环/冠/武器）按标志叠加。
+> ② **新增 24 个 BAKE 立绘键**：demon、ice_warrior、ice_dragon、thunder_warrior、thunder_god、fire_demon、inferno_lord、void_warrior、void_lord、poison_toad、sand_scorpion、crystal_golem、lich、lava_titan、aurora_spirit、thunder_titan、shadow_king、angel、chaos_herald、blood_cult、diviner、celestial_guard、primordial、reaper；各调用 `bossGen(plan,elem,flags)` 产出真实 40×40 位图。
+> ③ **修复 artKey 撞名遮蔽（data/dungeons.js）**：S26–S31 原误填 artKey s5–s10，与 manifest 已有 PNG 撞名，beastResolve 优先用旧 PNG → 毒蟾/沙蝎/晶魔像/巫妖/熔岩泰坦/极光灵 6 个新 sprite 永不显示；改为唯一且未登记的 s26–s31（保留未来手绘 PNG 槽位）。
+> ④ **重写 dungeon.boss.assets 契约为双路径**：收集每个副本全部 Boss 条目（big/mid/leader/boss 四槽位，共 60）；artKey 在 manifest → 校验手绘 PNG（存在 + RGBA 透明底）；否则 → sprite 必须是已登记 BAKE 键且真能产出位图，**禁止静默退回 snake**。实测：手绘 PNG 35 / 程序化 25。
+> 验证：24 立绘接触表目检 + 全量 `node tools/smoke.js` 通过（0 失败）。后续某 Boss 手绘 PNG 产出并以 battle.enemy.<artKey> 登记后自动替换程序化版本，无需改逻辑。
 >
 > 本次增量（v0.75.0，用户 15 项需求批次中的 13 项；地图尺度另起一批）：
 > ① **闭关灵气 ÷2**（`gametime.js`）：旧值一次「闭关一年」= **2.64 阶**（收益恒为需求的 2.64 倍），

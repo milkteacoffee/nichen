@@ -643,7 +643,7 @@
     /* ---------------- S26 迷雾沼泽 ---------------- */
     { id: 'S26', n: '迷雾沼泽', kind: 'small', stages: 5, elem: '木', drop: 'n_duzhao',
       leader: {
-        artKey: 's5', sprite: 'poison_toad', tier: 'leader',
+        artKey: 's26', sprite: 'poison_toad', tier: 'leader',
         title: { fan: '沼泽毒蟾', ling: '剧毒魔蟾', xian: '瘴气蟾王' },
         skills: [
           { n: '毒雾', mult: 0.9, cd: 2, target: '全体', elem: '木', status: { t: '毒', chance: .45 } },
@@ -656,7 +656,7 @@
     /* ---------------- S27 荒漠遗迹 ---------------- */
     { id: 'S27', n: '荒漠遗迹', kind: 'small', stages: 5, elem: '风', drop: 'n_shajing',
       leader: {
-        artKey: 's6', sprite: 'sand_scorpion', tier: 'leader',
+        artKey: 's27', sprite: 'sand_scorpion', tier: 'leader',
         title: { fan: '沙漠巨蝎', ling: '荒漠蝎王', xian: '沙暴蝎皇' },
         skills: [
           { n: '沙暴', mult: 0.8, cd: 2, target: '全体', elem: '风', status: { t: '盲', chance: .35 } },
@@ -669,7 +669,7 @@
     /* ---------------- S28 水晶洞窟 ---------------- */
     { id: 'S28', n: '水晶洞窟', kind: 'small', stages: 5, elem: '光', drop: 'n_jingshi',
       leader: {
-        artKey: 's7', sprite: 'crystal_golem', tier: 'leader',
+        artKey: 's28', sprite: 'crystal_golem', tier: 'leader',
         title: { fan: '水晶魔像', ling: '晶石巨像', xian: '水晶泰坦' },
         skills: [
           { n: '水晶碎裂', mult: 1.4, cd: 2, target: '全体', elem: '光' },
@@ -683,7 +683,7 @@
     /* ---------------- S29 腐朽墓地 ---------------- */
     { id: 'S29', n: '腐朽墓地', kind: 'small', stages: 5, elem: '暗', drop: 'n_wugu',
       leader: {
-        artKey: 's8', sprite: 'lich', tier: 'leader',
+        artKey: 's29', sprite: 'lich', tier: 'leader',
         title: { fan: '亡灵巫妖', ling: '幽冥巫妖', xian: '死灵大巫' },
         skills: [
           { n: '死亡之触', mult: 1.1, cd: 2, elem: '暗', status: { t: '弱', chance: .40 } },
@@ -697,7 +697,7 @@
     /* ---------------- S30 熔岩地狱 ---------------- */
     { id: 'S30', n: '熔岩地狱', kind: 'small', stages: 5, elem: '火', drop: 'n_yanjiang',
       leader: {
-        artKey: 's9', sprite: 'lava_titan', tier: 'leader',
+        artKey: 's30', sprite: 'lava_titan', tier: 'leader',
         title: { fan: '熔岩巨兽', ling: '岩浆泰坦', xian: '熔岩魔神' },
         skills: [
           { n: '熔岩拳', mult: 1.5, cd: 2, elem: '火', status: { t: '灼', chance: .45 } },
@@ -711,7 +711,7 @@
     /* ---------------- S31 极光冰原 ---------------- */
     { id: 'S31', n: '极光冰原', kind: 'small', stages: 5, elem: '水', drop: 'n_jiguang',
       leader: {
-        artKey: 's10', sprite: 'aurora_spirit', tier: 'leader',
+        artKey: 's31', sprite: 'aurora_spirit', tier: 'leader',
         title: { fan: '极光冰灵', ling: '极光仙灵', xian: '极光圣灵' },
         skills: [
           { n: '极光射线', mult: 1.3, cd: 2, elem: '光', status: { t: '盲', chance: .30 } },

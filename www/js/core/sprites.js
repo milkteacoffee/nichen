@@ -459,7 +459,455 @@
     x.fillStyle = hi; A.blob(x, cx - rx * 0.26, cy - ry * 0.34, rx * 0.52, (ry / rx) * 0.9);
   }
 
+/* __BOSSGEN_INJECTED__ */
+/* ===== v0.77.0 第二批：元素 Boss 程序化立绘生成器 =====
+   设计：元素定调色板、角色定轮廓。24 个新 Boss 各产出真实位图，
+   由 dungeon.boss.assets 契约钉死"禁止静默退回通用 snake"。
+   本片段运行于 sprites.js 的 IIFE 内，可直接使用 G.Art（A）。 */
+function bossPal(elem) {
+  var P = {
+    ice:     { base: '#7fc8e8', hi: '#e4f7ff', dark: '#2c6c92', glow: '#bfeeff' },
+    thunder: { base: '#e6c448', hi: '#fff0a0', dark: '#785c14', glow: '#ffe684' },
+    fire:    { base: '#e65e2c', hi: '#ffc074', dark: '#862810', glow: '#ff9848' },
+    dark:    { base: '#7c4c8c', hi: '#b88ccc', dark: '#2e1638', glow: '#aa6ccc' },
+    void:    { base: '#8a6ad6', hi: '#c6b2ff', dark: '#22184a', glow: '#b69cff' },
+    earth:   { base: '#bc9e5c', hi: '#e2ca98', dark: '#68502a', glow: '#dac28c' },
+    wood:    { base: '#6ca850', hi: '#acda92', dark: '#31602a', glow: '#98da7a' },
+    light:   { base: '#e8d68a', hi: '#fff8d4', dark: '#8a7438', glow: '#fff0b4' },
+    blood:   { base: '#aa3a4a', hi: '#e28292', dark: '#4a1420', glow: '#da5262' },
+    wind:    { base: '#8ac8c2', hi: '#caf2ec', dark: '#38726a', glow: '#b2e8e2' }
+  };
+  return P[elem] || P.dark;
+}
+
+/* 通用部件：翼 / 角 / 光环 / 冠 */
+function bossWings(x, p, spread) {
+  var s = spread || 1;
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(18, 18);
+  x.quadraticCurveTo(8 - 2 * s, 8, 3 - 3 * s, 13); x.quadraticCurveTo(7, 18, 6, 24);
+  x.quadraticCurveTo(13, 22, 18, 21); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(22, 18);
+  x.quadraticCurveTo(32 + 2 * s, 8, 37 + 3 * s, 13); x.quadraticCurveTo(33, 18, 34, 24);
+  x.quadraticCurveTo(27, 22, 22, 21); x.closePath(); x.fill();
+  x.fillStyle = A.alpha(p.base, 0.7);
+  x.beginPath(); x.moveTo(18, 19);
+  x.quadraticCurveTo(11, 12, 6, 14.5); x.quadraticCurveTo(10, 19, 9, 22.5);
+  x.quadraticCurveTo(14, 21, 18, 20.5); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(22, 19);
+  x.quadraticCurveTo(29, 12, 34, 14.5); x.quadraticCurveTo(30, 19, 31, 22.5);
+  x.quadraticCurveTo(26, 21, 22, 20.5); x.closePath(); x.fill();
+}
+function bossHorns(x, p, big) {
+  var c = big ? p.glow : p.hi;
+  x.strokeStyle = p.dark; x.lineWidth = big ? 3.4 : 2.6; x.lineCap = 'round';
+  x.beginPath(); x.moveTo(14, 8); x.quadraticCurveTo(11, 3, 8, 2); x.stroke();
+  x.beginPath(); x.moveTo(26, 8); x.quadraticCurveTo(29, 3, 32, 2); x.stroke();
+  x.strokeStyle = c; x.lineWidth = big ? 1.5 : 1.1;
+  x.beginPath(); x.moveTo(14, 7.6); x.quadraticCurveTo(11.4, 3.6, 9, 2.6); x.stroke();
+  x.beginPath(); x.moveTo(26, 7.6); x.quadraticCurveTo(28.6, 3.6, 31, 2.6); x.stroke();
+}
+function bossHalo(x, p) {
+  x.strokeStyle = A.alpha(p.glow, 0.9); x.lineWidth = 1.6;
+  x.beginPath(); x.ellipse(20, 6.4, 6.4, 2.2, 0, 0, 6.2832); x.stroke();
+  x.strokeStyle = A.alpha(p.hi, 0.7); x.lineWidth = 0.7;
+  x.beginPath(); x.ellipse(20, 6.2, 6.4, 2.2, 0, 0, 6.2832); x.stroke();
+}
+function bossCrown(x, p) {
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(13, 7); x.lineTo(14, 2.4); x.lineTo(17, 5.4);
+  x.lineTo(20, 1.8); x.lineTo(23, 5.4); x.lineTo(26, 2.4); x.lineTo(27, 7);
+  x.closePath(); x.fill();
+  x.fillStyle = p.glow;
+  x.beginPath(); x.moveTo(14, 6.4); x.lineTo(14.8, 3.6); x.lineTo(17, 5.6);
+  x.lineTo(20, 3); x.lineTo(23, 5.6); x.lineTo(25.2, 3.6); x.lineTo(26, 6.4);
+  x.closePath(); x.fill();
+}
+
+/* ---------- 人形（甲胄战士 / 神 / 祭司）---------- */
+function bossHumanoid(C) {
+  var x = C.x, p = C.p, f = C.f;
+  if (f.wings) bossWings(x, p, f.big ? 1.2 : 1);
+  if (f.cape) {
+    x.fillStyle = A.alpha(p.dark, 0.92);
+    x.beginPath(); x.moveTo(13, 15); x.quadraticCurveTo(9, 26, 10, 35);
+    x.lineTo(30, 35); x.quadraticCurveTo(31, 26, 27, 15); x.closePath(); x.fill();
+  }
+  /* 腿 / 靴 */
+  x.fillStyle = p.dark;
+  x.fillRect(15, 25, 4, 9); x.fillRect(21, 25, 4, 9);
+  x.fillStyle = A.shade(p.dark, -0.1);
+  x.fillRect(14.4, 32.6, 5.2, 2.6); x.fillRect(20.4, 32.6, 5.2, 2.6);
+  /* 躯干甲 */
+  x.fillStyle = p.base;
+  x.beginPath(); x.moveTo(13.4, 15); x.lineTo(26.6, 15); x.lineTo(27.4, 26);
+  x.lineTo(12.6, 26); x.closePath(); x.fill();
+  x.fillStyle = A.alpha(p.hi, 0.8);
+  x.beginPath(); x.moveTo(15, 16); x.lineTo(20, 16); x.lineTo(19, 25); x.lineTo(14, 25); x.closePath(); x.fill();
+  x.fillStyle = p.dark; x.fillRect(12.8, 24.4, 14.4, 2.2);
+  /* 肩甲 */
+  x.fillStyle = p.dark;
+  A.blob(x, 12.4, 15.6, 3.1, 0.85); A.blob(x, 27.6, 15.6, 3.1, 0.85);
+  x.fillStyle = p.hi;
+  A.blob(x, 11.9, 14.9, 1.7, 0.8); A.blob(x, 27.1, 14.9, 1.7, 0.8);
+  /* 臂 */
+  x.fillStyle = A.shade(p.base, -0.08);
+  x.fillRect(10.6, 17, 3, 8); x.fillRect(26.4, 17, 3, 8);
+  /* 头 + 盔 */
+  x.fillStyle = '#e0b48c'; A.blob(x, 20, 10.6, 4.2, 1.15);
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(15.4, 9.4); x.quadraticCurveTo(20, 3.6, 24.6, 9.4);
+  x.lineTo(24.2, 7); x.lineTo(15.8, 7); x.closePath(); x.fill();
+  x.fillStyle = p.hi; x.fillRect(19.3, 4.4, 1.4, 3);
+  x.fillStyle = p.glow;
+  A.blob(x, 18.4, 11, 0.8, 1); A.blob(x, 21.6, 11, 0.8, 1);
+  x.fillStyle = p.dark; A.blob(x, 18.4, 11.2, 0.4, 1); A.blob(x, 21.6, 11.2, 0.4, 1);
+  if (f.horns) bossHorns(x, p, f.big);
+  if (f.crown) bossCrown(x, p);
+  if (f.halo) bossHalo(x, p);
+  bossWeapon(C);
+}
+function bossWeapon(C) {
+  var x = C.x, p = C.p, w = C.f.weapon;
+  if (w === 'sword' || w === 'blade') {
+    x.strokeStyle = '#dfe8f2'; x.lineWidth = w === 'blade' ? 2 : 2.4; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(31, 30); x.lineTo(w === 'blade' ? 36 : 34, 8); x.stroke();
+    x.strokeStyle = p.dark; x.lineWidth = 1.2;
+    x.beginPath(); x.moveTo(29.6, 28.6); x.lineTo(32.4, 31); x.stroke();
+  } else if (w === 'spear' || w === 'halberd') {
+    x.strokeStyle = '#caa06a'; x.lineWidth = 1.8;
+    x.beginPath(); x.moveTo(32, 33); x.lineTo(32, 5); x.stroke();
+    x.fillStyle = '#dfe8f2';
+    x.beginPath(); x.moveTo(32, 5); x.lineTo(w === 'halberd' ? 37 : 34, 9); x.lineTo(32, 10); x.closePath(); x.fill();
+  } else if (w === 'hammer') {
+    x.strokeStyle = '#caa06a'; x.lineWidth = 1.8;
+    x.beginPath(); x.moveTo(31, 31); x.lineTo(35, 9); x.stroke();
+    x.fillStyle = p.glow; x.fillRect(31.4, 6, 7, 5);
+  } else if (w === 'staff') {
+    x.strokeStyle = '#8a6438'; x.lineWidth = 1.8;
+    x.beginPath(); x.moveTo(30, 32); x.lineTo(33, 7); x.stroke();
+    x.fillStyle = A.alpha(p.glow, 0.95); A.blob(x, 33.2, 6.4, 2.4, 1);
+    x.fillStyle = A.alpha(p.hi, 0.8); A.blob(x, 32.8, 6, 1.1, 1);
+  } else if (w === 'dagger') {
+    x.strokeStyle = '#dfe8f2'; x.lineWidth = 1.6;
+    x.beginPath(); x.moveTo(29, 26); x.lineTo(31, 16); x.stroke();
+  }
+}
+
+/* ---------- 巨兽（泰坦，四足）---------- */
+function bossBeast(C) {
+  var x = C.x, p = C.p, f = C.f;
+  x.strokeStyle = p.dark; x.lineWidth = 4.6; x.lineCap = 'round';
+  [[12, 24], [17, 25], [25, 25], [30, 24]].forEach(function (q) {
+    x.beginPath(); x.moveTo(q[0], q[1]); x.lineTo(q[0] - 0.6, 34); x.stroke();
+  });
+  x.fillStyle = p.dark;
+  [[10.8, 34.6], [15.8, 35], [24, 35], [28.8, 34.6]].forEach(function (q) {
+    A.blob(x, q[0], q[1], 2.4, 0.6);
+  });
+  x.fillStyle = p.base; A.blob(x, 21, 23, 12.5, 0.62);
+  x.fillStyle = p.hi; A.blob(x, 17, 19.5, 7, 0.5);
+  x.fillStyle = A.alpha(p.dark, 0.5); A.blob(x, 22, 28, 10, 0.4);
+  /* 头（朝前，双角）*/
+  x.fillStyle = p.base; A.blob(x, 10, 19, 7, 0.9);
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(6, 14); x.lineTo(3, 7); x.lineTo(9, 12.5); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(12, 13); x.lineTo(14, 6); x.lineTo(14, 12.5); x.closePath(); x.fill();
+  x.fillStyle = p.glow; A.blob(x, 8, 18, 1.5, 1); A.blob(x, 11.5, 18, 1.5, 1);
+  x.fillStyle = p.dark; A.blob(x, 8, 18.3, 0.7, 1); A.blob(x, 11.5, 18.3, 0.7, 1);
+  x.fillStyle = A.alpha(p.hi, 0.8); A.blob(x, 6.4, 22, 2.4, 0.6);
+  if (f.plates) {
+    x.fillStyle = p.glow;
+    for (var i = 0; i < 4; i++) A.blob(x, 15 + i * 3, 16.6 - i * 0.4, 2, 1.3);
+  }
+}
+
+/* ---------- 龙（长身 + 翼）---------- */
+function bossDragon(C) {
+  var x = C.x, p = C.p;
+  bossWings(x, p, 1.1);
+  x.strokeStyle = p.dark; x.lineWidth = 7.5; x.lineCap = 'round';
+  x.beginPath(); x.moveTo(8, 32); x.quadraticCurveTo(20, 24, 30, 31); x.stroke();
+  x.strokeStyle = p.base; x.lineWidth = 5.6;
+  x.beginPath(); x.moveTo(8, 32); x.quadraticCurveTo(20, 24, 30, 31); x.stroke();
+  x.strokeStyle = p.dark; x.lineWidth = 7;
+  x.beginPath(); x.moveTo(12, 29); x.quadraticCurveTo(10, 16, 17, 10); x.stroke();
+  x.strokeStyle = p.base; x.lineWidth = 5;
+  x.beginPath(); x.moveTo(12, 29); x.quadraticCurveTo(10, 16, 17, 10); x.stroke();
+  /* 背棘 */
+  x.fillStyle = p.glow;
+  [[10, 26], [13, 20], [17, 14]].forEach(function (q) {
+    x.beginPath(); x.moveTo(q[0] - 1.4, q[1] + 1.6); x.lineTo(q[0], q[1] - 3);
+    x.lineTo(q[0] + 1.4, q[1] + 1.6); x.closePath(); x.fill();
+  });
+  /* 头 + 角 + 须 */
+  x.fillStyle = p.base; A.blob(x, 17, 9, 6, 0.78);
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(14, 6); x.lineTo(11, 1); x.lineTo(16, 5); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(19, 5.4); x.lineTo(22, 1); x.lineTo(20, 6); x.closePath(); x.fill();
+  x.strokeStyle = A.alpha(p.glow, 0.8); x.lineWidth = 0.8;
+  x.beginPath(); x.moveTo(13, 10); x.quadraticCurveTo(8, 12, 7, 16); x.stroke();
+  x.fillStyle = p.glow; A.blob(x, 14, 8.4, 1.4, 1); A.blob(x, 18.4, 8, 1.4, 1);
+  x.fillStyle = p.dark; A.blob(x, 14, 8.6, 0.7, 1); A.blob(x, 18.4, 8.2, 0.7, 1);
+}
+
+/* ---------- 魔物（双足恶魔，长臂弯角）---------- */
+function bossMonster(C) {
+  var x = C.x, p = C.p, f = C.f;
+  if (f.wings) bossWings(x, p, f.big ? 1.3 : 1);
+  /* 腿（屈膝）*/
+  x.strokeStyle = p.dark; x.lineWidth = 4.2; x.lineCap = 'round';
+  x.beginPath(); x.moveTo(16, 25); x.lineTo(14, 31); x.lineTo(11, 34); x.stroke();
+  x.beginPath(); x.moveTo(24, 25); x.lineTo(26, 31); x.lineTo(29, 34); x.stroke();
+  x.fillStyle = p.glow;
+  x.beginPath(); x.moveTo(9, 34); x.lineTo(13, 33); x.lineTo(12, 35.4); x.closePath(); x.fill();
+  x.beginPath(); x.moveTo(31, 34); x.lineTo(27, 33); x.lineTo(28, 35.4); x.closePath(); x.fill();
+  /* 躯干（魁梧）*/
+  x.fillStyle = p.base; A.blob(x, 20, 21, 10.5, 1.05);
+  x.fillStyle = p.hi; A.blob(x, 16.6, 17.5, 5.5, 0.8);
+  x.fillStyle = A.alpha(p.dark, 0.55); A.blob(x, 21, 25, 8, 0.6);
+  /* 长臂 + 爪 */
+  x.strokeStyle = A.shade(p.base, -0.08); x.lineWidth = 3.4; x.lineCap = 'round';
+  x.beginPath(); x.moveTo(12, 18); x.quadraticCurveTo(7, 23, 8, 28); x.stroke();
+  x.beginPath(); x.moveTo(28, 18); x.quadraticCurveTo(33, 23, 32, 28); x.stroke();
+  x.fillStyle = p.glow;
+  A.blob(x, 8, 28.6, 2, 0.7); A.blob(x, 32, 28.6, 2, 0.7);
+  /* 头 + 大角 */
+  x.fillStyle = p.base; A.blob(x, 20, 11, 5.4, 0.95);
+  bossHorns(x, p, true);
+  x.fillStyle = p.glow; A.blob(x, 18, 11, 1.6, 1); A.blob(x, 22, 11, 1.6, 1);
+  x.fillStyle = p.dark; A.blob(x, 18, 11.3, 0.8, 1); A.blob(x, 22, 11.3, 0.8, 1);
+  /* 獠牙 */
+  x.fillStyle = '#f4ecd8';
+  x.fillRect(17.6, 13.4, 1, 2); x.fillRect(21.4, 13.4, 1, 2);
+  if (f.crown) bossCrown(x, p);
+  if (f.tendrils) {
+    x.strokeStyle = A.alpha(p.glow, 0.7); x.lineWidth = 1.2;
+    for (var i = 0; i < 3; i++) {
+      x.beginPath(); x.moveTo(14 + i * 6, 17);
+      x.quadraticCurveTo(10 + i * 7, 12, 9 + i * 8, 7); x.stroke();
+    }
+  }
+}
+
+/* ---------- 蟾蜍 ---------- */
+function bossToad(C) {
+  var x = C.x, p = C.p;
+  x.fillStyle = p.dark; A.blob(x, 20, 28, 15, 0.62);
+  x.fillStyle = p.base; A.blob(x, 20, 26, 14, 0.6);
+  x.fillStyle = p.hi; A.blob(x, 16, 22, 8, 0.5);
+  /* 疣 */
+  x.fillStyle = A.alpha(p.glow, 0.6);
+  [[14, 25], [22, 23], [26, 27], [17, 29]].forEach(function (q) { A.blob(x, q[0], q[1], 1.5, 1); });
+  /* 眼（凸顶）*/
+  x.fillStyle = p.base; A.blob(x, 15, 15, 4, 1); A.blob(x, 25, 15, 4, 1);
+  x.fillStyle = p.glow; A.blob(x, 15, 14.6, 2.2, 1); A.blob(x, 25, 14.6, 2.2, 1);
+  x.fillStyle = p.dark; A.blob(x, 15, 15, 1, 1.4); A.blob(x, 25, 15, 1, 1.4);
+  /* 阔嘴 + 毒涎 */
+  x.strokeStyle = p.dark; x.lineWidth = 1.4;
+  x.beginPath(); x.moveTo(9, 26); x.quadraticCurveTo(20, 30, 31, 26); x.stroke();
+  x.fillStyle = A.alpha(p.glow, 0.7);
+  A.blob(x, 12, 28, 1.2, 1); A.blob(x, 28, 28, 1.2, 1);
+}
+
+/* ---------- 蝎 ---------- */
+function bossScorpion(C) {
+  var x = C.x, p = C.p;
+  /* 步足 */
+  x.strokeStyle = p.dark; x.lineWidth = 1.6; x.lineCap = 'round';
+  [[14, 26, 10, 33], [16, 27, 15, 34], [24, 27, 25, 34], [26, 26, 30, 33]].forEach(function (l) {
+    x.beginPath(); x.moveTo(l[0], l[1]); x.lineTo(l[2], l[3]); x.stroke();
+  });
+  /* 躯体节 */
+  x.fillStyle = p.base;
+  for (var i = 0; i < 4; i++) A.blob(x, 16 + i * 2.6, 26 - i * 0.4, 3.4 - i * 0.3, 0.8);
+  x.fillStyle = p.hi; A.blob(x, 15, 24, 3, 0.7);
+  /* 双钳 */
+  x.strokeStyle = p.base; x.lineWidth = 3;
+  x.beginPath(); x.moveTo(13, 23); x.quadraticCurveTo(7, 20, 6, 15); x.stroke();
+  x.beginPath(); x.moveTo(13, 25); x.quadraticCurveTo(8, 26, 6, 24); x.stroke();
+  x.fillStyle = p.dark; A.blob(x, 5.6, 14.5, 2.4, 0.8); A.blob(x, 5.6, 24.4, 2.4, 0.8);
+  /* 尾（卷曲上扬）+ 毒刺 */
+  x.strokeStyle = p.dark; x.lineWidth = 3.6;
+  x.beginPath(); x.moveTo(23, 25); x.quadraticCurveTo(33, 22, 31, 12);
+  x.quadraticCurveTo(29, 6, 24, 8); x.stroke();
+  x.strokeStyle = p.base; x.lineWidth = 2.4;
+  x.beginPath(); x.moveTo(23, 25); x.quadraticCurveTo(32, 22, 30, 12);
+  x.quadraticCurveTo(28.4, 7, 24.4, 8.6); x.stroke();
+  x.fillStyle = p.glow;
+  x.beginPath(); x.moveTo(24, 8.6); x.lineTo(21, 4); x.lineTo(26, 6.4); x.closePath(); x.fill();
+}
+
+/* ---------- 晶石魔像 ---------- */
+function bossGolem(C) {
+  var x = C.x, p = C.p;
+  /* 腿（方块）*/
+  x.fillStyle = p.dark;
+  x.fillRect(14, 27, 5, 8); x.fillRect(21, 27, 5, 8);
+  /* 躯干（多面）*/
+  x.fillStyle = p.base;
+  x.beginPath(); x.moveTo(13, 15); x.lineTo(27, 15); x.lineTo(28, 28); x.lineTo(12, 28); x.closePath(); x.fill();
+  x.fillStyle = p.hi;
+  x.beginPath(); x.moveTo(14, 16); x.lineTo(20, 16); x.lineTo(18, 27); x.lineTo(13, 27); x.closePath(); x.fill();
+  x.fillStyle = A.alpha(p.dark, 0.6);
+  x.beginPath(); x.moveTo(20, 16); x.lineTo(26, 16); x.lineTo(27, 27); x.lineTo(19, 27); x.closePath(); x.fill();
+  /* 核心 */
+  x.fillStyle = A.alpha(p.glow, 0.95); A.blob(x, 20, 21, 2.6, 1.2);
+  x.fillStyle = A.alpha('#ffffff', 0.8); A.blob(x, 19.2, 20.2, 1, 1);
+  /* 肩 / 臂 */
+  x.fillStyle = p.dark;
+  x.fillRect(9.6, 16, 4, 4); x.fillRect(26.4, 16, 4, 4);
+  x.fillRect(10, 20, 3.4, 8); x.fillRect(26.6, 20, 3.4, 8);
+  /* 颈（晶柱，把头与躯干接上，避免头悬浮）*/
+  x.fillStyle = p.dark; x.fillRect(18, 12, 4, 4);
+  /* 头（菱形晶簇，落在颈上）*/
+  x.fillStyle = p.base;
+  x.beginPath(); x.moveTo(20, 5); x.lineTo(23.4, 12); x.lineTo(16.6, 12); x.closePath(); x.fill();
+  x.fillStyle = p.hi;
+  x.beginPath(); x.moveTo(20, 6); x.lineTo(20, 12); x.lineTo(17.2, 11.4); x.closePath(); x.fill();
+  x.fillStyle = p.glow; A.blob(x, 18.7, 10, 0.8, 1); A.blob(x, 21.3, 10, 0.8, 1);
+  x.fillStyle = p.dark; A.blob(x, 18.7, 10.2, 0.4, 1); A.blob(x, 21.3, 10.2, 0.4, 1);
+}
+
+/* ---------- 巫妖 / 死神（袍 + 骷髅）---------- */
+function bossLich(C) {
+  var x = C.x, p = C.p, f = C.f;
+  /* 破袍（宽摆）*/
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(14, 14); x.quadraticCurveTo(9, 26, 7, 35);
+  x.lineTo(33, 35); x.quadraticCurveTo(31, 26, 26, 14); x.closePath(); x.fill();
+  x.fillStyle = A.alpha(p.base, 0.85);
+  x.beginPath(); x.moveTo(15, 15); x.quadraticCurveTo(12, 26, 11, 34);
+  x.lineTo(29, 34); x.quadraticCurveTo(28, 26, 25, 15); x.closePath(); x.fill();
+  x.strokeStyle = A.alpha(p.glow, 0.5); x.lineWidth = 0.8;
+  x.beginPath(); x.moveTo(13, 20); x.quadraticCurveTo(11, 28, 10, 33); x.stroke();
+  x.beginPath(); x.moveTo(27, 20); x.quadraticCurveTo(29, 28, 30, 33); x.stroke();
+  /* 骷髅手 */
+  x.fillStyle = '#e6e0d0';
+  A.blob(x, 11, 27, 1.8, 0.8); A.blob(x, 29, 27, 1.8, 0.8);
+  /* 兜帽 + 骷髅头 */
+  x.fillStyle = p.dark;
+  x.beginPath(); x.moveTo(14, 13); x.quadraticCurveTo(20, 2, 26, 13);
+  x.quadraticCurveTo(20, 16, 14, 13); x.closePath(); x.fill();
+  x.fillStyle = '#e6e0d0'; A.blob(x, 20, 10, 4.4, 1.05);
+  x.fillStyle = p.glow; A.blob(x, 18.2, 10, 1.3, 1); A.blob(x, 21.8, 10, 1.3, 1);
+  x.fillStyle = p.dark; A.blob(x, 18.2, 10.3, 0.6, 1); A.blob(x, 21.8, 10.3, 0.6, 1);
+  x.fillRect(18.6, 12.6, 2.8, 0.8);
+  if (f.reaper) {
+    /* 镰刀 */
+    x.strokeStyle = '#8a6438'; x.lineWidth = 1.8;
+    x.beginPath(); x.moveTo(30, 33); x.lineTo(34, 7); x.stroke();
+    x.strokeStyle = '#dfe8f2'; x.lineWidth = 2.2;
+    x.beginPath(); x.moveTo(34, 7); x.quadraticCurveTo(39, 9, 36, 17); x.stroke();
+  } else {
+    /* 巫妖冠角 */
+    x.fillStyle = p.glow;
+    x.beginPath(); x.moveTo(16, 6.4); x.lineTo(14, 2); x.lineTo(17.4, 5.4); x.closePath(); x.fill();
+    x.beginPath(); x.moveTo(24, 6.4); x.lineTo(26, 2); x.lineTo(22.6, 5.4); x.closePath(); x.fill();
+  }
+}
+
+/* ---------- 灵体（流光下半身 + 翼/光环）---------- */
+function bossSpirit(C) {
+  var x = C.x, p = C.p, f = C.f;
+  if (f.wings) bossWings(x, p, 1.2);
+  /* 流光下半身（无腿）*/
+  x.fillStyle = A.alpha(p.base, 0.85);
+  x.beginPath(); x.moveTo(15, 17); x.quadraticCurveTo(11, 28, 9, 35);
+  x.lineTo(31, 35); x.quadraticCurveTo(29, 28, 25, 17); x.closePath(); x.fill();
+  x.strokeStyle = A.alpha(p.glow, 0.8); x.lineWidth = 1.1;
+  for (var i = 0; i < 3; i++) {
+    x.beginPath(); x.moveTo(15 + i * 5, 19);
+    x.quadraticCurveTo(13 + i * 5, 28, 12 + i * 5, 34); x.stroke();
+  }
+  /* 躯干 + 头 */
+  x.fillStyle = A.alpha(p.hi, 0.9);
+  x.beginPath(); x.moveTo(15, 14); x.lineTo(25, 14); x.lineTo(26, 20); x.lineTo(14, 20); x.closePath(); x.fill();
+  x.fillStyle = '#f0d8b8'; A.blob(x, 20, 10.4, 4, 1.1);
+  x.fillStyle = p.hair || p.glow;
+  x.beginPath(); x.moveTo(16, 9); x.quadraticCurveTo(20, 4, 24, 9); x.lineTo(23.4, 7); x.lineTo(16.6, 7); x.closePath(); x.fill();
+  x.fillStyle = p.glow; A.blob(x, 18.4, 10.6, 0.8, 1); A.blob(x, 21.6, 10.6, 0.8, 1);
+  x.fillStyle = p.dark; A.blob(x, 18.4, 10.8, 0.4, 1); A.blob(x, 21.6, 10.8, 0.4, 1);
+  if (f.halo) bossHalo(x, p);
+}
+
+/* ---------- 太初 / 混沌（核心 + 环绕）---------- */
+function bossPrimordial(C) {
+  var x = C.x, p = C.p, f = C.f;
+  /* 外环 */
+  x.strokeStyle = A.alpha(p.glow, 0.55); x.lineWidth = 1.6;
+  x.beginPath(); x.ellipse(20, 21, 15, 13, 0.3, 0, 6.2832); x.stroke();
+  x.strokeStyle = A.alpha(p.hi, 0.5); x.lineWidth = 0.9;
+  x.beginPath(); x.ellipse(20, 21, 11, 15, -0.5, 0, 6.2832); x.stroke();
+  /* 触须 */
+  x.strokeStyle = A.alpha(p.glow, 0.7); x.lineWidth = 1.2;
+  for (var i = 0; i < 5; i++) {
+    var a = i * 1.257;
+    x.beginPath(); x.moveTo(20 + Math.cos(a) * 6, 21 + Math.sin(a) * 6);
+    x.quadraticCurveTo(20 + Math.cos(a + .4) * 13, 21 + Math.sin(a + .4) * 13,
+      20 + Math.cos(a + .8) * 16, 21 + Math.sin(a + .8) * 16); x.stroke();
+  }
+  /* 核心 */
+  x.fillStyle = p.dark; A.blob(x, 20, 21, 7.5, 1);
+  x.fillStyle = p.base; A.blob(x, 20, 20.6, 6.4, 1);
+  x.fillStyle = p.hi; A.blob(x, 18, 18.4, 3, 0.9);
+  /* 多眼 */
+  x.fillStyle = p.glow;
+  A.blob(x, 17.4, 20, 1.4, 1); A.blob(x, 22.6, 20, 1.4, 1);
+  A.blob(x, 20, 23, 1.2, 1);
+  x.fillStyle = p.dark;
+  A.blob(x, 17.4, 20.2, 0.7, 1); A.blob(x, 22.6, 20.2, 0.7, 1); A.blob(x, 20, 23.2, 0.6, 1);
+}
+
+/* ---------- 总入口 ---------- */
+function bossGen(plan, elem, f) {
+  f = f || {};
+  var o = A.cv(40, 40), x = o.x, p = bossPal(elem);
+  A.shadowEllipse(x, 20, 36.5, 13, 4.2, 0.4);
+  if (f.aura) {
+    var gg = x.createRadialGradient(20, 22, 2, 20, 22, 19);
+    gg.addColorStop(0, A.alpha(p.glow, 0.28)); gg.addColorStop(1, A.alpha(p.glow, 0));
+    x.fillStyle = gg; x.beginPath(); x.arc(20, 22, 19, 0, 6.2832); x.fill();
+  }
+  var C = { x: x, p: p, f: f };
+  if (plan === 'humanoid') bossHumanoid(C);
+  else if (plan === 'beast') bossBeast(C);
+  else if (plan === 'dragon') bossDragon(C);
+  else if (plan === 'monster') bossMonster(C);
+  else if (plan === 'toad') bossToad(C);
+  else if (plan === 'scorpion') bossScorpion(C);
+  else if (plan === 'golem') bossGolem(C);
+  else if (plan === 'lich') bossLich(C);
+  else if (plan === 'spirit') bossSpirit(C);
+  else bossPrimordial(C);
+  return o.c;
+}
+
   var BAKE = {
+    demon: function () { return bossGen('monster','dark',{wings:true,aura:true}); },
+    ice_warrior: function () { return bossGen('humanoid','ice',{weapon:'sword'}); },
+    ice_dragon: function () { return bossGen('dragon','ice',{aura:true}); },
+    thunder_warrior: function () { return bossGen('humanoid','thunder',{weapon:'spear'}); },
+    thunder_god: function () { return bossGen('humanoid','thunder',{weapon:'hammer',halo:true,aura:true,big:true}); },
+    fire_demon: function () { return bossGen('monster','fire',{wings:true,aura:true}); },
+    inferno_lord: function () { return bossGen('monster','fire',{wings:true,crown:true,aura:true,big:true}); },
+    void_warrior: function () { return bossGen('humanoid','void',{weapon:'blade',cape:true}); },
+    void_lord: function () { return bossGen('monster','void',{wings:true,crown:true,aura:true,big:true,tendrils:true}); },
+    poison_toad: function () { return bossGen('toad','wood',{aura:true}); },
+    sand_scorpion: function () { return bossGen('scorpion','earth'); },
+    crystal_golem: function () { return bossGen('golem','light',{aura:true}); },
+    lich: function () { return bossGen('lich','dark',{aura:true}); },
+    lava_titan: function () { return bossGen('beast','fire',{plates:true,aura:true,big:true}); },
+    aurora_spirit: function () { return bossGen('spirit','ice',{halo:true,aura:true}); },
+    thunder_titan: function () { return bossGen('beast','thunder',{plates:true,aura:true,big:true}); },
+    shadow_king: function () { return bossGen('monster','dark',{crown:true,wings:true,aura:true,big:true}); },
+    angel: function () { return bossGen('spirit','light',{wings:true,halo:true,aura:true}); },
+    chaos_herald: function () { return bossGen('monster','void',{tendrils:true,wings:true,aura:true,big:true}); },
+    blood_cult: function () { return bossGen('humanoid','blood',{weapon:'dagger',cape:true}); },
+    diviner: function () { return bossGen('humanoid','wind',{weapon:'staff',halo:true}); },
+    celestial_guard: function () { return bossGen('humanoid','thunder',{weapon:'halberd',cape:true}); },
+    primordial: function () { return bossGen('primordial','light',{aura:true}); },
+    reaper: function () { return bossGen('lich','dark',{reaper:true,aura:true}); },
     /* 通用陆地坐骑（马形，朝右；explore 左向时镜像）。无素材时的兜底，保证骑乘必有可见坐骑。 */
     mount: function () {
       var o = A.cv(40, 40), x = o.x;

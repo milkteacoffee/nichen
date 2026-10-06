@@ -404,32 +404,47 @@ step(function () {
   G.Sprites.clear();
 }, 'assets.wiring');
 
-/* 0c) 副本 Boss 立绘接线（磁盘级）。无头环境拿不到 manifest（fetch 被桩成 reject），
-      但 manifest.json 就在磁盘上，可以直接读。这里钉两件事：
-      ① dungeons 里每个 Boss 的 artKey 都在 manifest 里登记了「battle.enemy.<artKey>」；
-      ② 登记的文件真实存在、且是 RGBA 透明底。
-      漏登记/改名**不会报错**，只会静默退回程序化兜底（beastResolve 的 fallback），
-      表现是"Boss 长得跟设计稿完全不一样"却查不出原因 —— 所以必须在这里锁死。 */
+/* 0c) 副本 Boss 立绘接线（磁盘级 + 程序化双路径）。
+      无头环境 fetch 被桩成 reject，但 manifest.json 在磁盘上可直接读。
+      每个 Boss 走 beastResolve(artKey, sprite)：
+        · artKey 在 manifest 登记「battle.enemy.<artKey>」→ 手绘 PNG（文件须真实存在、RGBA 透明底）；
+        · 否则 → 程序化 sprite，**必须是已登记的 BAKE 键且真能产出位图**，
+          禁止静默退回通用 snake（否则 Boss 全长得像蛇却查不出原因）。
+      ⚠️ artKey 若与已有 PNG 撞名会遮蔽新 sprite（S26-S31 曾误填 s5-s10，已改 s26-s31）。 */
 step(function () {
+  const local = [];
   const mfPath = path.join(WWW, 'assets', 'manifest.json');
   if (!fs.existsSync(mfPath)) { errors.push('缺少 www/assets/manifest.json'); return; }
   const mf = JSON.parse(fs.readFileSync(mfPath, 'utf8'));
-  const want = [];
+  const bakeKeys = G.Sprites.BAKE_KEYS;
+  /* 收集每个副本的全部 Boss 条目（big/mid/leader/boss 四种槽位，随副本结构而定）*/
+  const entries = [];
   G.Data.dungeons.ARCH.forEach((a) => {
-    ['big', 'mid', 'leader'].forEach((t) => {
-      if (a[t] && a[t].artKey) want.push(a[t].artKey);
+    ['big', 'mid', 'leader', 'boss'].forEach((t) => {
+      if (a[t] && (a[t].artKey || a[t].sprite)) entries.push({ dungeon: a.id, slot: t, spec: a[t] });
     });
   });
-  if (want.length !== 20) errors.push(`副本 Boss artKey 应为 20 个，实际 ${want.length}`);
-  want.forEach((ak) => {
-    const key = 'battle.enemy.' + ak;
-    const rel = mf[key];
-    if (!rel) { errors.push(`manifest 未登记 Boss 立绘：${key}（会静默退回程序化兜底）`); return; }
-    const p = path.join(WWW, rel);
-    if (!fs.existsSync(p)) { errors.push(`manifest 登记的 Boss 立绘不存在：${key} → ${rel}`); return; }
-    /* PNG 第 26 字节是 IHDR 的 color type，6 = truecolor+alpha（透明底） */
-    if (fs.readFileSync(p)[25] !== 6) errors.push(`${key} 不是 RGBA 透明底：${rel}`);
+  let pngN = 0, procN = 0;
+  entries.forEach((e) => {
+    const sp0 = e.spec, artKey = sp0.artKey, sprite = sp0.sprite;
+    const pngRel = artKey ? mf['battle.enemy.' + artKey] : null;
+    if (pngRel) {
+      const p = path.join(WWW, pngRel);
+      if (!fs.existsSync(p)) { local.push('Boss 立绘登记但文件不存在：battle.enemy.' + artKey + ' → ' + pngRel); return; }
+      if (fs.readFileSync(p)[25] !== 6) local.push('battle.enemy.' + artKey + ' 不是 RGBA 透明底：' + pngRel);
+      pngN++;
+    } else {
+      if (!sprite) { local.push(e.dungeon + '/' + e.slot + ' 既无 manifest PNG 也无 sprite（必退回 snake）'); return; }
+      if (!bakeKeys.includes(sprite)) { local.push('Boss sprite「' + sprite + '」未在 BAKE 表登记（会静默退回 snake）'); return; }
+      let img;
+      try { G.Sprites.clear(); img = G.Sprites.beast(sprite); }
+      catch (err) { local.push('Boss sprite「' + sprite + '」生成抛错：' + err.message); return; }
+      if (!img || !img.width || !img.height) { local.push('Boss sprite「' + sprite + '」未产出位图'); return; }
+      procN++;
+    }
   });
+  notes.push('Boss 立绘：手绘 PNG ' + pngN + ' / 程序化 ' + procN + '（共 ' + entries.length + '）');
+  if (local.length) errors.push(...local);
 }, 'dungeon.boss.assets');
 
 /* 0d) NPC 精灵 / 人物立绘接线（磁盘级）：与 dungeon.boss.assets 同理。
