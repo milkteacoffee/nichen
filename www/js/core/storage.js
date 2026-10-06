@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 10;
+  var VERSION = 11;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -279,6 +279,13 @@
           data.homeOwned = true;
         }
         data.version = 10;
+      }
+      /* v10 → v11：诸世情感主线（arcs）——
+         meta 侧扩充 bonds（memories/fate）、regrets、story.arcs/tokens。
+         save 侧无需新默认字段（arc 运行态 save.arc 仅命定之世存在）。 */
+      if (data.version < 11) {
+        if (this._isMeta(data) && G.Arcs) G.Arcs.ensure(data);
+        data.version = 11;
       }
       return data;
     },

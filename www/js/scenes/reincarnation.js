@@ -236,6 +236,15 @@
          否则"选灵界降世"却从淬体一段开始，等于把玩家扔进 64 级的野外。 */
       var startGL = G.Player.worldById(mainWorld).start;
 
+      /* ===== 命定之世（情感主线）=====
+         第 1 世强制 arc1 白鹿礁；其后几世由转世流程的「命途」步选择
+         （this.arcChoice，E-C 批次接入）。命定之世不进区域地图，
+         直接走 arc 场景；save 其余字段照常建立，无害。 */
+      var arcId = null;
+      if (life === 1) arcId = 'arc1';
+      else if (this.arcChoice) arcId = this.arcChoice;
+      var arcDef = arcId ? G.Arcs.byId(arcId) : null;
+
       var save = {
         life: life, worldSeed: seed, world: world,
         origin: null, originFx: {}, homeOwned: false,
@@ -291,11 +300,17 @@
           G.Data.regions.rollEntrances(mainWorld, seed, save.dungeonSet);
       }
 
-      /* 降世落点 = **主界首区**（《闭环报告 v3.2》G7）：
-         以前写死 `scene:'town'`，于是"选灵界降世"也会落在青溪镇 ——
-         人站在凡界的地图上，境界却是合体一重（gl64），界面与世界全对不上。
-         凡界首区就是 `town`，所以锚世与凡界降世的行为**完全不变**。
-         必须放在 entrances 落位之后：RegionGen 生成地图时要把裂隙放进地图里。 */
+      /* 降世落点 = 主界首区 —— 但命定之世直接进 arc 场景，不进地图。 */
+      if (arcDef) {
+        G.Arcs.begin(save, meta, arcDef);
+        G.Player.chronicle(save, 'birth', '入世·' + arcDef.n);
+        G.Storage.saveCurrent(save);
+        this._finished = true;
+        this.arcChoice = null;
+        G.game.save = save;
+        G.game.changeScene('arc');
+        return;
+      }
       var firstR = G.Data.regions.of(mainWorld)[0];
       if (firstR) {
         if (!firstR.map && G.RegionGen) {

@@ -3847,11 +3847,11 @@ step(function () {
   if (!B.canRide(mk('b_huangzongma','adult'))) errors.push('成年坐骑应可骑');
   if (B.canRide(mk('b_chiyanlang','adult'))) errors.push('战种不应可骑');
   const mig = G.Storage._migrate({ version: 6, cult: 'free', skills: {} });
-  if (mig.version !== 10 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
+  if (mig.version !== 11 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
     errors.push('v6→v7 存档迁移缺灵兽字段');
   }
   const migM = G.Storage._migrate({ version: 6, xianli: 0 });
-  if (migM.version !== 10 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
+  if (migM.version !== 11 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
 }, 'beasts.data.contract');
 
 /* ---------- 灵兽管理器契约（v0.44.0，B2，《灵兽 v1.1》） ----------
@@ -9883,7 +9883,7 @@ pump(4, 'danger.warn.leave');
   var meta = G.Storage._migrate({ version: 7, xianli: 0,
     perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
     past: [], heaven: { memory: [] } });
-  if (meta.version !== 10) e2.push('迁移后版本应为 10');
+  if (meta.version !== 11) e2.push('迁移后版本应为 11');
   if (!meta.memory || !meta.bonds || !meta.progress.story) e2.push('剧情结构未补齐');
   var r1 = G.Story.sealLife(meta, {}, 1);
   var sealedFan = Object.keys(meta.memory.fragments).length;
@@ -9996,7 +9996,7 @@ step(function () {
     check(!G.Player.acquireHome(s).ok && s.stone === 17, '重复租洞府再次扣款');
     check(G.Storage.loadCurrent().homeOwned === true, '洞府所有权未落盘');
     const old = G.Storage._migrate({ version: 9, stone: 12 });
-    check(old.homeOwned === true && old.version === 10 && old.stone === 12, '旧档洞府迁移损失');
+    check(old.homeOwned === true && old.version === 11 && old.stone === 12, '旧档洞府迁移损失');
     const fresh = G.Storage._migrate({ version: 9, homeOwned: false });
     check(fresh.homeOwned === false, '迁移把无洞府变成有洞府');
   }

@@ -361,14 +361,18 @@
     /* cultist = 血煞教探子（M1 §4）。他化名"行脚商"，但袍色压暗红 ——
        玩家得认得出"这人不对劲"，否则 m1-2 的目标是隐形的。 */
     var cult = kind === 'cultist';
+    var girl = kind === 'girl';
     var pal = {
-      hair: kind === 'elder' ? '#cfccc0' : (cult ? '#231d24' : '#2b2833'),
+      hair: kind === 'elder' ? '#cfccc0' : (cult ? '#231d24' : (girl ? '#3a2a30' : '#2b2833')),
       skin: '#e8b890',
       /* 主色与暗部**必须拉开明度**：只差一点点的话，程序化立绘会糊成一块红方块
          （第一版 6d3038 / 4a1f27 就是这样，远看像邮筒）。 */
-      robe: kind === 'elder' ? '#6b7a68' : kind === 'keeper' ? '#7a6a52' : (cult ? '#7a343d' : '#8a8a92'),
-      robeDark: kind === 'elder' ? '#4c5949' : kind === 'keeper' ? '#5a4d3a' : (cult ? '#3d171c' : '#66666e'),
-      collar: cult ? '#c9a2a6' : '#e6ddc2', belt: '#5a4632', shoe: '#2c2a30'
+      robe: kind === 'elder' ? '#6b7a68' : kind === 'keeper' ? '#7a6a52'
+        : (cult ? '#7a343d' : (girl ? '#a86a8a' : '#8a8a92')),
+      robeDark: kind === 'elder' ? '#4c5949' : kind === 'keeper' ? '#5a4d3a'
+        : (cult ? '#3d171c' : (girl ? '#7d4a64' : '#66666e')),
+      collar: cult ? '#c9a2a6' : (girl ? '#f0d8d0' : '#e6ddc2'),
+      belt: girl ? '#8a5a72' : '#5a4632', shoe: '#2c2a30'
     };
     /* 素材层优先：登记 char.npc.<kind> 就整张替换 */
     var im = G.Assets && G.Assets.img ? G.Assets.img('char.npc.' + kind) : null;
