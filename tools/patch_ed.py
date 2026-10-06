@@ -1,4 +1,8 @@
-/* 第三世 · 道侣〔爱情〕
+# -*- coding: utf-8 -*-
+"""E-D：arc3.js 第三世·道侣（阿蘅 = 晚晴一魂碎片）。"""
+import io
+
+arc3 = r'''/* 第三世 · 道侣〔爱情〕
    《诸世情感与镜花水月主线设计 v1.0》§4 第三世
    阿蘅是晚晴散落的一魂碎片；天道以她为心魔破绽，她主动替应心劫而亡。
    连心结/替身法宝挡得下第一次，挡不住这一世。 */
@@ -83,3 +87,6 @@ G.Arcs.register({
   lossCta: '渡劫……',
   deathCause: 'heart'
 });
+'''
+io.open(r'D:\Projects\nichen\www\js\data\arc3.js', 'w', encoding='utf-8', newline='').write(arc3)
+print('arc3 written')
