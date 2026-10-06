@@ -1,4 +1,8 @@
-/* 第五世 · 薪火〔友情 + 师生·传承〕
+# -*- coding: utf-8 -*-
+"""E-E2：arc5.js 第五世·薪火（收徒结义，传承埋种）。"""
+import io
+
+arc5 = r'''/* 第五世 · 薪火〔友情 + 师生·传承〕
    《诸世情感与镜花水月主线设计 v1.0》§4 第五世
    收徒守一、与散修景炎结义，把功法、复活志与诸世记忆传下去；
    大劫中两人战死，道统与逆命珠微光再传——传承比占有式复活
@@ -99,3 +103,6 @@ G.Arcs.register({
   lossCta: '别道统……',
   deathCause: 'lineage'
 });
+'''
+io.open(r'D:\Projects\nichen\www\js\data\arc5.js', 'w', encoding='utf-8', newline='').write(arc5)
+print('arc5 written')
