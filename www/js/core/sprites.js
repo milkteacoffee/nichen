@@ -302,7 +302,47 @@
   }
 
   /* ---------- NPC ---------- */
+  function childParts(pal) {
+    /* 幼童：头大、身短、腿短（16×24 画布内，整体比成人矮一截）。 */
+    var P = [];
+    function add(x, y, w, h, c, extra) {
+      var o = { x: x, y: y, w: w, h: h, c: c };
+      if (extra) for (var k in extra) o[k] = extra[k];
+      P.push(o);
+    }
+    /* 头（偏大） */
+    add(3.6, 3.0, 8.8, 7.0, pal.skin);
+    add(2.8, 1.6, 10.4, 3.2, pal.hair);
+    add(2.8, 3.6, 1.8, 3.6, pal.hair);
+    add(11.4, 3.6, 1.8, 3.6, pal.hair);
+    add(3.6, 8.2, 8.8, 1.6, pal.skinSh);
+    add(5.8, 6.0, 1.3, 1.4, '#201d28');
+    add(9.0, 6.0, 1.3, 1.4, '#201d28');
+    add(5.5, 5.2, 1.8, 0.6, pal.hair);
+    add(8.7, 5.2, 1.8, 0.6, pal.hair);
+    /* 身（短褐） */
+    add(6.8, 9.6, 2.4, 1.2, pal.skinSh);
+    add(4.8, 10.4, 6.4, 1.7, pal.collar);
+    add(3.6, 11.2, 8.8, 5.0, pal.robe);
+    add(4.0, 11.2, 1.1, 4.8, A.shade(pal.robe, 0.14));
+    add(10.9, 11.2, 1.4, 4.8, pal.robeDark);
+    add(3.6, 14.8, 8.8, 1.6, pal.belt);
+    add(3.6, 14.8, 8.8, 0.5, A.shade(pal.belt, 0.22));
+    /* 短腿 */
+    add(4.2, 16.4, 3.2, 2.6, pal.robeDark);
+    add(8.6, 16.4, 3.2, 2.6, pal.robe);
+    add(4.0, 18.8, 3.4, 1.8, pal.shoe);
+    add(8.6, 18.8, 3.4, 1.8, pal.shoe);
+    /* 小手 */
+    add(2.6, 11.8, 1.7, 4.2, pal.robe);
+    add(2.6, 15.6, 1.5, 1.5, pal.skin);
+    add(11.7, 11.8, 1.7, 4.2, pal.robeDark);
+    add(11.9, 15.6, 1.5, 1.5, pal.skin);
+    return P;
+  }
+
   function npcParts(kind, pal) {
+    if (kind === 'child') return childParts(pal);
     var P = [];
     function add(x, y, w, h, c, extra) {
       var o = { x: x, y: y, w: w, h: h, c: c };
@@ -374,6 +414,11 @@
       collar: cult ? '#c9a2a6' : (girl ? '#f0d8d0' : '#e6ddc2'),
       belt: girl ? '#8a5a72' : '#5a4632', shoe: '#2c2a30'
     };
+    if (kind === 'child') {
+      pal.hair = '#332a22';
+      pal.robe = '#5f8f6d'; pal.robeDark = '#426b50';
+      pal.collar = '#e9e2c6'; pal.belt = '#6a5a3a';
+    }
     /* 素材层优先：登记 char.npc.<kind> 就整张替换 */
     var im = G.Assets && G.Assets.img ? G.Assets.img('char.npc.' + kind) : null;
     var c;
