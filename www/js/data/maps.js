@@ -189,7 +189,10 @@
         sp: { 青纹蛇: 40, 赤炎狼: 35, 树精: 25 }, pair: 35, pairWith: '青纹蛇' } ],
       structures: [],
       paths: [], fences: [],
-      scatter: { rocks: 30 },
+      /* ⚠️ v0.96.0：`scatter` 必须随**格数**同步（v0.91.0 把图从 32×26 放到 45×36
+         时漏改了这张与 bloodhall）。这里的 58 = 30 × 格数比 1.947。
+         格子像素那一层（TILE²）由 `mapgen.buildMap` 统一补，不在数据里重复。 */
+      scatter: { rocks: 58 },
       special: [
         { id: 'chest3', kind: 'chest', x: 11, y: 20,
           loot: { stone: 150, items: { '回春丹': 2 } } },
@@ -211,7 +214,8 @@
       label: '血煞外堂据点',
       spawn: { x: 20, y: 29 },
       structures: [], paths: [], fences: [],
-      scatter: { rocks: 14 },
+      /* ⚠️ v0.96.0：随格数同步（30×24 → 42×34 时 v0.91.0 漏改）。28 = 14 × 1.983。 */
+      scatter: { rocks: 28 },
       special: [
         { kind: 'scriptBattle', id: 'hallGate', x: 20, y: 25,
           enemies: [ { sp: '血煞教徒', lv: 65 } ],

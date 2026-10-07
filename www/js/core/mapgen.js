@@ -231,8 +231,41 @@
       setInteract(n.x, n.y, { type: 'npc', npc: n, id: n.id, act: n.act });
     });
 
-    /* 随机散布 */
+    /* ===== 随机散布 =====
+       ⚠️ v0.96.0：装饰数量必须补 **格子像素变大** 这一层（用户「地图放大后很空」）。
+
+       密度 = 玩家**一屏**能看见多少棵树。而 `DECOR_SIZE`（tree 32×48）是
+       **固定像素、不随 TILE 缩放**（v0.91.0 没改过它）——
+       所以 TILE 从 16 提到 24 之后，屏幕可见格数从 30×17 掉到 20×11
+       （少 **TILE² 倍**），装饰总数却没变 → **屏内密度只剩 1/2.25 = 44%**。
+       这就是"空旷"的真正来源（不是地图格数变了 —— 格数只影响"世界多大"，
+       不影响"一屏多密"）。
+
+       ⚠️ v0.95.0 初版把补偿写在 `regiongen`、且用**格数比**（`SCATTER_REF_AREA`），
+          两处都不对：
+          ① 位置错 —— 手写图（maps.js）的 md 不经 regiongen，补不到；
+          ② 口径错 —— 生成型区域的格数 v0.91.0 **根本没变**（只动了 maps.js），
+             格数比恒为 1 → **完全是空操作**（实测 fan5 areaK=1.00）。
+          且 v0.91.0 给手写图补的散数也漏了 TILE² 这一层（只补了格数比 ×1.97）。
+          更细的一处：cave/bloodhall 的 scatter **完全没被 v0.91.0 动过**
+          （格数涨了、装饰数还是 30/14）。
+
+       修法（唯一口径，就在这里）：以**老基线（16px 格）的像素面积**为 1.0，
+       统一乘 `(TILE/16)²`。这样两边的历史遗留各自归位：
+       - 生成型区域：格数未变 → 只需这一层（×2.25）✓
+       - 手写图 town/yunzhou/field：数据已含格数比 ×1.97 → 再 ×2.25 = ×4.43 ✓
+       - 手写图 cave/bloodhall：数据未补 → ×2.25（格数比那层由数据另行补齐，见 maps.js）
+       ⚠️ 用**面积比**而不是线性比：装饰铺在二维地面上，边长 ×1.5 要 ×2.25 才同观感。
+       ⚠️ `TILE` 取 `G.Art.TILE`（唯一口径；art.js 在 mapgen 之前加载）。 */
     var sc = md.scatter || {};
+    var REF_TILE = 16;                       /* 老基线格宽 */
+    var TILE = (G.Art && G.Art.TILE) || 24;
+    var densK = Math.max(1, (TILE * TILE) / (REF_TILE * REF_TILE));
+    if (densK > 1.01) {
+      var sc2 = {};
+      Object.keys(sc).forEach(function (k) { sc2[k] = Math.round(sc[k] * densK); });
+      sc = sc2;
+    }
     function scatterN(t, n) {
       var placed = 0, tries = 0;
       while (placed < n && tries < n * 60) {

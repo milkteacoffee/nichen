@@ -973,12 +973,41 @@ step(function () {
     errors.push('返回闪白没自己收干净（flashDir=' + sc2.flashDir + ' flash=' + sc2.flash + '）');
   }
   sc2.path = [];
-  /* ⚠️ v0.91.0（TILE 16→24）：相机把玩家**居中**在屏幕中心，
-     所以点 (240,200) 正好是"自己脚下那一格" → 走的是 onTap 的**原地交互**分支，
-     不是寻路。要验"能寻路"必须点一个**偏离中心**的可走格。
-     这里点右下 1/4 处（(320,230)），并断言产生了路径。 */
-  sc2.onTap({ x: 320, y: 230 });
-  if (!sc2.path.length) errors.push('返回后点击不能寻路 —— 玩家仍被锁着');
+  /* ⚠️ v0.96.0：不能写死屏幕坐标，也不能只看"格子是否为空"——
+     装饰是**随机散布**的（加密后又多落了几棵），写死的落点可能正好被新树/石
+     占成实心 → 走 onTap 的原地交互分支、不产生路径，契约**假红**。
+     ⚠️ 更要命的是**屏幕范围**：相机把玩家居中（TILE=24 后一屏只有 20×11 格），
+        偏移 ±2 格就可能落到 480×272 之外 → onTap 的边缘死区直接 return。
+     所以从玩家屏幕位置出发，只在 ±2 格内找：屏幕内（离边 ≥8px）、
+        非玩家脚下、非实心、非出口、且 A* 走得到的格。 */
+  const TG = G.Art.TILE;
+  const px0 = s.pos.x * TG + TG / 2 - sc2._camX();
+  const py0 = s.pos.y * TG + TG / 2 - sc2._camY();
+  let target = null, tapPt = null;
+  for (let dy = -2; dy <= 2 && !target; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (!dx && !dy) continue;
+      const sx = Math.round(px0 + dx * TG), sy = Math.round(py0 + dy * TG);
+      if (sx < 8 || sy < 8 || sx >= 480 - 8 || sy >= 272 - 8) continue;
+      const tx = s.pos.x + dx, ty = s.pos.y + dy;
+      if (tx < 1 || ty < 1 || tx >= sc2.map.w - 1 || ty >= sc2.map.h - 1) continue;
+      if (sc2.map.solid[ty][tx]) continue;
+      if (sc2.map.exitCells && sc2.map.exitCells[tx + ',' + ty]) continue;
+      if (!sc2._astar(s.pos.x, s.pos.y, tx, ty)) continue;          /* 走得到才算 */
+      target = { x: tx, y: ty };
+      tapPt = { x: sx, y: sy };
+      break;
+    }
+  }
+  if (!target) {
+    errors.push('寻路契约：玩家附近找不到屏幕内可走的落点（地图被装饰填满了？）');
+  } else {
+    sc2.onTap(tapPt);
+    if (!sc2.path.length) {
+      errors.push('返回后点击不能寻路 —— 玩家仍被锁着（点格 ' + target.x + ',' + target.y
+        + '，屏幕 ' + tapPt.x + ',' + tapPt.y + '）');
+    }
+  }
 }, 'encounter.enter');
 
 /* 3a-5) 明雷（可见野怪，v0.68.0 用户第 22 点）
@@ -7932,22 +7961,30 @@ step(function () {
   console.log('  ✓ 地图尺度：TILE=' + TILE + ' / 建筑高 ' + bh.toFixed(0) + 'px = 人物 '
     + ratio.toFixed(2) + ' 倍 / 无裸 16');
 
-  /* ④ v0.95.0（用户口径「地图放大后很空」+「建筑看着和环境不搭」）：
-     两处都是**地图放大 ×1.4 的连带副作用**，各钉一条：
-       a) **装饰密度随面积缩放**：`scatter` 表按老尺寸（42×30）标定，
-          地图面积 ×1.96 后数量不变 → 密度掉到 52%（一眼看成荒地）。
-          判据：造两个"面积差近 2 倍"的假 md 场景不对，直接断源码闸 + 数值：
-          同一 regionId 在大图上烘出的装饰数，应约为小图的 面积比 倍。
+  /* ④ v0.95.0 / v0.96.0（用户口径「地图放大后很空」+「建筑看着和环境不搭」）：
+     都是**地图放大**的连带副作用，各钉一条：
+       a) **装饰密度必须补"格子像素"那一层**：
+          密度 = 一屏看得见多少棵。`DECOR_SIZE`（tree 32×48）是**固定像素、
+          不随 TILE 缩放**，所以 TILE 16→24 后屏内容量少了 **TILE²=2.25 倍**。
+          ⚠️ v0.95.0 初版补错了：写在 regiongen 且用**格数比** ——
+             手写图补不到、生成区域格数根本没变（areaK=1.00 空操作）。
+          v0.96.0 把补偿收到 `mapgen.buildMap`（**唯一消费口**），统一乘 `(TILE/16)²`。
+          判据：源码闸（mapgen 里有 densK + 数据里不许再乘一遍）。
        b) **建筑吃环境色温**：`struct.*` 是整张位图、原本完全不吃调色板，
           同一座冷灰城楼放进土黄荒野就"贴上去"。
           判据：同一建筑在**不同地面色**下烘出的平均色必须不同（缓存键带地面色）。 */
   {
-    /* a) 装饰密度：源码闸（面积比参与数量计算） */
+    /* a) 装饰密度：源码闸 —— 补偿必须在 **mapgen**（唯一消费口），且只此一处。
+       ⚠️ 断言"两处都不许有"是刻意的：写两处会**双重乘**（×2.25 ×2.25 = ×5）。 */
+    const mgSrc2 = fs.readFileSync(path.join(WWW, 'js/core/mapgen.js'), 'utf8');
+    if (mgSrc2.indexOf('densK') < 0) {
+      errors.push('源码闸：mapgen 未按格子像素补偿装饰密度（地图放大后会变空）');
+    } else if (!/sc\[k\] \* densK/.test(mgSrc2)) {
+      errors.push('源码闸：装饰数量未乘 densK（补了但没用在数量上）');
+    }
     const rgSrc2 = fs.readFileSync(path.join(WWW, 'js/core/regiongen.js'), 'utf8');
-    if (rgSrc2.indexOf('SCATTER_REF_AREA') < 0) {
-      errors.push('源码闸：regiongen 未按面积缩放装饰数量（地图放大后会变空）');
-    } else if (!/scatter\[k\] \* areaK/.test(rgSrc2)) {
-      errors.push('源码闸：装饰数量未乘面积比（SCATTER_REF_AREA 形同虚设）');
+    if (/scatter\[k\] \* areaK/.test(rgSrc2) || rgSrc2.indexOf('SCATTER_REF_AREA') >= 0) {
+      errors.push('源码闸：regiongen 里还留着旧的面积补偿 —— 会与 mapgen 双重乘（装饰过密）');
     }
     /* b) 建筑环境色温：同一建筑在不同地面色下必须烘出不同像素 */
     const stSrc = fs.readFileSync(path.join(WWW, 'js/core/art.js'), 'utf8');
@@ -7967,6 +8004,56 @@ step(function () {
     if (!/stim\|' \+ im\.src \+ '\|' \+ g/.test(stSrc)) {
       errors.push('源码闸：structTint 的缓存键未带地面色（不同地貌会串色）');
     }
+
+    /* c) **数值判据**（v0.96.0 补）：源码闸只能证明"补了"，证明不了"补对了"。
+       真算一遍 **每屏可见装饰数**，与**同图老基线（16px 格）**比 ——
+       这个比值必须 ≈1（±25%）。比值才是判据：
+       各图基线的绝对值差很大（town 4.7 / field 17.3 处每屏），
+       但"修前 vs 修后"的比值一定落在 TILE² 那一档上，与图无关。
+       ⚠️ 判定必须**真驱动 mapgen 的产物**，不能自己另写一套补偿公式 ——
+          否则改坏 mapgen 时判据照旧通过（**反例漏网**，v0.96.0 初版就是这样）。
+          做法：真的 `MapGen.buildMap` 一张图，数它产出的 `decor`。 */
+    const perScreenReal = function (id) {
+      const md = G.Data.maps[id];
+      if (!md) return null;
+      const s2 = JSON.parse(JSON.stringify(G.game.save || {}));
+      s2.worldSeed = (s2.worldSeed || 1);
+      s2.world = s2.world || G.Data.generateWorld(s2.worldSeed, true);
+      let map = null;
+      try { map = G.MapGen.buildMap(s2, id); } catch (e) { return { err: e.message }; }
+      /* 只数"散布"的树石（边界围合那圈是每图一圈、与 scatter 无关，
+         数进去会把密度信号淹没）—— 按坐标是否贴边判断 */
+      const w = map.w, h = map.h;
+      let inner = 0;
+      (map.decor || []).forEach(function (d) {
+        if (d.t !== 'tree' && d.t !== 'rock') return;
+        if (d.x <= 0 || d.y <= 0 || d.x >= w - 1 || d.y >= h - 1) return;
+        inner++;
+      });
+      return { perScreen: inner * (480 * 272) / (w * TILE * h * TILE), inner: inner, w: w, h: h };
+    };
+    /* 基线：**老基线（TILE=16、v0.91.0 前的数据）每屏可见散布数**。
+       这些值 = 老数据 × 480×272/(w0×16 × h0×16)，已离线算好写死在此。
+       断"当前 / 基线 ∈ 75%~160%"：低了显空旷、高了寸步难行。
+       ⚠️ 只断比值不断绝对值 —— 各图基线的绝对值差很大（town 4.7 / field 17.3 处每屏），
+          绝对值没有可比性；比值才是"密度有没有回退"的信号。 */
+    const BASE = { field: 17.34, cave: 18.39, bloodhall: 9.92, town: 4.72 };
+    Object.keys(BASE).forEach(function (id) {
+      const cur = perScreenReal(id);
+      if (!cur) { errors.push('装饰密度判据：取不到地图 ' + id); return; }
+      if (cur.err) { errors.push('装饰密度判据：buildMap(' + id + ') 抛错 ' + cur.err); return; }
+      const r = cur.perScreen / BASE[id];
+      if (r < 0.75 || r > 1.6) {
+        errors.push('装饰密度：' + id + ' 每屏 ' + cur.perScreen.toFixed(2) + ' 处（内圈 '
+          + cur.inner + '） = 老基线的 ' + (r * 100).toFixed(0) + '%（应 75%~160%）—— '
+          + (r < 0.75 ? '地图会显得空旷' : '装饰过密、寸步难行'));
+      }
+    });
+    console.log('  ✓ 装饰密度（真 buildMap，每屏可见 / 老基线）：'
+      + Object.keys(BASE).map(function (id) {
+        const cur = perScreenReal(id);
+        return id + ' ' + (cur && !cur.err ? (cur.perScreen / BASE[id] * 100).toFixed(0) + '%' : 'ERR');
+      }).join(' / '));
   }
 }, 'map.scale.contract');
 
