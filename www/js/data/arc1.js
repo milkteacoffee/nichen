@@ -91,6 +91,6 @@ G.Arcs.register({
     pid: 'wanqing', name: '晚晴', item: '半截平安穗',
     words: '等攒够了钱，一起去看山外的世界。'
   },
-  lossCta: '……',
+  lossCta: '闭上双眼',
   deathCause: 'war'
 });
