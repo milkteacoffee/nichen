@@ -487,16 +487,24 @@
 
   var TILE = { grass: tGrass, path: tPath, town: tTown, cave: tCave };
 
+  /* ===== 格子像素尺寸（v0.91.0）=====
+     **唯一口径**：explore.js 的 `TILE` 与这里必须一致（`TILE.contract` 会断言）。
+     ⚠️ 为什么放两份而不是 import：本项目零构建、各 core 文件是独立 IIFE，
+        没有模块系统。所以只能"约定 + 契约钉住"，不能靠语言特性。
+     地面纹理边长 GTS 必须是 TILE 的整数倍（否则"按格取子块"会在跨格处错位）。 */
+  A.TILE = 24;
   /* ============================================================
      三·五、地面大纹理（无缝周期，取代 16×16 小瓦片）
 
      小瓦片有两个无法调和的毛病：
        1) 瓦片内的逐像素噪声用本地坐标采样，边界场不连续 → 每 16px 一条缝；
        2) 任何大于 4px 的结构（草簇、卵石、石板）每 16px 精确重复一次 → 规则点阵。
-     改成边长 224（14 格）的周期纹理后：缝彻底消失，重复周期从 36 屏幕px
+     改成边长 216（= 24×9，9 格）的周期纹理后：缝彻底消失，重复周期从 36 屏幕px
      拉到 504 屏幕px —— 一屏之内看不到重复。
+     ⚠️ v0.91.0：原为 224（= 16×14）；格子提到 24 后必须同步改成 24 的整数倍，
+        否则 `(tx*TILE) % TS` 取到的子块与平铺位置**对不齐**（接缝处会断开）。
      ============================================================ */
-  var GTS = 224;                     /* 必须是 16 的整数倍，便于按格取子矩形 */
+  var GTS = 216;                     /* 必须是 A.TILE 的整数倍，便于按格取子矩形 */
   A.GROUND_TS = GTS;
 
   /* 不规则石片：顶点半径带种子的随机收缩 → 天然棱角，比正圆更像石头 */
@@ -964,13 +972,18 @@
   /* 按世界坐标取 16×16 子块绘制：相邻格共享同一张纹理 → 跨格完全连续 */
   A.groundBlit = function (x, kind, pal, sx, sy, dx, dy) {
     var c = A.groundTex(kind, pal);
+    /* 每格的取子块尺寸 = TS / (TS/GTS)，即"逻辑格"大小。
+       ⚠️ v0.91.0：格子从 16 提到 24，这里的两处 16 都要跟着 `G.Art.TILE`
+           （子块边长），否则地面会被拉伸/只画一角（静默、只是画面错）。
+           为什么用 G.Art.TILE 而不是局部常量：explore 的取块口径必须与它一致。 */
+    var TG = A.TILE;
     if (GTS_MARK.indexOf(c) < 0) {   /* 外部素材：退化为整图缩放 */
-      x.drawImage(c, Math.round(dx), Math.round(dy), 16, 16);
+      x.drawImage(c, Math.round(dx), Math.round(dy), TG, TG);
       return;
     }
     var k = c.width / GTS;
-    x.drawImage(c, Math.round(sx * k), Math.round(sy * k), Math.round(16 * k), Math.round(16 * k),
-      Math.round(dx), Math.round(dy), 16, 16);
+    x.drawImage(c, Math.round(sx * k), Math.round(sy * k), Math.round(TG * k), Math.round(TG * k),
+      Math.round(dx), Math.round(dy), TG, TG);
   };
 
   /* 取瓦片：素材优先 */
@@ -978,7 +991,7 @@
     var im = G.Assets.img('tile.' + kind + '.' + v);
     if (im) return im;
     var key = 't|' + kind + '|' + v + '|' + pal.ground;
-    return cached(key, 16, 16, function (x) {
+    return cached(key, A.TILE, A.TILE, function (x) {
       (TILE[kind] || tGrass)(x, pal, v);
     }).c;
   };
@@ -1040,16 +1053,16 @@
   A.edgeErode = function (side, variant, K) {
     var key = 'e|' + side + '|' + variant + '|' + K;
     if (ERODE[key]) return ERODE[key];
-    var S = 16 * K, o = cv(S, S), x = o.x;
+    var S = A.TILE * K, o = cv(S, S), x = o.x;
     var r = rnd(side.charCodeAt(0) * 131 + variant * 977 + 17);
     for (var i = 0; i < 11; i++) {
-      var along = r() * 16;
+      var along = r() * A.TILE;
       var dep = Math.pow(r(), 1.5) * 5.4;
       var rad = 0.9 + r() * 1.8, px, py;
       if (side === 'N') { px = along; py = dep; }
-      else if (side === 'S') { px = along; py = 16 - dep; }
+      else if (side === 'S') { px = along; py = A.TILE - dep; }
       else if (side === 'W') { px = dep; py = along; }
-      else { px = 16 - dep; py = along; }
+      else { px = A.TILE - dep; py = along; }
       var a = 0.9 * (1 - dep / 7.5); if (a < 0.12) a = 0.12;
       x.fillStyle = alpha('#000000', a);
       blob(x, px * K, py * K, rad * K, 1);
@@ -1089,8 +1102,20 @@
     x.fillRect(x0 - 1, y0 + 0.8, w + 2, 0.7);
   }
 
+  /* ===== 建筑显示倍率（v0.91.0，用户第 9 点）=====
+     用户口径：「这些建筑和当前地图场景不协调，这些建筑相当于缩小的城池或镇子，
+     但是地图场景却是一比一的大小……导致人物角色比建筑还要大，这是严重问题」。
+     实测：人物精灵逻辑高 24×1.75 = **42px**；而民居框 6×5 格里"等比内含"256×192 素材
+     → 实际绘制高只有 **80px**，即只有人物的 **1.9 倍**。
+     真实世界民居高 ≈ 3 倍人身高 → 建筑需要放大约 1.6 倍。
+     这里取 **1.55**：人物 42 → 建筑 80×1.55 ≈ **124px = 人物的 2.95 倍**，
+     接近真实比例，且建筑向上溢出约 44px 仍在地图内（2.5D 视角本就让建筑"向观察者长"）。
+     ⚠️ 只作用于**贴图**（`struct.*` 素材）；程序化兜底那支按本来的方框画，
+        不动它的几何（否则调色板/斑驳随机数全变，等于重画）。 */
+  var STRUCT_SCALE = 1.4;
+
   A.house = function (s, pal) {
-    var W = s.w * 16, H = s.h * 16;
+    var W = s.w * A.TILE, H = s.h * A.TILE;
     /* 素材取图键：`struct.<bk>` 优先（药铺 / 铁匠铺 / 丹房…），
        没有 `bk` 才退回 `struct.<kind>`（house / ruin / gate）。
        ⚠️ `kind` 是"画法大类"，`bk` 才是"这是哪家店" —— 只用 kind 的话
@@ -1101,8 +1126,11 @@
       /* **等比内含 + 底部居中**，不拉伸：
          建筑尺寸从 3×5（48×80）到 6×5（96×80）都有，拉成同一个框会让
          门宽/窗位/屋檐比例各不相同 —— 一眼就是"贴图贴歪了"。
-         底部锚定 = 建筑落地线对齐（`py + H` 是地面）。 */
-      var k = Math.min(W / im.width, H / im.height);
+         底部锚定 = 建筑落地线对齐（`py + H` 是地面）。
+         v0.91.0：结果再乘 `STRUCT_SCALE` 让建筑"长高"到接近真实比例（见常量注释）。
+         ⚠️ 仍旧**底部锚定**：`oy = H - dh` 在 dh 变大后为负 → 建筑向上溢出格子，
+            这正是 2.5D 该有的观感（和既有"落地投影 + 墙脚基座"同一套视觉语言）。 */
+      var k = Math.min(W / im.width, H / im.height) * STRUCT_SCALE;
       var dw = im.width * k, dh = im.height * k;
       return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
     }
@@ -1208,9 +1236,16 @@
   };
 
   A.ruin = function (s, pal) {
-    var W = s.w * 16, H = s.h * 16;
+    var W = s.w * A.TILE, H = s.h * A.TILE;
     var im = G.Assets.img('struct.ruin');
-    if (im) return { c: im, ox: 0, oy: 0, w: W, h: H };
+    if (im) {
+      /* ⚠️ v0.91.0：这里原来是**直接拉伸**（`w: W, h: H`）——
+         既破坏了素材宽高比（残垣被拉扁），又不参与 STRUCT_SCALE（废墟不会变大）。
+         与 `A.house` / `A.gate` 统一成"**等比内含 + 底部居中 + STRUCT_SCALE**"。 */
+      var k = Math.min(W / im.width, H / im.height) * STRUCT_SCALE;
+      var dw = im.width * k, dh = im.height * k;
+      return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
+    }
     var ox = -8, oy = -8;
     var key = 'r|' + W + '|' + H;
     var o = cached(key, W + 16, H + 16, function (x) {
@@ -1268,7 +1303,7 @@
   };
 
   A.gate = function (s, pal) {
-    var W = s.w * 16, H = s.h * 16;
+    var W = s.w * A.TILE, H = s.h * A.TILE;
     var im = G.Assets.img('struct.' + (s.bk || 'gate')) || G.Assets.img('struct.gate');
     if (im) {
       /* **等比内含 + 底部居中**（与 `A.house` 同一条规则，v0.42.0）。
@@ -1276,7 +1311,7 @@
          素材 256×192（1.33:1）塞进 6×3 的框（96×48 = 2:1）→ 横向拉宽 1.5 倍，
          牌楼的飞檐、匾额、石狮全部变形（截图里一眼就是"被压扁了"）。
          ⚠️ 底部锚定 = 落地线对齐（`py + H` 是地面），与房子一致。 */
-      var k = Math.min(W / im.width, H / im.height);
+      var k = Math.min(W / im.width, H / im.height) * STRUCT_SCALE;
       var dw = im.width * k, dh = im.height * k;
       return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
     }
@@ -2093,7 +2128,7 @@
   };
   A.furn = function (kind, pal) {
     var sz = FURN_SIZE[kind] || [1, 1];
-    var w = sz[0] * 16, h = sz[1] * 16;
+    var w = sz[0] * A.TILE, h = sz[1] * A.TILE;
     var im = G.Assets.img('furn.' + kind);
     if (im) return { c: im, w: w, h: h };
     var fn = FURN_PROC[kind];

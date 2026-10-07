@@ -11,8 +11,8 @@
 
   var maps = {
     town: {
-      id: 'town', w: 36, h: 24, safe: true, ground: 'town', tex: 'fan1',
-      spawn: { x: 18, y: 21 },
+      id: 'town', w: 50, h: 34, safe: true, ground: 'town', tex: 'fan1',
+      spawn: { x: 25, y: 29 },
       structures: [
         /* `bk`（建筑类型）= **素材取图的键**（v0.16.0）：`struct.<bk>` 优先，
            没有则退回 `struct.<kind>`。不写 `bk` 的话，药铺和民居会共用同一张图。
@@ -21,30 +21,30 @@
            ⚠️ 位置（6,15）是**南侧空场**，不是北面住宅区 —— 那里已经被 `home`（x3..8,y5..9）
               与四面围栏占满，硬塞山门会和洞府**叠在一起画**（两栋楼重叠）。
               放在玩家出生点（18,21）往西一眼能看见的空地上。 */
-        S('gateQxj', 'gate', 6, 15, 6, 3, {
-          label: '青溪剑阁 · 山门', to: 'sect.qxj.gate', spawn: { x: 15, y: 14 }
+        S('gateQxj', 'gate', 8, 21, 8, 4, {
+          label: '青溪剑阁 · 山门', to: 'sect.qxj.gate', spawn: { x: 21, y: 20 }
         }),
-        S('home', 'house', 3, 5, 6, 5, { label: '洞府', bk: 'house', roof: '#6b5a4a' }),
-        S('shop', 'house', 14, 6, 6, 5, { label: '药铺', bk: 'apothecary', roof: '#5a6478' }),
-        S('market', 'house', 26, 7, 5, 4, { label: '刘记杂货', bk: 'shop', roof: '#78624a' })
+        S('home', 'house', 4, 7, 8, 7, { label: '洞府', bk: 'house', roof: '#6b5a4a' }),
+        S('shop', 'house', 20, 8, 8, 7, { label: '药铺', bk: 'apothecary', roof: '#5a6478' }),
+        S('market', 'house', 36, 10, 7, 6, { label: '刘记杂货', bk: 'shop', roof: '#78624a' })
       ],
       paths: [
-        path('v', 18, 11, 12),
-        path('h', 6, 11, 13),
-        path('h', 18, 12, 11),
-        path('h', 28, 12, -9),
+        path('v', 18, 11, 17),
+        path('h', 6, 11, 18),
+        path('h', 18, 12, 15),
+        path('h', 28, 12, -13),
         /* 东出落霞镇的路（v0.19.0）：y=20 是唯一一条从 x=18 到东缘不压任何
            建筑/NPC/水井的横线（well 在 y=16、浣衣妇在 (22,18)）。 */
-        path('h', 18, 20, 18)
+        path('h', 18, 20, 25)
       ],
       fences: [
-        fence(2, 4, 10, 4, { x: 6, y: 4 }),
-        fence(2, 11, 2, 4, null),
-        fence(10, 11, 10, 4, null),
-        fence(2, 11, 10, 11, { x: 6, y: 11 })
+        fence(3, 6, 14, 6, { x: 8, y: 6 }),
+        fence(3, 15, 3, 6, null),
+        fence(14, 15, 14, 6, null),
+        fence(3, 15, 14, 15, { x: 8, y: 15 })
       ],
-      scatter: { trees: 6, rocks: 2 },
-      special: [ { id: 'well', kind: 'well', x: 23, y: 16 } ],
+      scatter: { trees: 12, rocks: 4 },
+      special: [ { id: 'well', kind: 'well', x: 32, y: 22 } ],
       /* 屋门 → 室内图。**单一真相源**：town.js 的 onInteract 与探索场景的
          「路引」寻路都读这一份。以前这份映射写在 town.js 里（DOOR_TO_MAP），
          路引要做跨图寻路就得再抄一遍 —— 两份表迟早会分叉。 */
@@ -54,23 +54,23 @@
          NPC 只有正面一套画法（程序化或 char.npc.<kind>），所以不配朝向。 */
       npcs: [
         { id: 'washer', kind: 'villager', name: '浣衣妇', portrait: 'villager',
-          x: 22, y: 18, act: 'chat.washer' },
+          x: 31, y: 25, act: 'chat.washer' },
         { id: 'woodman', kind: 'villager', name: '老樵夫', portrait: 'villager',
-          x: 7, y: 13, act: 'chat.woodman' },
+          x: 10, y: 18, act: 'chat.woodman' },
         /* 外堂探子（M1 §4 m1-1 起）：化名"行脚商"，站在刘记杂货附近。
            condStep = 只在主线走到这一步时才出现，由 mapgen 在每次进图时求值。
            用**字符串**而不是函数：契约测试要能"把存档拨到那一步再建一次图"来验占位，
            函数式条件没法从外部驱动，等于这条 NPC 的占格检查永远测不到。 */
         { id: 'probe', kind: 'cultist', name: '行脚商', portrait: 'cultist',
-          x: 25, y: 15, act: 'probe', condStep: 'm1-2' }
+          x: 35, y: 21, act: 'probe', condStep: 'm1-2' }
       ],
       exits: [
-        { x0: 17, x1: 19, y: 23, to: 'field', spawn: { x: 24, y: 37 }, label: '翠微山' },
+        { x0: 24, x1: 27, y: 32, to: 'field', spawn: { x: 34, y: 52 }, label: '翠微山' },
         /* 东出落霞镇（凡界 F4）：25 个生成型区域全靠这一条链才走得到 ——
            没有它，fan4–fan9 就是**孤岛**（地图生成得出来、玩家永远到不了）。 */
-        { x0: 35, x1: 35, y: 20, to: 'fan4', spawn: { x: 1, y: 14 }, label: '落霞镇' },
+        { x0: 49, x1: 49, y: 28, to: 'fan4', spawn: { x: 1, y: 20 }, label: '落霞镇' },
         /* 四通八达（v0.34.0）：青溪镇是**宗门所在**（青溪剑阁），西缘再开一条通往黑风岭的路 */
-        { x0: 0, x1: 0, y: 12, to: 'fan5', spawn: { x: 40, y: 15 }, label: '黑风岭' }
+        { x0: 0, x1: 0, y: 17, to: 'fan5', spawn: { x: 56, y: 21 }, label: '黑风岭' }
       ]
     },
 
@@ -82,122 +82,122 @@
           而且 `regiongen.targetSpawn` 对"有 map 的区域"直接取 `md.spawn`，所以**入口落点就是 spawn**。
        ⚠️ NPC 站位必须避开道路 —— 主街只有 1 格宽，站上去就把路堵死了（青溪镇踩过）。 */
     yunzhou: {
-      id: 'yunzhou', w: 44, h: 30, safe: true, ground: 'town', tex: 'fan4',
+      id: 'yunzhou', w: 62, h: 42, safe: true, ground: 'town', tex: 'fan4',
       /* ⚠️ `label` 是场景名牌的**唯一来源**（`explore._sceneName` 只对 town/field/cave 有硬编码兜底，
          其余一律返回 mapId）—— 不写它，左上角会显示裸 id「yunzhou」。 */
       label: '云州城',
-      spawn: { x: 22, y: 27 },
+      spawn: { x: 31, y: 38 },
       structures: [
-        S('keep', 'ruin', 3, 3, 11, 6, { label: '城主府', bk: 'hall', roof: '#4a4a5a' }),
-        S('pavilion', 'ruin', 19, 3, 10, 5, { label: '云州论道台', bk: 'tower', roof: '#46566a' }),
-        S('alchemy', 'house', 34, 4, 7, 5, { label: '丹霞坊', bk: 'alchemy', roof: '#6a4a4a' }),
-        S('smithy', 'house', 34, 15, 7, 5, { label: '云州铁坊', bk: 'smithy', roof: '#5a5a5a' }),
-        S('inn', 'house', 3, 15, 7, 5, { label: '云州客栈', bk: 'inn', roof: '#6a5a4a' }),
-        S('market', 'house', 3, 23, 7, 4, { label: '西市', bk: 'shop', roof: '#78624a' }),
-        S('houseA', 'house', 14, 20, 4, 3, { label: '民居', bk: 'house' }),
-        S('houseB', 'house', 27, 20, 4, 3, { label: '民居', bk: 'house' })
+        S('keep', 'ruin', 4, 4, 15, 8, { label: '城主府', bk: 'hall', roof: '#4a4a5a' }),
+        S('pavilion', 'ruin', 27, 4, 14, 7, { label: '云州论道台', bk: 'tower', roof: '#46566a' }),
+        S('alchemy', 'house', 48, 6, 10, 7, { label: '丹霞坊', bk: 'alchemy', roof: '#6a4a4a' }),
+        S('smithy', 'house', 48, 21, 10, 7, { label: '云州铁坊', bk: 'smithy', roof: '#5a5a5a' }),
+        S('inn', 'house', 4, 21, 10, 7, { label: '云州客栈', bk: 'inn', roof: '#6a5a4a' }),
+        S('market', 'house', 4, 32, 10, 6, { label: '西市', bk: 'shop', roof: '#78624a' }),
+        S('houseA', 'house', 20, 28, 6, 4, { label: '民居', bk: 'house' }),
+        S('houseB', 'house', 38, 28, 6, 4, { label: '民居', bk: 'house' })
       ],
       /* 主街：一条南北纵街 + 两条东西横街，十字交叉在 (22,12) */
       paths: [
-        path('v', 22, 4, 25),
-        path('h', 8, 12, 30),
-        path('h', 8, 22, 30)
+        path('v', 22, 4, 35),
+        path('h', 8, 12, 42),
+        path('h', 8, 22, 42)
       ],
-      scatter: { trees: 8, rocks: 3 },
-      special: [ { id: 'well', kind: 'well', x: 30, y: 12 } ],
+      scatter: { trees: 16, rocks: 6 },
+      special: [ { id: 'well', kind: 'well', x: 42, y: 17 } ],
       /* 云州城的建筑**不做室内**（v0.65.0 的取舍）：手写室内要另写一套 makeInterior，
          而本轮的交付重点是"城 + 主线"，服务由街面 NPC 直接给（投宿 / 坊市 / 打造 / 炼丹）。
          以后要补室内，在 `doors` 里加映射并在 yunzhou.js 里注册场景即可。 */
       npcs: [
         /* 主线三人组：城主府执事 → 论道台裁判 → 归客 */
         { id: 'yz_steward', kind: 'elder', name: '城主府执事', portrait: 'villager',
-          x: 17, y: 10, act: 'steward' },
+          x: 24, y: 14, act: 'steward' },
         { id: 'yz_judge', kind: 'keeper', name: '论道台裁判', portrait: 'villager',
-          x: 24, y: 10, act: 'judge' },
+          x: 34, y: 14, act: 'judge' },
         /* 服务：坊市 / 投宿 / 打造 / 炼丹（复用已有服务，不另写一套） */
         { id: 'yz_market', kind: 'keeper', name: '西市掌柜', portrait: 'keeper',
-          x: 8, y: 21, act: 'market' },
+          x: 11, y: 29, act: 'market' },
         { id: 'yz_inn', kind: 'keeper', name: '客栈小二', portrait: 'keeper',
-          x: 8, y: 14, act: 'inn' },
+          x: 11, y: 20, act: 'inn' },
         { id: 'yz_smith', kind: 'villager', name: '铁坊匠人', portrait: 'villager',
-          x: 32, y: 14, act: 'smith' },
+          x: 45, y: 20, act: 'smith' },
         { id: 'yz_dan', kind: 'villager', name: '丹霞坊主', portrait: 'villager',
-          x: 32, y: 4, act: 'dan' },
+          x: 45, y: 6, act: 'dan' },
         { id: 'yz_story', kind: 'villager', name: '说书人', portrait: 'villager',
-          x: 14, y: 12, act: 'story' }
+          x: 20, y: 17, act: 'story' }
       ],
       exits: [
         /* 南门 → 落霞镇（凡界 F4 的枢纽，那格是十字路口，一定走得到）。
            ⚠️ 反向那条（fan4 → fan10）写在 regions.js 的 fan4.exits 里；
               两侧都要有，否则是**有向断头路**（能出去、回不来）。 */
-        { x0: 21, x1: 23, y: 29, to: 'fan4', spawn: { x: 22, y: 15 }, label: '落霞镇' },
+        { x0: 29, x1: 32, y: 41, to: 'fan4', spawn: { x: 31, y: 21 }, label: '落霞镇' },
         /* 北门 → 落霞灵矿（M2-3 的台词就说"灵界之门在落霞镇西边那座废矿底下"，
            这条门是把那句话变成能走的路）。反向写在 fan8.exits 的 south。 */
-        { x0: 21, x1: 23, y: 0, to: 'fan8', spawn: { x: 21, y: 14 }, label: '落霞灵矿' }
+        { x0: 29, x1: 32, y: 0, to: 'fan8', spawn: { x: 29, y: 20 }, label: '落霞灵矿' }
       ]
     },
 
     field: {
-      id: 'field', w: 50, h: 40, ground: 'grass', tex: 'fan2',
-      spawn: { x: 24, y: 37 },
+      id: 'field', w: 70, h: 56, ground: 'grass', tex: 'fan2',
+      spawn: { x: 34, y: 52 },
       zones: [
         /* sp = 单只遭遇的相对权重；pair = 双只组出现概率（%，灵根切片 v0.3 §11）
            bias = 该物种在本区的等级偏移（前坡狼比蛇高一段） */
-        { id: 'front', y0: 28, y1: 39, enc: { min: 5, max: 16 },
+        { id: 'front', y0: 39, y1: 55, enc: { min: 5, max: 16 },
           sp: { 青纹蛇: 60, 赤炎狼: 30 }, pair: 10, pairWith: '青纹蛇',
           bias: { 赤炎狼: 1 } },
-        { id: 'mid', y0: 15, y1: 27, enc: { min: 13, max: 24 },
+        { id: 'mid', y0: 21, y1: 38, enc: { min: 13, max: 24 },
           sp: { 赤炎狼: 50, 青纹蛇: 20 }, pair: 30, pairWith: '赤炎狼' },
-        { id: 'back', y0: 2, y1: 14, enc: { min: 17, max: 32 },
+        { id: 'back', y0: 3, y1: 20, enc: { min: 17, max: 32 },
           sp: { 树精: 50, 赤炎狼: 25 }, pair: 25, pairWith: '树精' }
       ],
       structures: [
-        S('temple', 'ruin', 40, 32, 5, 4, { label: '山神庙' }),
+        S('temple', 'ruin', 56, 45, 7, 6, { label: '山神庙' }),
         /* 宗门山门（v0.42.0）：翠微御灵宗就设在翠微山 */
-        S('gateCwl', 'gate', 30, 26, 6, 3, {
-          label: '翠微御灵宗 · 山门', to: 'sect.cwl.gate', spawn: { x: 15, y: 14 }
+        S('gateCwl', 'gate', 42, 36, 8, 4, {
+          label: '翠微御灵宗 · 山门', to: 'sect.cwl.gate', spawn: { x: 21, y: 20 }
         }),
-        S('caveIn', 'gate', 23, 2, 4, 2, {
+        S('caveIn', 'gate', 32, 3, 6, 3, {
           label: '赤牙洞', need: { globalLevel: 16 },
-          to: 'cave', spawn: { x: 16, y: 24 },
+          to: 'cave', spawn: { x: 22, y: 34 },
           closedText: '落石封路，需淬体四重以上修为。'
         })
       ],
-      paths: [ path('v', 24, 4, 35), path('h', 24, 20, 26) ],
+      paths: [ path('v', 24, 4, 49), path('h', 24, 20, 36) ],
       fences: [],
-      scatter: { trees: 46, rocks: 22 },
+      scatter: { trees: 90, rocks: 43 },
       special: [
-        { id: 'chest1', kind: 'chest', x: 10, y: 20, loot: { stone: 100 } },
-        { id: 'chest2', kind: 'chest', x: 38, y: 8, loot: { items: { '解封符': 2 } } },
+        { id: 'chest1', kind: 'chest', x: 14, y: 28, loot: { stone: 100 } },
+        { id: 'chest2', kind: 'chest', x: 53, y: 11, loot: { items: { '解封符': 2 } } },
         /* 第一处秘境裂隙（v0.60，用户第 11 点）：需沈伯「引灵符」解封，slot 0 */
-        { id: 'rift0', kind: 'entrance', x: 6, y: 17, slot: 0 }
+        { id: 'rift0', kind: 'entrance', x: 8, y: 24, slot: 0 }
       ],
       exits: [
-        { x0: 23, x1: 26, y: 39, to: 'town', spawn: { x: 18, y: 20 }, label: '青溪镇' },
+        { x0: 32, x1: 36, y: 55, to: 'town', spawn: { x: 25, y: 28 }, label: '青溪镇' },
         /* 东出落霞镇（凡界 F4）：翠微山不再只是"回镇 / 进洞"的死胡同。 */
-        { x0: 49, x1: 49, y: 20, to: 'fan4', spawn: { x: 1, y: 14 }, label: '落霞镇' },
+        { x0: 69, x1: 69, y: 28, to: 'fan4', spawn: { x: 1, y: 20 }, label: '落霞镇' },
         /* 四通八达（v0.34.0）：翠微山是**宗门所在**（青溪剑阁/翠微御灵宗），
            北缘再开一条通往幽篁谷的路 —— 原先进出只有"回镇/去落霞镇"两条，太单薄。 */
-        { x0: 24, x1: 26, y: 0, to: 'fan6', spawn: { x: 20, y: 28 }, label: '幽篁谷' }
+        { x0: 34, x1: 36, y: 0, to: 'fan6', spawn: { x: 28, y: 39 }, label: '幽篁谷' }
       ]
     },
 
     cave: {
-      id: 'cave', w: 32, h: 26, ground: 'cave', tex: 'fan3',
-      spawn: { x: 16, y: 24 },
-      zones: [ { id: 'cave', y0: 4, y1: 25, enc: { min: 21, max: 36 },
+      id: 'cave', w: 45, h: 36, ground: 'cave', tex: 'fan3',
+      spawn: { x: 22, y: 34 },
+      zones: [ { id: 'cave', y0: 6, y1: 35, enc: { min: 21, max: 36 },
         sp: { 青纹蛇: 40, 赤炎狼: 35, 树精: 25 }, pair: 35, pairWith: '青纹蛇' } ],
       structures: [],
       paths: [], fences: [],
       scatter: { rocks: 30 },
       special: [
-        { id: 'chest3', kind: 'chest', x: 8, y: 14,
+        { id: 'chest3', kind: 'chest', x: 11, y: 20,
           loot: { stone: 150, items: { '回春丹': 2 } } },
-        { id: 'boss', kind: 'boss', x: 16, y: 6 }
+        { id: 'boss', kind: 'boss', x: 22, y: 8 }
       ],
-      exits: [ { x0: 14, x1: 17, y: 25, to: 'field', spawn: { x: 24, y: 4 }, label: '翠微山' },
+      exits: [ { x0: 20, x1: 24, y: 35, to: 'field', spawn: { x: 34, y: 6 }, label: '翠微山' },
         /* 四通八达（v0.34.0）：洞窟不再是单出口的死胡同，东缘再开一条通往乱葬岗 */
-        { x0: 31, x1: 31, y: 13, to: 'fan7', spawn: { x: 2, y: 15 }, label: '乱葬岗' } ]
+        { x0: 43, x1: 43, y: 18, to: 'fan7', spawn: { x: 3, y: 21 }, label: '乱葬岗' } ]
     },
 
     /* 血煞外堂据点（M1 §5.1）：一次性剧情图。
@@ -207,23 +207,23 @@
        抉择 1 = spare 时首战免打（阿七开门）；= kill 时追加一战（血煞教报复加码）。
        打完由 town 侧按 q.flags.bloodNight 拒绝再进（入口 toast「据点已塌」）。 */
     bloodhall: {
-      id: 'bloodhall', w: 30, h: 24, ground: 'bloodcave', safe: true,
+      id: 'bloodhall', w: 42, h: 34, ground: 'bloodcave', safe: true,
       label: '血煞外堂据点',
-      spawn: { x: 14, y: 21 },
+      spawn: { x: 20, y: 29 },
       structures: [], paths: [], fences: [],
       scatter: { rocks: 14 },
       special: [
-        { kind: 'scriptBattle', id: 'hallGate', x: 14, y: 18,
+        { kind: 'scriptBattle', id: 'hallGate', x: 20, y: 25,
           enemies: [ { sp: '血煞教徒', lv: 65 } ],
           skipFlag: { key: 'probe', val: 'spare' } },
-        { kind: 'scriptBattle', id: 'hallHall', x: 14, y: 12,
+        { kind: 'scriptBattle', id: 'hallHall', x: 20, y: 17,
           enemies: [ { sp: '血煞教徒', lv: 61 }, { sp: '血蝠', lv: 65 } ] },
-        { kind: 'scriptBattle', id: 'hallRevenge', x: 21, y: 9,
+        { kind: 'scriptBattle', id: 'hallRevenge', x: 29, y: 13,
           enemies: [ { sp: '血煞教徒', lv: 65 }, { sp: '血煞教徒', lv: 65 } ],
           onlyFlag: { key: 'probe', val: 'kill' } },
-        { kind: 'boss', id: 'xuemian', x: 15, y: 5 }
+        { kind: 'boss', id: 'xuemian', x: 21, y: 7 }
       ],
-      exits: [ { x0: 13, x1: 16, y: 23, to: 'town', spawn: { x: 15, y: 10 }, label: '青溪镇' } ]
+      exits: [ { x0: 18, x1: 22, y: 32, to: 'town', spawn: { x: 21, y: 14 }, label: '青溪镇' } ]
     },
 
     /* ============================================================

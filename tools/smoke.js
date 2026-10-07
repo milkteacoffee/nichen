@@ -973,7 +973,11 @@ step(function () {
     errors.push('返回闪白没自己收干净（flashDir=' + sc2.flashDir + ' flash=' + sc2.flash + '）');
   }
   sc2.path = [];
-  sc2.onTap({ x: 240, y: 200 });
+  /* ⚠️ v0.91.0（TILE 16→24）：相机把玩家**居中**在屏幕中心，
+     所以点 (240,200) 正好是"自己脚下那一格" → 走的是 onTap 的**原地交互**分支，
+     不是寻路。要验"能寻路"必须点一个**偏离中心**的可走格。
+     这里点右下 1/4 处（(320,230)），并断言产生了路径。 */
+  sc2.onTap({ x: 320, y: 230 });
   if (!sc2.path.length) errors.push('返回后点击不能寻路 —— 玩家仍被锁着');
 }, 'encounter.enter');
 
@@ -6218,7 +6222,7 @@ step(function () {
     sSpare.pos = null;
     G.game.save = sSpare;
     G.game.changeScene('bloodhall', { toSpawn: true });
-    if (G.game.scene.map.scriptBattles['14,18']) {
+    if (G.game.scene.map.scriptBattles['20,25']) {
       errors.push('bloodhall：probe=spare 时入口战应跳过（阿七开门），实际还在');
     }
     const sKill = JSON.parse(JSON.stringify(s));
@@ -6226,7 +6230,7 @@ step(function () {
     sKill.pos = null;
     G.game.save = sKill;
     G.game.changeScene('bloodhall', { toSpawn: true });
-    if (!G.game.scene.map.scriptBattles['21,9']) {
+    if (!G.game.scene.map.scriptBattles['29,13']) {
       errors.push('bloodhall：probe=kill 时应有报复战（onlyFlag 失效）');
     }
     G.game.save = s;
@@ -6879,18 +6883,26 @@ step(function () {
   {
     G.game.changeScene('town', { toSpawn: true });
     const sc = G.game.scene;
-    const e1 = sc._exitAt(18, 23);                       /* town 出口在 y=23 */
+    /* ⚠️ v0.91.0：地图放大 ×1.4 后镇出口从 (18,23) 迁到 (25,32)。
+       这些格坐标断言必须跟着数据走 —— 硬编码是"地图一改就假红"的典型。 */
+    const TEX = G.Data.maps.town.exits[0];                 /* 读数据，不写死 */
+    const e1 = sc._exitAt(TEX.x0, TEX.y);
     if (!e1 || e1.to !== 'field') errors.push('_exitAt 没命中镇出口');
-    const e2 = sc._exitAt(18, 22);                       /* 阵雾向上飘 → 上方一格也算 */
+    const e2 = sc._exitAt(TEX.x0, TEX.y - 1);              /* 阵雾向上飘 → 上方一格也算 */
     if (!e2 || e2.to !== 'field') errors.push('_exitAt 未覆盖传送阵上方一格');
-    if (sc._exitAt(5, 5)) errors.push('_exitAt 在非出口格误命中');
+    if (sc._exitAt(2, 2)) errors.push('_exitAt 在非出口格误命中');
     if (ex.indexOf('_drawPortal: function') < 0) errors.push('explore.js 缺 _drawPortal（出口传送阵）');
     const portalBody = ex.slice(ex.indexOf('_drawPortal: function'), ex.indexOf('_exitAt: function'));
     if (portalBody.indexOf('drawImage') >= 0) {
       errors.push('出口传送阵用了素材图 —— 它必须纯矢量（缺图会静默退回）');
     }
-    /* 点出口格 → 直接切图 */
-    const p = { x: 18 * 16 + 8 - sc._camX(), y: 23 * 16 + 8 - sc._camY() };
+    /* 点出口格 → 直接切图
+       ⚠️ v0.91.0：格宽从 16 提到 24（TILE），且地图放大 ×1.4；
+          这里必须**从地图数据读出口格**、并用 `G.Art.TILE` 换算，
+          写死 (18,23)×16 会点在旧位置上（本契约当时就是因此假红）。 */
+    const TG = G.Art.TILE;
+    const pe = G.Data.maps.town.exits[0];
+    const p = { x: pe.x0 * TG + TG / 2 - sc._camX(), y: pe.y * TG + TG / 2 - sc._camY() };
     sc.onTap(p);
     if (G.game.sceneName !== 'field') {
       errors.push('点出口传送阵没有切到下一张图，实为 ' + G.game.sceneName);
@@ -7627,6 +7639,84 @@ step(function () {
   console.log('  ✓ 地面类型：cave / bloodcave 纹理可区分，_baseType 不归一化，洞窟族走 _isCaveGround');
 }, 'ground.type.contract');
 pump(6, 'ground.type.leave');
+
+/* ---------- 地图尺度契约（v0.91.0，用户第 9 点）----------
+   用户口径：「这些建筑相当于缩小的城池或镇子，但地图场景却是一比一的大小……
+   导致人物角色比建筑还要大，这是严重问题」。
+   本契约钉三件事：
+     ① **格宽唯一口径**：`G.Art.TILE` 与 explore 的 TILE 必须一致，且地面纹理边长
+        必须是 TILE 的整数倍（否则"按格取子块"会在跨格处错位 → 接缝断裂）；
+     ② **人物与建筑的比例**：建筑可见高 / 人物高 必须落在真实区间（2.4~3.6），
+        太小 = 回到"人物比房子大"，太大 = 建筑喧宾夺主；
+     ③ **源码闸**：explore/art 里不许出现裸 `* 16` / `/ 16` 的格换算
+        （漏改一处的表现是"只有那一样东西位置错"，静默且难查）。 */
+step(function () {
+  const A = G.Art, SP = G.Sprites;
+  const TILE = A.TILE;
+  if (!(TILE > 0)) { errors.push('G.Art.TILE 缺失（格子像素尺寸未定义）'); return; }
+
+  /* ① 格宽一致性 + 地面纹理整除 */
+  const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+  const mTile = exSrc.match(/\bvar TILE = (\d+)/);
+  if (!mTile) errors.push('源码闸：explore.js 缺 TILE 常量');
+  else if (+mTile[1] !== TILE) {
+    errors.push('explore.TILE(' + mTile[1] + ') 与 Art.TILE(' + TILE + ') 不一致 —— 两份口径必须相同');
+  }
+  if (A.GROUND_TS % TILE !== 0) {
+    errors.push('GROUND_TS(' + A.GROUND_TS + ') 不是 TILE(' + TILE + ') 的整数倍 —— 地面按格取块会错位');
+  }
+
+  /* ② 人物 vs 建筑比例。
+     ⚠️ 无头环境的桩 fetch 恒失败 → `struct.*` 素材取不到 → `A.house` 走**程序化兜底**分支，
+        而那条分支**不乘 STRUCT_SCALE**（它按方框画，本来就不该缩放）。
+        所以这里**不能拿 A.house 的返回值算比例**（那验的是兜底分支，永远 3.24 → 假绿）。
+        正确做法：**源码闸** —— 断言素材分支里确实乘了 STRUCT_SCALE，
+        再用"常量 × 素材比例 × 格高"手工复算期望值。 */
+  const stripEx2 = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const artSrc = stripEx2(fs.readFileSync(path.join(WWW, 'js/core/art.js'), 'utf8'));
+  const mSc = artSrc.match(/var STRUCT_SCALE = ([\d.]+)/);
+  if (!mSc) { errors.push('源码闸：art.js 缺 STRUCT_SCALE（建筑放大倍率）'); return; }
+  const SC = +mSc[1];
+  /* 判据：**三个**建造函数（house / ruin / gate）的素材分支都要乘 STRUCT_SCALE。
+     ⚠️ 只查"出现过一次"会被另两处命中而恒真（G43）—— 必须数出现次数。 */
+  {
+    const hits = (artSrc.match(/Math\.min\(W \/ im\.width, H \/ im\.height\) \* STRUCT_SCALE/g) || []).length;
+    if (hits < 3) {
+      errors.push('源码闸：只有 ' + hits + '/3 处建筑素材分支乘了 STRUCT_SCALE（house/ruin/gate）');
+    }
+  }
+  const heroH = SP.AGE_STAGE_LOGICAL ? SP.AGE_STAGE_LOGICAL.h : 42;
+  /* 素材 256×192、框 6×5 格：k = min(6T/256, 5T/192) × SC；高 = 192k */
+  const ref = { imW: 256, imH: 192, w: 6, h: 5 };
+  const kk = Math.min(ref.w * TILE / ref.imW, ref.h * TILE / ref.imH) * SC;
+  const bh = ref.imH * kk;
+  const ratio = bh / heroH;
+  if (!(ratio >= 2.4 && ratio <= 3.6)) {
+    errors.push('建筑高 / 人物高 = ' + ratio.toFixed(2) + '（应在 2.4~3.6）—— '
+      + (ratio < 2.4 ? '还是"人物比房子大"' : '建筑过大、喧宾夺主'));
+  }
+
+  /* ③ 源码闸：explore.js 里不许残留格换算的裸 16
+     （随机量如 rnd() * 16 与格无关；此处按"乘法/除法的左操作数"模式判，
+      只拦 `变量 * 16` / `变量 / 16` / `16 * 变量` 这几种格换算写法）。 */
+  const stripEx = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const body = stripEx(exSrc);
+  const bad = [];
+  body.split('\n').forEach(function (l, i) {
+    /* `rnd()` 产出的随机量（雨丝初速之类）与格无关，显式放行 */
+    if (/rnd\(\)\s*\*\s*16\b/.test(l)) return;
+    if (/[a-zA-Z0-9_)\]]\s*\*\s*16\b/.test(l) || /[a-zA-Z0-9_)\]]\s*\/\s*16\b/.test(l)
+      || /\b16\s*\*\s*[a-zA-Z(]/.test(l)) {
+      bad.push('L' + (i + 1) + ': ' + l.trim().slice(0, 64));
+    }
+  });
+  if (bad.length) {
+    errors.push('源码闸：explore.js 仍有 ' + bad.length + ' 处裸 16 格换算（必须走 TILE）：'
+      + bad.slice(0, 3).join(' | '));
+  }
+  console.log('  ✓ 地图尺度：TILE=' + TILE + ' / 建筑高 ' + bh.toFixed(0) + 'px = 人物 '
+    + ratio.toFixed(2) + ' 倍 / 无裸 16');
+}, 'map.scale.contract');
 
 /* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------
    裂隙点了必须开**那一处**秘境的面板（此前一律跳通用枢纽）；

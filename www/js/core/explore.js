@@ -2,6 +2,17 @@
    镇/山/洞/室内通用。键盘方向键保留为无 UI 的辅助（方便调试与无障碍）。 */
 (function () {
   var MOVE_T = 0.18;
+  /* ===== 格子像素尺寸（v0.91.0，用户第 9 点「地图做大、建筑一比一」）=====
+     用户口径：「这些建筑相当于缩小的城池或镇子，但地图场景却是一比一的大小……
+     导致人物角色比建筑还要大，这是严重问题」。
+     实测：人物精灵逻辑高 24×1.75 = **42px**；民居框 5 格 × 16 = 80px，
+     素材等比内含后再乘 0.75 → 可见高仅 60px = 人物的 **1.4 倍**（真实民居≈3 倍）。
+     解法：**格子 16 → 24**（地图与建筑同步 ×1.5）+ 建筑素材再 ×1.4（见 art.STRUCT_SCALE）
+     → 民居可见高 5×24×0.75×1.4 = **126px = 人物的 3.0 倍**，比例回到真实。
+     ⚠️ 改这个常量意味着**所有"格 ↔ 像素"换算都必须走它**，不许再写裸 16：
+        一旦有地方漏改，表现是"只有那一样东西位置错"（静默、难查）。
+        `TILE.contract` 会扫源码闸拦裸 16。 */
+  var TILE = 24;
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
@@ -648,8 +659,8 @@
            （v0.11.2 修：之前 HUD_H=48 / BOT_H=28 整段挡掉，会让贴边的副本入口点不到。） */
         if (p.y < 4) return;
         if (p.y >= 272 - 4) return;
-        var tx = Math.floor(this._camX() / 16 + p.x / 16);
-        var ty = Math.floor(this._camY() / 16 + p.y / 16);
+        var tx = Math.floor(this._camX() / TILE + p.x / TILE);
+        var ty = Math.floor(this._camY() / TILE + p.y / TILE);
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
 
         /* ⓪ 点到出口传送阵：直接切图。
@@ -765,15 +776,15 @@
           x = this.from.x + (this.to.x - this.from.x) * this.mt;
           y = this.from.y + (this.to.y - this.from.y) * this.mt;
         }
-        return { x: x * 16 + 8, y: y * 16 + 12 };
+        return { x: x * TILE + 8, y: y * TILE + 12 };
       },
       _camX: function () {
         var cx = this._px().x;
-        return Math.max(0, Math.min(this.map.w * 16 - 480, cx - 240));
+        return Math.max(0, Math.min(this.map.w * TILE - 480, cx - 240));
       },
       _camY: function () {
         var cy = this._px().y;
-        return Math.max(0, Math.min(this.map.h * 16 - 272, cy - 136));
+        return Math.max(0, Math.min(this.map.h * TILE - 272, cy - 136));
       },
 
       /* ===== 渲染 ===== */
@@ -838,7 +849,7 @@
           list.push({ roam: r, x: r.x, y: r.y });
         });
         var pp = this._px();
-        list.push({ player: true, x: pp.x / 16, y: pp.y / 16 });
+        list.push({ player: true, x: pp.x / TILE, y: pp.y / TILE });
         list.sort(function (a, b) { return a.y - b.y; });
         list.forEach(function (o) {
           if (o.player) self._drawPlayer(x, camX, camY);
@@ -938,9 +949,9 @@
       _drawPortal: function (x, e, camX, camY) {
         var bottom = (e.y >= this.map.h - 1);
         var LIFT = bottom ? 14 : 0;
-        var cx = (e.x0 + e.x1 + 1) / 2 * 16 - camX;
-        var cy = e.y * 16 - camY + 10 - LIFT;
-        var rx = ((e.x1 - e.x0 + 1) * 16) / 2 + 3;
+        var cx = (e.x0 + e.x1 + 1) / 2 * TILE - camX;
+        var cy = e.y * TILE - camY + 10 - LIFT;
+        var rx = ((e.x1 - e.x0 + 1) * TILE) / 2 + 3;
         if (cx + rx < -10 || cx - rx > 490) return;
         var t = performance.now() / 1000;
 
@@ -1042,8 +1053,8 @@
       },
 
       _drawFurn: function (x, f, camX, camY) {
-        var px = f.x * 16 - camX, py = f.y * 16 - camY;
-        var w = (f.w || 1) * 16, h = (f.h || 1) * 16;
+        var px = f.x * TILE - camX, py = f.y * TILE - camY;
+        var w = (f.w || 1) * TILE, h = (f.h || 1) * TILE;
         if (px > 480 || px + w < 0 || py > 272 || py + h < 0) return;
         var art = G.Art.furn(f.kind, this._pal());
         if (!art) return;
@@ -1059,7 +1070,7 @@
              试过按纹理周期(224=14格)分块，但块比视口小不了多少，
              边界块只有部分可见，12 块合起来要搬 5.4M 像素，反而慢 3~5 倍；
            · 烘焙内部也不逐格画：基础地面是周期纹理，"按 TS 对齐平铺"
-             与"逐格取 (tx*16)%TS 子块"逐像素等价，blit 次数从整图格数
+             与"逐格取 (tx*TILE)%TS 子块"逐像素等价，blit 次数从整图格数
              （field 有 2000 格）降到 6 次左右，只有路格与路缘才逐格补画。 */
       _ensureGround: function () {
         var K = G.Art.K, pal = this._pal();
@@ -1068,7 +1079,7 @@
         var key = this.mapId + '|' + K + '|' + pal.ground + '|' + pal.rock;
         if (this._groundLayer && this._groundKey === key) return;
         var m = this.map;
-        var w = m.w * 16, h = m.h * 16;
+        var w = m.w * TILE, h = m.h * TILE;
         var c = document.createElement('canvas');
         c.width = Math.round(w * K); c.height = Math.round(h * K);
         var g = c.getContext('2d');
@@ -1093,7 +1104,7 @@
       /* 软道路：路面层按噪声羽化的覆盖率与基础地面逐像素混合。
          边缘只向路面内侧磨损（不向外铺），噪声取世界像素坐标 → 长路边连续、不重复。 */
       _softRoads: function (m, g, K, pal) {
-        var wl = m.w * 16, hl = m.h * 16;
+        var wl = m.w * TILE, hl = m.h * TILE;
         var W = Math.round(wl * K), H = Math.round(hl * K);
         var TS = G.Art.GROUND_TS;
         /* 路面层（周期平铺，与基础同对齐） */
@@ -1109,7 +1120,7 @@
         bctx.fillStyle = '#ffffff';
         for (var ty = 0; ty < m.h; ty++)
           for (var tx = 0; tx < m.w; tx++)
-            if (m.ground[ty][tx].t === 'path') bctx.fillRect(tx * 16 * K, ty * 16 * K, 16 * K, 16 * K);
+            if (m.ground[ty][tx].t === 'path') bctx.fillRect(tx * TILE * K, ty * TILE * K, TILE * K, TILE * K);
         /* 路缘不规则侵蚀：草/土啃进路面（destination-out 软黑斑） */
         var ERSIDES = [['N', 0, -1], ['S', 0, 1], ['W', -1, 0], ['E', 1, 0]];
         bctx.globalCompositeOperation = 'destination-out';
@@ -1122,7 +1133,7 @@
               if (!outN) continue;
               var ev = (Math.imul(ex, 73856093) ^ Math.imul(ey, 19349663) ^ Math.imul(es, 83492791)) >>> 0;
               var stamp = G.Art.edgeErode(edf[0], ev % 3, K);
-              bctx.drawImage(stamp, ex * 16 * K, ey * 16 * K);
+              bctx.drawImage(stamp, ex * TILE * K, ey * TILE * K);
             }
           }
         bctx.globalCompositeOperation = 'source-over';
@@ -1158,13 +1169,13 @@
          只在预烘地面层时调用一次（路格是少数，基础地面走平铺）。 */
       _drawPathTile: function (x, tx, ty) {
         var m = this.map, pal = this._pal();
-        var px = tx * 16, py = ty * 16;
+        var px = tx * TILE, py = ty * TILE;
 
         /* 从 224×224 周期大纹理里按"世界坐标"取 16×16 子块 ——
            与基础地面的平铺取到的是同一个位置，接缝处完全连续。 */
         var TS = G.Art.GROUND_TS;
-        var sx = ((tx * 16) % TS + TS) % TS;
-        var sy = ((ty * 16) % TS + TS) % TS;
+        var sx = ((tx * TILE) % TS + TS) % TS;
+        var sy = ((ty * TILE) % TS + TS) % TS;
         G.Art.groundBlit(x, 'path', pal, sx, sy, px, py);
 
         /* 路缘过渡：只在这一格不与另一格路面相邻的那些边上画 */
@@ -1193,8 +1204,8 @@
       },
 
       _drawStructure: function (x, s, camX, camY) {
-        var px = s.x * 16 - camX, py = s.y * 16 - camY;
-        if (px > 480 || px + s.w * 16 < 0 || py > 272 || py + s.h * 16 < 0) return;
+        var px = s.x * TILE - camX, py = s.y * TILE - camY;
+        if (px > 480 || px + s.w * TILE < 0 || py > 272 || py + s.h * TILE < 0) return;
         var pal = this._pal();
         var art = s.kind === 'house' ? G.Art.house(s, pal)
           : s.kind === 'ruin' ? G.Art.ruin(s, pal)
@@ -1250,7 +1261,7 @@
       _drawGather: function (x, o, camX, camY) {
         var done = (G.Gather && G.Gather.gatheredToday)
           ? G.Gather.gatheredToday(G.game.save, this.mapId, o) : false;
-        var px = Math.round(o.x * 16 - camX), py = Math.round(o.y * 16 - camY);
+        var px = Math.round(o.x * TILE - camX), py = Math.round(o.y * TILE - camY);
         var id = G.Overlays.itemIconId ? G.Overlays.itemIconId(o.mat) : o.mat;
         var SZ = 22;
         var ic = G.Art.itemIcon(id, SZ);
@@ -1275,7 +1286,7 @@
       },
 
       _drawDecor: function (x, o, camX, camY) {
-        var px = o.x * 16 - camX, py = o.y * 16 - camY;
+        var px = o.x * TILE - camX, py = o.y * TILE - camY;
         var h1 = (((o.x * 73856093) ^ (o.y * 19349663)) >>> 0);
         var v = (h1 % 3 + 3) % 3;
         /* 缩放走 3 档预烘（见 A.decorScaled）：同一变体在每个位置都一模一样，
@@ -1383,7 +1394,7 @@
       },
 
       _drawWellSpecial: function (x, sp, camX, camY) {
-        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
         var art = paintedSingle('prop.well', 30);
         if (!art) return;
         var bx = px + art.ox, by = py + art.oy;
@@ -1402,13 +1413,13 @@
 
       _drawChest: function (x, sp, camX, camY) {
         var opened = G.game.save.chestsOpened.indexOf(sp.id) >= 0;
-        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
         var art = G.Art.chest(opened);
         G.Art.blit(x, art, px, py);
       },
 
       _drawBoss: function (x, sp, camX, camY) {
-        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
         var art = G.Art.boss(this._pal());
         G.Art.blit(x, art, px, py);
         /* 脉动血光 */
@@ -1422,7 +1433,7 @@
       /* 秘境裂隙（区域副本入口）：紫雾脉动 + 裂口。
          它同时承担"这里有一处秘境"的信息量，所以光环比物件本身更醒目。 */
       _drawEntrance: function (x, sp, camX, camY) {
-        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
         var t = performance.now() / 620;
         x.save();
         x.fillStyle = 'rgba(168,116,236,' + (0.12 + 0.09 * Math.sin(t)).toFixed(3) + ')';
@@ -1435,7 +1446,7 @@
 
       /* 界门（四界往返）：蓝色光晕脉动 + 石拱光幕 */
       _drawWorldgate: function (x, sp, camX, camY) {
-        var px = sp.x * 16 - camX, py = sp.y * 16 - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
         var t = performance.now() / 900;
         x.save();
         x.fillStyle = 'rgba(132,182,255,' + (0.10 + 0.07 * Math.sin(t)).toFixed(3) + ')';
@@ -1664,7 +1675,7 @@
          站桩不需要呼吸感；动画留给走路的 1 帧上抬（heroSprite 那 1 像素就够）。
          头顶任务标记保持浮动，那是 UI 层而非人物本身。 */
       _drawNpc: function (x, n, camX, camY) {
-        var px = n.x * 16 - camX + 8, py = n.y * 16 - camY + 12;
+        var px = n.x * TILE - camX + 8, py = n.y * TILE - camY + 12;
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
         var top = py + 3 - HH;
         x.save();
@@ -1695,7 +1706,7 @@
          头顶加一枚低调的血气指示（红点），玩家一眼能分出"这格有野怪"，
          而不是和装饰石头混淆 —— 这是"明雷"能被**看见**的关键。 */
       _drawRoam: function (x, r, camX, camY) {
-        var gx = r.x * 16 - camX + 8, gy = r.y * 16 - camY + 12;
+        var gx = r.x * TILE - camX + 8, gy = r.y * TILE - camY + 12;
         /* 游荡呼吸：用确定性相位（roam.ph）+ 全局时钟，无头环境稳定 */
         var bob = Math.sin(G.game.time * 1.8 + r.ph * 6.2832);
         /* 尺寸取 30：与主角（28×42）体量相当，一眼能认出"这是只怪"；
@@ -1765,7 +1776,7 @@
       _drawMark: function (x, camX, camY) {
         var m = this.mark;
         if (!m) return;
-        var px = m.x * 16 - camX + 8, py = m.y * 16 - camY + 8;
+        var px = m.x * TILE - camX + 8, py = m.y * TILE - camY + 8;
         var k = m.t / 0.55;                       /* 1 → 0 */
         var r = 5 + (1 - k) * 7;
         x.save();
@@ -1785,7 +1796,7 @@
         var save = G.game.save;
         var f = this._front(save.pos, this.dir);
         if (!this.map.interact[f.x + ',' + f.y]) return;
-        var px = f.x * 16 - camX + 8, py = f.y * 16 - camY;
+        var px = f.x * TILE - camX + 8, py = f.y * TILE - camY;
         var pu = 0.5 + 0.5 * Math.sin(performance.now() / 240);
         x.save();
         x.globalAlpha = 0.55 + 0.45 * pu;
@@ -2088,7 +2099,7 @@
         var pp = this._px();
         var dx = 0, dy = 0, ok = false;
         if (tx != null) {
-          dx = tx - pp.x / 16; dy = ty - pp.y / 16;
+          dx = tx - pp.x / TILE; dy = ty - pp.y / TILE;
           ok = Math.abs(dx) + Math.abs(dy) > 0.6;   /* 站在目标点上就别画箭头了 */
         }
 
