@@ -2811,14 +2811,30 @@
      ⚠️ "隐藏"与"置灰"是两件事：隐藏 = 玩家不知道它存在（仙界 / 道界）；
      置灰 = 知道但去不了（灵界）。两套判据分开写，别合成一个 ——
      合成之后"该藏起来的界"会以灰按钮的形式提前泄底。 */
+  /* 界门/地图页签的可见性与可点性（**两个不同的问题**，v0.94.0 拆开）：
+       · `show` = 玩家**看得见**这个界吗（页签是否出现）
+       · `ok`   = 玩家**进得去**吗（当前世是否已解锁）
+     ⚠️ v0.94.0（用户口径「把四个地图展示到这里……让玩家有期待感」）：
+        原先 `show` 与 `ok` 绑在一起 —— 未解锁的界**整个藏掉**，
+        玩家看到的地图页只有「凡界」「灵界」，**不知道后面还有仙界与道界**，
+        也就没有"我要修上去"的期待。
+        现在改成：**四界页签全部常驻**，未解锁的置灰 + 悬停写"尚未现世"。
+        为什么这样更好：地图页是**唯一**能一次展示"四界全貌"的地方，
+        把它当"成就墙"用（看见 → 想去 → 去不了 → 有目标），
+        比藏起来更符合"修仙求长生"的动机。
+     ⚠️ 但**可点性不变**：`ok:false` 的界点了不切图（`mapWorldOf` 会退回凡界），
+        绝不能因为"看得见"就放玩家进去（那是内容闸，不是 UI 闸）。 */
   function worldGate(meta, w) {
     var p = (meta && meta.progress) || {};
     var ws = p.worlds || {};
     var hell = (meta && meta.hellCleared) || {};
+    /* `dao` 的解锁条件（与 `regions.rollMainWorld` 同源）：三碎片齐 或 地狱通关仙界。
+       ⚠️ 这两条是"道界**现世**"的门槛 —— 现世了就该可点（否则显示"现世"却点不动）。 */
+    var daoOpen = !!(p.daoKey || hell.xian);
     if (w === 'fan') return { show: true, ok: true };
     if (w === 'ling') return { show: true, ok: !!ws.ling };
-    if (w === 'xian') return { show: !!ws.ling, ok: !!ws.xian };
-    if (w === 'dao') return { show: !!(ws.xian && (p.daoKey || hell.xian)), ok: !!ws.dao };
+    if (w === 'xian') return { show: true, ok: !!ws.xian };
+    if (w === 'dao') return { show: true, ok: daoOpen };
     return { show: false, ok: false };
   }
 
@@ -2923,6 +2939,27 @@
     var w = mapWorldOf(scene, meta);
     var list = Rg.of(w) || [];
     shell(x, '地图', Rg.worldNames[w] || '');
+
+    /* 界页签的悬停说明（v0.94.0）：未解锁的界写明"尚未现世"。
+       ⚠️ 登记在面板体而不是 Btn 字段上 —— Btn 是逐字段显式拷贝，
+          加字段要同步改构造器/渲染/契约三处（项目 G33 的老坑）。
+       几何与 `buildMap` 共用同一个算法（`MP.tabW/tabGap` + 居中）。 */
+    (function () {
+      var show = WORLD_ORDER.filter(function (ww) { return worldGate(meta, ww).show; });
+      var total = show.length * MP.tabW + (show.length - 1) * MP.tabGap;
+      var x0 = P.x + (P.w - total) / 2;
+      show.forEach(function (ww, i) {
+        var gt = worldGate(meta, ww);
+        if (gt.ok) return;                       /* 开着的界不用提示 */
+        G.UI.hover({
+          x: Math.round(x0 + i * (MP.tabW + MP.tabGap)), y: MP.tabY,
+          w: MP.tabW, h: MP.tabH
+        }, {
+          title: Rg.worldNames[ww] + ' · 尚未现世',
+          text: '此界需修至相应境界、并经界门方可入。先在此看清它的轮廓。'
+        });
+      });
+    })();
 
     /* 视口（v0.62.0 起带缩放/平移）。
        ⚠️ 手法：把**整层地图**放进一个 ctx 变换里（clip 到视口 → 平移到中心+pan →
@@ -3047,10 +3084,16 @@
         'center', 'rgba(6,10,20,0.9)', 2.2);
     });
 
-    /* 图例 + "还没现世"的界提示（v0.62.0 补上新的操作口径） */
+    /* 图例 + 未解锁界的提示（v0.94.0）。⚠️ 必须**短**：
+       面板可用宽 456−28=428，9.5px 中文约 9.5px/字 → 上限约 45 字；
+       写成"灵界、仙界、道界尚未现世（修至其境自开）"会顶出右沿（bounds 契约抓到过）。 */
     var hint = '拖拽平移 · ＋/− 缩放 · 点节点传送（化神境起）';
-    if (!worldGate(meta, 'xian').show) hint += '　仙界未现';
-    else if (!worldGate(meta, 'dao').show) hint += '　道界未现';
+    var locked = 0;
+    WORLD_ORDER.forEach(function (w) {
+      var g = worldGate(meta, w);
+      if (g.show && !g.ok) locked++;
+    });
+    if (locked) hint = '还有 ' + locked + ' 界尚未现世 · ' + '拖拽平移 · ＋/− 缩放 · 点节点传送';
     G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 }, hint, 9.5, G.UI.C.textDim);
   }
 
@@ -3079,7 +3122,12 @@
         }
       }));
     });
-    /* 只给**可见**的界建按钮（隐藏 = 玩家不知道它存在，不该以灰按钮的形式泄底） */
+    /* 四界页签**全部常驻**（v0.94.0，用户口径「把四个地图展示到这里，让玩家有期待感」）。
+       未解锁的界：`disabled`（点了不切图，且外观压暗）。
+       ⚠️ `disabled: !gt.ok` 只管**可点性**，页签本身照建 ——
+          这是"看得见但进不去"，与"藏起来"是两种完全不同的体验。
+       ⚠️ 悬停说明**不挂 Btn 字段**（Btn 是逐字段显式拷贝，加字段要同步改三处）——
+          改为在 `drawMap` 里用 `G.UI.hover` 登记（那里已知页签矩形）。 */
     var show = WORLD_ORDER.filter(function (w) { return worldGate(meta, w).show; });
     var total = show.length * MP.tabW + (show.length - 1) * MP.tabGap;
     var x0 = P.x + (P.w - total) / 2;

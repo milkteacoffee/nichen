@@ -10332,20 +10332,26 @@ step(function () {
   const errors = [];
   const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-  /* ① 解锁门槛：**隐藏 vs 置灰**是两套判据，逐个场景钉死 */
+  /* ① 解锁门槛：**可见（show）与可点（ok）是两件事**，逐个场景钉死。
+     ⚠️ v0.94.0 口径变更（用户原话：「把四个地图展示到这里，现在是可以看到，
+        让玩家有期待感」）：**四界页签全部可见**，未解锁的**置灰不可点**。
+        旧口径是"仙界未到灵界则隐藏、道界未到仙界则隐藏" —— 那是用户在**更早**的
+        需求里写的（"仙界、道界隐藏"）。本轮用户明确要求**改成"看得见"**，
+        所以判据跟着改：`show` 恒为 true，`ok` 仍按解锁链。
+     ⚠️ 但**可点性一个都不能松**：`ok` 必须仍然拦得住 —— 可见 ≠ 可进。 */
   const wg = G.Overlays.worldGate;
   if (typeof wg !== 'function') bail('真地图契约：未导出 worldGate');
   const CASES = [
     [{}, 'fan', true, true, '凡界永远可点'],
     [{}, 'ling', true, false, '灵界可见但未飞升置灰'],
-    [{}, 'xian', false, false, '仙界未到灵界应隐藏'],
-    [{}, 'dao', false, false, '道界未到仙界应隐藏'],
+    [{}, 'xian', true, false, '仙界**可见**（有期待感）但未解锁置灰'],
+    [{}, 'dao', true, false, '道界**可见**（有期待感）但未解锁置灰'],
     [{ progress: { worlds: { ling: true } } }, 'ling', true, true, '飞升灵界后可点'],
-    [{ progress: { worlds: { ling: true } } }, 'xian', true, false, '到灵界才看得见仙界（但还不能点）'],
+    [{ progress: { worlds: { ling: true } } }, 'xian', true, false, '仙界仍置灰（未飞升）'],
     [{ progress: { worlds: { ling: true, xian: true } } }, 'xian', true, true, '飞升仙界后可点'],
-    [{ progress: { worlds: { ling: true, xian: true } } }, 'dao', false, false, '只到仙界还不够，道界仍隐藏'],
-    [{ progress: { worlds: { ling: true, xian: true }, daoKey: true } }, 'dao', true, false, '三碎片齐 → 道界现世'],
-    [{ progress: { worlds: { ling: true, xian: true } }, hellCleared: { xian: true } }, 'dao', true, false, '地狱通关仙界 → 道界现世']
+    [{ progress: { worlds: { ling: true, xian: true } } }, 'dao', true, false, '道界仍置灰（未满足条件）'],
+    [{ progress: { worlds: { ling: true, xian: true }, daoKey: true } }, 'dao', true, true, '三碎片齐 → 道界可点'],
+    [{ progress: { worlds: { ling: true, xian: true } }, hellCleared: { xian: true } }, 'dao', true, true, '地狱通关仙界 → 道界可点']
   ];
   CASES.forEach(function (c) {
     const r = wg(c[0], c[1]);
@@ -10353,7 +10359,38 @@ step(function () {
     if (r.ok !== c[3]) errors.push(c[4] + '：ok 应为 ' + c[3] + '，实为 ' + r.ok);
   });
 
-  /* ② 地图坐标：28 个区域齐全、在界内、同界内不贴太近 */
+  /* ①b v0.94.0（用户口径「把四个地图展示到这里……让玩家有期待感」）：
+     **四界页签必须全部常驻**，`show` 恒 true；未解锁的只置灰（`ok:false`）。
+     为什么单列一条：这条需求的价值在于"看得见"——
+     若将来有人图省事把 `show` 又绑回解锁链（旧口径就是那样），
+     玩家会重新"不知道后面还有两界"，期待感归零，而其它断言全都不会报。 */
+  {
+    const allW = ['fan', 'ling', 'xian', 'dao'];
+    /* 用**空 meta**（最惨的进度：什么都没解锁）也必须四界全可见 */
+    allW.forEach(function (w) {
+      var g = wg({}, w);
+      if (!g.show) errors.push('空进度下「' + w + '」界页签应**可见**（用户要"有期待感"），实为隐藏');
+    });
+    /* 可点性不能松：空进度下只有凡界可点 */
+    allW.forEach(function (w) {
+      var g = wg({}, w);
+      if (w !== 'fan' && g.ok) errors.push('空进度下「' + w + '」界不该可点');
+    });
+    /* 源码闸：`show` 不许再依赖解锁字段（防止回退成"隐藏"） */
+    const ps2 = stripC(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
+    const gm = ps2.match(/function worldGate[\s\S]*?\n  \}/);
+    if (!gm) errors.push('源码闸：找不到 worldGate 函数体');
+    else {
+      const body = gm[0];
+      /* 四个分支的 show 必须都写成字面量 true */
+      const shows = (body.match(/show: (true|!![^,}\n]+|!{1,2}[^,}\n]+)/g) || []);
+      const bad = shows.filter(function (s) { return s.indexOf('show: true') < 0; });
+      if (bad.length) {
+        errors.push('四界页签的 show 必须是字面量 true（可见性不再依赖解锁），以下不是：' + bad.join(' / '));
+      }
+    }
+  }
+
   const Rg = G.Data.regions;
   let n = 0;
   ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
@@ -10430,7 +10467,7 @@ step(function () {
     errors.forEach((e) => console.log('  ✗ ' + e));
     throw new Error('真地图契约失败：' + errors.length + ' 条');
   }
-  console.log('  ✓ 真地图：28 区坐标齐全 / 四界解锁门槛（隐藏 vs 置灰）/ 底图缓存 + 固定种子');
+  console.log('  ✓ 真地图：28 区坐标齐全 / 四界页签常驻（可见 vs 可点分离）/ 底图缓存 + 固定种子');
 }, 'map.world.contract');
 pump(6, 'map.world.leave');
 
