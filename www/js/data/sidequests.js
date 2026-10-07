@@ -10,7 +10,10 @@
  *   steps  每步的 { d 目标文案, hint 提示 }（索引 = step-1）
  *   ready  判定"能不能交"（返回 bool）—— 用**已有系统**（物品 / 副本进度）判，不新造子系统
  *   cost   交付时扣除（物品名 → 数量）
- *   reward 交付奖励 { stone?, items?, rep? }
+ *   reward 交付奖励 { stone?, items?, rep?, skill? }
+ *           · `skill` = **功法 id**（v0.90.0，用户口径「分支任务获取功法」）。
+ *             ⚠️ 必须走 `Player.autoEquip` 顺手激发 —— 只写 `save.skills` 不进技能栏，
+ *                玩家会看到"学了新功法但战斗里没有它"（项目历史上踩过的静默缺口）。
  *   out    交付时的收尾台词
  *
  * ⚠️ `ready` 与 `cost` 必须**成对**：ready 判"够不够"，cost 扣"扣多少"。
@@ -62,8 +65,53 @@
       /* `free: true` = **无物品代价**（判定靠别的系统，如副本进度）。
          不写这个标记、又只给 ready 不给 cost，会被契约判成"白送"（见 smoke 的 sidequest.contract）。 */
       free: true, cost: null,
-      reward: { stone: 200, items: { '聚气散': 1 } },
-      out: '“多谢。往后你在我这儿买东西，记你一份人情。”'
+      reward: { stone: 200, items: { '聚气散': 1 }, skill: '回春诀' },
+      out: '“多谢。往你在我这儿买东西，记你一份人情。”——他从柜底翻出一卷佚册塞给你。'
+    }),
+    /* ===== v0.90.0 新增：**奖励功法 / 剧情道具**的支线（用户口径）=====
+       「新增分支任务获取功法，副本道具、主线道具等等」。
+       设计原则（照抄凡人修仙传的"机缘"感）：
+         · 功法只由**人物关系**给（师父/药师/故人），不掉落 —— 与"功法难得"配套；
+         · 副本道具是**凭证类**（不是数值），用来开启后续支线，形成链条；
+         · 主线道具是**信物类**，进 `save.items` 平表，任务面板/背包都能看到。 */
+
+    /* ① 幽篁药庐的旧识 —— 给药修功法（被动·治疗向）。
+       为什么挂在幽篁药庐方向：灵根/宗门有属性匹配，功法也该有**来源匹配**，
+       玩家跑药庐线就该拿到药修的东西，而不是随便掉一本。 */
+    S({
+      id: 'sq_herb', n: '药庐旧识', giver: 'washer',
+      intro: '“你若真有心修行……我娘家原是幽篁药庐的。这卷《百草回春》残篇，你拿去。”',
+      steps: [
+        { d: '浣衣妇愿引你入药修之门，但要你先证明心性：采三株凝血草来。',
+          hint: '野外采集或妖兽掉落，凑 3 株凝血草。' },
+        { d: '凝血草已备齐，可以回青溪镇交给她了。', hint: '回镇找浣衣妇。' },
+        { d: '浣衣妇把药庐残篇交到你手上，算是认了你这个后辈。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['凝血草'] || 0) >= 3; },
+      cost: { '凝血草': 3 },
+      /* ⚠️ 必须给**散修可学**的功法 —— `百草回春` 是幽篁药庐的宗门功法（src:'sect'），
+         散修拿了也激活不了（`canUseSkill` 会拒），等于白给（契约抓到过）。
+         `回春诀` 是通用商店功法（带治疗主动），散修线拿到就能用。 */
+      reward: { stone: 80, skill: '回春诀' },
+      out: '“……拿着。修行路上，救人也是救己。”'
+    }),
+
+    /* ② 秘境凭证 —— 产出**副本道具**「秘境残图」。
+       残图本身不加数值，它是"下一段支线的前置"，形成"打副本 → 得凭证 → 开新任务"的链。 */
+    S({
+      id: 'sq_relic', n: '残图之谜', giver: 'woodman',
+      intro: '“我年轻时在秘境门口捡过半张图……你若有本事通关秘境，替我看看另半张在不在里面。”',
+      steps: [
+        { d: '老樵夫手里有半张秘境残图，他想凑齐另一半。',
+          hint: '通关任意秘境副本，进深处翻找。' },
+        { d: '你在秘境深处摸到了另半张残图。', hint: '回镇交给老樵夫。' },
+        { d: '两张残图拼在一起，指向一处从未听说过的所在。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.dungeonSlot || 0) > 0 || (s.dungeonFarm || 0) > 0; },
+      free: true, cost: null,
+      /* 「秘境残图」= 副本道具（凭证类）：交给老樵夫后他会折成护身符还你。 */
+      reward: { items: { '秘境残图': 1, '解封符': 1 }, rep: 20 },
+      out: '“好、好……拼上了。这图你收着，往后总用得上。”'
     })
   ];
 
@@ -102,6 +150,18 @@
         save.items = save.items || {};
         save.items[k] = (save.items[k] || 0) + r.items[k];
       });
+      /* 功法奖励（v0.90.0，用户口径「分支任务获取功法」）：
+         ⚠️ 必须跟着 `autoEquip` —— 只写 save.skills 不进技能栏 = 玩家学了却用不上，
+            且完全静默（项目"路径遗漏型缺口"的典型，见 v0.69.0 的教训）。 */
+      if (r.skill) {
+        save.skills = save.skills || {};
+        if (!save.skills[r.skill]) save.skills[r.skill] = { lv: 1 };
+        if (G.Player.autoEquip) G.Player.autoEquip(save, r.skill);
+        if (G.Player.chronicle) {
+          var sdn = (G.Data.skills[r.skill] || {}).n || r.skill;
+          G.Player.chronicle(save, 'skill:' + r.skill, '得传《' + sdn + '》');
+        }
+      }
       save.side = save.side || {};
       save.side[q.id] = 3;
       if (G.Player.chronicle) G.Player.chronicle(save, 'side:' + q.id, '了却一桩：' + q.n);

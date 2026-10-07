@@ -318,8 +318,15 @@ while (save.globalLevel < 36 && guard++ < 400) {
     if (!r.ok) errors.push('闭关补齐后突破失败：' + r.reason);
     continue;
   }
-  /* 真实闭关入口：走 G.Time.meditate（内部取 needQi，不另算一套） */
-  const med = G.Time.meditate(save, 'm3');
+  /* 真实闭关入口：走 G.Time.meditate（内部取 needQi，不另算一套）。
+     ⚠️ v0.75.0 起闭关收益**整组 ÷2**（用户口径「闭关灵气太多、太容易破境」），
+        旧脚本用「闭关三月」×400 次已**补不满**（且每次耗 90 日 → 先把寿元坐光，
+        报的是"寿元不足（需 90 日，尚余 0 时）"）。
+        改用**档位随剩余寿元自适应**：优先长档（每岁收益更高，理性玩家的真实选择），
+        坐不下当前档就退一档。这样既跟得上新数值，也顺带把"长档更划算"这条设计跑实了。 */
+  const left = G.Player.lifespanLeft(save);
+  const tierPick = left >= 10 ? 'y10' : left >= 1 ? 'y1' : 'm3';
+  const med = G.Time.meditate(save, tierPick);
   if (!med.ok) { errors.push('闭关失败：' + med.reason); break; }
 }
 if (save.globalLevel < 36) errors.push('未能修炼到淬体九重巅峰（当前 ' + save.globalLevel + '）');
@@ -333,10 +340,13 @@ pump(4);
 if (!save.items['淬体突破丹']) errors.push('m0-4 未获得淬体突破丹');
 note('⑧ 沈伯赠丹');
 
-/* 补满灵气以突破（依旧走闭关，不刷怪） */
+/* 补满灵气以突破（依旧走闭关，不刷怪）
+   ⚠️ 同 ⑦：÷2 后要更多灵气，档位按剩余寿元自适应（见上）。 */
 guard = 0;
 while (save.qi < G.Player.needQi(save, 36) && guard++ < 400) {
-  const med = G.Time.meditate(save, 'm3');
+  const left2 = G.Player.lifespanLeft(save);
+  const tier2 = left2 >= 10 ? 'y10' : left2 >= 1 ? 'y1' : 'm3';
+  const med = G.Time.meditate(save, tier2);
   if (!med.ok) { errors.push('补气闭关失败：' + med.reason); break; }
 }
 note('⑨ 灵气备足');
@@ -395,7 +405,9 @@ while (save.globalLevel < 45 && guard++ < 400) {
     if (!r.ok) errors.push('炼气期突破失败：' + r.reason);
     continue;
   }
-  const med = G.Time.meditate(save, 'm3');
+  const left3 = G.Player.lifespanLeft(save);
+  const tier3 = left3 >= 10 ? 'y10' : left3 >= 1 ? 'y1' : 'm3';
+  const med = G.Time.meditate(save, tier3);
   if (!med.ok) { errors.push('炼气期闭关失败：' + med.reason); break; }
 }
 if (save.globalLevel < 45) errors.push('未能修炼到炼气三重（当前 ' + save.globalLevel + '）');

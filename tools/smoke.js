@@ -3455,6 +3455,55 @@ step(function () {
     if (s2.items[k] < 0) errors.push(`交付把 ${k} 扣成了负数`);
   });
   if (SQ.canTurnIn(s2, q)) errors.push('已完成的支线不该能重复交付');
+  Object.keys(q.cost || {}).forEach(function (k) {
+    if (s2.items[k] < 0) errors.push(`交付把 ${k} 扣成了负数`);
+  });
+
+  /* ④ v0.90.0：**功法奖励必须顺手激发**（用户口径「分支任务获取功法」）。
+     只写 save.skills 不进技能栏 = 玩家学了却用不上，且完全静默
+     （项目"路径遗漏型缺口"的典型）。逐条驱动：发功法的那几条支线，
+     交付后该功法必须真的是"可用状态"（能被 equippedIds 认到或至少能 activate）。 */
+  const skillQuests = SQ.list.filter(function (x) { return (x.reward || {}).skill; });
+  if (!skillQuests.length) {
+    errors.push('支线里没有任何「功法奖励」（用户要求分支任务能给功法）');
+  }
+  skillQuests.forEach(function (x) {
+    const s3 = JSON.parse(JSON.stringify(save));
+    s3.side = {}; s3.items = {}; s3.skills = {}; s3.skillEquip = [];
+    SQ.accept(s3, x);
+    Object.keys(x.cost || {}).forEach(function (k) { s3.items[k] = (x.cost[k] || 1) + 5; });
+    if (x.id === 'sq_keeper' || x.id === 'sq_relic') s3.dungeonSlot = 1;
+    SQ.tick(s3);
+    const rr = SQ.turnIn(s3, x);
+    if (!rr.ok) { errors.push('功法支线 ' + x.id + ' 应能交付：' + rr.reason); return; }
+    if (!s3.skills[x.reward.skill]) {
+      errors.push('支线 ' + x.id + ' 交付后未授予功法 ' + x.reward.skill);
+    }
+    /* 「学了」与「能用」是两件事 —— 必须真的进了激发列表。
+       ⚠️ 判据要**紧**：不能退让成"能激活也算"（那就等于没验 autoEquip，见反例）。
+          交付时激励位若被占（已有别的功法），autoEquip 会拒 —— 那也算**已知且合理**，
+          所以基线存档必须**清空 skillEquip** 后再交付（上面已清）。 */
+    if ((s3.skillEquip || []).indexOf(x.reward.skill) < 0) {
+      errors.push('支线 ' + x.id + ' 授予的功法未进激发列表（autoEquip 漏接，玩家学了用不上）');
+    }
+  });
+
+  /* ⑤ v0.90.0：**剧情/副本道具必须有图标映射**。
+     `itemIcon` 查不到会静默退回程序化兜底（看不出坏了），
+     所以凡是支线 reward 里出现的道具，都必须登记进面板的图标表。 */
+  {
+    const iconSrc = fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8');
+    const seen = {};
+    SQ.list.forEach(function (x) {
+      Object.keys((x.reward || {}).items || {}).forEach(function (k) {
+        if (seen[k]) return; seen[k] = 1;
+        /* 材料类走 `mat.` 绝对键、丹药走 pill_*，两种都算已登记 */
+        if (iconSrc.indexOf("'" + k + "'") < 0) {
+          errors.push('支线奖励道具「' + k + '」未登记图标映射（会静默走程序化兜底）');
+        }
+      });
+    });
+  }
 }, 'sidequest.contract');
 
 /* ---------- 动效与御剑契约（v0.22.0） ----------
@@ -4638,16 +4687,36 @@ step(function () {
   const SP = G.Sprites;
   if (!SP.heroAgeStage) { errors.push('G.Sprites.heroAgeStage 缺失（童年形象未接入）'); return; }
 
-  /* ① 三档形象：用尺寸与头顶位置判定（无头 canvas 桩拿不到像素，只看几何） */
+  /* ① 三档形象：用尺寸与头顶位置判定（无头 canvas 桩拿不到像素，只看几何）
+     ⚠️ v0.90.0：三档改为**真实立绘素材**（此前是程序化色块，用户截图反馈
+        「6、10、16 岁都没有渲染真正的图片」）。判定随之升级：
+          · 画布仍必须同尺寸（同一占位盒，脚底对齐才成立）；
+          · 素材**已登记**时，三档必须都命中素材（ageStageHasAsset）；
+          · 素材缺失时才允许回退，且回退路径的比例仍须严格递增。 */
   const c6 = SP.heroAgeStage(6, 'down', 0), c10 = SP.heroAgeStage(10, 'down', 0),
         c16 = SP.heroAgeStage(16, 'down', 0);
   if (!c6 || !c10 || !c16) { errors.push('heroAgeStage 未产出位图'); return; }
-  if (!(c6.height === c10.height && c10.height === c16.height)) {
-    errors.push('三档形象画布应同尺寸（同一占位盒）');
+  if (!(c6.width === c10.width && c10.width === c16.width
+    && c6.height === c10.height && c10.height === c16.height)) {
+    errors.push('三档形象画布应同尺寸（同一占位盒，脚底对齐才成立）');
+  }
+  /* 素材命中：**只在素材层就绪时判**。
+     ⚠️ 无头 smoke 的桩 fetch 恒失败 → manifest 永远取不到 → 这里若硬判"必须命中"，
+        就是一条永远假红的断言（本项目铁律：素材类验证一律去 browser-probe）。
+     所以这里只做**源码闸**（素材键确实登记了），真命中由 tools/age-stage-probe.js 判。 */
+  if (SP.ageStageHasAsset) {
+    const stripCs2 = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const spSrcB = stripCs2(fs.readFileSync(path.join(WWW, 'js/core/sprites.js'), 'utf8'));
+    /* ⚠️ 闸门粒度要匹配"改动的粒度"（G43）：只查"文件里提到过 char.hero.age6"
+       会被注释命中（本文件的注释里就写了这些键名）→ 恒真。
+       所以这里匹配**整句赋值**：键表里必须真的把 6/10/16 映射到具体素材键。 */
+    if (!/AGE_STAGE_KEY\s*=\s*\{\s*6\s*:\s*'char\.hero\.age6'\s*,\s*10\s*:\s*'char\.hero\.age10'\s*,\s*16\s*:\s*'char\.hero\.down'\s*\}/.test(spSrcB)) {
+      errors.push('源码闸：童年档素材键表 AGE_STAGE_KEY 未把 6/10/16 正确映射到立绘素材');
+    }
   }
   const R6 = SP.AGE_STAGE_R[6], R10 = SP.AGE_STAGE_R[10], R16 = SP.AGE_STAGE_R[16];
   if (!(R6 < R10 && R10 < R16)) errors.push('三档身体比例应严格递增（6<10<16）');
-  if (R16 !== 1) errors.push('16 岁档 bodyRatio 必须为 1（否则会改变历史形象）');
+  if (R16 !== 1) errors.push('16 岁档 bodyRatio 必须为 1（程序化兜底路径的历史基线）');
 
   /* ② 入世按钮 → grow 演出（源码闸 + 行为闸双保险） */
   const rcSrc = fs.readFileSync(path.join(WWW, 'js/scenes/reincarnation.js'), 'utf8');
@@ -4682,7 +4751,22 @@ step(function () {
   const sv = G.game.save;
   if (!sv || sv.age !== 16) errors.push('演出结束应产出 16 岁入世档，实为 age=' + (sv && sv.age));
 
-  /* ④ 16 岁档与历史程序化版一致（同尺寸 + 同缓存键语义） */
+  /* ④ 演出绘制尺寸（v0.90.0）：必须用**逻辑尺寸**绘制。
+     位图是 K 倍物理像素，若把 .width/.height 直接当绘制宽高，
+     立绘会被放大 K 倍且模糊（实测过：只剩头肩、其余溢出画布）。
+     源码闸：演出里 drawImage 精灵时必须显式传宽高，且取自 AGE_STAGE_LOGICAL。 */
+  {
+    const stripCg = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const rc2 = stripCg(fs.readFileSync(path.join(WWW, 'js/scenes/reincarnation.js'), 'utf8'));
+    if (rc2.indexOf('AGE_STAGE_LOGICAL') < 0) {
+      errors.push('源码闸：入世演出未用 AGE_STAGE_LOGICAL 作绘制尺寸（会放大 K 倍并模糊）');
+    }
+    /* 不许出现 `drawImage(spr, dx, dy)` 这种三参调用（缺宽高 = 按物理像素画） */
+    if (/drawImage\(\s*(spr|m)\s*,\s*dx\s*,\s*dy\s*\)/.test(rc2)) {
+      errors.push('源码闸：演出仍以三参 drawImage 画精灵（物理像素当逻辑用，尺寸会错）');
+    }
+  }
+  /* ⑤ 16 岁档与历史程序化版尺寸一致（兜底路径不回归） */
   const old16 = G.Art.heroSprite('down', 0, SP.HERO_PAL);
   if (old16 && (old16.width !== c16.width || old16.height !== c16.height)) {
     errors.push('16 岁档与历史 heroSprite 尺寸不一致');

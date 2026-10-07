@@ -283,20 +283,65 @@
     return out;
   }
 
-  /* ===== 童年/少年形象（v0.71.0）=====
-     入世演出用：同一套画法按身体比例压出 6 岁（r=0.52）/ 10 岁（r=0.74）/ 16 岁（r=1）。
-     **刻意不读素材**：素材只有十六岁一档，读素材就让三档全都一样了。
-     直接走程序化 `heroParts(..., bodyRatio)`，与地图兜底同一套画法，画风天然一致。 */
+  /* ===== 童年/少年形象（v0.71.0 程序化；v0.90.0 改为**素材优先**）=====
+     入世演出用：6 岁 / 10 岁 / 16 岁三拍，脚底钉在同一基线上"往上长"。
+
+     v0.90.0 改动（用户截图反馈：「6、10、16 岁都没有渲染真正的图片」）：
+     原实现**刻意不读素材**（当时素材只有十六岁一档，读素材三档全一个样），
+     结果演出里是一个程序化色块小人。现改为：
+       ① `char.hero.age6` / `char.hero.age10` 两档真实立绘（与 `char.hero.down`
+          同一画风、同一几何：**画布 84×126、脚底 y=125、内容高 87/105/125**）；
+       ② 16 岁**直接用** `char.hero.down`（它本来就是成年立绘）；
+       ③ 素材缺失时**仍然回退**到原程序化 `heroParts(..., bodyRatio)` ——
+          与地图兜底同一套画法，保证任何情况下都画得出。
+
+     ⚠️ 几何必须严格一致：脚底不动点 + 内容高随龄增长是"长高"观感的唯一来源。
+        所以素材是**按 84×126 / 脚底 125 预合成**的，这里只做平移贴图，
+        绝不能再缩放到别的高度（会把"成长"压平）。 */
   var AGE_STAGE_R = { 6: 0.52, 10: 0.74, 16: 1 };
+  /* 各档素材键（16 岁复用成年正面立绘）。 */
+  var AGE_STAGE_KEY = { 6: 'char.hero.age6', 10: 'char.hero.age10', 16: 'char.hero.down' };
+  /* 素材画布（**逻辑**坐标）。
+     ⚠️ 关键：`A.cv(w,h)` 内部已经 `x.scale(k,k)`，所以返回的 ctx **工作在逻辑坐标系**——
+        drawImage 的 x/y/w/h 一律写**逻辑值**，不要乘 K。
+        （踩过：拿 o.c.width 当目标宽高 → 又乘了一次 K，素材被放大到只剩头肩。）
+     素材设计像素 = 84×126，对应逻辑 16×24 × MAP_SCALE(1.75) = 28×42。
+     两者比例相同，所以"逻辑 28 宽 / 84 设计宽"这一个比例即可完成映射。 */
+  var AGE_STAGE_W = 16 * MAP_SCALE, AGE_STAGE_H = 24 * MAP_SCALE;   /* 逻辑 28×42 */
+  var AGE_STAGE_SRC_W = 84, AGE_STAGE_SRC_H = 126;                  /* 素材像素 */
   var childCache = {};
+  /* 该档有没有可用素材（供契约与调试查） */
+  function ageStageHasAsset(age) {
+    var k = AGE_STAGE_KEY[age];
+    return !!(k && G.Assets && G.Assets.img && G.Assets.img(k));
+  }
   function heroAgeStage(age, dir, step) {
     dir = dir || 'down'; step = step || 0;
-    var r = AGE_STAGE_R[age];
-    if (r == null) r = 1;
     var key = age + '|' + dir + '|' + step;
     if (childCache[key]) return childCache[key];
-    var c = bake(heroParts(dir, step, HERO, r), 16, 24, null, { scale: MAP_SCALE });
-    if (dir === 'right') c = mirror(c);
+    var c = null;
+    /* ① 素材优先：立绘只有**正面**一版，所以只对 'down' 生效；
+          其它方向仍走程序化（侧/背面立绘本项目没有，硬转会让方向错乱）。 */
+    if (dir === 'down' && ageStageHasAsset(age)) {
+      var im = G.Assets.img(AGE_STAGE_KEY[age]);
+      var o = A.cv(AGE_STAGE_W, AGE_STAGE_H);
+      if (o && o.x && im && o.c) {
+        /* ctx 已在逻辑坐标系（cv 内部 scale 过了），所以这里**一律用逻辑值**。
+           素材 84×126 像素 → 逻辑 28×42：按高度取比例，
+           宽 = 84 × (42/126) = 28（正好等于画布宽），底部对齐。 */
+        var k2 = AGE_STAGE_H / AGE_STAGE_SRC_H;
+        var dw = AGE_STAGE_SRC_W * k2, dh = AGE_STAGE_H;
+        o.x.drawImage(im, (AGE_STAGE_W - dw) / 2, 0, dw, dh);
+        c = o.c;
+      }
+    }
+    /* ② 程序化兜底（素材缺 / 非正面方向）：保持 v0.71.0 的原始行为不变 */
+    if (!c) {
+      var r = AGE_STAGE_R[age];
+      if (r == null) r = 1;
+      c = bake(heroParts(dir, step, HERO, r), 16, 24, null, { scale: MAP_SCALE });
+      if (dir === 'right') c = mirror(c);
+    }
     childCache[key] = c;
     return c;
   }
@@ -1944,6 +1989,12 @@ function bossGen(plan, elem, f) {
     HERO_W: HERO_LW, HERO_H: HERO_LH, MAP_SCALE: MAP_SCALE,
     heroAnim: heroAnim, ANIM_W: ANIM_W, ANIM_H: ANIM_H,
     heroAgeStage: heroAgeStage, AGE_STAGE_R: AGE_STAGE_R,
+    /* 童年档素材是否命中（供契约/探针查；素材缺时 heroAgeStage 会自动走程序化兜底） */
+    ageStageHasAsset: ageStageHasAsset,
+    /* 童年档的**逻辑尺寸**：调用方 drawImage 必须显式传这个，
+       否则会把 K 倍物理位图当逻辑尺寸画（放大 K 倍且模糊）。 */
+    AGE_STAGE_LOGICAL: { w: AGE_STAGE_W, h: AGE_STAGE_H },
+    AGE_STAGE_SRC: { w: AGE_STAGE_SRC_W, h: AGE_STAGE_SRC_H },
     npcAnim: npcAnim,
     /* 超采样倍率变更后必须调用：清空全部精灵缓存并丢弃已建好的 hero 帧表，
        否则旧倍率的位图会被继续复用（放大后重新变糊）。 */

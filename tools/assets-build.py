@@ -76,10 +76,16 @@ SIZES = {
     'battle.enemy.s8': (192, 192),
     'battle.enemy.s9': (192, 192),
     'battle.enemy.s10': (192, 192),
-    'char.hero.down': (168, 252),
-    'char.hero.up': (168, 252),
+    'char.hero.down': (168, 252),    'char.hero.up': (168, 252),
     'char.hero.left': (168, 252),
     'char.hero.right': (168, 252),
+    # 童年/少年立绘（v0.90.0）——入世演出三拍用。
+    # ⚠️ 尺寸 = 16×24 × MAP_SCALE(3.5) = 56×84… 实际取的是 heroAgeStage 的画布
+    #    16×24 × MAP_SCALE，这里按 **84×126** 预合成（PASSTHRU，不经 fit 重排），
+    #    因为三档必须共用同一画布、脚底对齐、内容高随龄增长。
+    #    真实像素尺寸由 _gen/_hero_age_stage.py 保证，构建期只校验。
+    'char.hero.age6': (84, 126),
+    'char.hero.age10': (84, 126),
     # 地图 NPC（设计见《人物形象与文生图设定集 v2.3》§1.2 P_MAP；尺寸同主角，比例 2:3 必须一致）
     #   elder = 沈伯 / keeper = 刘掌柜 / villager = 泛用村民（浣衣妇与老樵夫共用）
     'char.npc.elder': (168, 252),
@@ -346,6 +352,13 @@ BG_KEYS = set(k for k in SIZES if k.startswith('bg.') or k.startswith('ground.')
 HERO_DIRS = ['down', 'up', 'left', 'right']
 PAD = 0.04          # 外接框四周留白比例（防止描边贴边被切）
 
+# PASSTHRU_KEYS：**原样落盘**（不做 fit 的"填满可用高度"重排）。
+# 用途：源图已经是**按目标几何预合成**的 —— 如童年立绘 char.hero.age6/age10。
+#   它们必须在**同一块画布(84×126)内脚底对齐、内容高随龄增长**(87/105/125)，
+#   而 fit() 会把内容缩到 avail_h 填满，三档高度全变一样 → "长高"观感直接压平。
+#   这类素材在 _gen 里已是最终尺寸，这里只校验尺寸并落盘。
+PASSTHRU_KEYS = set(['char.hero.age6', 'char.hero.age10'])
+
 
 def fit(im, tw, th):
     """裁到 alpha 外接框 → 等比缩放 → 贴进 (tw, th) 的透明画布（居中、底边对齐）。"""
@@ -448,7 +461,16 @@ def main():
             continue
         tw, th = SIZES[key]
         with Image.open(os.path.join(SRC, fn)) as im:
-            out, err = (cover if key in BG_KEYS else fit)(im, tw, th)
+            if key in PASSTHRU_KEYS:
+                # 原样落盘（尺寸必须已经是目标尺寸；不等则报错，不要静默缩）
+                out = im.convert('RGBA')
+                if out.width != tw or out.height != th:
+                    problems.append('%s：PASSTHRU 素材尺寸应为 %d×%d，实为 %d×%d'
+                                    % (key, tw, th, out.width, out.height))
+                    continue
+                err = None
+            else:
+                out, err = (cover if key in BG_KEYS else fit)(im, tw, th)
         if err:
             problems.append('%s：%s' % (key, err))
             continue

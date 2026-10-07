@@ -395,6 +395,12 @@
     /* 成长演出（v0.71.0）：三拍 6→10→16 岁，每拍 GROW_DUR 秒，
        最后一拍结束自动入世。skip（点击）直接把当前拍推完，不跳过年份。 */
     GROW_DUR: 2.0,
+    /* 入世演出的立绘**展示倍率**（v0.90.0）。
+       为什么需要它：heroAgeStage 的老几何按地图格尺寸（逻辑 28×42）设计，
+       放进 480×272 的演出画面显得很小。素材已自带三档身高差，
+       所以只乘这一个统一倍率即可，不要再叠 AGE_STAGE_R（那会让 6 岁小到看不清）。 */
+    GROW_SCALE: 2.6,
+
     update: function (dt) {
       if (this.step !== 'grow') return;
       var d = this.GROW_DUR;
@@ -516,9 +522,17 @@
       x.lineWidth = 1;
       x.beginPath(); x.moveTo(CX - 150, GY + 0.5); x.lineTo(CX + 150, GY + 0.5); x.stroke();
 
-      /* 人物本体：入场时从地面"长出来"（纵向 clip 由下往上揭开） */
+      /* 人物本体：入场时从地面"长出来"（纵向 clip 由下往上揭开）
+         ⚠️ v0.90.0 两条要点：
+           ① 绘制尺寸用**逻辑尺寸**（位图是 K 倍物理像素，直接当逻辑用会放大 K 倍且模糊）；
+           ② **素材命中时按演出倍率放大**：`heroAgeStage` 的老几何是给"16×24 地图格"
+              设计的（28×42 逻辑），放进 480×272 的演出画面就显得很小。
+              素材本身已自带三档身高差，所以这里只乘一个统一的**展示倍率**，
+              不再叠加 AGE_STAGE_R（那会让 6 岁小到看不清）。 */
       var spr = G.Sprites.heroAgeStage(age, 'down', 0);
-      var SW = spr.width, SH = spr.height;
+      var lg = G.Sprites.AGE_STAGE_LOGICAL || { w: 28, h: 42 };
+      var gscale = this.GROW_SCALE || 1;
+      var SW = lg.w * gscale, SH = lg.h * gscale;
       var dx = Math.round(CX - SW / 2), dy = Math.round(GY - SH);
       x.save();
       var reveal = Math.min(1, ph / 0.45);
@@ -527,7 +541,7 @@
         x.rect(0, GY - SH * reveal, 480, SH * reveal + 4);
         x.clip();
       }
-      x.drawImage(spr, dx, dy);
+      x.drawImage(spr, dx, dy, SW, SH);
       x.restore();
 
       /* 头顶的四向小演练：让"这是个会走的人"而不是一张立绘 */
@@ -535,7 +549,7 @@
         var step = Math.floor((ph - 0.55) * 20) % 3;
         var m = G.Sprites.heroAgeStage(age, 'down', step);
         x.globalAlpha = 0.999;
-        x.drawImage(m, dx, dy);                        /* 同位置叠走帧 → 有轻微迈步感 */
+        x.drawImage(m, dx, dy, SW, SH);                /* 同位置叠走帧 → 有轻微迈步感 */
       }
 
       /* 年份大字 + 纪年小字 */
