@@ -296,19 +296,33 @@
           与地图兜底同一套画法，保证任何情况下都画得出。
 
      ⚠️ 几何必须严格一致：脚底不动点 + 内容高随龄增长是"长高"观感的唯一来源。
-        所以素材是**按 84×126 / 脚底 125 预合成**的，这里只做平移贴图，
-        绝不能再缩放到别的高度（会把"成长"压平）。 */
+        素材是**按 364×546 / 脚底对齐 / 内容高比例 0.690·0.833·0.992 预合成**的。
+
+     ⚠️ v0.90.1 **高密度烘焙**（修"太模糊"）：
+        入世演出把立绘画到 `逻辑28×42 × GROW_SCALE2.6 × S`，
+        S（Art.K 上限 5）时 = **364×546 物理像素**。
+        而本函数原先烘焙进 84×126 的画布 → 演出放大 **4.33 倍** → 必糊。
+        现改为按 `AGE_STAGE_BAKE_SCALE`（= S 上限 × GROW_SCALE）烘焙：
+          · 本函数**只被入世演出使用**（reincarnation.js），不在高速地图路径上，
+            一次烘焙长期复用，性能无影响；
+          · 缓存键不含倍率 —— 倍率变了由 `G.Sprites.clear()` 统一清（与其它精灵一致）。 */
   var AGE_STAGE_R = { 6: 0.52, 10: 0.74, 16: 1 };
   /* 各档素材键（16 岁复用成年正面立绘）。 */
-  var AGE_STAGE_KEY = { 6: 'char.hero.age6', 10: 'char.hero.age10', 16: 'char.hero.down' };
-  /* 素材画布（**逻辑**坐标）。
-     ⚠️ 关键：`A.cv(w,h)` 内部已经 `x.scale(k,k)`，所以返回的 ctx **工作在逻辑坐标系**——
-        drawImage 的 x/y/w/h 一律写**逻辑值**，不要乘 K。
-        （踩过：拿 o.c.width 当目标宽高 → 又乘了一次 K，素材被放大到只剩头肩。）
-     素材设计像素 = 84×126，对应逻辑 16×24 × MAP_SCALE(1.75) = 28×42。
-     两者比例相同，所以"逻辑 28 宽 / 84 设计宽"这一个比例即可完成映射。 */
-  var AGE_STAGE_W = 16 * MAP_SCALE, AGE_STAGE_H = 24 * MAP_SCALE;   /* 逻辑 28×42 */
-  var AGE_STAGE_SRC_W = 84, AGE_STAGE_SRC_H = 126;                  /* 素材像素 */
+  var AGE_STAGE_KEY = { 6: 'char.hero.age6', 10: 'char.hero.age10', 16: 'char.hero.age16' };
+  /* 逻辑画布 = 16×24 × MAP_SCALE = 28×42 */
+  var AGE_STAGE_W = 16 * MAP_SCALE, AGE_STAGE_H = 24 * MAP_SCALE;
+  /* 素材像素（13 倍密度，见 _gen/_hero_age_stage.py）。
+     ⚠️ 16 岁档用 char.hero.down（168×252），比例与之**不同**（它按 168×252 设计）——
+        所以每档各存自己的源尺寸，不能共用一个常量。 */
+  var AGE_STAGE_SRC = {
+    6: { w: 364, h: 546 },
+    10: { w: 364, h: 546 },
+    16: { w: 364, h: 546 }
+  };
+  /* 烘焙密度：覆盖"演出的最大绘制尺寸"。
+     = 逻辑 28 × GROW_SCALE(2.6) × S上限(5) / MAP_SCALE(1.75) ≈ 13 倍逻辑。
+     取整 13：烘焙画布 = 28×13 × 42×13 = 364×546，正好 1:1。 */
+  var AGE_STAGE_BAKE_SCALE = 13;
   var childCache = {};
   /* 该档有没有可用素材（供契约与调试查） */
   function ageStageHasAsset(age) {
@@ -324,14 +338,20 @@
           其它方向仍走程序化（侧/背面立绘本项目没有，硬转会让方向错乱）。 */
     if (dir === 'down' && ageStageHasAsset(age)) {
       var im = G.Assets.img(AGE_STAGE_KEY[age]);
-      var o = A.cv(AGE_STAGE_W, AGE_STAGE_H);
+      /* 高密度画布：A.cv 返回的 ctx 在**逻辑坐标**（内部已 scale K），
+         但这里要的是"物理像素足够大"，所以直接传放大后的逻辑尺寸即可：
+         A.cv(W*s, H*s) 的实际像素 = W*s*K，K 已是 S。 */
+      var o = A.cv(AGE_STAGE_W * AGE_STAGE_BAKE_SCALE / MAP_SCALE,
+        AGE_STAGE_H * AGE_STAGE_BAKE_SCALE / MAP_SCALE);
       if (o && o.x && im && o.c) {
-        /* ctx 已在逻辑坐标系（cv 内部 scale 过了），所以这里**一律用逻辑值**。
-           素材 84×126 像素 → 逻辑 28×42：按高度取比例，
-           宽 = 84 × (42/126) = 28（正好等于画布宽），底部对齐。 */
-        var k2 = AGE_STAGE_H / AGE_STAGE_SRC_H;
-        var dw = AGE_STAGE_SRC_W * k2, dh = AGE_STAGE_H;
-        o.x.drawImage(im, (AGE_STAGE_W - dw) / 2, 0, dw, dh);
+        var src = AGE_STAGE_SRC[age] || AGE_STAGE_SRC[6];
+        /* ctx 在逻辑坐标系 → 目标宽高写**该坐标系下的值**：
+           烘焙画布的逻辑尺寸就是这个 cv 的 W/H。按高度取比例、底部居中。 */
+        var LW = AGE_STAGE_W * AGE_STAGE_BAKE_SCALE / MAP_SCALE;
+        var LH = AGE_STAGE_H * AGE_STAGE_BAKE_SCALE / MAP_SCALE;
+        var k2 = LH / src.h;
+        var dw = src.w * k2, dh = LH;
+        o.x.drawImage(im, (LW - dw) / 2, 0, dw, dh);
         c = o.c;
       }
     }
@@ -1994,7 +2014,9 @@ function bossGen(plan, elem, f) {
     /* 童年档的**逻辑尺寸**：调用方 drawImage 必须显式传这个，
        否则会把 K 倍物理位图当逻辑尺寸画（放大 K 倍且模糊）。 */
     AGE_STAGE_LOGICAL: { w: AGE_STAGE_W, h: AGE_STAGE_H },
-    AGE_STAGE_SRC: { w: AGE_STAGE_SRC_W, h: AGE_STAGE_SRC_H },
+    /* 烘焙密度（诊断/契约用）：位图像素 = LOGICAL × 此值 ÷ MAP_SCALE */
+    AGE_STAGE_BAKE_SCALE: AGE_STAGE_BAKE_SCALE,
+    AGE_STAGE_SRC: AGE_STAGE_SRC,
     npcAnim: npcAnim,
     /* 超采样倍率变更后必须调用：清空全部精灵缓存并丢弃已建好的 hero 帧表，
        否则旧倍率的位图会被继续复用（放大后重新变糊）。 */

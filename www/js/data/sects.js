@@ -108,7 +108,14 @@
     { item: 'eq_yupei', n: 1, cost: 80 },
     { item: 'eq_dianqiang', n: 1, cost: 150 },
     { item: 'eq_fayi', n: 1, cost: 150 },
-    { item: 'eq_fozhu', n: 1, cost: 150 }
+    { item: 'eq_fozhu', n: 1, cost: 150 },
+    /* 功法（v0.90.1，用户口径「宗门线给功法」）：
+       宗门线拿功法的**第二条路**（第一条是本门 «传功» / 山门兑换）。
+       这里上架的是**凡阶通用主动**，让"贡献"有明确的战力出口 ——
+       否则贡献只能换丹药，玩家会觉得门派商店跟战力无关。
+       ⚠️ 用 `skill` 字段（不是 `item`），buySectItem 会走 learnSectSkill 分支。 */
+    { skill: '崩岩掌', cost: 120 },
+    { skill: '疾风诀', cost: 200 }
   ];
 
   G.Data.sects = {

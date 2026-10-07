@@ -136,11 +136,28 @@ check(D.gradeOf(save, 'b') === 1, 'gradeOf 布尔应折算1');
 check(D.gradeOf(save, 'missing') === 1, 'gradeOf 缺失应折算1');
 
 const effectIds = Object.keys(D.SECRET_EFFECTS);
-check(effectIds.length === 15, '秘术效果表应为15道，实为 ' + effectIds.length);
-['圣', '神', '仙'].forEach(function (cat) {
-  const n = effectIds.filter(function (id) { return D.SECRET_EFFECTS[id].cat === cat; }).length;
-  check(n === 5, cat + '术应有5道，实为 ' + n);
+/* ⚠️ v0.90.1：不再硬编码"15 道 / 每类 5 道" —— 那个数字是 v0.76 之前的口径，
+   副本扩到 50 个后早就不成立（硬编码只会变成一条永远假红的断言）。
+   改成断**结构不变量**：
+     ① 每一道秘术都必须有分类（cat ∈ 圣/神/仙）；
+     ② 三类都要有（不能全挤在一类）；
+     ③ 每个副本 drop 指向的秘术都必须在这里有效果（"有名字没效果"=玩家白拿）。 */
+check(effectIds.length >= 15, '秘术效果表道数异常偏少，实为 ' + effectIds.length);
+const CATS = ['圣', '神', '仙'];
+effectIds.forEach(function (id) {
+  check(CATS.indexOf(D.SECRET_EFFECTS[id].cat) >= 0, id + ' 的分类非法：' + D.SECRET_EFFECTS[id].cat);
 });
+CATS.forEach(function (cat) {
+  const n = effectIds.filter(function (id) { return D.SECRET_EFFECTS[id].cat === cat; }).length;
+  check(n > 0, cat + '术一道都没有（分类失衡）');
+});
+{
+  const miss = [];
+  D.ARCH.forEach(function (a) {
+    if (a.drop && D.secretById(a.drop) && !D.SECRET_EFFECTS[a.drop]) miss.push(a.id + '→' + a.drop);
+  });
+  check(!miss.length, '这些副本的签名秘术**有效果表缺失**：' + miss.join(', '));
+}
 
 /* ===== 2. 圣术：面板百分比聚合（数值 × 品阶）===== */
 save.secrets = {

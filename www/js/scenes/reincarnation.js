@@ -261,9 +261,15 @@
       /* ===== 命定之世（情感主线）=====
          第 1 世强制 arc1 白鹿礁；其后几世由转世流程的「命途」步选择
          （this.arcChoice，E-C 批次接入）。命定之世不进区域地图，
-         直接走 arc 场景；save 其余字段照常建立，无害。 */
+         直接走 arc 场景；save 其余字段照常建立，无害。
+         ⚠️ v0.90.1：加 `freeLife` 逃生门 —— 玩家在「命途」步点「浮世轮回」时
+            `arcChoice = null`，但那与"还没选"无法区分，于是第 1 世照样被拖进 arc1。
+           回归脚本（playthrough / rebirth / dungeon-run）要验的是**区域地图链路**，
+           必须先明示"这一世走浮世"。所以：`freeLife === true` 时**跳过 arc**，
+           连第 1 世也放行。UI 侧不受影响（它不走这条），只在自动化里用。 */
       var arcId = null;
-      if (life === 1) arcId = 'arc1';
+      if (this.freeLife) arcId = null;              /* 显式走浮世：连第 1 世也跳过命定 */
+      else if (life === 1) arcId = 'arc1';
       else if (this.arcChoice) arcId = this.arcChoice;
       var arcDef = arcId ? G.Arcs.byId(arcId) : null;
 

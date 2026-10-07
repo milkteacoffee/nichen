@@ -299,13 +299,27 @@ note('⑥ 珠内梦境 → m0-4');
 
 /* ---- 5) 修炼到淬体九段：走真实突破，灵气**只能靠闭关打坐** ----
    v0.67.0（用户第 28 点）：「取消打怪升级获取灵气…升级人物角色只能通过闭关打坐」。
-   所以这里**先打一场验证战斗链仍然通**，剩下靠 `G.Time.meditate` 真实闭关补灵气 ——
-   ⚠️ 不再用"刷怪补气"（那条路已经不存在了，继续用会永远补不满、循环跑满 guard）。 */
+   ⚠️ **v0.76.0 阶段十改了回来**：野外战斗恢复给灵气，但效率低于闭关
+      （野外 30×L，闭关约 60% 基准）—— 设计上是"探索有收益、但闭关仍是主力"。
+      所以旧断言「野怪不该再给灵气」已作废，改为断言**收益方向**：
+      野外给灵气、且**明显少于**同境界闭关一次的量（否则"闭关为主"的设计被架空）。 */
 enterMap('field');
 const qiBeforeFight = save.qi;
 fight({ enemy: G.Data.makeEnemy('赤炎狼', 5, '赤炎狼'), mapId: 'field' }, 'grind');
-if (save.qi !== qiBeforeFight) {
-  errors.push('野怪不该再给灵气（v0.67.0 经济重设）：' + qiBeforeFight + ' → ' + save.qi);
+const qiFromFight = save.qi - qiBeforeFight;
+/* ⚠️ 判据只断**方向与量级**，不拿"当前小阶需求"当分母 ——
+   gl 很低时 needQi 只有个位数（gl=1 时是 2），任何正常奖励都会被判超标（假红）。
+   这里用**敌人等级**折算的上界：野外单场 ≈ 30×L×境界系数，留 2 倍余量。
+   要验的是"野外给灵气、但不是印钞机"，比值精确与否不影响这条结论。 */
+if (qiFromFight <= 0) {
+  errors.push('野外战斗应给灵气（v0.76.0 阶段十恢复）：' + qiBeforeFight + ' → ' + save.qi);
+}
+{
+  const cap = 30 * 5 * 2;      /* L=5 的敌人 × 2 倍余量 */
+  if (qiFromFight > cap) {
+    errors.push('野外灵气(' + qiFromFight + ') 超出上界 ' + cap
+      + ' —— 野外只是辅助，不该盖过闭关（v0.76.0 设计口径）');
+  }
 }
 note('⑦a 野怪已不再产灵气');
 
@@ -351,7 +365,10 @@ while (save.qi < G.Player.needQi(save, 36) && guard++ < 400) {
 }
 note('⑨ 灵气备足');
 
-/* ---- 6) 大境界突破 → 天劫镜像战（v0.75.0；Math.random 钉死 0 → 必触发天劫）---- */
+/* ---- 6) 大境界突破 → 天劫镜像战（v0.75.0；Math.random 钉死 0 → 必触发天劫）----
+   ⚠️ v0.76.0 起大境界是**进度累积制**：第一次必失败（+50% 进度、扣丹、气血减半），
+      第二次（进度≥100%）必定成功。所以这里要**重试**，第一次失败不算 bug。
+      补丹在循环里做（每次突破消耗一颗）。 */
 enterMap('town');
 step(() => enterDoor('home'), 'm0-4.home');
 step(() => interactFurn('cult', '逆命珠'), 'm0-4.cult');
@@ -364,6 +381,24 @@ step(function () {
   if (!bk) { errors.push('小院缺少突破入口'); return; }
   if (bk.disabled) { errors.push('灵气与丹齐备时突破按钮仍禁用'); return; }
   bk.onClick();
+  /* ⚠️ v0.76.0 进度累积制：第一次点必失败（+50% 进度**并关闭面板**），
+     补丹后要**重开面板**再点一次才会成功。旧写法只补丹不重开 → 面板已关、
+     循环立刻 break，表现就是"突破未进入破境战"。
+     终止条件按**真实结果**判：进了天劫覆盖层（tribulation）或战斗，或已升境。 */
+  let t = 0;
+  while (t++ < 4) {
+    const saved = G.game.save;
+    if (G.game.scene.overlay === 'tribulation' || G.game.sceneName === 'battle'
+      || saved.globalLevel >= 37) break;
+    saved.items['淬体突破丹'] = (saved.items['淬体突破丹'] || 0) + 1;
+    sc.clearOverlay();
+    interactFurn('cult', '逆命珠');
+    pump(3);
+    const b2 = (G.game.scene.buttons || []).filter((b) => /突破/.test(b.label))[0];
+    if (!b2 || b2.disabled) break;
+    b2.onClick();
+    pump(3);
+  }
 }, 'm0-4.break');
 pump(6);
 /* 破境天劫（v0.26.0）：大境突破会**先演天劫 + 天道问话**，点「承受」才进心魔战。

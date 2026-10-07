@@ -34,6 +34,7 @@
     "battle.enemy.wolfking": "assets/img/battle.enemy.wolfking.png",
     "battle.hero": "assets/img/battle.hero.png",
     "char.hero.age10": "assets/img/char.hero.age10.png",
+    "char.hero.age16": "assets/img/char.hero.age16.png",
     "char.hero.age6": "assets/img/char.hero.age6.png",
     "char.hero.down": "assets/img/char.hero.down.png",
     "char.hero.down.0": "assets/img/char.hero.down.png",

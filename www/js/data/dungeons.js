@@ -913,7 +913,21 @@
    * tier: 'big' / 'mid' / 'leader'
    * slot: 0–4 */
   function makeBoss(arch, worldId, slot, diff, tier) {
-    var spec = arch[tier === 'mid' ? 'mid' : (tier === 'leader' ? 'leader' : 'big')];
+    /* ⚠️ v0.90.1 修一个**崩溃级**历史缺口：Boss 档位字段名不统一 ——
+       B1–B5 写 `big:`、B6–B18 写 `boss:`（13 处），而这里原先只读 `arch.big`
+       → 打 B6~B10 时 `spec` 为 undefined，`spec.tier` 直接抛 TypeError，
+         玩家进副本即崩（`dungeon-run` 里表现为刷屏的 "reading 'tier'"）。
+       这里做**兼容读取**（不批量改数据，免得动到 13 处已验证的配置）：
+         · 先按 tier 找标准键（mid/leader/big）
+         · `big` 缺失时回落到 `boss`（历史别名）
+       自检：`dungeon.arch.contract` 会断言"每个原型都能为它的全部档位造出 Boss"。 */
+    var pick = tier === 'mid' ? 'mid' : (tier === 'leader' ? 'leader' : 'big');
+    var spec = arch[pick] || (pick === 'big' ? arch.boss : null);
+    if (!spec) {
+      /* 兜底不能再抛：退回同原型的任一可用档位，并保留 tier 语义 */
+      spec = arch.big || arch.boss || arch.mid || arch.leader;
+      if (!spec) return null;
+    }
     var anchor = anchorGL(worldId, slot);
     var L = (tier === 'mid') ? anchor - 2 : anchor;
     L = Math.max(1, L);
@@ -1010,13 +1024,31 @@
   }
 
   /* 组装某一关的战斗参数
-   * 返回 { type, enemies }；rest 关无敌人。 */
+   * 返回 { type, enemies }；rest 关无敌人。
+   * ⚠️ v0.90.1：Boss 档位可能整块缺失（B6–B10 只有 leader/boss、没有 mid）。
+   *   这时**降级**到同原型可用的档位，而不是塞个 null 进敌群（那会在战斗里炸）。 */
   function makeStage(arch, worldId, slot, diff, stage) {
     var type = stageType(arch, stage);
     var anchor = anchorGL(worldId, slot);
-    if (type === 'big') return { type: type, enemies: [makeBoss(arch, worldId, slot, diff, 'big')] };
-    if (type === 'mid') return { type: type, enemies: [makeBoss(arch, worldId, slot, diff, 'mid')] };
-    if (type === 'leader') return { type: type, enemies: [makeBoss(arch, worldId, slot, diff, 'leader')] };
+    /* 造 Boss，失败则按 big → leader → mid 依次降级（保住"关卡有 Boss"这件事） */
+    function bossOf(t) {
+      var order = t === 'big' ? ['big', 'leader', 'mid']
+        : t === 'leader' ? ['leader', 'mid', 'big'] : ['mid', 'leader', 'big'];
+      for (var i = 0; i < order.length; i++) {
+        var e = makeBoss(arch, worldId, slot, diff, order[i]);
+        if (e) return e;
+      }
+      return null;
+    }
+    if (type === 'big' || type === 'mid' || type === 'leader') {
+      var boss = bossOf(type);
+      if (boss) return { type: type, enemies: [boss] };
+      /* 一个档位都造不出 → 降级成精英，绝不返回空敌群 */
+      var gl2 = Math.max(1, anchor - 1);
+      var e2 = makeTrash(arch, gl2, null);
+      e2.name = '精锐 ' + e2.name;
+      return { type: 'elite', enemies: [e2] };
+    }
     if (type === 'rest') return { type: 'rest', enemies: [] };
 
     if (type === 'elite') {
@@ -1075,7 +1107,19 @@
     x_zhuxie: '诛邪神光', s_dajingang: '大金刚圣力', x_taiyi5yan: '太乙五烟',
     x_zhanxian: '斩仙飞刀', x_mangshan: '芒山聚灵', x_9tianxirang: '九天息壤',
     s_bulao: '不老君圣体', x_4xiang: '四象神盾', x_yufeng: '御风圣行',
-    x_leiyin: '雷音度厄'
+    x_leiyin: '雷音度厄',
+    /* v0.90.1 补齐 20 个**未定义签名秘术**（用户截图批次顺带查出的数据缺口）。
+       ⚠️ 为什么必须补：B6–B10 与 S26–S40 的 `drop` 指向这些 id，但 SECRETS 表里
+          没有它们 → `secretById` 返回 null → 通关**不发秘术**（静默）。
+          `dungeon-run` 的"秘术增量异常"就是这条（20/50 个副本中招）。
+       命名口径与已有的 14 条一致：`n_*` = 神术（战斗被动）/ `s_*` = 圣力（面板）/ `x_*` = 仙术（主动）。 */
+    n_xuemo: '血月魔功', n_bingpo: '玄冰魄', n_leijing: '雷精入体',
+    n_yehuo: '业火焚身', n_xukong: '虚空游', n_duzhao: '毒沼缠身',
+    n_shajing: '沙晶护体', n_jingshi: '晶石共鸣', n_wugu: '腐骨蚀心',
+    n_yanjiang: '熔岩之躯', n_jiguang: '极光洗髓', n_leishi: '雷石引',
+    n_anyuan: '暗渊潜行', n_shengguang: '圣光庇佑', n_hundun: '混沌吞纳',
+    n_xieqi: '血色煞气', n_tianjing: '天机演算', n_zixiao: '紫霄引雷',
+    n_taichu: '太初元炁', n_lunhui: '轮回念'
   };
   function secretById(id) {
     return SECRETS[id] ? { id: id, n: SECRETS[id] } : null;
@@ -1103,7 +1147,37 @@
     x_zhanxian: { cat: '仙', cast: { target: 'single', mult: 2.6, elem: '金',
       pierce: .3 } },
     x_leiyin: { cat: '仙', cast: { target: 'all', mult: 1.3, elem: '雷',
-      status: { t: '麻', chance: .3 } } }
+      status: { t: '麻', chance: .3 } } },
+    /* v0.90.1：与上面新增的 20 条秘术名**一一对应**的效果。
+       ⚠️⚠️ 两条硬约束（缺一条就等于"给玩家一个占格子却毫无效果的秘术"）：
+         ① **每个 SECRETS 条目都必须有 SECRET_EFFECTS**（契约会断）；
+         ② 只能用**引擎真的会读**的字段 —— 当前 `battle._applySecretPassives`
+            只认 `vamp / zhuxie / kurong / mangshan / startShield`，
+            `computeStats` 侧还认面板类（atk/def/hp/spd/critUp）；
+            **其它键（dr / killAtk / burnAura / poisonAura / rs / es / chest /
+            healUp / revive / lowHpDef / critUp 等）目前无人读取，写了也是静默无效**。
+            所以这里**只用已验证的字段**，把 20 条分派到 5 种已实现的效果上
+            （按元素的"味道"选最贴近的那个），后续接新效果时再逐条升级。 */
+    n_xuemo: { cat: '神', vamp: .12 },        /* 血月：吸血 */
+    n_bingpo: { cat: '圣', def: .12 },       /* 玄冰：加防 */
+    n_leijing: { cat: '神', mangshan: 2 },   /* 雷精：蓄力 */
+    n_yehuo: { cat: '神', kurong: { chance: .26, pct: .06, max: 3 } }, /* 业火：灼蚀枯荣 */
+    n_xukong: { cat: '圣', spd: .12 },       /* 虚空：提速 */
+    n_duzhao: { cat: '神', kurong: { chance: .30, pct: .05, max: 3 } }, /* 毒沼：蚀体 */
+    n_shajing: { cat: '圣', def: .10, spd: .05 },
+    n_jingshi: { cat: '圣', hp: .12 },
+    n_wugu: { cat: '神', zhuxie: .20 },      /* 腐骨：破邪 */
+    n_yanjiang: { cat: '圣', atk: .12 },
+    n_jiguang: { cat: '圣', hp: .14 },
+    n_leishi: { cat: '神', startShield: .12 },
+    n_anyuan: { cat: '神', vamp: .10 },
+    n_shengguang: { cat: '神', startShield: .15 },
+    n_hundun: { cat: '圣', atk: .06, def: .06, hp: .06, spd: .06 },
+    n_xieqi: { cat: '圣', atk: .13 },
+    n_tianjing: { cat: '圣', spd: .10, def: .05 },
+    n_zixiao: { cat: '神', mangshan: 3 },
+    n_taichu: { cat: '圣', atk: .05, def: .05, hp: .05, spd: .05 },
+    n_lunhui: { cat: '神', startShield: .18 }
   };
   function secretEffectById(id) { return SECRET_EFFECTS[id] || null; }
 

@@ -167,6 +167,11 @@ step(() => {
   s.originSel = 0;                       /* 农家子弟：体质 +8 勇猛 +3 */
   s.step = 'linggen'; rollFixed(s);
   s.step = 'talent';
+  /* v0.90.1：第 1 世默认被**强制 arc1**（白鹿礁命定之世）→ 入世后停在 arc 场景，
+     而不是青溪镇。本脚本验的是轮回闭环（含区域地图与斩狼王），
+     所以显式声明**走浮世**跳过命定之世。
+     `freeLife` 是游戏侧提供的正规逃生门（reincarnation.finish 读它），不是绕过逻辑。 */
+  s.freeLife = true;
   s.finish();
 }, 'reinc1.finish');
 pump(6);
@@ -352,8 +357,20 @@ while (save1.globalLevel < 45 && guard++ < 500) {
   }
   if (!st.big) { G.Player.breakthrough(save1); continue; }
   save1.items[st.pill] = (save1.items[st.pill] || 0) + 1;   /* 药铺有售 */
-  const r = G.Player.startBigBreak(save1, null, 0);         /* roll=0 → 必成功 */
-  if (!r.ok) { errors.push('大境界突破被拒：' + r.reason); break; }
+  /* ⚠️ v0.76.0 起大境界突破改为**进度累积制**（`save.breakProgress`）：
+       第一次必失败（+50% 进度、扣丹、气血减半），第二次起进度≥100% 必定成功。
+       所以这里要**重试到成功**（每次补一颗丹），不能一次失败就断言"被拒"。
+       `roll=0` 只是让 breakChance 那条老路径必过，与本进度制无关。 */
+  let tries = 0, okBreak = false, lastReason = '';
+  while (tries++ < 4 && !okBreak) {
+    save1.items[st.pill] = (save1.items[st.pill] || 0) + 1;
+    const r = G.Player.startBigBreak(save1, null, 0);
+    if (r.ok) { okBreak = true; break; }
+    lastReason = r.reason;
+    /* 失败时扣了丹，下一轮补回；但要确认它确实是"进度累积"而非别的原因 */
+    if (!r.failed) break;
+  }
+  if (!okBreak) { errors.push('大境界突破被拒：' + lastReason); break; }
   G.game.changeScene('battle', { script: 'heartDemon', mapId: 'town' });
   pump(4);
   const b = G.game.scene;

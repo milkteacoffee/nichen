@@ -148,10 +148,35 @@ pump(5);
 if (G.game.sceneName !== 'reincarnation') errors.push('选难度后未进转世（当前 ' + G.game.sceneName + '）');
 step(function () {
   const r = G.game.scene;
+  /* ⚠️ v0.79.0 起**第 1 世被强制 arc1**（白鹿礁剧情，见 reincarnation.finish 的
+     `if (life === 1) arcId = 'arc1'`）—— 那是**不改的设计**，不是 bug。
+     本脚本要验的是**副本链路**（区域地图 + 5 副本），必须先跳开命定之世：
+     造一条 `meta.past` 记录，让本世 life=2，于是 arcId 只取决于 arcChoice，
+     再选「浮世轮回」即可直接进区域地图。 */
+  G.game.meta = G.game.meta || {};
+  G.game.meta.past = G.game.meta.past || [];
+  if (!G.game.meta.past.length) G.game.meta.past.push({ life: 1, xianli: 0 });
+  G.game.meta.pendingArc = null;
+  r.enter();                       /* 用新 meta 重进转世流程 */
   r.originSel = 0;
   r.rollLinggen();
   r.drawTalents();
-  r.finish();
+  r.step = 'talent';
+  r._buildButtons();
+  const enterBtn = r.buttons.filter(function (b) { return /入世|择命途/.test(b.label || ''); })[0]
+    || r.buttons[r.buttons.length - 1];
+  if (!enterBtn) { errors.push('转世页找不到「入世 / 择命途」按钮'); return; }
+  enterBtn.onClick();
+  /* 走到 arcpath 就选「浮世轮回」（不入命定之世，才能进区域地图打副本） */
+  if (r.step === 'arcpath') {
+    const freeBtn = r.buttons.filter(function (b) { return b.label === '浮世轮回'; })[0];
+    if (!freeBtn) { errors.push('命途步缺「浮世轮回」按钮'); return; }
+    freeBtn.onClick();
+  }
+  /* 成长演出：三拍走完才真正入世 */
+  let guard = 0;
+  while (r.step === 'grow' && guard++ < 12) r.update((r.GROW_DUR || 2) + 0.01);
+  if (r.step === 'grow') errors.push('成长演出未收尾（仍停在 grow）');
 }, 'reincarnation-finish');
 pump(10);
 if (G.game.sceneName !== 'town') errors.push('入世后未进镇（当前 ' + G.game.sceneName + '）');
@@ -184,7 +209,18 @@ function clearDungeon(slot) {
       /* 每层三选一（v0.23.0）：非终层通关后会先出这个视图。
          测试必须跟着新流程走 —— 不处理的话循环直接 break，整条链路假死。 */
       if (sc.view === 'buff') {
-        step(() => sc._takeBuff(sc.buffPick[0].id), 'buff'); pump(8); continue;
+        /* ⚠️ `buffPick` 由 `_offerBuffs` 设置；若 `view` 已是 buff 却读不到 pick，
+           说明该视图是被别处/旧状态带入的（本脚本连跑多槽时遇到过）。
+           这时**回退到按钮**（按钮的 onClick 走同一条 `_takeBuff`），
+           比直接读 `buffPick[0]` 崩掉好 —— 崩掉会连带把后面几百条断言全带成假红。 */
+        step(function () {
+          const pick = (sc.buffPick && sc.buffPick[0]) ? sc.buffPick[0].id : null;
+          if (pick) { sc._takeBuff(pick); return; }
+          const b0 = (sc.buttons || [])[0];
+          if (!b0) { errors.push('buff 视图既无 buffPick 也无按钮（无法推进）| view=' + sc.view + ' buttons=' + (sc.buttons||[]).length + ' hasPick=' + (sc.buffPick?'y':'n')); return; }
+          b0.onClick();
+        }, 'buff');
+        pump(8); continue;
       }
       /* 随机事件房（v0.35.0）：杂兵层 22% 概率出。
          同样必须处理 —— 未知 view 会让循环直接 break，报出一串**不相关**的错。 */

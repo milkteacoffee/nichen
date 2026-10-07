@@ -84,8 +84,9 @@ SIZES = {
     #    16×24 × MAP_SCALE，这里按 **84×126** 预合成（PASSTHRU，不经 fit 重排），
     #    因为三档必须共用同一画布、脚底对齐、内容高随龄增长。
     #    真实像素尺寸由 _gen/_hero_age_stage.py 保证，构建期只校验。
-    'char.hero.age6': (84, 126),
-    'char.hero.age10': (84, 126),
+    'char.hero.age6': (364, 546),
+    'char.hero.age10': (364, 546),
+    'char.hero.age16': (364, 546),
     # 地图 NPC（设计见《人物形象与文生图设定集 v2.3》§1.2 P_MAP；尺寸同主角，比例 2:3 必须一致）
     #   elder = 沈伯 / keeper = 刘掌柜 / villager = 泛用村民（浣衣妇与老樵夫共用）
     'char.npc.elder': (168, 252),
@@ -357,7 +358,25 @@ PAD = 0.04          # 外接框四周留白比例（防止描边贴边被切）
 #   它们必须在**同一块画布(84×126)内脚底对齐、内容高随龄增长**(87/105/125)，
 #   而 fit() 会把内容缩到 avail_h 填满，三档高度全变一样 → "长高"观感直接压平。
 #   这类素材在 _gen 里已是最终尺寸，这里只校验尺寸并落盘。
-PASSTHRU_KEYS = set(['char.hero.age6', 'char.hero.age10'])
+PASSTHRU_KEYS = set(['char.hero.age6', 'char.hero.age10', 'char.hero.age16'])
+
+# OPAQUE_KEYS：**本来就该是不透明的**素材，跳过"必须 RGBA"的校验。
+# 为什么要这份白名单：定期有一批"人物 + 场景"的**电影化满幅图**（不用抠背景，
+#   抠了反而毁掉构图，且深色头发与深色背景同色系根本抠不干净）。
+#   它们走 cover 式绘制（`arc.js: _drawBigPortrait` / 过场静帧的 Ken Burns），
+#   透明底对它们**没有意义**，报"非 RGBA"只会制造噪音、掩盖真正的缺口。
+#   ⚠️ 白名单要**按用途**加，不能为了消警告随手加 —— 加错会把真缺透明底的立绘放过。
+OPAQUE_KEYS = set([
+    # 过场静帧（cinelib）：满幅电影化场景，Ken Burns 平移用
+    'cine.chenmeng', 'cine.daolv', 'cine.fan_raid', 'cine.fan_soul', 'cine.fangshou',
+    'cine.jingsui', 'cine.shanmen', 'cine.tianlun', 'cine.xinhuo', 'cine.zhaohun',
+    # 写实半身立绘（标题/关于页大图）
+    'portrait.hero',
+    # arc 主线剧情立绘（v0.90.1）：人物 + 场景的电影化构图，按立绘框比例取景，
+    # 不再抠背景（深发与深底同色，抠图会连头发一起吃掉）
+    'portrait.wanqing', 'portrait.aheng', 'portrait.changgeng', 'portrait.jiang',
+    'portrait.jingyan', 'portrait.nianchen', 'portrait.shouye', 'portrait.xuanjizi'
+])
 
 
 def fit(im, tw, th):
@@ -424,7 +443,7 @@ def main():
                 problems.append('manifest 登记的图不存在：%s → %s' % (key, path))
                 continue
             with Image.open(p) as im:
-                if im.mode != 'RGBA':
+                if im.mode != 'RGBA' and key not in OPAQUE_KEYS:
                     problems.append('%s 不是 RGBA（没有透明底）：%s' % (key, path))
         # 地图角色四个方向都必须齐 .0/.1/.2 —— 漏一个方向就会静默回退成程序化精灵，
         # 表现是"走起来四个方向长得不一样"。镜像出来的 right 曾经就是这么漏的。

@@ -1231,14 +1231,21 @@
     BOUNTY: [
       { id: 'b1', n: '清剿山兽', need: 8, stone: 400 },
       { id: 'b2', n: '猎杀凶兽', need: 16, stone: 900 },
-      { id: 'b3', n: '血战群妖', need: 28, stone: 1800 }
+      { id: 'b3', n: '血战群妖', need: 28, stone: 1800 },
+      /* v0.90.1（用户口径「悬赏线给功法」）：高难悬赏额外**授一门功法**。
+         设计上让"悬赏"成为散修获得功法的**第二条腿**（第一条是支线 NPC），
+         且必须是最难那一档才给 —— 否则"功法难得"的定位会被稀释。
+         ⚠️ 功法必须是**散修可学**的（src 非 'sect'），否则接了也激活不了。 */
+      { id: 'b4', n: '荡平妖巢', need: 40, stone: 3200, skill: '寒水诀' }
     ],
     acceptBounty: function (save, idx) {
       if (!save || save.cult === 'sect') return { ok: false, reason: '宗门弟子不接散修盟的活' };
       var b = this.BOUNTY[idx];
       if (!b) return { ok: false, reason: '无此悬赏' };
       if (save.bounty) return { ok: false, reason: '手上还有一件悬赏未了' };
-      save.bounty = { id: b.id, need: b.need, stone: b.stone, base: save.wildKills || 0 };
+      save.bounty = { id: b.id, need: b.need, stone: b.stone, base: save.wildKills || 0,
+        /* 把奖励功法**存进悬赏记录**：交付时才发（存 b.id 就够，但存整个 id 更直白） */
+        skill: b.skill || null };
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       return { ok: true, b: b };
     },
@@ -1256,9 +1263,20 @@
       save.stone = (save.stone || 0) + b.stone;
       save.sectRep = (save.sectRep || 0) + 30;   /* 散修声望（同一字段） */
       var got = b.stone;
+      /* 高难悬赏的**功法报酬**（v0.90.1，用户口径「悬赏线给功法」）。
+         ⚠️ 与支线同一纪律：必须跟 `autoEquip`，否则玩家"学了却不在技能栏"且完全静默。 */
+      var learned = null;
+      if (b.skill) {
+        save.skills = save.skills || {};
+        var fresh = !save.skills[b.skill];
+        if (fresh) save.skills[b.skill] = { lv: 1 };
+        if (G.Player.autoEquip) G.Player.autoEquip(save, b.skill);
+        learned = { id: b.skill, n: (G.Data.skills[b.skill] || {}).n || b.skill, fresh: fresh };
+        if (this.chronicle) this.chronicle(save, 'bounty:skill', '悬赏得传《' + learned.n + '》');
+      }
       save.bounty = null;
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
-      return { ok: true, stone: got };
+      return { ok: true, stone: got, skill: learned };
     },
 
     /* ===== 门派商店（S3，对标《烟雨江湖》）=====
@@ -1273,6 +1291,20 @@
         return { ok: false, reason: '贡献不足（需 ' + it.cost + '）' };
       }
       save.sectRep -= it.cost;
+      /* 功法商品（v0.90.1，用户口径「宗门线给功法」）：走**传功**同一条路
+         （`learnSectSkill` / 已习得则精进），且必须 `autoEquip` ——
+         与支线、悬赏两处奖励同一纪律：只塞进 save.skills 玩家会用不上。
+         ⚠️ 扣贡献在**判定之前**会白扣，所以先判"能不能学"。 */
+      if (it.skill) {
+        save.skills = save.skills || {};
+        var already = !!save.skills[it.skill];
+        if (already) save.skills[it.skill].lv = (save.skills[it.skill].lv || 1) + 1;
+        else save.skills[it.skill] = { lv: 1 };
+        if (this.autoEquip) this.autoEquip(save, it.skill);
+        if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
+        return { ok: true, item: it, name: (G.Data.skills[it.skill] || {}).n || it.skill,
+          skill: { id: it.skill, fresh: !already } };
+      }
       save.items = save.items || {};
       save.items[it.item] = (save.items[it.item] || 0) + it.n;
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);

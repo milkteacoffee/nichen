@@ -447,6 +447,66 @@ step(function () {
   if (local.length) errors.push(...local);
 }, 'dungeon.boss.assets');
 
+/* 0c-2) 副本数据完整性（v0.90.1，修 dungeon-run 297 条失败时查出的三类真缺口）：
+   ① Boss 档位字段名统一（B1–B5 写 `big`、B6–B18 写 `boss`）——
+      读取侧必须两种都认，否则打 B6~B10 时 spec 为 undefined、`spec.tier` 抛错**进图即崩**；
+   ② 每个原型的**每一档**都要能造出 Boss（makeStage 不许返回空敌群）；
+   ③ `drop` 指向的签名秘术必须**既在 SECRETS 有名、又在 SECRET_EFFECTS 有实** ——
+      只著名不给效果 = 玩家拿到"占格子却毫无作用"的秘术（20/50 个副本中招过）。 */
+step(function () {
+  const D = G.Data.dungeons;
+  if (!D || !D.ARCH) { errors.push('G.Data.dungeons.ARCH 缺失'); return; }
+
+  /* ① 字段别名：读取侧必须认 `boss`（历史别名） */
+  const store = fs.readFileSync(path.join(WWW, 'js/data/dungeons.js'), 'utf8');
+  if (!/arch\.boss/.test(store)) {
+    errors.push('源码闸：makeBoss 未兼容 `boss` 字段别名（B6–B18 用 boss，会崩）');
+  }
+
+  /* ② 逐原型逐档：能造出 Boss（makeBoss 收的是**原型对象**，不是 id） */
+  D.ARCH.forEach(function (a) {
+    ['big', 'mid', 'leader'].forEach(function (t) {
+      let e = null;
+      try { e = D.makeBoss(a, 'fan', 0, 'normal', t); } catch (err) {
+        errors.push('原型 ' + a.id + ' 造 ' + t + ' Boss 抛错：' + err.message);
+        return;
+      }
+      /* big 档对所有 big 原型是必需的（它是第 9 关的收关 Boss） */
+      if (!e && t === 'big' && a.kind === 'big') {
+        errors.push('原型 ' + a.id + ' 造不出 big Boss（进图会崩）');
+      }
+      if (e && (!e.name || !(e.maxhp > 0) || !(e.atk > 0))) {
+        errors.push('原型 ' + a.id + ' 的 ' + t + ' Boss 面板非法：' + (e && e.name));
+      }
+    });
+  });
+
+  /* ③ 秘术：名字与效果必须成对 */
+  const noName = [], noEffect = [];
+  D.ARCH.forEach(function (a) {
+    if (!a.drop) return;
+    const byId = D.secretById(a.drop);
+    if (!byId) { noName.push(a.id + '→' + a.drop); return; }
+    if (!D.secretEffectById(a.drop)) noEffect.push(a.id + '→' + a.drop);
+  });
+  if (noName.length) errors.push('这些原型 drop 指向的秘术**无名字**：' + noName.join(', '));
+  if (noEffect.length) errors.push('这些原型 drop 指向的秘术**无效果**（拿到也没用）：' + noEffect.join(', '));
+
+  /* ④ 效果字段必须**引擎真的会读**（写了没人读 = 静默无效）。
+     白名单 = battle._applySecretPassives 已实现的字段。 */
+  const KNOWN_FX = ['cat', 'vamp', 'zhuxie', 'kurong', 'mangshan', 'startShield',
+    'atk', 'def', 'hp', 'spd', 'cast'];
+  Object.keys(D.SECRET_EFFECTS || {}).forEach(function (id) {
+    const ef = D.SECRET_EFFECTS[id];
+    Object.keys(ef).forEach(function (k) {
+      if (KNOWN_FX.indexOf(k) < 0) {
+        errors.push('秘术 ' + id + ' 用了引擎未实现的字段 `' + k + '`（写了也不会生效）');
+      }
+    });
+  });
+  notes.push('副本数据：' + D.ARCH.length + ' 原型 × 3 档可造 Boss；秘术名字/效果成对');
+}, 'dungeon.data.contract');
+
 /* 0d) NPC 精灵 / 人物立绘接线（磁盘级）：与 dungeon.boss.assets 同理。
       要检查的键不写死，直接从 data/maps.js 的 npcs[] 里取 kind 与 portrait ——
       地图里加了新 NPC 但忘了出图/登记，这里会立刻报出来。
@@ -480,6 +540,50 @@ step(function () {
     if (!fs.existsSync(p)) { errors.push(`manifest 登记的角色形象不存在：${key} → ${rel}`); return; }
     if (fs.readFileSync(p)[25] !== 6) errors.push(`${key} 不是 RGBA 透明底：${rel}`);
   });
+
+  /* ⚠️ v0.90.1：剧情立绘改为「取景裁切」而非抠背景（用户截图反馈"渲染不对/模糊"）。
+     这批是**人物 + 场景**的电影化满幅图，深色头发与深色背景同色 → 抠图会连头发一起吃掉
+     （实测连通域过滤后只剩一张脸）。所以只做**立绘框比例取景**，保留背景。
+     契约钉两件事：
+       ① 这些键必须存在且**比例接近对话框立绘框**（92:140 ≈ 0.657），
+          否则 cover 会把人物裁歪（旧图是 0.75，脸只占框内 1/4）；
+       ② assets-build 的 OPAQUE_KEYS 白名单必须**逐条为已知用途**，
+          不许出现"为了消警告"随手加的键。 */
+  {
+    const BUST_KEYS = ['portrait.wanqing', 'portrait.aheng', 'portrait.changgeng', 'portrait.jiang',
+      'portrait.jingyan', 'portrait.nianchen', 'portrait.shouye', 'portrait.xuanjizi'];
+    const TARGET = 92 / 140;
+    BUST_KEYS.forEach(function (k) {
+      const rel = mf[k];
+      if (!rel) { errors.push('剧情立绘未登记：' + k); return; }
+      const pp = path.join(WWW, rel);
+      if (!fs.existsSync(pp)) { errors.push('剧情立绘文件缺失：' + k); return; }
+      /* 从 PNG 头读宽高（IHDR 在偏移 16..24），不依赖图像库 */
+      const buf = fs.readFileSync(pp);
+      const bw = buf.readUInt32BE(16), bh = buf.readUInt32BE(20);
+      const ratio = bw / bh;
+      if (Math.abs(ratio - TARGET) > 0.06) {
+        errors.push('剧情立绘 ' + k + ' 比例 ' + ratio.toFixed(3)
+          + ' 偏离立绘框 ' + TARGET.toFixed(3) + '（应取景裁切过，脸才不会只占一小块）');
+      }
+    });
+    /* 白名单纪律：OPAQUE_KEYS 里的每个键都必须能在注释里找到"用途"依据
+       （这里用"必须出现在本文件的已知清单里"代替读注释 —— 新增用途要显式加进来）。 */
+    const buildSrc = fs.readFileSync(path.join(WWW, '..', 'tools/assets-build.py'), 'utf8');
+    const om = buildSrc.match(/OPAQUE_KEYS\s*=\s*set\(\[([\s\S]*?)\]\)/);
+    if (!om) errors.push('assets-build.py 缺 OPAQUE_KEYS（不透明素材白名单）');
+    else {
+      const known = new Set(['cine.chenmeng', 'cine.daolv', 'cine.fan_raid', 'cine.fan_soul',
+        'cine.fangshou', 'cine.jingsui', 'cine.shanmen', 'cine.tianlun', 'cine.xinhuo',
+        'cine.zhaohun', 'portrait.hero'].concat(BUST_KEYS));
+      const listed = (om[1].match(/'([^']+)'/g) || []).map(function (s) { return s.slice(1, -1); });
+      listed.forEach(function (k) {
+        if (!known.has(k)) {
+          errors.push('OPAQUE_KEYS 里有未登记的键「' + k + '」—— 白名单只能按已知用途加，禁止消警告式添加');
+        }
+      });
+    }
+  }
 }, 'npc.portrait.assets');
 
 /* 1) 启动 → 标题 */
@@ -4248,6 +4352,26 @@ step(function () {
   if (!cr.ok) errors.push('打够后应能领赏：' + cr.reason);
   if (s4.stone !== before2 + P.BOUNTY[0].stone) errors.push('领赏灵石数额不对');
   if (s4.bounty) errors.push('领赏后应清空在身悬赏');
+
+  /* v0.90.1（用户口径「悬赏线给功法」）：带 `skill` 的悬赏，交付时必须
+     ① 真的学到；② 顺手进激发列表（autoEquip）；③ 功法是**本路线可学**的。
+     这条与支线、宗门商店三处同一纪律 —— 漏一处就是"学了用不上"的静默缺口。 */
+  const bq = P.BOUNTY.filter(function (b) { return b.skill; });
+  if (!bq.length) errors.push('悬赏表里没有任何「功法报酬」（用户要求悬赏线给功法）');
+  bq.forEach(function (b) {
+    const i = P.BOUNTY.indexOf(b);
+    const s5 = mk({ cult: 'free', wildKills: 9999 });
+    s5.skills = {}; s5.skillEquip = [];
+    if (!P.acceptBounty(s5, i).ok) { errors.push('带功法的悬赏应能接：' + b.n); return; }
+    s5.wildKills += b.need;
+    const r5 = P.claimBounty(s5);
+    if (!r5.ok) { errors.push('带功法的悬赏应能领：' + r5.reason); return; }
+    if (!s5.skills[b.skill]) errors.push('悬赏 ' + b.n + ' 交付后未授予功法 ' + b.skill);
+    if (!r5.skill) errors.push('悬赏 ' + b.n + ' 未回传功法信息（界面无从提示）');
+    if ((s5.skillEquip || []).indexOf(b.skill) < 0) {
+      errors.push('悬赏 ' + b.n + ' 授予的功法未进激发列表（autoEquip 漏接）');
+    }
+  });
 }, 'sect.found.contract');
 
 /* ---------- 采集点契约（四大技艺批1，《四大技艺 v1.0》§3.1/§3.2） ----------
@@ -4709,9 +4833,20 @@ step(function () {
     const spSrcB = stripCs2(fs.readFileSync(path.join(WWW, 'js/core/sprites.js'), 'utf8'));
     /* ⚠️ 闸门粒度要匹配"改动的粒度"（G43）：只查"文件里提到过 char.hero.age6"
        会被注释命中（本文件的注释里就写了这些键名）→ 恒真。
-       所以这里匹配**整句赋值**：键表里必须真的把 6/10/16 映射到具体素材键。 */
-    if (!/AGE_STAGE_KEY\s*=\s*\{\s*6\s*:\s*'char\.hero\.age6'\s*,\s*10\s*:\s*'char\.hero\.age10'\s*,\s*16\s*:\s*'char\.hero\.down'\s*\}/.test(spSrcB)) {
+       所以这里匹配**整句赋值**：键表里必须真的把 6/10/16 映射到具体素材键。
+       v0.90.1：16 岁档改用**高密度专用素材** char.hero.age16
+       （原复用 char.hero.down 只有 168×252，演出放大 2.2 倍会糊）。 */
+    if (!/AGE_STAGE_KEY\s*=\s*\{\s*6\s*:\s*'char\.hero\.age6'\s*,\s*10\s*:\s*'char\.hero\.age10'\s*,\s*16\s*:\s*'char\.hero\.age16'\s*\}/.test(spSrcB)) {
       errors.push('源码闸：童年档素材键表 AGE_STAGE_KEY 未把 6/10/16 正确映射到立绘素材');
+    }
+    /* 高密度烘焙（v0.90.1，修"太模糊"）：烘焙画布必须远大于逻辑 28×42。
+       用户口径「太模糊了」的真因就是烘焙进 84×126、演出放大 4.33 倍。
+       判据：AGE_STAGE_BAKE_SCALE 必须 ≥ 8（覆盖 S=5 的 13 倍逻辑的近旁；
+       取 8 是"至少比 K=3 高一档"的下限，低于它则最高画质档仍会糊）。 */
+    const bm = spSrcB.match(/AGE_STAGE_BAKE_SCALE\s*=\s*(\d+)/);
+    if (!bm) errors.push('源码闸：童年档缺高密度烘焙常量 AGE_STAGE_BAKE_SCALE');
+    else if (+bm[1] < 8) {
+      errors.push('童年档烘焙密度 ' + bm[1] + ' 过低（应 ≥8）—— 高画质档会糊');
     }
   }
   const R6 = SP.AGE_STAGE_R[6], R10 = SP.AGE_STAGE_R[10], R16 = SP.AGE_STAGE_R[16];
@@ -5300,13 +5435,35 @@ step(function () {
 
     /* 回归（v0.43.0，截图反馈"eq_qingfeng 裸显"）：
        ① 每件商品的显示名都必须解析成中文，内部 id 不得残留；
-       ② 逐下标购买一遍 —— 防止"只测第 0 件、后面的商品被截断成死货"。 */
+       ② 逐下标购买一遍 —— 防止"只测第 0 件、后面的商品被截断成死货"。
+       v0.90.1：新增**功法商品**（`skill` 字段，用户口径「宗门线给功法」）——
+       它们没有 `item`/`n`，显示名与扣费路径都不同，所以按类型分支断言。 */
     SH.forEach(function (it, i) {
+      s0.sectRep = it.cost;
+      if (it.skill) {
+        /* 功法商品：必须给出功法名、必须真的学会、必须已激发（autoEquip）。
+           ⚠️ 用**新档**驱动，且 cult 必须是散修/未定 —— 这几门是散修功法，
+              本门弟子反而学不了（`canUseSkill` 的正确行为，不是 bug）。 */
+        const ssk = JSON.parse(JSON.stringify(s0));
+        ssk.cult = 'free'; ssk.sectId = null;
+        ssk.skills = {}; ssk.skillEquip = [];
+        ssk.sectRep = it.cost;
+        const buy = G.Player.buySectItem(ssk, i);
+        if (!buy.ok) { errors.push('功法商品下标 ' + i + ' 应可购买：' + buy.reason); return; }
+        if (!buy.name || /^[a-z_]+$/i.test(buy.name)) {
+          errors.push('功法商品下标 ' + i + ' 显示名未解析：' + buy.name);
+        }
+        if (!ssk.skills[it.skill]) errors.push('功法商品下标 ' + i + ' 未授予功法：' + it.skill);
+        if ((ssk.skillEquip || []).indexOf(it.skill) < 0) {
+          errors.push('功法商品下标 ' + i + ' 授予的功法未进激发列表（autoEquip 漏接）');
+        }
+        if (ssk.sectRep !== 0) errors.push('功法商品下标 ' + i + ' 未扣贡献');
+        return;
+      }
       const nm = G.Player.itemName(it.item);
       if (!nm || /^eq_|[a-z]{3,}_[a-z_]+/.test(nm)) {
         errors.push('商品(' + it.item + ')显示名未解析：' + nm);
       }
-      s0.sectRep = it.cost;
       const buy = G.Player.buySectItem(s0, i);
       if (!buy.ok || buy.name !== G.Player.itemName(it.item)) {
         errors.push('商品下标 ' + i + ' 应可购买并回传显示名：' + (buy.reason || 'name 缺失'));

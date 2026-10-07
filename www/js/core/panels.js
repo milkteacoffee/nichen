@@ -2089,14 +2089,27 @@
         var cx = P.x + 14 + col * (SH_COL_W + 12);
         var cy = P.y + 100 + row * 16;
         var can = (save.sectRep || 0) >= it.cost;
-        /* 小图标：普通道具走 ITEM_ICON_ID，法宝直接用 id（itemIcon 会补 equip. 前缀） */
-        var iconId = ITEM_ICON_ID[it.item] || it.item;
+        /* 小图标：普通道具走 ITEM_ICON_ID，法宝直接用 id（itemIcon 会补 equip. 前缀）；
+           功法商品（v0.90.1）用属性徽记 `skill.<拼音>`（与功法面板同一套取图）。 */
+        var iconId;
+        if (it.skill) {
+          var sd0 = G.Data.skills[it.skill] || {};
+          var pin0 = (G.Data.elem && G.Data.elem.pinyin) || {};
+          iconId = (sd0.elem && sd0.elem !== '无' && pin0[sd0.elem])
+            ? ('skill.' + pin0[sd0.elem]) : 'stone';
+        } else {
+          iconId = ITEM_ICON_ID[it.item] || it.item;
+        }
         var ic = G.Art.itemIcon ? G.Art.itemIcon(iconId, 14) : null;
         if (ic && ic.c) {
           x.drawImage(ic.c, Math.round(cx + ic.ox), Math.round(cy + 1 + ic.oy), ic.w, ic.h);
         }
-        G.UI.text(x, { x: cx + 18, y: cy + 3 },
-          G.Player.itemName(it.item) + ' ×' + it.n + '　' + it.cost + '贡献', 9.5,
+        /* ⚠️ 功法商品没有 `item`/`n` 字段，不能走 `itemName(it.item) + ' ×' + it.n`
+           （会显示「undefined ×undefined」）。 */
+        var rowLabel = it.skill
+          ? ('《' + ((G.Data.skills[it.skill] || {}).n || it.skill) + '》　' + it.cost + '贡献')
+          : (G.Player.itemName(it.item) + ' ×' + it.n + '　' + it.cost + '贡献');
+        G.UI.text(x, { x: cx + 18, y: cy + 3 }, rowLabel, 9.5,
           can ? G.UI.C.text : G.UI.C.textDim);
       });
       return;
@@ -2244,8 +2257,13 @@
           label: can ? ('换取 ' + it.cost) : '贡献不足',
           onClick: function () {
             var r = G.Player.buySectItem(save, i);
-            G.game.toast(r.ok ? ('得 ' + r.name + ' ×' + r.item.n + '　贡献 -' + r.item.cost)
-              : ('无法换取：' + r.reason));
+            /* 功法商品（v0.90.1）没有 `n`（件数），文案要分开写，否则显示「×undefined」 */
+            var msg = r.ok
+              ? (r.skill
+                ? ('换取《' + r.name + '》' + (r.skill.fresh ? '' : '（精进）') + '　贡献 -' + r.item.cost)
+                : ('得 ' + r.name + ' ×' + r.item.n + '　贡献 -' + r.item.cost))
+              : ('无法换取：' + r.reason);
+            G.game.toast(msg);
             if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
           }
         }));
@@ -2269,15 +2287,21 @@
           label: left > 0 ? ('悬赏中（还差 ' + left + '）') : ('领赏 · 灵石 +' + b0.stone),
           onClick: function () {
             var r = G.Player.claimBounty(save);
-            G.game.toast(r.ok ? ('悬赏了结 · 灵石 +' + r.stone) : ('无法领赏：' + r.reason));
+            /* v0.90.1：悬赏可能带**功法报酬**，交付时必须告诉玩家（否则白给都不知道） */
+            var msg = r.ok ? ('悬赏了结 · 灵石 +' + r.stone) : ('无法领赏：' + r.reason);
+            if (r.ok && r.skill) msg += '　得传《' + r.skill.n + '》';
+            G.game.toast(msg);
             if (r.ok) G.Overlays.openPanel(scene, 'sect', true);
           }
         }));
       } else {
         G.Player.BOUNTY.forEach(function (bb, i) {
           btns.push(new G.UI.Btn({
-            x: P.x + P.w - 290 + i * 96, y: P.y + 96, w: 90, h: 22, small: true, fs: 9.5,
-            variant: 'default', label: bb.n + ' ' + bb.need,
+            /* ⚠️ 按钮数变多了（v0.90.1 加了带功法报酬的 b4），96 间距会顶出面板。
+               P.w-290 起、4 枚各 90 → 需要 4×90 + 3×6 = 378，起点得左移到 P.w-392。 */
+            x: P.x + P.w - 392 + i * 96, y: P.y + 96, w: 90, h: 22, small: true, fs: 9,
+            variant: bb.skill ? 'gold' : 'default',
+            label: bb.n + ' ' + bb.need + (bb.skill ? '·功' : ''),
             onClick: function () {
               var r = G.Player.acceptBounty(save, i);
               G.game.toast(r.ok ? ('接下悬赏：' + bb.n + '（斩妖 ' + bb.need + '）')
