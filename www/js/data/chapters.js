@@ -26,8 +26,16 @@
     if (s.items[n] <= 0) delete s.items[n];
   }
   function gain(s, n, k) { s.items[n] = (s.items[n] || 0) + k; }
-  /* 道心：所有章节抉择都走这一个口子（另加一处就会分叉，结局判据立刻失真） */
-  function heart(s, d) { s.daoHeart = Math.max(-10, Math.min(10, (s.daoHeart || 0) + d)); }
+  /* 道心：所有章节抉择都走这一个口子（另加一处就会分叉，结局判据立刻失真）。
+     v0.93.0：真正实现挪到 `Chapters.addHeart`（支线交付也要写道心），
+     这里只是同名前向引用 —— **钳制逻辑仍只有一份**。 */
+  function heart(s, d) {
+    if (G.Data && G.Data.Chapters && G.Data.Chapters.addHeart) {
+      return G.Data.Chapters.addHeart(s, d);
+    }
+    s.daoHeart = Math.max(-10, Math.min(10, (s.daoHeart || 0) + d));
+    return s.daoHeart;
+  }
 
   var LIST = [
     { id: 'c1', n: '云州城', gl: 73, title: '云 州 城',
@@ -225,6 +233,22 @@
     return ENDINGS.fan;
   }
 
+  /* 支线的**回响**（v0.93.0，用户口径「把所有的主线支线全部串联起来……符合真实感情」）：
+     数一数这一世了却了多少桩（`save.side` 里 step===3 的条数），
+     给结局补一行"你帮过的人还记得你"。
+     ⚠️ 不改结局**归属**（那只看道心，唯一口径）——只加一段**回响文案**。
+        两套判据（归属 + 回响）合起来才是"串联"，但归属仍由道心独断，
+        否则玩家会算不明白自己为什么是这个结局。 */
+  function sideEcho(save) {
+    var n = 0, ss = (save && save.side) || {};
+    Object.keys(ss).forEach(function (k) { if ((ss[k] | 0) >= 3) n++; });
+    if (n <= 0) return '';
+    if (n <= 3) return '路上帮你捎过几回手，那几个人偶尔还会念叨你一句。';
+    if (n <= 8) return '你替不少人跑过腿、出过力。四界里，有几处人家还留着你的碗。';
+    if (n <= 15) return '你走过的地方，几乎家家都记得你的名字。有人说你是个好人，也有人说不止。';
+    return '你几乎把每一处难处都揽在了自己身上。四界传你的名号时，先提的不是你的道行，是你帮过谁。';
+  }
+
   G.Data = G.Data || {};
   G.Data.Chapters = {
     list: LIST,
@@ -238,6 +262,16 @@
     daoTotal: daoTotal,
     progressOf: progressOf,
     endingOf: endingOf,
-    heartOf: function (save) { return (save && save.daoHeart) || 0; }
+    /* 支线回响文案（结局场景追加一行；详见 sideEcho 注释） */
+    sideEcho: sideEcho,
+    heartOf: function (save) { return (save && save.daoHeart) || 0; },
+    /* 道心的**唯一写入口**（v0.93.0）：主线抉择与支线交付都走这里 ——
+       ⚠️ 各写一份 `Math.max(-10, Math.min(10, ...))` 的话，改区间只改一处，
+          另一处就静默越界（道心一旦超出 -10..+10，`endingOf` 的分档就会失真）。 */
+    addHeart: function (save, d) {
+      if (!save || !d) return this.heartOf(save);
+      save.daoHeart = Math.max(-10, Math.min(10, (save.daoHeart || 0) + d));
+      return save.daoHeart;
+    }
   };
 })();

@@ -117,6 +117,7 @@
       this.rec = rec;
       this.phase = 'play';
       this.idx = 0;
+      this._echoed = false;          /* 支线回响只插一次（换结局重看要重置） */
       this.buttons = [];
       meta.endings[rec.id] = { life: save ? save.life : 0, t: this.t };
       if (meta.progress && meta.progress.story) meta.progress.story.ending = rec.id;
@@ -134,6 +135,19 @@
     _nextLine: function () {
       var rec = this.rec;
       if (this.idx >= rec.lines.length) {
+        /* v0.93.0 支线回响（用户口径「把所有的主线支线全部串联起来……符合真实感情」）：
+           正式台词走完，补**一行**"你帮过的人还记得你"—— 数量按本世了却的支线数分档。
+           插在这里而不是改 `rec.lines`：结局台词表是**共享常量**，
+           直接 push 会污染其它局（同一世连看两个结局就重复叠加）。 */
+        if (!this._echoed) {
+          this._echoed = true;
+          var echo = G.Data.Chapters && G.Data.Chapters.sideEcho
+            ? G.Data.Chapters.sideEcho(G.game.save) : '';
+          if (echo) {
+            this.line = { pid: null, name: null, tw: new G.UI.Typewriter(echo, 26) };
+            return;
+          }
+        }
         this.phase = 'done';
         this.line = null;
         var self = this;

@@ -3542,9 +3542,24 @@ step(function () {
     });
   });
   SQ.list.forEach(function (q) {
-    if (!npcIds[q.giver] && !acts[q.giver] && !acts['chat.' + q.giver]) {
+    /* 区域支线（v0.93.0）：用 `region` 字段挂在**区域**上（生成型区域的 NPC id 是动态的），
+       校验换成"区域必须真实存在" + "该区域确实是生成型（非手写图）"。
+       手写图（town/yunzhou/field/cave 等）走 `giver`，两种来源各验各的。 */
+    if (q.region) {
+      if (!G.Data.regions.byId(q.region)) {
+        errors.push(`区域支线 ${q.id} 的 region「${q.region}」在 regions.js 里不存在`);
+      } else {
+        var rr2 = G.Data.regions.byId(q.region);
+        /* 手写图区域不该走区域支线（它们有真 NPC，按 giver 挂更准） */
+        if (rr2.map && !q.giver) {
+          errors.push(`区域支线 ${q.id} 挂在手写图区域「${q.region}」上（应改用 giver 挂到具体 NPC）`);
+        }
+      }
+    } else if (!npcIds[q.giver] && !acts[q.giver] && !acts['chat.' + q.giver]) {
       errors.push(`支线 ${q.id} 的 giver「${q.giver}」在 maps 里找不到对应 NPC（id/act 都不匹配）`);
     }
+    /* 每个"生成型区域"都必须配一条支线（用户口径「保证所有的场景地图都有支线」）——
+       这条在下面的 ⑨ 里统一验（需要 regiongen 的生成清单）。 */
     if (!q.steps || q.steps.length < 2) errors.push(`支线 ${q.id} 步骤不足 2 步`);
     if (!q.reward || (!q.reward.stone && !q.reward.items && !q.reward.rep)) {
       errors.push(`支线 ${q.id} 没有任何奖励`);
@@ -3693,6 +3708,123 @@ step(function () {
       }
     } finally {
       scq.questSel = keepSel; scq.questTab = keepTab;
+    }
+  }
+  /* ⑨ v0.93.0（用户口径「保证所有的场景地图都有支线和主线任务」）：
+     **每一个生成型区域都必须配一条区域支线**，且 regiongen 必须把它挂到当地 NPC 上。
+     这是那条需求的核心判据 —— 漏了任何一界/任何一区都会在这里报出来。 */
+  {
+    /* ⚠️ 区域清单走 `byWorld`（`G.Data.regions` **没有** `list` 导出）——
+       写成 `regions.list` 会得到 undefined，整段判据静默跳过（假绿）。 */
+    const regs = [];
+    ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+      (G.Data.regions.byWorld[w] || []).forEach(function (r) { regs.push(r); });
+    });
+    if (!regs.length) errors.push('区域清单为空（regions.byWorld 取不到）—— 覆盖判据失效');
+    const haveQ = {};
+    SQ.list.forEach(function (q) { if (q.region) haveQ[q.region] = q.id; });
+    const missing = [];
+    regs.forEach(function (r) {
+      /* 手写图的区域（`map` 指向 maps.js 里的手写图）走 giver，不要求 region 支线 */
+      const isHand = !!r.map && !!G.Data.maps[r.map];
+      if (isHand) return;
+      if (!haveQ[r.id]) missing.push(r.id + '(' + r.n + ')');
+    });
+    if (missing.length) {
+      errors.push('这些生成型区域没有支线（用户要求每张场景地图都有支线）：' + missing.join('、'));
+    }
+    /* 四界都要有覆盖（不能只补凡界） */
+    ['fan', 'ling', 'xian', 'dao'].forEach(function (w) {
+      const n = (G.Data.regions.byWorld[w] || []).filter(function (r) { return haveQ[r.id]; }).length;
+      if (n === 0) errors.push('「' + w + '」界一条区域支线都没有（四界都要覆盖）');
+    });
+    /* regiongen 必须真的把支线指派给 NPC（否则这些支线永远没人发） */
+    const rgSrc = fs.readFileSync(path.join(WWW, 'js/core/regiongen.js'), 'utf8');
+    if (rgSrc.indexOf('npc.sq = rq.id') < 0) {
+      errors.push('源码闸：regiongen 未把区域支线指派给当地 NPC（npc.sq）—— 支线没人发');
+    }
+    /* ⚠️ 真驱动核验：**走到 NPC 旁边按一下**，必须开出 sideq。
+       为什么不能只验数据：`explore._interact` 对 `type==='npc'` 走的是
+       `hooks.onNpc`，**不会**落到 `onInteract` —— 上一版 regiongen 只注册了
+       onInteract，于是"点 NPC 什么都不发生"。这条只有真驱动才抓得到。 */
+    ['fan5', 'ling1', 'xian1', 'dao1'].forEach(function (rid) {
+      const sv = JSON.parse(JSON.stringify(save || {}));
+      sv.life = 1; sv.side = {}; sv.globalLevel = 100; sv.wildKills = 999; sv.pos = null;
+      sv.world = sv.world || G.Data.generateWorld(12345, true);
+      sv.quest = sv.quest || { step: 'm1done', flags: {} };
+      G.game.save = sv;
+      G.game.meta = G.game.meta || { past: [], progress: { worlds: {} } };
+      try {
+        G.game.changeScene(rid, { toSpawn: true });
+        const sc2 = G.game.scene, m2 = sc2.map;
+        const sn = (m2.npcs || []).filter(function (n) { return n.sq; })[0];
+        if (!sn) { errors.push(rid + ' 生成后没有任何带 sq 的 NPC（区域支线没指派）'); return; }
+        const dirs = [[0, 1, 'up'], [0, -1, 'down'], [1, 0, 'left'], [-1, 0, 'right']];
+        let opened = false;
+        for (let di = 0; di < dirs.length && !opened; di++) {
+          const nx = sn.x + dirs[di][0], ny = sn.y + dirs[di][1];
+          if (nx < 0 || ny < 0 || nx >= m2.w || ny >= m2.h) continue;
+          if (m2.solid[ny][nx]) continue;
+          G.game.save.pos = { x: nx, y: ny };
+          sc2.dir = dirs[di][2];
+          sc2.overlay = null;
+          sc2._interact();
+          opened = (sc2.overlay === 'sideq');
+        }
+        if (!opened) {
+          errors.push(rid + ' 走到 NPC 旁边按一下没有开出支线对话（overlay=' + sc2.overlay + '）');
+        } else if (G.SideCur !== sn.sq) {
+          errors.push(rid + ' 开出的不是该 NPC 的支线（SideCur=' + G.SideCur + ' 应为 ' + sn.sq + '）');
+        }
+      } catch (e) {
+        errors.push(rid + ' 区域支线真驱动抛错：' + e.message);
+      }
+    });
+    G.game.save = save;
+    notes.push('区域支线：' + Object.keys(haveQ).length + ' 个区域已配 / 共 ' + regs.length + ' 个');
+  }
+
+  /* ⑩ v0.93.0（用户口径「把所有的主线支线全部串联起来……符合真实感情」）：
+     **交付支线要汇入道心**，而道心是三结局的唯一分水岭 ——
+     这条链断了的话，"帮过的人"对结局毫无影响（支线就只是拿奖励的工具）。
+     判据：交付一条支线 → `save.daoHeart` 必须增加；且必须**钳制在 -10..+10**。 */
+  {
+    const Ch = G.Data.Chapters;
+    if (!Ch || !Ch.addHeart) { errors.push('Chapters.addHeart 缺失（道心无唯一写入口）'); }
+    else {
+      const sC = JSON.parse(JSON.stringify(save || {}));
+      sC.side = {}; sC.items = {}; sC.skills = {}; sC.skillEquip = [];
+      sC.daoHeart = 0; sC.globalLevel = 200; sC.wildKills = 9999; sC.dungeonSlot = 1;
+      sC.visited = { fan4: 1 };
+      const q = SQ.list[0];
+      SQ.accept(sC, q);
+      Object.keys(q.cost || {}).forEach(function (k) { sC.items[k] = (q.cost[k] || 1) + 5; });
+      SQ.tick(sC);
+      const h0 = sC.daoHeart || 0;
+      const rC = SQ.turnIn(sC, q);
+      if (!rC.ok) errors.push('串联契约：支线应能交付（' + rC.reason + '）');
+      else if ((sC.daoHeart || 0) <= h0) {
+        errors.push('串联契约：交付支线后道心未增加（' + h0 + ' → ' + (sC.daoHeart || 0)
+          + '）—— 支线与结局脱节');
+      }
+      /* 钳制：连交 30 条也不能越界（越界会让 endingOf 的分档失真） */
+      for (let i = 0; i < 30; i++) Ch.addHeart(sC, 1);
+      if (sC.daoHeart > 10) errors.push('道心未钳制上限（' + sC.daoHeart + ' > 10）');
+      for (let i = 0; i < 60; i++) Ch.addHeart(sC, -1);
+      if (sC.daoHeart < -10) errors.push('道心未钳制下限（' + sC.daoHeart + ' < -10）');
+    }
+    /* 支线回响：结局场景要真的能取到文案（没有 → 串联只做了一半） */
+    if (!G.Data.Chapters.sideEcho) errors.push('Chapters.sideEcho 缺失（结局无支线回响）');
+    else {
+      const e0 = G.Data.Chapters.sideEcho({ side: {} });
+      const eN = G.Data.Chapters.sideEcho({ side: { a: 3, b: 3, c: 3 } });
+      if (e0 !== '' && e0.length < 4) errors.push('无支线时回响应为空串，实为 ' + JSON.stringify(e0));
+      if (!eN || eN.length < 8) errors.push('有支线时回响文案异常：' + JSON.stringify(eN));
+    }
+    /* 源码闸：结局场景必须真的把回响插进台词流 */
+    const endSrc = fs.readFileSync(path.join(WWW, 'js/scenes/ending.js'), 'utf8');
+    if (endSrc.indexOf('sideEcho') < 0) {
+      errors.push('源码闸：结局场景未调用 Chapters.sideEcho（回响文案没落地）');
     }
   }
 }, 'sidequest.contract');

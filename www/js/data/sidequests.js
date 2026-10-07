@@ -317,6 +317,381 @@
       /* 声望给得高：这是"入宗门"的前置铺垫（宗门入门要境界，声望用来换门派商店） */
       reward: { stone: 200, rep: 120 },
       out: '“拿着。到了山门，报我刘记的名号。”'
+    }),
+
+    /* ============================================================
+       v0.93.0 区域支线（用户口径「保证所有的场景地图都有支线」）
+       ============================================================
+       与上面"按 NPC id 挂"的区别：这些用 `region` 字段（区域 id），
+       由 regiongen 在生成该区域时指派给当地村民（见 `byRegion` 注释）。
+       ⚠️ 每条都必须写 `region:` 且**区域必须真实存在于 regions.js**（契约会验）。
+
+       情感落点（用户口径「要符合真实感情」）：野外不是只有"打怪跑腿"——
+       每一界的人的**处境**不同：
+         · 凡界（fan5–9）：山民、药农、矿工 —— 生计与人命
+         · 灵界（ling1–5）：修士 —— 长生路上的取舍与执念
+         · 仙界（xian1–9）：仙官仙人 —— 天规之下的束缚与不甘
+         · 道界（dao1–5）：求道者 —— 舍与得、我与道
+       每条都从"当地人的具体难处"切入，不给空泛的"帮我打十个怪"。 */
+
+    /* —— 凡界：生计线（山民/药农/矿工的口粮与人命）—— */
+
+    /* 落霞镇（fan4）：商旅重镇 + 界门所在 —— 写"离乡"的情感（与主线 c7 灵界立足呼应） */
+    S({
+      id: 'r_fan4', n: '落霞镇的灯', giver: 'npc', region: 'fan4',
+      intro: '“来往的商队都在这儿歇脚。走的人多，回来的人少。”',
+      steps: [
+        { d: '镇口的老驿卒替人守了一辈子灯。', hint: '在落霞镇外清掉 12 头劫道的妖兽。' },
+        { d: '商道清净了些。', hint: '回镇口找老驿卒。' },
+        { d: '他把灯挑高了些，说这条路还要有人走。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 12; },
+      free: true, cost: null,
+      reward: { stone: 160, items: { '灵泉水': 2 }, rep: 28 },
+      out: '“灯亮着，就有人敢走。……你也是要走的那个吧。”'
+    }),
+
+    S({
+      id: 'r_fan5', n: '岭上无归人', giver: 'npc', region: 'fan5',
+      intro: '“黑风岭上的人，走了就不回头。你……要上山？那替我看一眼吧。”',
+      steps: [
+        { d: '村口的老妇托你上岭，替她看一眼当家的坟。',
+          hint: '在黑风岭击杀 10 头拦路的妖兽。' },
+        { d: '岭上的妖兽清了些，路好走了。', hint: '回到村口告诉她。' },
+        { d: '老妇听完，只说了句“那就好”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 10; },
+      free: true, cost: null,
+      reward: { stone: 140, items: { '凝血草': 3 }, rep: 25 },
+      out: '“……多谢。这条链子你拿着，是他在山上打的。”'
+    }),
+
+    S({
+      id: 'r_fan6', n: '谷中采药人', giver: 'npc', region: 'fan6',
+      intro: '“幽篁谷的竹子会认人。你若是好人，它就不拦你。”',
+      steps: [
+        { d: '谷里的药农缺一味引子。', hint: '采 3 株幽兰（谷中采集点）。' },
+        { d: '幽兰采齐了。', hint: '回谷口找药农。' },
+        { d: '药农把新配的方子写了半页给你。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['幽兰'] || 0) >= 3; },
+      cost: { '幽兰': 3 },
+      reward: { items: { '回春丹': 2, '灵草': 2 }, rep: 25 },
+      out: '“方子不值钱，值钱的是有人肯进这谷。”'
+    }),
+
+    S({
+      id: 'r_fan7', n: '乱葬岗的灯', giver: 'npc', region: 'fan7',
+      intro: '“夜里别往坟那边去。……不过你要是去了，帮我添盏灯。”',
+      steps: [
+        { d: '守墓人请你替坟头添一盏灯。', hint: '在乱葬岗清掉 12 头游荡的邪物。' },
+        { d: '邪物散了，坟前安静。', hint: '回去告诉守墓人。' },
+        { d: '他点了灯，说这岗上终于有过活人气。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 12; },
+      free: true, cost: null,
+      reward: { stone: 180, items: { '符纸': 2, '朱砂': 1 }, rep: 30 },
+      out: '“……他们里头，也有我认得的人。”'
+    }),
+
+    S({
+      id: 'r_fan8', n: '矿下三年', giver: 'npc', region: 'fan8',
+      intro: '“这矿我挖了三年。塌过一次之后，就再没人肯下来了。”',
+      steps: [
+        { d: '老矿工想再下一次矿，但井下不安生。', hint: '在灵矿中清掉 14 头窟中之物。' },
+        { d: '井下清干净了。', hint: '回矿口找老矿工。' },
+        { d: '他摸了摸矿壁，转身把镐子留给了你。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 14; },
+      free: true, cost: null,
+      reward: { stone: 220, items: { '玄铁矿': 2, '赤铜': 2 }, rep: 30 },
+      out: '“挖不动了。你拿去吧——东西是好东西，就是太沉。”'
+    }),
+
+    S({
+      id: 'r_fan9', n: '火云守炉人', giver: 'npc', region: 'fan9',
+      intro: '“炉子烧了七十年，没熄过。我守它，它也在守我。”',
+      steps: [
+        { d: '守炉人需要火莲稳住炉温。', hint: '采 1 朵火莲（熔岩地带）。' },
+        { d: '火莲到手。', hint: '回炉边交给他。' },
+        { d: '炉温稳了。他说这把火还能再烧七十年。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['火莲'] || 0) >= 1; },
+      cost: { '火莲': 1 },
+      reward: { stone: 260, items: { '玄铁': 1 }, rep: 35 },
+      out: '“火还在，人就还在。这道理很土，但是真的。”'
+    }),
+
+    /* —— 灵界：长生路上的取舍（修士的执念）—— */
+
+    S({
+      id: 'r_ling1', n: '雷泽等雨', giver: 'npc', region: 'ling1',
+      intro: '“我在雷泽等一场雨，等了六十年。他们说雨会来，也说不准。”',
+      steps: [
+        { d: '荒原上的老修士在等一场雨。', hint: '在雷泽清掉 15 头雷兽。' },
+        { d: '雷兽不再拦路。', hint: '回荒原告诉他。' },
+        { d: '他抬头看了看天，说云近了。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 15; },
+      free: true, cost: null,
+      reward: { stone: 400, items: { '灵泉水': 3 }, rep: 40 },
+      out: '“……云近了。我等到了。”'
+    }),
+
+    S({
+      id: 'r_ling2', n: '水府遗簪', giver: 'npc', region: 'ling2',
+      intro: '“水府里沉着一支簪，是我师妹的。她进去之后，就没出来。”',
+      steps: [
+        { d: '水府深处的遗物，他想讨回来。', hint: '在水府清掉 16 头守物。' },
+        { d: '遗物取到了。', hint: '回府外交给他。' },
+        { d: '他把簪子擦了又擦，然后收进袖里。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 16; },
+      free: true, cost: null,
+      reward: { stone: 450, rep: 45, skill: '寒水诀' },
+      out: '“六十年了。她大概早就不记得我，可我还记得。”'
+    }),
+
+    S({
+      id: 'r_ling3', n: '总坛之外', giver: 'npc', region: 'ling3',
+      intro: '“血煞总坛外面，倒着不少同门。有人得替他们记个名。”',
+      steps: [
+        { d: '他想为倒下的同门立一块碑。', hint: '清掉总坛外围 18 头邪修。' },
+        { d: '外围肃清。', hint: '回去告诉他。' },
+        { d: '碑立起来了，没有名字，只有一句“都曾是人”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 18; },
+      free: true, cost: null,
+      reward: { stone: 520, items: { '妖丹': 3 }, rep: 50 },
+      out: '“名册烧了。就写这一句吧——都曾是人。”'
+    }),
+
+    S({
+      id: 'r_ling4', n: '古堡商队', giver: 'npc', region: 'ling4',
+      intro: '“黄沙底下埋着我半支商队。你要能走一遭，帮我把货单捡回来。”',
+      steps: [
+        { d: '古堡里的商队遗物，他想收殓。', hint: '在黄沙古堡清掉 15 头沙中之物。' },
+        { d: '货单找到了，字迹还认得。', hint: '回堡外交给他。' },
+        { d: '他念了一遍名字，念到一半就停了。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 15; },
+      free: true, cost: null,
+      reward: { stone: 480, items: { '兽皮': 2 }, rep: 45 },
+      out: '“……念到一半就想不起来脸了。人这东西，忘得真快。”'
+    }),
+
+    S({
+      id: 'r_ling5', n: '剑冢守冢', giver: 'npc', region: 'ling5',
+      intro: '“剑冢里的剑还认主。你若有缘，它自己会响一声。”',
+      steps: [
+        { d: '守冢人让你先证明自己配得上进冢。', hint: '在剑冢外围清掉 20 头护冢之物。' },
+        { d: '冢前的路通了。', hint: '回冢口找守冢人。' },
+        { d: '你进冢时，果然有一柄剑轻响了一声。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 20; },
+      free: true, cost: null,
+      reward: { stone: 600, rep: 60, skill: '流云剑诀' },
+      out: '“听见了？它选你了。六十年里，就响过三回。”'
+    }),
+
+    /* —— 仙界：天规之下的不甘（仙官仙人的束缚）—— */
+
+    S({
+      id: 'r_xian1', n: '南天验关', giver: 'npc', region: 'xian1',
+      intro: '“南天门的规矩，凡人一步不能进。你既然进来了，就替我看看里头。”',
+      steps: [
+        { d: '守关的仙吏托你替他在门内走一遭。', hint: '在南天门清掉 22 头门内之物。' },
+        { d: '门内清静了。', hint: '回关门找他。' },
+        { d: '他说了句“原来里面是这个样子”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 22; },
+      free: true, cost: null,
+      reward: { stone: 800, items: { '灵玉': 2 }, rep: 70 },
+      out: '“……守了三百年门，今天才头一回知道门里什么样。”'
+    }),
+
+    S({
+      id: 'r_xian2', n: '瑶池拾果', giver: 'npc', region: 'xian2',
+      intro: '“园里的果子，摘的人从来不吃。我倒是想尝一口。”',
+      steps: [
+        { d: '园丁想尝一口自己种的果子。', hint: '在瑶池清掉 20 头园中精怪。' },
+        { d: '园子清静了。', hint: '回园口交给园丁。' },
+        { d: '他咬了一口，愣了很久，说“也就这样”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 20; },
+      free: true, cost: null,
+      reward: { stone: 850, items: { '百年灵芝': 1 }, rep: 70 },
+      out: '“三千年，就等这一口。……也就这样。”'
+    }),
+
+    S({
+      id: 'r_xian3', n: '炉前丹童', giver: 'npc', region: 'xian3',
+      intro: '“炉里的丹炼了九百年，我是第三代丹童。前两代，都没等到开炉。”',
+      steps: [
+        { d: '丹童要火莲稳住炉火。', hint: '采 2 朵火莲。' },
+        { d: '火莲备齐。', hint: '回炉前交给他。' },
+        { d: '炉火稳了。他说，也许这一代能等得到。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['火莲'] || 0) >= 2; },
+      cost: { '火莲': 2 },
+      reward: { stone: 900, items: { '道纹草': 1 }, rep: 75 },
+      out: '“九百年了。我是第三代的，兴许能等到。”'
+    }),
+
+    S({
+      id: 'r_xian4', n: '星河渡口', giver: 'npc', region: 'xian4',
+      intro: '“渡口每天都有人想走。可过了河，就回不来了。”',
+      steps: [
+        { d: '渡口的仙舟被星兽堵了航路。', hint: '在星河清掉 24 头星兽。' },
+        { d: '航道通了。', hint: '回渡口找舟子。' },
+        { d: '他把船撑离了岸，回头喊了一句什么，听不清。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 24; },
+      free: true, cost: null,
+      reward: { stone: 950, items: { '星砂': 2 }, rep: 75 },
+      out: '“……走吧。别回头。”'
+    }),
+
+    S({
+      id: 'r_xian5', n: '蟠桃园约', giver: 'npc', region: 'xian5',
+      intro: '“园子里的桃，三千年一熟。我值守了两回，一回都没敢摘。”',
+      steps: [
+        { d: '值守的仙娥想摘一颗桃。', hint: '在蟠桃园清掉 20 头护园之物。' },
+        { d: '园中清静。', hint: '回园口告诉她。' },
+        { d: '她摘了一颗，掰成两半，分了你一半。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 20; },
+      free: true, cost: null,
+      reward: { stone: 880, items: { '百年灵芝': 2 }, rep: 70 },
+      out: '“甜的。……原来桃是这个味道。”'
+    }),
+
+    S({
+      id: 'r_xian6', n: '斩仙台上', giver: 'npc', region: 'xian6',
+      intro: '“台上斩过很多仙。他们临了都说自己不悔。我是不信的。”',
+      steps: [
+        { d: '行刑的仙将请你替台上拾一次骨。', hint: '在斩仙台清掉 24 头怨念所化之物。' },
+        { d: '台上安静了。', hint: '回去告诉他。' },
+        { d: '他把骨灰撒进了云里，说“回去吧”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 24; },
+      free: true, cost: null,
+      reward: { stone: 1000, items: { '血精': 1 }, rep: 80 },
+      out: '“没有一个不悔的。只是到时候，话都说不出来了。”'
+    }),
+
+    S({
+      id: 'r_xian7', n: '广寒夜话', giver: 'npc', region: 'xian7',
+      intro: '“月宫里很静。静到你听得见自己在想什么。”',
+      steps: [
+        { d: '月宫的一位仙娥想听外头的事。', hint: '在广寒宫清掉 20 头寒物。' },
+        { d: '宫外清静了。', hint: '回去陪她说说话。' },
+        { d: '她听得很认真，末了说“真好”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 20; },
+      free: true, cost: null,
+      reward: { stone: 920, items: { '寒玉': 2 }, rep: 75 },
+      out: '“真好。……我在这儿，什么都听不见。”'
+    }),
+
+    S({
+      id: 'r_xian8', n: '天枢旧册', giver: 'npc', region: 'xian8',
+      intro: '“阁里的册子记着所有人的寿数。包括我的。”',
+      steps: [
+        { d: '藏经阁的老吏请你替他把册子归位。', hint: '在天枢阁清掉 22 头乱阁之物。' },
+        { d: '册子归位了。', hint: '回去告诉他。' },
+        { d: '他翻到自己那一页，看了很久，合上了。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 22; },
+      free: true, cost: null,
+      reward: { stone: 980, items: { '道纹残片': 1 }, rep: 80 },
+      out: '“看到了。……不看也罢。”'
+    }),
+
+    S({
+      id: 'r_xian9', n: '云台演武', giver: 'npc', region: 'xian9',
+      intro: '“九霄云台上，输了的人要下界。赢了的，留下再打一场。”',
+      steps: [
+        { d: '云台的雷部要一名对手。', hint: '在九霄云台清掉 26 头雷部演武傀儡。' },
+        { d: '傀儡都停了。', hint: '回台上找他。' },
+        { d: '他收了手，说“许久没打得这么痛快”。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 26; },
+      free: true, cost: null,
+      reward: { stone: 1100, rep: 90, skill: '惊雷诀' },
+      out: '“痛快。……下回别留手。”'
+    }),
+
+    /* —— 道界：舍与得（求道者的最终取舍）—— */
+
+    S({
+      id: 'r_dao1', n: '回廊尽头', giver: 'npc', region: 'dao1',
+      intro: '“回廊没有尽头。走的人多了，才叫尽头。”',
+      steps: [
+        { d: '回廊里的守道人让你先走一遍。', hint: '在道则回廊清掉 28 头回廊之物。' },
+        { d: '回廊通了。', hint: '回去告诉他。' },
+        { d: '他说，你走的路，就是尽头。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 28; },
+      free: true, cost: null,
+      reward: { stone: 1200, items: { '道纹矿': 1 }, rep: 100 },
+      out: '“你走过的地方，就是尽头。别找了。”'
+    }),
+
+    S({
+      id: 'r_dao2', n: '斩尸崖前', giver: 'npc', region: 'dao2',
+      intro: '“崖上斩的是三尸。斩完了，还是不是自己？”',
+      steps: [
+        { d: '崖前的道人要你替他守一夜。', hint: '在斩尸崖清掉 30 头尸气所化之物。' },
+        { d: '天亮了。', hint: '回去告诉他。' },
+        { d: '他说斩完了，反而想不起自己是谁。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 30; },
+      free: true, cost: null,
+      reward: { stone: 1300, items: { '道纹草': 2 }, rep: 100 },
+      out: '“……斩干净了。可我想不起自己是谁了。”'
+    }),
+
+    S({
+      id: 'r_dao3', n: '功德海畔', giver: 'npc', region: 'dao3',
+      intro: '“海里淹着的，都是做好事做不完的人。”',
+      steps: [
+        { d: '海畔的老道请你替他捞一件旧物。', hint: '在功德海清掉 28 头海中道相。' },
+        { d: '旧物捞上来了，是半块令牌。', hint: '回去交给他。' },
+        { d: '他捏着令牌，说当年本可以不去救的。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 28; },
+      free: true, cost: null,
+      reward: { stone: 1250, items: { '道纹残片': 2 }, rep: 100 },
+      out: '“那年本可以不去救的。可我还是去了。”'
+    }),
+
+    S({
+      id: 'r_dao4', n: '混沌相对', giver: 'npc', region: 'dao4',
+      intro: '“渊里那东西会说你的话、走你的路。别听它的。”',
+      steps: [
+        { d: '渊边的道者让你别往深处看。', hint: '在混沌渊清掉 32 头混沌化形。' },
+        { d: '渊面静了。', hint: '回去告诉他。' },
+        { d: '他说，你听见的那个声音，其实是你自己的。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 32; },
+      free: true, cost: null,
+      reward: { stone: 1500, items: { '道纹矿': 2 }, rep: 110 },
+      out: '“渊里没有别人。你听见的，一直是你自己。”'
+    }),
+
+    S({
+      id: 'r_dao5', n: '合道台上', giver: 'npc', region: 'dao5',
+      intro: '“台上坐过很多人。坐上去的，都没再下来。”',
+      steps: [
+        { d: '合道台前，他让你最后走一遭。', hint: '在合道台清掉 36 头守道之物。' },
+        { d: '台前清静了。', hint: '回去告诉他。' },
+        { d: '他起身，把位子让给了你。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 36; },
+      free: true, cost: null,
+      reward: { stone: 2000, items: { '道纹残片': 3 }, rep: 150 },
+      out: '“坐上去的人回不来。所以——你替我看看吧。”'
     })
   ];
 
@@ -354,6 +729,27 @@
     /* 该 NPC 名下共几条（面板/契约用） */
     countByGiver: function (giverId) {
       return LIST.filter(function (q) { return q.giver === giverId; }).length;
+    },
+
+    /* ===== 区域支线（v0.93.0，用户口径「保证所有的场景地图都有支线」）=====
+       问题：生成型区域（凡界 fan5–fan9、灵界 ling1–5、仙界 xian1–9、道界 dao1–5）
+       的 NPC 是 **regiongen 动态生成**的（id 是 `n1`/`n2`），拿不到稳定 id，
+       所以没法像青溪镇那样"按 NPC id 挂支线"。
+       解法：**按区域 id 挂**。`region` 字段 = regions.js 里的区域 id；
+       regiongen 在生成该区域的 NPC 时，把这一条支线指派给**第一个村民**，
+       并把 `npc.sq` 写成支线 id（稳定的区域 id，不是动态的 n1/n2）。
+       一个区域默认一条（够用且不会让野外 NPC 变成任务墙）。
+
+       `byRegion(regionId)` 返回该区域的支线（没配就 null）。 */
+    byRegion: function (regionId) {
+      return LIST.filter(function (q) { return q.region === regionId; })[0] || null;
+    },
+    /* 区域支线**当前该不该谈**：与 byGiver 同一套 step 语义，只是入口换成区域 */
+    regionQuestFor: function (save, regionId) {
+      var q = this.byRegion(regionId);
+      if (!q) return null;
+      var st = this.stepOf(save, q.id);
+      return st >= 3 ? null : q;          /* 做完了就不再打扰 */
     },
     /* 当前步（0 = 未接） */
     stepOf: function (save, id) { return ((save.side || {})[id] | 0); },
@@ -393,6 +789,24 @@
       }
       save.side = save.side || {};
       save.side[q.id] = 3;
+      /* ===== 支线 → 道心（v0.93.0，用户口径「把所有的主线支线全部串联起来」）=====
+         支线不是主线的装饰品 —— 你替陌生人做的事，会留在**道心**上，
+         而道心是**三结局的唯一分水岭**（`Chapters.endingOf`）。
+         这才是"符合真实感情"的串联：结局不只看你在主线里怎么选，
+         也看你在路上**顺手帮过多少人**。
+
+         `q.heart` 由数据表显式给出（默认 +1：绝大多数支线是善意之举）：
+           · 越界/伤人的支线才给负值（预留字段，目前都是 +1）
+           · 上限 +1/条，避免"刷支线"把道心刷满 —— 道心区间只有 -10..+10，
+             支线最多贡献 +10，与主线抉择同量级、不压倒它。
+         ⚠️ 走 `G.Data.Chapters.heartOf` 同一套钳制（-10..+10），
+            不自己写一份 clamp（两处各写一次必然分叉）。 */
+      var hd = (q.heart == null) ? 1 : q.heart;
+      if (hd && G.Data.Chapters && G.Data.Chapters.addHeart) {
+        G.Data.Chapters.addHeart(save, hd);
+      } else if (hd) {
+        save.daoHeart = Math.max(-10, Math.min(10, (save.daoHeart || 0) + hd));
+      }
       if (G.Player.chronicle) G.Player.chronicle(save, 'side:' + q.id, '了却一桩：' + q.n);
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       return { ok: true, text: q.out, reward: r };
@@ -425,6 +839,13 @@
       if (step >= 3) return false;                 /* 做完了 → 回到普通闲聊 */
       var self = this;
       G.SideCur = q.id;                            /* 对话渲染读它取内容（见各场景 sideq） */
+      return this._openTalk(scene, q, step, save);
+    },
+
+    /* 「接 / 交 / 知道了」三个按钮的**唯一**构建处。
+       `talk`（按 NPC）与 `talkById`（按支线 id）都走这里 —— 同源，不会分叉。 */
+    _openTalk: function (scene, q, step, save) {
+      var self = this;
       var mk = function (x, lb, variant, fn) {
         return new G.UI.Btn({ x: x, y: 214, w: 100, h: 24, small: true,
           variant: variant, label: lb, onClick: fn });
@@ -449,6 +870,25 @@
       }
       scene.setOverlay('sideq', btns);
       return true;
+    },
+
+    /* ===== 按**支线 id** 直谈（v0.93.0，区域支线用）=====
+       生成型区域的 NPC id 是动态的（n1/n2），没法按 giver 找；
+       而 `o.sq` 里存的是**支线 id**（`r_fan5` 这种稳定的区域派生 id）。
+       这里就是把 `talk` 的"找支线"一步换成"按 id 取"，其余流程一模一样。
+       ⚠️ 逻辑与 `talk` **必须同源**（同一套 step→按钮映射）——
+          两处各写一遍的话，改了一处另一处就分叉（项目老坑）。 */
+    talkById: function (scene, questId, label, portrait) {
+      var save = G.game && G.game.save;
+      if (!scene || !save || !questId) return false;
+      var q = this.byId(questId);
+      if (!q) return false;
+      this.tick(save);
+      var step = this.stepOf(save, q.id);
+      if (step >= 3) return false;
+      /* 复用 `talk` 的按钮构建：把"取哪条"的结果先塞进 G.SideCur，再走同一条路 */
+      G.SideCur = q.id;
+      return this._openTalk(scene, q, step, save);
     },
 
     /* 支线对话的内容（各场景的 dialog 表共用这一份）——

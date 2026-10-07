@@ -207,6 +207,16 @@
     var npcs = [];
     var npcKinds = (r.npcKinds && r.npcKinds.length) ? r.npcKinds : (r.safe ? ['villager', 'keeper', 'elder'] : ['villager']);
     var npcN = r.safe ? 4 : 2;
+    /* 区域支线（v0.93.0，用户口径「保证所有的场景地图都有支线」）：
+       生成型区域的 NPC id 是动态的（n1/n2），挂不了"按 NPC id"的支线；
+       所以支线改按**区域 id** 挂（`sidequests.byRegion`）。
+       这里把该区域的支线**指派给第一个村民**：`npc.sq` = 支线 id。
+       ⚠️ 只指派给第一个，其余保持普通闲聊 —— 满地图都是任务 NPC 会让人以为
+          "野外全是任务点"，而且一条支线配一个 NPC 语义最清楚。
+       ⚠️ 生成型区域没有手写 NPC，所以支线**必须**在这里接上，
+          否则这 24 条支线永远没人发（静默）。 */
+    var rq = (G.Data.sideQuests && G.Data.sideQuests.byRegion)
+      ? G.Data.sideQuests.byRegion(regionId) : null;
     for (var ni = 0; ni < npcN; ni++) {
       var done = false;
       for (var tt = 0; tt < 300 && !done; tt++) {
@@ -217,8 +227,12 @@
         if (!nearRoad) continue;
         var kind = npcKinds[ni % npcKinds.length];
         var nm = r.n + '·' + ({ villager: '村民', keeper: '掌柜', elder: '老者' }[kind] || '村民');
-        npcs.push({ id: 'n' + (ni + 1), kind: kind, name: nm, portrait: kind === 'elder' ? 'villager' : kind,
-                    x: nx, y: ny, act: 'chat.villager' });
+        var npc = { id: 'n' + (ni + 1), kind: kind, name: nm,
+                    portrait: kind === 'elder' ? 'villager' : kind,
+                    x: nx, y: ny, act: 'chat.villager' };
+        /* 第一个 NPC 兼区域支线的引路人 */
+        if (ni === 0 && rq) npc.sq = rq.id;
+        npcs.push(npc);
         taken[nx + ',' + ny] = true;
         done = true;
       }
@@ -324,6 +338,23 @@
       menu: function (s) { G.TianDao.openSettings(s); },
       overlayTap: G.TianDao.overlayTap,
       overlayKey: G.TianDao.overlayKey,
+      /* ⚠️ NPC 走的是 `hooks.onNpc` 而**不是** `onInteract`（见 explore._interact 的分派：
+         `o.type === 'npc' && hooks.onNpc` → 命中就 return，不会再落到 onInteract）。
+         上一版只注册了 onInteract，于是"点 NPC 什么都不会发生"（真驱动核验抓到）。
+         这里把 NPC 单独接上：带 `sq` 的走区域支线，其余给一句环境闲聊。 */
+      onNpc: function (npc, s) {
+        if (!npc) return;
+        var SQ = G.Data.sideQuests;
+        if (npc.sq && SQ && SQ.talkById) {
+          var rn = (G.Data.regions.byId(regionId) || {}).n || regionId;
+          if (SQ.talkById(s, npc.sq, rn + ' · 支线', npc.portrait)) return;
+        }
+        /* 无支线可谈（或已做完）→ 一句区域特色的闲聊，不留白。
+           ⚠️ 直接 toast 而不是开对话覆盖层：生成区域的 NPC 没有立绘资源，
+             硬开 dialog 会显示占位像；toast 足够传达"理你了"。 */
+        var say = (G.Data.sideQuests && npc.sq) ? '“该说的都说了。”' : '“客官，山高路远。”';
+        G.game.toast((npc.name || '村民') + '　' + say);
+      },
       onInteract: function (o, s) {
         var save = G.game.save;
         if (!o) return;
@@ -349,9 +380,29 @@
           G.RegionGen.openGate(s);
           return;
         }
+        /* 区域支线（v0.93.0）：带 `sq` 的 NPC 优先走支线对话。
+           与青溪镇/云州城**同一套流程**（`sideQuests.talk`）——
+           次序也是"支线 > 闲聊"，三处一致才不会让玩家困惑。
+           ⚠️ 这里不能用 `o.id` 找 giver（生成型 NPC 的 id 是动态 n1/n2），
+              要用 `o.sq`（区域支线的稳定 id）。 */
+        if (o.type === 'npc' && o.sq && G.Data.sideQuests && G.Data.sideQuests.talk) {
+          var sqTalk = G.Data.sideQuests;
+          var rname = (G.Data.regions.byId(regionId) || {}).n || regionId;
+          /* 用 npcId=null 走"按支线 id 直谈"模式（见 sideQuests.talkById） */
+          if (sqTalk.talkById && sqTalk.talkById(s, o.sq, rname + ' · 支线', o.portrait)) return;
+        }
       },
       renderOverlay: function (x, s) {
-        G.Overlays.route(x, s);
+        if (G.Overlays.route(x, s)) return;
+        /* 区域支线对话（v0.93.0）：与两镇共用 `sideQuests.dialogOf` */
+        if (s.overlay === 'sideq' && G.Data.sideQuests) {
+          var nm2 = '当地人', md2 = G.Data.maps[regionId];
+          (md2 && md2.npcs || []).forEach(function (n) {
+            if (n.sq && n.sq === G.SideCur) nm2 = n.name;
+          });
+          var rn2 = (G.Data.regions.byId(regionId) || {}).n || regionId;
+          G.Overlays.dialog(x, G.Data.sideQuests.dialogOf(G.game.save, rn2 + ' · 支线', nm2, 'villager'));
+        }
       }
     };
     var sc = G.Explore.create(regionId, hooks);
