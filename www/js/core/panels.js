@@ -2811,38 +2811,40 @@
      ⚠️ "隐藏"与"置灰"是两件事：隐藏 = 玩家不知道它存在（仙界 / 道界）；
      置灰 = 知道但去不了（灵界）。两套判据分开写，别合成一个 ——
      合成之后"该藏起来的界"会以灰按钮的形式提前泄底。 */
-  /* 界门/地图页签的可见性与可点性（**两个不同的问题**，v0.94.0 拆开）：
-       · `show` = 玩家**看得见**这个界吗（页签是否出现）
-       · `ok`   = 玩家**进得去**吗（当前世是否已解锁）
-     ⚠️ v0.94.0（用户口径「把四个地图展示到这里……让玩家有期待感」）：
-        原先 `show` 与 `ok` 绑在一起 —— 未解锁的界**整个藏掉**，
-        玩家看到的地图页只有「凡界」「灵界」，**不知道后面还有仙界与道界**，
-        也就没有"我要修上去"的期待。
-        现在改成：**四界页签全部常驻**，未解锁的置灰 + 悬停写"尚未现世"。
-        为什么这样更好：地图页是**唯一**能一次展示"四界全貌"的地方，
-        把它当"成就墙"用（看见 → 想去 → 去不了 → 有目标），
-        比藏起来更符合"修仙求长生"的动机。
-     ⚠️ 但**可点性不变**：`ok:false` 的界点了不切图（`mapWorldOf` 会退回凡界），
-        绝不能因为"看得见"就放玩家进去（那是内容闸，不是 UI 闸）。 */
+  /* 界/地图页签的三态（**三个不同的问题**，v0.97.0 定型）：
+       · `show` = 页签是否出现（当前恒 true，四界都在）
+       · `view` = 玩家**看得见**这一界的地图内容吗（点了能不能切过去看）
+       · `ok`   = 玩家**去得了**这一界吗（能不能传送 / 进图）
+     ⚠️ v0.94.0 只有 `show` / `ok` 两态，未解锁的界 `disabled` —— 于是
+        「看得见页签、点不开内容」，玩家只看得到凡界，不知道灵界长什么样。
+     ⚠️ v0.97.0（用户口径「把地图全部能展示看到，但是无法过去」）：
+        拆出 `view`。**四界 `view` 全 true** —— 地图页是"世界观展示窗"，
+        玩家该能看见"后面还有三界、长什么样"，才有修上去的动机；
+        但 `ok` 仍按解锁链 —— **看得见 ≠ 去得了**（内容闸不在 UI 层放行）。
+     ⚠️ "能看不能去"在**节点层**表达（未到访=空心圈、悬浮写"未曾至"），
+        不在页签层表达 —— 页签层只需负责"点得开"。 */
   function worldGate(meta, w) {
     var p = (meta && meta.progress) || {};
     var ws = p.worlds || {};
     var hell = (meta && meta.hellCleared) || {};
-    /* `dao` 的解锁条件（与 `regions.rollMainWorld` 同源）：三碎片齐 或 地狱通关仙界。
-       ⚠️ 这两条是"道界**现世**"的门槛 —— 现世了就该可点（否则显示"现世"却点不动）。 */
+    /* `dao` 的解锁条件（与 `regions.rollMainWorld` 同源）：三碎片齐 或 地狱通关仙界。 */
     var daoOpen = !!(p.daoKey || hell.xian);
-    if (w === 'fan') return { show: true, ok: true };
-    if (w === 'ling') return { show: true, ok: !!ws.ling };
-    if (w === 'xian') return { show: true, ok: !!ws.xian };
-    if (w === 'dao') return { show: true, ok: daoOpen };
-    return { show: false, ok: false };
+    /* ⚠️ `view` 与 `show` 现在同义（都恒 true），但**分开写**是刻意的：
+       将来若只想展示"已现世"的界，改 `view` 一处即可，`show` 语义不被牵连。 */
+    if (w === 'fan') return { show: true, view: true, ok: true };
+    if (w === 'ling') return { show: true, view: true, ok: !!ws.ling };
+    if (w === 'xian') return { show: true, view: true, ok: !!ws.xian };
+    if (w === 'dao') return { show: true, view: true, ok: daoOpen };
+    return { show: false, view: false, ok: false };
   }
 
-  /* 当前该看哪一界：选了看不了的界就退回凡界（别让"隐藏"的界被选中） */
+  /* 当前该看哪一界。
+     ⚠️ v0.97.0：判据从 `ok` 改为 **`view`** —— 未解锁的界**也要能看**
+        （用户口径「把地图全部能展示看到」）。`ok` 只在**点节点传送**时判。 */
   function mapWorldOf(scene, meta) {
     var w = scene.mapWorld || G.Player.activeWorldId(meta);
     var g = worldGate(meta, w);
-    if (!g.show || !g.ok) w = 'fan';
+    if (!g.show || !g.view) w = 'fan';
     scene.mapWorld = w;
     return w;
   }
@@ -2877,6 +2879,11 @@
     L.push('秘境　' + (mine.length ? ('有入口 ×' + mine.length) : '无'));
     L.push('界门　' + (r.gate ? '有' : '无'));
     L.push(visited[r.id] ? '已到访' : '未曾至');
+    /* ⚠️ v0.97.0：把"这一界去得了吗"也写进悬浮说明。
+       否则玩家点一个未现世界的节点，得到的提示要看 toast（转瞬即逝），
+       悬停时无从预知 —— 悬停是**唯一**能"先看清楚再决定点不点"的地方。 */
+    var wg = worldGate(meta, w);
+    if (!wg.ok) L.push('※ ' + (G.Data.regions.worldNames[w] || '此界') + '尚未现世，暂且远观');
     return { title: G.Data.regions.nameOf(r.id, save) + '　' + (r.theme || ''), text: L.join('\n') };
   }
 
@@ -2940,7 +2947,7 @@
     var list = Rg.of(w) || [];
     shell(x, '地图', Rg.worldNames[w] || '');
 
-    /* 界页签的悬停说明（v0.94.0）：未解锁的界写明"尚未现世"。
+    /* 界页签的悬停说明（v0.97.0）：未现世的界仍可点开看，但写明"还去不了"。
        ⚠️ 登记在面板体而不是 Btn 字段上 —— Btn 是逐字段显式拷贝，
           加字段要同步改构造器/渲染/契约三处（项目 G33 的老坑）。
        几何与 `buildMap` 共用同一个算法（`MP.tabW/tabGap` + 居中）。 */
@@ -2950,16 +2957,22 @@
       var x0 = P.x + (P.w - total) / 2;
       show.forEach(function (ww, i) {
         var gt = worldGate(meta, ww);
-        if (gt.ok) return;                       /* 开着的界不用提示 */
+        if (gt.ok) return;                       /* 已现世的界不用提示 */
         G.UI.hover({
           x: Math.round(x0 + i * (MP.tabW + MP.tabGap)), y: MP.tabY,
           w: MP.tabW, h: MP.tabH
         }, {
           title: Rg.worldNames[ww] + ' · 尚未现世',
-          text: '此界需修至相应境界、并经界门方可入。先在此看清它的轮廓。'
+          text: '可查看全图，但此界需修至相应境界、并经界门方可入。'
         });
       });
     })();
+
+    /* 未现世界的**内容暗调**（v0.97.0）：地图内容画完后压一层暗纱。
+       这是"能看不能去"在视觉上的承担 —— 页签是亮的（点得开），
+       内容是暗的（看得出"还没激活"）。⚠️ 暗纱**不拦点击**（只压暗），
+       点了照样给"尚未现世"的提示。 */
+    var wGate = worldGate(meta, w);
 
     /* 视口（v0.62.0 起带缩放/平移）。
        ⚠️ 手法：把**整层地图**放进一个 ctx 变换里（clip 到视口 → 平移到中心+pan →
@@ -3084,16 +3097,33 @@
         'center', 'rgba(6,10,20,0.9)', 2.2);
     });
 
-    /* 图例 + 未解锁界的提示（v0.94.0）。⚠️ 必须**短**：
-       面板可用宽 456−28=428，9.5px 中文约 9.5px/字 → 上限约 45 字；
-       写成"灵界、仙界、道界尚未现世（修至其境自开）"会顶出右沿（bounds 契约抓到过）。 */
+    /* ===== 未现世界的暗纱（v0.97.0）=====
+       用户口径「把地图全部能展示看到，但是无法过去」——
+       "看得到"由页签与地图内容承担，"去不了"由**暗调 + 节点提示**承担。
+       ⚠️ 画在**视口内**（坐标是屏幕坐标，此时视口变换已 restore）；
+       ⚠️ 只压暗**视口**，不压页签/图例/缩放控件（那些要亮着，才点得动）；
+       ⚠️ 不拦点击 —— 暗纱是纯视觉层。 */
+    if (!wGate.ok) {
+      x.save();
+      x.beginPath(); x.rect(V.vx, V.vy, V.vw, V.vh); x.clip();
+      x.fillStyle = 'rgba(10,14,24,0.42)';
+      x.fillRect(V.vx, V.vy, V.vw, V.vh);
+      /* 一行提示写明"看得到但去不了"，免得玩家以为是画错了 */
+      x.font = G.UI.F(9.5);
+      G.UI.textOut(x, { x: V.vx + V.vw / 2, y: V.vy + 7 },
+        '尚未现世 · 暂且远观', 9.5, 'rgba(226,210,160,0.92)', 'center', 'rgba(6,10,20,0.85)', 2.2);
+      x.restore();
+    }
+
+    /* 图例 + 未解锁界的提示（v0.97.0）。⚠️ 必须**短**：
+       面板可用宽 456−28=428，9.5px 中文约 9.5px/字 → 上限约 45 字。 */
     var hint = '拖拽平移 · ＋/− 缩放 · 点节点传送（化神境起）';
     var locked = 0;
     WORLD_ORDER.forEach(function (w) {
       var g = worldGate(meta, w);
       if (g.show && !g.ok) locked++;
     });
-    if (locked) hint = '还有 ' + locked + ' 界尚未现世 · ' + '拖拽平移 · ＋/− 缩放 · 点节点传送';
+    if (locked) hint = '还有 ' + locked + ' 界尚未现世（可查看全图）· 拖拽平移 · 点节点传送';
     G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 }, hint, 9.5, G.UI.C.textDim);
   }
 
@@ -3122,21 +3152,22 @@
         }
       }));
     });
-    /* 四界页签**全部常驻**（v0.94.0，用户口径「把四个地图展示到这里，让玩家有期待感」）。
-       未解锁的界：`disabled`（点了不切图，且外观压暗）。
-       ⚠️ `disabled: !gt.ok` 只管**可点性**，页签本身照建 ——
-          这是"看得见但进不去"，与"藏起来"是两种完全不同的体验。
-       ⚠️ 悬停说明**不挂 Btn 字段**（Btn 是逐字段显式拷贝，加字段要同步改三处）——
-          改为在 `drawMap` 里用 `G.UI.hover` 登记（那里已知页签矩形）。 */
+    /* 四界页签**全部常驻且全部可点**（v0.97.0）。
+       ⚠️ 与 v0.94.0 的关键差异：那时未解锁的页签 `disabled`（点不开内容），
+          玩家只能看凡界——**这正是用户截图反馈的"其他三界地图无法看到"**。
+          现在**点得开**：四界地图内容都能查看（"世界观展示窗"）；
+          "去不了"改在**节点层**表达（点未现世界的节点明确提示）。
+       ⚠️ 页签**不做 disabled/置灰** —— 置灰会重新变成"点不动"。
+          未现世界的"未解锁感"由**地图内容的暗调 + 节点提示**承担：
+          内容是暗的（读得出"这地方还没激活"），但页签是亮的（点得开）。 */
     var show = WORLD_ORDER.filter(function (w) { return worldGate(meta, w).show; });
     var total = show.length * MP.tabW + (show.length - 1) * MP.tabGap;
     var x0 = P.x + (P.w - total) / 2;
     show.forEach(function (w, i) {
-      var gt = worldGate(meta, w);
       btns.push(new G.UI.Btn({
         x: Math.round(x0 + i * (MP.tabW + MP.tabGap)), y: MP.tabY,
         w: MP.tabW, h: MP.tabH, small: true,
-        variant: 'subtab', active: cur === w, disabled: !gt.ok,
+        variant: 'subtab', active: cur === w,
         label: Rg.worldNames[w],
         onClick: function () {
           scene.mapWorld = w;
@@ -3571,6 +3602,16 @@
     if (!hit) return true;
     var curId = G.Data.regions.regionIdOf ? G.Data.regions.regionIdOf(save.map) : null;
     if (hit.id === curId) { G.game.toast('已在此处'); return true; }
+    /* ⚠️ v0.97.0：**先判"这一界去得了吗"**，再判到访与境界。
+       顺序很重要 —— 否则玩家在未现世的界点一个"曾到访"的节点，
+       会收到"需化神境"这种**误导**提示（真正的原因是这一界还没解锁）。
+       用户口径：「把地图全部能展示看到，但是无法过去」→
+       能看（页签点得开、节点画得出来）但去不了（这里拦住并说明原因）。 */
+    var wg = worldGate(meta, w);
+    if (!wg.ok) {
+      G.game.toast(G.Data.regions.worldNames[w] + '尚未现世 · 可远观，不可至');
+      return true;
+    }
     if (!(save.visited || {})[hit.id]) {
       G.game.toast('未曾到过 ' + hit.n + '，无从传送');
       return true;

@@ -68,6 +68,39 @@ function driver(unlock) {
   })()`;
 }
 
+/* v0.97.0：切到指定界并停住 —— 证明"未解锁也能看内容"。
+   ⚠️ 关键：存档的 meta.progress.worlds **全空**（什么都没解锁），
+      所以 ling/xian/dao 三界都是"能看不能去"的真实状态。 */
+function viewDriver(w) {
+  return `(async function () {
+    var G = window.G;
+    var t0 = Date.now();
+    while (!G.Assets.ready && Date.now() - t0 < 10000) await new Promise(function (r) { setTimeout(r, 50); });
+    try { if (G.Cutscene && G.Cutscene.dom) G.Cutscene.dom.style.display = 'none'; } catch (e) {}
+    /* 全未解锁：四界都"能看"，只有凡界"能去" */
+    G.game.meta = { past: [], progress: { worlds: {} }, hellCleared: {}, titles: [], perfusion: {}, achieve: {} };
+    var sv = {
+      life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
+      linggen: { elems: ['木'], coef: { '木': 1.2 } }, talents: [], skills: {}, skillEquip: [],
+      items: {}, stone: 500, qi: 1200, po: 30, globalLevel: 60, age: 20,
+      visited: {}, quest: { step: 'm1done', flags: {} },
+      chestsOpened: [], scene: 'town', map: 'town', pos: null, hp: 300
+    };
+    G.game.save = sv;
+    G.game.changeScene('town', { toSpawn: true });
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var sc = G.game.scene;
+    sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+    sc.mapWorld = '${w}';
+    G.Overlays.openPanel(sc, 'map', true);
+    G.game.toasts.length = 0; G.game.lootFeed.length = 0;
+    for (var k = 0; k < 60; k++) { if (sc.update) sc.update(0.03); }
+    if (sc.render) sc.render(G.game.ctx);
+    var g = G.Overlays.worldGate(G.game.meta, sc.mapWorld);
+    return JSON.stringify({ world: sc.mapWorld, n: (G.Data.regions.of(sc.mapWorld) || []).length, ok: g.ok });
+  })()`;
+}
+
 (async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wb-mapshot-'));
@@ -93,6 +126,23 @@ function driver(unlock) {
       const shot = await client.send('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(shot.data, 'base64'));
       console.log('  ✓ ' + name + '（解锁到 ' + unlock + '）四界页签：' + rep.tabs.join('  '));
+    }
+    /* v0.97.0：**四界各拍一张**，证明"未解锁也能看内容"（用户口径
+       「把地图全部能展示看到，但是无法过去」）。
+       ⚠️ 未解锁的界（ling/xian/dao）只能"看"，所以要注意：它们的地图内容
+          应完整画出（区域节点都在），只是压了一层暗纱 + 底部提示"尚未现世"。 */
+    const viewJobs = ['fan', 'ling', 'xian', 'dao'];
+    for (let vi = 0; vi < viewJobs.length; vi++) {
+      const w = viewJobs[vi];
+      const r = await client.send('Runtime.evaluate', {
+        expression: viewDriver(w), awaitPromise: true, returnByValue: true
+      });
+      if (r.exceptionDetails) throw new Error('视图驱动抛错：' + JSON.stringify(r.exceptionDetails.exception || r.exceptionDetails));
+      const rep = JSON.parse(r.result.value);
+      const shot = await client.send('Page.captureScreenshot', { format: 'png' });
+      const nm = '36w_view_' + w;
+      fs.writeFileSync(path.join(OUT, nm + '.png'), Buffer.from(shot.data, 'base64'));
+      console.log('  ✓ ' + nm + ' 显示界=' + rep.world + '(' + rep.n + '区) ok=' + rep.ok);
     }
   } catch (e) { console.error('失败：' + e.message); process.exitCode = 1; }
   finally { if (client) client.close(); chrome.kill(); await sleep(300); try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {} }

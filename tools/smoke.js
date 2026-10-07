@@ -9209,6 +9209,49 @@ step(function () {
     errors.push('视口内的点击应被地图吃掉（返回 true）');
   }
   const home = G.game.sceneName;
+  /* ⓪ **未现世界的节点点不了**（v0.97.0，用户口径「把地图全部能展示看到，
+     但是无法过去」）：把当前界切到"未解锁的仙界"，点它的节点 →
+     不切场景 + 给"尚未现世"提示。
+     ⚠️ 放在最前面：这是"看得见 ≠ 去得了"的端到端判决。 */
+  {
+    const meta0 = G.game.meta;
+    const wsBak = (meta0.progress || {}).worlds;
+    meta0.progress = meta0.progress || {};
+    meta0.progress.worlds = {};                       /* 全未解锁 */
+    G.game.changeScene('town', { toSpawn: true });
+    const scU = G.game.scene;
+    scU.mapZoom = 1; scU.mapPan = { x: 0, y: 0 };
+    scU.mapWorld = 'xian';
+    G.Overlays.openPanel(scU, 'map', true);
+    if (scU.mapWorld !== 'xian') {
+      errors.push('未现世的界切不过去看（退回 ' + scU.mapWorld + '）—— 用户要"地图全部能展示看到"');
+    }
+    const ru = (Rg.of('xian') || [])[0];
+    if (ru) {
+      const toasts = [];
+      const oldT = G.game.toast;
+      G.game.toast = function (t) { toasts.push(t); };
+      const beforeU = G.game.sceneName;
+      G.Overlays.mapTap({
+        x: V2.vx + V2.vw / 2 + (ru.mx - 0.5) * V2.vw,
+        y: V2.vy + V2.vh / 2 + (ru.my - 0.5) * V2.vh
+      }, scU);
+      G.game.toast = oldT;
+      if (G.game.sceneName !== beforeU) {
+        errors.push('未现世界的节点竟然传送走了（到了 ' + G.game.sceneName + '）');
+      }
+      if (!toasts.some(function (t) { return t.indexOf('尚未现世') >= 0; })) {
+        errors.push('未现世界的节点没给"尚未现世"提示：' + JSON.stringify(toasts));
+      }
+    }
+    meta0.progress.worlds = wsBak || {};
+    /* 回到凡界继续本契约后面的断言（⚠️ `sc` 是 const，只能就地复位，
+       不能再取 G.game.scene —— 场景是单例，回来就是同一个对象） */
+    G.game.changeScene('town', { toSpawn: true });
+    sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+    sc.mapWorld = 'fan';
+    G.Overlays.openPanel(sc, 'map', true);
+  }
   /* ① 未到访 → 不传 */
   delete s.visited[target.id];
   G.Overlays.mapTap(nodeP, sc);
@@ -10456,32 +10499,66 @@ step(function () {
   const errors = [];
   const stripC = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-  /* ① 解锁门槛：**可见（show）与可点（ok）是两件事**，逐个场景钉死。
-     ⚠️ v0.94.0 口径变更（用户原话：「把四个地图展示到这里，现在是可以看到，
-        让玩家有期待感」）：**四界页签全部可见**，未解锁的**置灰不可点**。
-        旧口径是"仙界未到灵界则隐藏、道界未到仙界则隐藏" —— 那是用户在**更早**的
-        需求里写的（"仙界、道界隐藏"）。本轮用户明确要求**改成"看得见"**，
-        所以判据跟着改：`show` 恒为 true，`ok` 仍按解锁链。
-     ⚠️ 但**可点性一个都不能松**：`ok` 必须仍然拦得住 —— 可见 ≠ 可进。 */
+  /* ① 三态门槛：**页签可见（show）/ 看得到内容（view）/ 去得了（ok）**
+     是**三个不同的问题**，逐个场景钉死。
+     ⚠️ 口径演进（三次都是用户口径在推）：
+        · 更早：`show` 与 `ok` 绑一起 —— 未解锁的界**整个藏掉**；
+        · v0.94.0：「把四个地图展示到这里，让玩家有期待感」→ 四界页签常驻，
+          但未解锁的 `disabled`（点不开内容）；
+        · v0.97.0：「把地图**全部能展示看到**，但是无法过去」→ 拆出 `view`：
+          **四界都能点开看全图**（`view` 恒 true），但 `ok` 仍按解锁链。
+     ⚠️ **可点性一个都不能松**：`ok` 必须仍然拦得住 —— 看得见 ≠ 去得了。
+        点未现世界的节点要**明确提示**（否则玩家以为是画错了）。 */
   const wg = G.Overlays.worldGate;
   if (typeof wg !== 'function') bail('真地图契约：未导出 worldGate');
+  /* 空进度：四界**全部可见 + 全部能看到内容**，但只有凡界去得了 */
+  [
+    [{}, 'fan', true, true, true, '凡界永远可看可去'],
+    [{}, 'ling', true, true, false, '灵界**能看**（内容可查）但未飞升去不了'],
+    [{}, 'xian', true, true, false, '仙界**能看**（内容可查）但未解锁去不了'],
+    [{}, 'dao', true, true, false, '道界**能看**（内容可查）但未解锁去不了']
+  ].forEach(function (c) {
+    const r = wg(c[0], c[1]);
+    if (r.show !== c[2]) errors.push(c[5] + '：show 应为 ' + c[2] + '，实为 ' + r.show);
+    if (r.view !== c[3]) errors.push(c[5] + '：view 应为 ' + c[3] + '，实为 ' + r.view);
+    if (r.ok !== c[4]) errors.push(c[5] + '：ok 应为 ' + c[4] + '，实为 ' + r.ok);
+  });
   const CASES = [
-    [{}, 'fan', true, true, '凡界永远可点'],
-    [{}, 'ling', true, false, '灵界可见但未飞升置灰'],
-    [{}, 'xian', true, false, '仙界**可见**（有期待感）但未解锁置灰'],
-    [{}, 'dao', true, false, '道界**可见**（有期待感）但未解锁置灰'],
-    [{ progress: { worlds: { ling: true } } }, 'ling', true, true, '飞升灵界后可点'],
-    [{ progress: { worlds: { ling: true } } }, 'xian', true, false, '仙界仍置灰（未飞升）'],
-    [{ progress: { worlds: { ling: true, xian: true } } }, 'xian', true, true, '飞升仙界后可点'],
-    [{ progress: { worlds: { ling: true, xian: true } } }, 'dao', true, false, '道界仍置灰（未满足条件）'],
-    [{ progress: { worlds: { ling: true, xian: true }, daoKey: true } }, 'dao', true, true, '三碎片齐 → 道界可点'],
-    [{ progress: { worlds: { ling: true, xian: true } }, hellCleared: { xian: true } }, 'dao', true, true, '地狱通关仙界 → 道界可点']
+    [{ progress: { worlds: { ling: true } } }, 'ling', true, '飞升灵界后可去'],
+    [{ progress: { worlds: { ling: true } } }, 'xian', false, '仙界仍去不了（未飞升）'],
+    [{ progress: { worlds: { ling: true, xian: true } } }, 'xian', true, '飞升仙界后可去'],
+    [{ progress: { worlds: { ling: true, xian: true } } }, 'dao', false, '道界仍去不了（未满足条件）'],
+    [{ progress: { worlds: { ling: true, xian: true }, daoKey: true } }, 'dao', true, '三碎片齐 → 道界可去'],
+    [{ progress: { worlds: { ling: true, xian: true } }, hellCleared: { xian: true } }, 'dao', true, '地狱通关仙界 → 道界可去']
   ];
   CASES.forEach(function (c) {
     const r = wg(c[0], c[1]);
-    if (r.show !== c[2]) errors.push(c[4] + '：show 应为 ' + c[2] + '，实为 ' + r.show);
-    if (r.ok !== c[3]) errors.push(c[4] + '：ok 应为 ' + c[3] + '，实为 ' + r.ok);
+    if (r.ok !== c[2]) errors.push(c[3] + '：ok 应为 ' + c[2] + '，实为 ' + r.ok);
+    /* ⚠️ 解锁与否，**都必须能看**（view 恒 true）—— 否则又回到"看不到其他三界" */
+    if (!r.view) errors.push(c[3] + '：view 必须恒为 true（能看不能去才是本需求）');
   });
+  /* ⚠️ 源码闸：`view` 必须是**字面量 true**（防回退成"按解锁链判可见"） */
+  {
+    const panSrc = fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8');
+    const body2 = stripC(panSrc);
+    const m2 = body2.match(/function worldGate[\s\S]{0,1200}?\n  \}/);
+    const wgb = m2 ? m2[0] : '';
+    if (!wgb) errors.push('源码闸：找不到 worldGate 函数体');
+    else if ((wgb.match(/view: true/g) || []).length !== 4) {
+      errors.push('源码闸：worldGate 应有 **4 处** `view: true`（fan/ling/xian/dao 四分支；'
+        + '兜底分支是 false）—— 少了就是又变成"看不到其他三界"');
+    }
+    /* 页签**不许再 disabled**（那会重新变成"点不动"）。
+       ⚠️ 判据必须宽：只要 buildMap 的页签块里出现 `disabled` 就算数 ——
+          写死 `!gt.ok` 会漏掉 `!worldGate(meta,w).ok` 这类等价写法（反例实测漏网）。 */
+    const mb = body2.match(/function buildMap\(btns, scene\)[\s\S]{0,2400}?\n  \}/);
+    const mbBody = mb ? mb[0] : '';
+    if (!mbBody) errors.push('源码闸：找不到 buildMap 函数体');
+    else if (/disabled/.test(mbBody)) {
+      errors.push('源码闸：buildMap 的页签块里出现了 disabled —— '
+        + '会让未解锁的界"点不开发看"（用户要的是"能看不能去"）');
+    }
+  }
 
   /* ①b v0.94.0（用户口径「把四个地图展示到这里……让玩家有期待感」）：
      **四界页签必须全部常驻**，`show` 恒 true；未解锁的只置灰（`ok:false`）。
@@ -10585,13 +10662,61 @@ step(function () {
       errors.push('渲染 ' + w + ' 界地图时抛异常：' + e.message);
     }
   });
+
+  /* ⑤ **真驱动"能看不能去"**（v0.97.0，用户口径「把地图全部能展示看到，但是无法过去」）：
+     光验 `worldGate` 的返回值不够 —— 要证明**页面真的切得过去**、
+     且**点节点真的过不去**（给明确提示而不是静默）。
+     ⚠️ 这两条是"看得见"与"去不了"的**端到端**判决，缺一条就可能出现
+        "页签亮着但内容还是凡界"（mapWorldOf 忘了改判据）或
+        "点未现世的节点却真的传送了"（闸门漏在 UI 层）。 */
+  {
+    /* 全未解锁：切到仙界看内容 —— mapWorldOf 必须保留 xian（不许退回 fan） */
+    G.game.meta.progress.worlds = {};
+    s.globalLevel = 1;
+    sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+    sc.mapWorld = 'xian';
+    G.Overlays.openPanel(sc, 'map', true);
+    if (sc.mapWorld !== 'xian') {
+      errors.push('未解锁的界切不过去（mapWorldOf 退回了 ' + sc.mapWorld
+        + '）—— 玩家看不到其他三界的地图');
+    }
+    /* 真的点一个仙界节点：必须**不切场景** + 给出"尚未现世"提示。
+       ⚠️ 必须先**复位缩放/平移** —— 场景是**单例**，前面测缩放的那一节
+          (zoom=3, pan={260,-7.9}) 会留在同一对象上，落点公式不补偿它就点不中
+          （而且症状是"提示为空"而非报错，很难查）。复位 = 玩家刚打开面板的常态。 */
+    const rx = (G.Data.regions.of('xian') || [])[0];
+    if (rx) {
+      sc.mapZoom = 1; sc.mapPan = { x: 0, y: 0 };
+      G.Overlays.openPanel(sc, 'map', true);
+      const toasts = [];
+      const oldToast = G.game.toast;
+      G.game.toast = function (t) { toasts.push(t); };
+      /* 落点用 `mapNodePos` 的公式（= mapUnproject 的逆）——**唯一正确口径**，
+         照抄面板几何常量：MP = {vx:60, vy:84, vw:394, vh:132}（P.x=46/P.y=26 推得） */
+      const MPv = { vx: 60, vy: 84, vw: 394, vh: 132 };
+      G.Overlays.mapTap({
+        x: MPv.vx + MPv.vw / 2 + (rx.mx - 0.5) * MPv.vw,
+        y: MPv.vy + MPv.vh / 2 + (rx.my - 0.5) * MPv.vh
+      }, sc);
+      G.game.toast = oldToast;
+      if (G.game.sceneName !== 'town') {
+        errors.push('点未现世界的节点竟然传送走了（到了 ' + G.game.sceneName + '）—— 闸门漏了');
+      }
+      if (!toasts.some(function (t) { return t.indexOf('尚未现世') >= 0; })) {
+        errors.push('点未现世界的节点没有给出"尚未现世"提示（玩家会以为画错了）：'
+          + JSON.stringify(toasts));
+      }
+    } else {
+      errors.push('仙界没有区域节点，无法验"能看不能去"');
+    }
+  }
   G.game.changeScene('title');
 
   if (errors.length) {
     errors.forEach((e) => console.log('  ✗ ' + e));
     throw new Error('真地图契约失败：' + errors.length + ' 条');
   }
-  console.log('  ✓ 真地图：28 区坐标齐全 / 四界页签常驻（可见 vs 可点分离）/ 底图缓存 + 固定种子');
+  console.log('  ✓ 真地图：28 区坐标齐全 / 四界可查看（view）与可传送（ok）分离 / 底图缓存 + 固定种子');
 }, 'map.world.contract');
 pump(6, 'map.world.leave');
 
