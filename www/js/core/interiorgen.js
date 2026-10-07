@@ -141,6 +141,7 @@
   };
 
   function build(save, interiorId, structure, region) {
+    var sname = structure.n || structure.label || structure.id;
     var tpl = TPL[KIND2TPL[structure.bk] || 'home'];
     var rng = new G.RNG(hashStr(save.worldSeed + ':' + interiorId));
     var w = tpl.w, h = tpl.h;
@@ -159,7 +160,7 @@
     /* 家具：深拷贝模板，label 带上建筑名 */
     var furn = tpl.furn.map(function (f) {
       return { id: f.id, kind: f.kind, x: f.x, y: f.y, w: f.w, h: f.h, act: f.act,
-               label: f.label ? (structure.n + '·' + f.label) : null };
+               label: f.label ? (sname + '·' + f.label) : null };
     });
 
     /* NPC：站在模板指定点，绝不压家具/出口 */
@@ -172,14 +173,14 @@
       });
       if (ny < 5) ny = 5;
       if (!blocked && nx > 0 && nx < w - 1 && ny > 0 && ny < h - 2) {
-        npcs.push({ id: 'n1', kind: tpl.npc.kind, name: structure.n + '·' + tpl.npc.name,
+        npcs.push({ id: 'n1', kind: tpl.npc.kind, name: sname + '·' + tpl.npc.name,
                     portrait: tpl.npc.kind, x: nx, y: ny, act: 'chat.villager' });
       }
     }
 
     return {
       id: interiorId, interiorId: interiorId, indoor: true, safe: true,
-      n: structure.n, label: structure.n, bk: structure.bk,
+      n: sname, label: sname, bk: structure.bk,
       w: w, h: h, ground: 'floor',
       furn: furn, npcs: npcs, exits: exits,
       spawn: { x: cx, y: h - 2 }

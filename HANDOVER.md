@@ -1,6 +1,13 @@
 # 《逆尘》开发交接文档
 
-> 最后更新：2026-10-07 · 代码版本 **v0.86.0（天道之战五阶段 / 第三结局·斩天道）** · 设计基线 **GDD v4.0（文档归档重构）** · 前一里程碑 v0.85.0
+> 最后更新：2026-10-07 · 代码版本 **v0.87.0（地图建筑原地精细化·云州城室内）** · 设计基线 **GDD v4.0（文档归档重构）** · 前一里程碑 v0.86.0
+>
+> **【v0.87.0 地图建筑原地精细化 · 云州城室内 2026-10-07】** 应「#47 进入建筑给独立室内、替代纯面板」诉求，全量 smoke 归零、真实光栅化目检。
+> ① **云州城 8 栋建筑全部可进入**：yunzhou.js onInteract 增门路由 → InteriorGen.ensure 程序化室内（id int.yunzhou.<结构>），_transition 走进；出口指回云州城门格。
+> ② **服务建筑给真实服务**（复用 InteriorGen 模板 act）：西市 shop→柜台 trade→ShopService 开店；云州客栈 inn→innRest 投宿；云州铁坊 smithy→铁砧 forge→openForge；丹霞坊 alchemy→丹炉 brew→openAlchemy。城主府 hall / 论道台 tower / 民居 home 给环境向陈设与反馈。
+> ③ **InteriorGen 名称兜底**：手写结构只有 label、无 n，导致左上角裸显 int.yunzhou.market；build 统一用 structure.n || structure.label || structure.id，修掉场景名与家具/NPC 名前缀。
+> ④ 生成式区域（regiongen）本就门→InteriorGen、青溪镇为手写室内，至此**全图建筑皆可进入、每件陈设有反馈**。街面 NPC 保留（主线执事/裁判坐标不动，服务双线可用）。
+> ⑤ smoke 新增 yunzhou.interior.contract（逐结构：室内生成/出口指回/可交互家具/四服务 act/渲染不崩）；shot 目检西市·云州客栈。
 >
 > **【v0.86.0 天道之战五阶段 + 第三结局·斩天道 2026-10-07】** 应「#45 地狱完整形态 / #46 第三结局」诉求，全量 smoke 归零、真实光栅化目检五阶段与三结局菜单。
 > ① **天道本体立绘（core/sprites.js）**：新增 BAKE.tiandao「云幕冷眼」——悬于云翳、冷瞰诸世的巨眼（杏仁眼白、同心冷色虹膜、暗色竖瞳、放射冷线、上下云翳眼睑）。

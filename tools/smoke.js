@@ -8836,6 +8836,27 @@ step(function () {
   if (s2.tdWar.stage !== 3) errors.push('战败检查点被错误推进');
   pump(2, 'td.lost');
 }, 'tiandaowar.contract');
+/* ---------- 云州城建筑室内契约（v0.87，#47 原地精细化） ----------
+   每栋结构都能走进去：有出口指回云州、至少一件可交互家具，四个服务建筑带真实服务 act，渲染不崩。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  G.game.save = s;
+  const md = G.Data.maps.yunzhou;
+  const region = { id: 'yunzhou', map: 'yunzhou', n: '云州城' };
+  const wantAct = { market: 'trade', inn: 'inn', smithy: 'forge', alchemy: 'brew' };
+  (md.structures || []).forEach(function (st) {
+    const iid = 'int.yunzhou.' + st.id;
+    const imd = G.InteriorGen.ensure(s, iid, st, region);
+    if (!imd) { errors.push('云州室内未生成：' + st.id); return; }
+    if (!imd.exits || !imd.exits.length) errors.push(st.id + ' 室内缺出口');
+    else if (imd.exits[0].to !== 'yunzhou') errors.push(st.id + ' 出口未指回云州城');
+    const acts = (imd.furn || []).map(function (f) { return f.act; }).filter(Boolean);
+    if (!acts.length) errors.push(st.id + ' 室内无任何可交互家具');
+    if (wantAct[st.id] && acts.indexOf(wantAct[st.id]) < 0) errors.push(st.id + ' 室内缺服务 act：' + wantAct[st.id]);
+    G.game.changeScene(iid);
+    pump(3, 'yz.int.' + st.id);
+  });
+}, 'yunzhou.interior.contract');
 
 /* ---------- 地图地形契约（v0.64.0，用户第 14 点） ----------
    用户口径：「这个地图和这些地面完全不是一个风格，没有区分谷、峰、平原、山地、草原、河流、

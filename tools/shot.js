@@ -1691,6 +1691,23 @@ step(() => {
   clearStoryModal();
 }, 'yunzhou.m2_1');
 shot('57_yunzhou_dialog', 2);
+/* #47 云州城室内：西市 / 客栈 走进去各拍一张（家具 + 柜台服务） */
+step(() => {
+  const s = G.game.save, md = G.Data.maps.yunzhou, region = { id: 'yunzhou', map: 'yunzhou', n: '云州城' };
+  const st = md.structures.filter((x) => x.id === 'market')[0];
+  const iid = 'int.yunzhou.market';
+  G.InteriorGen.ensure(s, iid, st, region);
+  G.game.changeScene(iid);
+}, 'yz.int.market');
+shot('91_yz_shop', 4);
+step(() => {
+  const s = G.game.save, md = G.Data.maps.yunzhou, region = { id: 'yunzhou', map: 'yunzhou', n: '云州城' };
+  const st = md.structures.filter((x) => x.id === 'inn')[0];
+  const iid = 'int.yunzhou.inn';
+  G.InteriorGen.ensure(s, iid, st, region);
+  G.game.changeScene(iid);
+}, 'yz.int.inn');
+shot('92_yz_inn', 4);
 
 /* v0.66 首批验收。只操作上方 Node 内存 localStorage，不读写玩家浏览器存档。 */
 step(() => {

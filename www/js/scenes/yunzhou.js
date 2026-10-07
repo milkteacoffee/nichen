@@ -140,6 +140,17 @@
   };
 
   hooks.onInteract = function (o, scene) {
+    if (o.type === 'door') {
+      /* 建筑门 → 程序化室内（#47 原地精细化）：服务类室内给真实交易/投宿/打造/炼丹。 */
+      var md = G.Data.maps.yunzhou, st = null;
+      (md.structures || []).forEach(function (x) { if (x.id === o.id) st = x; });
+      if (!st) return;
+      var iid = 'int.yunzhou.' + st.id;
+      var imd = G.InteriorGen.ensure(G.game.save, iid, st, { id: 'yunzhou', map: 'yunzhou', n: '云州城' });
+      if (!imd) { G.game.toast('门锁着，推不开'); return; }
+      scene._transition({ to: iid, spawn: imd.spawn });
+      return;
+    }
     if (o.type !== 'npc') return;
     var fn = ACTS[o.act];
     if (fn) { fn(scene); return; }
