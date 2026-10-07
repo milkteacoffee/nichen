@@ -183,7 +183,21 @@
           ly += 4;
         });
         if (opt.reward) {
-          G.UI.textOut(x, { x: tx, y: ly + 4 }, opt.reward, 15, G.UI.C.goldHi);
+          /* ⚠️ v0.98.0 **必须折行**：原先用 `textOut`（单行不折）——
+             长奖励文案（「沈伯赠你幼年青纹蛇，药渣 ×5，木囊 ×2」）会**横着溢出面板**，
+             截图里"木囊 ×2"就挂在面板外面（用户口径"对话框……要打磨"抓到的）。
+             `G.UI.wrap` 按宽度折，与台词同一套。 **且必须夹住行数** ——
+             奖励太长会把底部的按钮顶出面板，所以超出行数时截断加省略号。 */
+          var rmax = Math.max(1, Math.floor((P.y + P.h - 12 - (ly + 4)) / 19));
+          var rrows = G.UI.wrap(x, opt.reward, 15, tw);
+          if (rrows.length > rmax) {
+            rrows = rrows.slice(0, rmax);
+            rrows[rmax - 1] = rrows[rmax - 1].slice(0, -1) + '…';
+          }
+          rrows.forEach(function (row) {
+            G.UI.textOut(x, { x: tx, y: ly + 4 }, row, 15, G.UI.C.goldHi);
+            ly += 19;
+          });
         }
         return P;
       });

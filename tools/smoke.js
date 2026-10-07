@@ -10290,7 +10290,12 @@ step(function () {
   const realPanel = G.UI.panel, realTextOut = G.UI.textOut;
   let cap = null, capYs = [];
   const stubCtx = { save: function () {}, restore: function () {}, globalAlpha: 1,
-    shadowColor: '', shadowBlur: 0 };
+    shadowColor: '', shadowBlur: 0, font: '',
+    /* ⚠️ v0.98.0：`_renderToasts` 现在要**按文案量宽**（长 toast 的框会自适应 + 折行），
+       所以桩必须有 `measureText`。缺了会抛 "x.measureText is not a function"
+       —— 断言的**前置条件**（桩的完整度）没跟上被测代码的演进。
+       宽度口径与全局桩一致（长度 × 7），中文会低估但那不影响本契约的"框有没有盖住按钮"。 */
+    measureText: function (s) { return { width: String(s).length * 7 }; } };
   G.UI.panel = function (x, r) { cap = { x: r.x, y: r.y, w: r.w, h: r.h }; };
   G.UI.textOut = function (x, o) { capYs.push(o.y); };
 
@@ -10307,6 +10312,21 @@ step(function () {
     cap = null;
     g._renderToasts(stubCtx);
     return cap;
+  };
+  /* v0.98.0：同时抓"框矩形"与"每行文字的宽" —— 判"框有没有包住文字"。
+     ⚠️ 必须走 `G.UI.textOut` 的桩（它记 o.y），但**文字宽度**要在桩外量 ——
+        桩收到的 str 就是折行后的各行，用它 + stubCtx.measureText 算宽。
+        这是个**多行**问题：单看"框在不在"抓不到溢出（框本来就在，是字跑出去了）。 */
+  const toastRectAndRows = function () {
+    cap = null;
+    const rows = [];
+    const oldOut = G.UI.textOut;
+    G.UI.textOut = function (x, o, str, size) {
+      rows.push({ y: o.y, w: x.measureText ? x.measureText(str).width : String(str).length * 7 });
+    };
+    g._renderToasts(stubCtx);
+    G.UI.textOut = oldOut;
+    return { rect: cap, rows: rows };
   };
   const lootRows = function () {
     g.lootFeed.length = 0;
@@ -10325,6 +10345,37 @@ step(function () {
     if (nRect.y !== wantY) {
       errors.push('无覆盖层时 toast y 应与历史一致（' + wantY + '），实为 ' + nRect.y);
     }
+  }
+  /* v0.98.0：**长 toast 的框必须包住文字**（用户口径「对话框……UI 设计」）。
+     原先框宽写死 240 + `textOut`（单行不折）——「沈伯赠你幼年青纹蛇，药渣 ×5，
+     木囊 ×2」约 20 字 ≈ 260px，**横着溢出框外**（截图里"木囊 ×2"挂在框外面）。
+     判据：三档文案各测一次，**框宽必须 ≥ 最宽那行文字宽**（且不越视口）。 */
+  {
+    const cases = [
+      ['短提示', 200],                                  /* 短文案 → 保持最小宽（零回归） */
+      ['沈伯赠你幼年青纹蛇，药渣 ×5，木囊 ×2', 0],      /* 中等长 → 自适应撑宽 */
+      ['这是一条特别长的提示文案用来测试折行是否真的生效以及框是否会跟着变宽而不是让文字跑出去', 0]
+    ];
+    cases.forEach(function (c) {
+      G.game.toasts.length = 0;
+      G.game.toasts.push({ text: c[0], t: 1 });
+      const got = toastRectAndRows();
+      G.game.toasts.length = 0;
+      if (c[1]) {
+        if (got.rect.w !== c[1]) {
+          errors.push('toast 短文案的框宽应为最小宽 ' + c[1] + '（零回归），实为 ' + got.rect.w);
+        }
+      }
+      const widest = got.rows.reduce(function (m, r) { return Math.max(m, r.w); }, 0);
+      /* 框的内边距 24（两侧各 12），文字宽不能超过 */
+      if (widest + 24 > got.rect.w + 1) {
+        errors.push('toast 框包不住文字（框 ' + got.rect.w + ' < 文字 ' + widest + ' + 24）：「'
+          + c[0].slice(0, 12) + '…」');
+      }
+      if (got.rect.x < 0 || got.rect.x + got.rect.w > g.W) {
+        errors.push('toast 框越出视口（x=' + got.rect.x + ' w=' + got.rect.w + '）');
+      }
+    });
   }
   /* 无覆盖层：战利品首行仍从 54 起 */
   const nLoot = lootRows();

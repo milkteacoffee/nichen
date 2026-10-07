@@ -605,8 +605,33 @@
 
     _renderToasts: function (x) {
       if (!this.toasts.length) return;
-      var pad = 9, lineH = 20, w = 240;
-      var h = this.toasts.length * lineH + pad;
+      var pad = 9, lineH = 20;
+      /* ⚠️ v0.98.0：toast 框宽**不能再写死 240**。
+         原先 `w = 240` 定宽 + `textOut`（单行居中、不折行）——
+         长文案（「沈伯赠你幼年青纹蛇，药渣 ×5，木囊 ×2」约 20 字 ≈ 260px）
+         会**横着溢出框外**，截图里"木囊 ×2"就挂在框外面（用户口径
+         "对话框……UI 设计"打磨时抓到，一眼可见）。
+         现在：① 框宽按**最长那条**的实际文字宽度自适应（夹在 200 ~ W-24）；
+              ② 超出时按框宽**折行**，总高随折行数变。 */
+      var maxW = this.W - 24, minW = 200;
+      x.font = G.UI.F(13);
+      /* 用"最宽那条"定框（夹在 minW ~ maxW），再让每条按此宽折行 */
+      var needW = minW;
+      for (var k = 0; k < this.toasts.length; k++) {
+        var one = G.UI.wrap(x, this.toasts[k].text, 13, maxW - 24);
+        for (var q = 0; q < one.length; q++) {
+          needW = Math.max(needW, x.measureText(one[q]).width + 24);
+        }
+      }
+      var w = Math.max(minW, Math.min(maxW, needW));
+      /* 预折行 + 算总高 */
+      var rowsPer = [], blocksTotal = 0;
+      for (var m = 0; m < this.toasts.length; m++) {
+        var blk = G.UI.wrap(x, this.toasts[m].text, 13, w - 24);
+        rowsPer.push(blk);
+        blocksTotal += blk.length;
+      }
+      var h = blocksTotal * lineH + pad;
       /* 底部要让开探索场景的功能栏（28px），否则提示被压在底栏底下看不见 */
       var bot = (G.Explore && G.Explore.BOT_H) || 0;
       var y0 = this.H - h - 14 - bot;
@@ -619,9 +644,12 @@
       }
       G.UI.panel(x, { x: this.W / 2 - w / 2, y: y0, w: w, h: h },
         '#161b28', 'rgba(216,183,104,0.65)', 5);
-      for (var i = 0; i < this.toasts.length; i++) {
-        G.UI.textOut(x, { x: this.W / 2, y: y0 + pad / 2 + i * lineH + 4 },
-          this.toasts[i].text, 13, G.UI.C.text, 'center');
+      var ty = y0 + pad / 2 + 4;
+      for (var n = 0; n < rowsPer.length; n++) {
+        for (var r2 = 0; r2 < rowsPer[n].length; r2++) {
+          G.UI.textOut(x, { x: this.W / 2, y: ty }, rowsPer[n][r2], 13, G.UI.C.text, 'center');
+          ty += lineH;
+        }
       }
     },
 
