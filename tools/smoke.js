@@ -7931,6 +7931,43 @@ step(function () {
   }
   console.log('  ✓ 地图尺度：TILE=' + TILE + ' / 建筑高 ' + bh.toFixed(0) + 'px = 人物 '
     + ratio.toFixed(2) + ' 倍 / 无裸 16');
+
+  /* ④ v0.95.0（用户口径「地图放大后很空」+「建筑看着和环境不搭」）：
+     两处都是**地图放大 ×1.4 的连带副作用**，各钉一条：
+       a) **装饰密度随面积缩放**：`scatter` 表按老尺寸（42×30）标定，
+          地图面积 ×1.96 后数量不变 → 密度掉到 52%（一眼看成荒地）。
+          判据：造两个"面积差近 2 倍"的假 md 场景不对，直接断源码闸 + 数值：
+          同一 regionId 在大图上烘出的装饰数，应约为小图的 面积比 倍。
+       b) **建筑吃环境色温**：`struct.*` 是整张位图、原本完全不吃调色板，
+          同一座冷灰城楼放进土黄荒野就"贴上去"。
+          判据：同一建筑在**不同地面色**下烘出的平均色必须不同（缓存键带地面色）。 */
+  {
+    /* a) 装饰密度：源码闸（面积比参与数量计算） */
+    const rgSrc2 = fs.readFileSync(path.join(WWW, 'js/core/regiongen.js'), 'utf8');
+    if (rgSrc2.indexOf('SCATTER_REF_AREA') < 0) {
+      errors.push('源码闸：regiongen 未按面积缩放装饰数量（地图放大后会变空）');
+    } else if (!/scatter\[k\] \* areaK/.test(rgSrc2)) {
+      errors.push('源码闸：装饰数量未乘面积比（SCATTER_REF_AREA 形同虚设）');
+    }
+    /* b) 建筑环境色温：同一建筑在不同地面色下必须烘出不同像素 */
+    const stSrc = fs.readFileSync(path.join(WWW, 'js/core/art.js'), 'utf8');
+    if (stSrc.indexOf('function structTint') < 0) {
+      errors.push('源码闸：art.js 缺 structTint（建筑不吃环境色，放进异地貌会"贴上去"）');
+    }
+    /* 三个建造函数都要接上（house/ruin/gate）—— 只接一个的话另两个仍不协调。
+       ⚠️ 判据必须**精确到 3 处调用**（不是 `>= 3`）：`>= 3` 时把其中一处改坏
+          仍会通过（实测 4→3 仍满足下界，反例漏网 —— "粒度要匹配改动粒度"的教训）。
+       ⚠️ 也不能数裸 `structTint(im, pal)`：函数**定义**也是这个形状（会多算 1）。
+          用 `c: structTint(im, pal)` 只匹配"赋值给返回值"的调用处。 */
+    const tinted = (stSrc.match(/c: structTint\(im, pal\)/g) || []).length;
+    if (tinted !== 3) {
+      errors.push('接入环境色温的建筑函数应为 3 处（house/ruin/gate），实为 ' + tinted + ' 处');
+    }
+    /* 缓存键必须带地面色 —— 漏了会"第一次生成的赢"（同一张水榭在两地貌同色） */
+    if (!/stim\|' \+ im\.src \+ '\|' \+ g/.test(stSrc)) {
+      errors.push('源码闸：structTint 的缓存键未带地面色（不同地貌会串色）');
+    }
+  }
 }, 'map.scale.contract');
 
 /* ---------- 区域裂隙 → 副本入口面板契约（缺口 U6 + G20） ----------

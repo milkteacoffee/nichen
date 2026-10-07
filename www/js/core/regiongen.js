@@ -274,6 +274,26 @@
       || (r.safe ? { trees: 6, rocks: 2 }
         : (r.ground === 'cave' ? { rocks: 12 } : { trees: 14, rocks: 6 }));
 
+    /* ⚠️ v0.95.0：装饰数量必须**随地图面积缩放**（用户截图反馈「地图放大后很空」）。
+       真因：`scatter` 表里的数值是**按老尺寸（约 42×30 格）标定**的，
+       而 v0.91.0 把地图整体放大到 ×1.4 → 面积 ×1.96，装饰**没跟着变**，
+       密度掉到 52%（一眼看成"荒地"）。
+       修法：以 `SCATTER_REF_AREA`（老尺寸基准）为 1.0，按 `本图面积 / 基准面积`
+       等比放大数量 —— 这样"每格多少棵树"恒定，与地图多大无关。
+       ⚠️ 用**面积比**而不是线性比：装饰是铺在二维地面上的，
+          边长 ×2 时要 ×4 才保持同样观感（线性会显得越大地图越空）。
+       ⚠️ 只动 `regiongen`（生成型区域）；手写城镇（town/yunzhou）的 scatter
+          写在地图数据里，它们的尺寸自 v0.91.0 起就固定，不需要再乘。 */
+    var SCATTER_REF_AREA = 42 * 30;       /* scatter 表的标定基准（老区域尺寸） */
+    var areaK = Math.max(1, (w * h) / SCATTER_REF_AREA);
+    if (areaK > 1.01) {
+      var sc2 = {};
+      Object.keys(scatter).forEach(function (k) {
+        sc2[k] = Math.max(1, Math.round(scatter[k] * areaK));
+      });
+      scatter = sc2;
+    }
+
     /* 区域名（v0.74.0）：走 `regions.nameOf` 的**唯一口** —— 场景名 / 地图节点名 /
        出口名牌都从 md.label 取，所以只要这里按世随机，三处显示自动一致。
        （用户第 24 点：「实际场景和地图名称要一致」。） */

@@ -1114,6 +1114,38 @@
         不动它的几何（否则调色板/斑驳随机数全变，等于重画）。 */
   var STRUCT_SCALE = 1.4;
 
+  /* ===== 建筑环境色温适配（v0.95.0，用户口径「建筑就是不太协调，看着和环境不搭」）=====
+     真因：`struct.*` 建筑素材是**整张成品位图、完全不吃调色板**（直接 `return {c: im}`），
+     所以同一座**冷灰蓝石城楼**会被放进凡界任何地貌 ——
+     放在土黄荒野（`bandit_dry`，ground `#6a6248`）上，冷暖对比撕裂，一眼就"贴上去的"。
+
+     修法：按该区域的**地面暗色**给建筑叠一层"环境光"——
+       ① 先把建筑整体轻微压暗**偏向地面的色相**（乘性混合，保留材质明暗）；
+       ② 再叠一层极淡的地面色（加性，模拟环境反射）。
+     强度刻意压得很低（0.10~0.16）：**要的是"和光同尘"，不是把建筑染成土色**。
+     ⚠️ 这是**烘焙期**着色（走 `cached`，按 key 缓存），不是每帧 —— 否则每帧
+        逐像素处理 256×192 会把性能吃光。
+     ⚠️ 缓存键必须带**地面色**：同一张水榭在灵泉与在炎浆畔要烘出两份，
+        键里漏了它就会"第一次生成的赢"（项目老坑：缓存键不带变体）。 */
+  var STRUCT_TINT_MIX = 0.14;      /* 压暗与偏色强度（0 = 不着色） */
+  function structTint(im, pal) {
+    var g = (pal && pal.ground) || '#808080';
+    return cached('stim|' + im.src + '|' + g, im.width, im.height, function (x) {
+      x.drawImage(im, 0, 0);
+      /* ① 乘性偏色：把地面色的**色相**以低强度混进来（保留建筑的黑白关系） */
+      x.globalCompositeOperation = 'multiply';
+      x.globalAlpha = STRUCT_TINT_MIX;
+      x.fillStyle = g;
+      x.fillRect(0, 0, im.width, im.height);
+      /* ② 加性反光：极淡的地面色铺一层，模拟环境漫反射 */
+      x.globalCompositeOperation = 'lighter';
+      x.globalAlpha = STRUCT_TINT_MIX * 0.35;
+      x.fillRect(0, 0, im.width, im.height);
+      x.globalCompositeOperation = 'source-over';
+      x.globalAlpha = 1;
+    }).c;
+  }
+
   A.house = function (s, pal) {
     var W = s.w * A.TILE, H = s.h * A.TILE;
     /* 素材取图键：`struct.<bk>` 优先（药铺 / 铁匠铺 / 丹房…），
@@ -1132,7 +1164,7 @@
             这正是 2.5D 该有的观感（和既有"落地投影 + 墙脚基座"同一套视觉语言）。 */
       var k = Math.min(W / im.width, H / im.height) * STRUCT_SCALE;
       var dw = im.width * k, dh = im.height * k;
-      return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
+      return { c: structTint(im, pal), ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
     }
     var ox = -12, oy = -8;
     var key = 'h|' + W + '|' + H + '|' + s.roof;
@@ -1244,7 +1276,7 @@
          与 `A.house` / `A.gate` 统一成"**等比内含 + 底部居中 + STRUCT_SCALE**"。 */
       var k = Math.min(W / im.width, H / im.height) * STRUCT_SCALE;
       var dw = im.width * k, dh = im.height * k;
-      return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
+      return { c: structTint(im, pal), ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
     }
     var ox = -8, oy = -8;
     var key = 'r|' + W + '|' + H;
@@ -1313,7 +1345,7 @@
          ⚠️ 底部锚定 = 落地线对齐（`py + H` 是地面），与房子一致。 */
       var k = Math.min(W / im.width, H / im.height) * STRUCT_SCALE;
       var dw = im.width * k, dh = im.height * k;
-      return { c: im, ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
+      return { c: structTint(im, pal), ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
     }
     var ox = -4, oy = -4;
     var key = 'g|' + W + '|' + H + '|' + pal.rock;
