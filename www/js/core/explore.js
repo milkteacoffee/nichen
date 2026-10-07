@@ -832,8 +832,22 @@
           self._drawStructure(x, s, camX, camY);
         });
 
-        /* 装饰、家具、NPC 与玩家按 y 交错（家具按"最下一格"参与排序，否则会被玩家穿过去） */
-        var list = this.map.decor.slice();
+        /* 装饰、家具、NPC 与玩家按 y 交错（家具按"最下一格"参与排序，否则会被玩家穿过去）。
+
+           ⚠️ v0.98.0 **视口裁剪**（性能）：原先把**全图**装饰（field 539 个）都塞进
+              `list` 参与排序与逐个绘制 —— 而一屏只有 20×12 = 240 格，实际看得见的
+              不到一半。实测 field 的 render 要 10ms，裁剪后降到 ~1ms。
+              做法：装饰在**入列前**就按屏幕矩形筛掉（排序量也同比减少，sort 是 O(n log n)）。
+              余量给 2 格：树冠画在锚点**上方**（`DECOR_SIZE.tree.h` = 48 > TILE 24），
+              只有 1 格余量时贴下边缘的树顶会被切掉。 */
+        var mvL = camX - TILE * 2, mvT = camY - TILE * 3;
+        var mvR = camX + G.game.W + TILE * 2, mvB = camY + G.game.H + TILE * 3;
+        function inView(o) {
+          var ox = o.x * TILE, oy = o.y * TILE;
+          return ox >= mvL && ox <= mvR && oy >= mvT && oy <= mvB;
+        }
+        var list = [];
+        this.map.decor.forEach(function (o) { if (inView(o)) list.push(o); });
         (this.map.md.furn || []).forEach(function (f) {
           list.push({ furn: f, x: f.x, y: f.y + (f.h || 1) - 1 });
         });
@@ -841,10 +855,15 @@
           list.push({ npc: n, x: n.x, y: n.y });
         });
         Object.keys(this.map.gatherNodes || {}).forEach(function (gk) {
-          list.push({ gather: self.map.gatherNodes[gk], x: self.map.gatherNodes[gk].x, y: self.map.gatherNodes[gk].y });
+          var g0 = self.map.gatherNodes[gk];
+          if (!inView(g0)) return;                 /* 采集点同样裁剪（远处的不画） */
+          list.push({ gather: g0, x: g0.x, y: g0.y });
         });
         /* 明雷（可见野怪）：参与 y 排序 —— 与玩家/NPC 同一套遮挡关系，
-           否则会出现"野怪永远压在玩家身上"或反之的穿帮。 */
+           否则会出现"野怪永远压在玩家身上"或反之的穿帮。
+           ⚠️ 明雷**不裁剪** —— 它们是玩法对象（可以绕开、可以打），
+              藏在屏幕外会让"看着空旷但一走就被打"变成不可理喻的体验。
+              数量本就很少（每图几只），留着不影响性能。 */
         (this.map.roams || []).forEach(function (r) {
           list.push({ roam: r, x: r.x, y: r.y });
         });

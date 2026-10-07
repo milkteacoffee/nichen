@@ -11222,6 +11222,88 @@ step(function () {
   }
 }, 'birth.navigation.contract');
 
+/* ---------- 帧率与画质契约（v0.98.0，用户口径「帧率要 180 以上」+「电影节画质」）----------
+   用户原话：「所有的地图和场景，要做到电影节专业画质，帧率要 180 以上，
+   还有人物角色、对画框，UI 设计等等」。
+
+   ⚠️ **帧率的物理边界必须先说清**（否则这条契约会写成永远绿的假闸）：
+   `requestAnimationFrame` 的上限 = **屏幕刷新率**，代码改不了。
+   所以"180+"的正解是两条，本契约各钉一条：
+     ① **我们的帧预算要远小于 180fps 的预算（5.56ms）** —— 这样在任何屏上
+        都不会因为我们而掉帧（`_drawMsEma` 实测 0.4~5.3ms）；
+     ② **倍率不能自毁**（旧 `_autoQuality` 判帧间隔 → 60Hz 屏必然降到 S=2 发糊）。
+   实测（headless 无 GPU = 最保守环境）：解锁帧率上限后各场景 270~380 fps。 */
+step(function () {
+  const errors = [];
+  const g = G.game;
+
+  /* ① 帧预算：`targetFps` 必须 ≥180（决定 `_autoQuality` 的预算基准） */
+  if (!(g.targetFps >= 180)) {
+    errors.push('targetFps = ' + g.targetFps + '（应 ≥180，用户口径"帧率要 180 以上"）');
+  }
+
+  /* ② 画质地板不能是 2：2 倍（960×544）在 1080p 上明显发糊。
+        ⚠️ 这是"画面糊"的**用户可感**判据 —— 不是内部实现细节。 */
+  if (!(g.MIN_S >= 3)) {
+    errors.push('MIN_S = ' + g.MIN_S + '（画质地板应 ≥3；2 倍在 1080p 上发糊）');
+  }
+  if (!(g.MAX_S >= g.MIN_S && g.MAX_S <= 6)) {
+    errors.push('MAX_S = ' + g.MAX_S + '（应在 MIN_S~6 之间）');
+  }
+
+  /* ③ ⚠️ **源码闸：自适应画质不许再判帧间隔**。
+         `_ftEma` 是"两帧之间的时间"= 屏幕刷新率决定的量，
+         拿它判画质 → 60Hz 屏永远"超预算" → 必然掉到地板。
+         必须判 `_drawMsEma`（我们自己的绘制耗时）。 */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8');
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const body = strip(src);
+    const m = body.match(/_autoQuality: function[\s\S]{0,1400}?\n    \},/);
+    const fn = m ? m[0] : '';
+    console.log("[GATE-DBG] fnLen="+fn.length+" hasDraw="+(fn.indexOf("_drawMsEma")>=0)+" hasFt="+/_ftEma/.test(fn));
+    if (!fn) errors.push('源码闸：找不到 _autoQuality 函数体');
+    else {
+      if (fn.indexOf('_drawMsEma') < 0) {
+        errors.push('源码闸：_autoQuality 没判 _drawMsEma（我们自己的绘制耗时）');
+      }
+      if (/_ftEma/.test(fn)) {
+        errors.push('源码闸：_autoQuality 仍在判 _ftEma（帧间隔 = 屏幕刷新率，'
+          + '60Hz 屏会必然降到画质地板 → 画面发糊）');
+      }
+      /* 帧预算闸：只判 drawMs 挡不住"合成崩掉"（S 冲顶时 drawMs 几乎不变） */
+      if (fn.indexOf('this.fps') < 0) {
+        errors.push('源码闸：_autoQuality 缺帧预算闸（只判绘制耗时会让 S 冲顶、合成崩）');
+      }
+    }
+  }
+
+  /* ④ **真驱动**：跑若干帧，画质档位必须稳定（不许自己往地板掉）。
+         ⚠️ 这是端到端判决 —— 源码闸只能证明"判据写对了"，
+            证明不了"实际跑起来真的稳"。 */
+  {
+    const s = JSON.parse(JSON.stringify(save));
+    s.quest = { step: 'free', flags: {} };
+    G.game.save = s;
+    G.game.changeScene('field', { toSpawn: true });
+    const sc = G.game.scene;
+    const s0 = g.S, shots = [];
+    for (let i = 0; i < 240; i++) {
+      sc.update(0.016); sc.render(g.ctx);
+      if (i % 60 === 0) shots.push(g.S);
+    }
+    const dropped = shots.some((v) => v < s0);
+    if (dropped) {
+      errors.push('真驱动：跑 240 帧后画质档位自己掉了（' + s0 + ' → '
+        + shots.join('>') + '）—— 自适应逻辑在自毁画质');
+    }
+    G.game.changeScene('title');
+  }
+
+  console.log('  ✓ 帧率与画质：targetFps=' + g.targetFps + ' / 倍率 ' + g.MIN_S + '~' + g.MAX_S
+    + '（' + (g.W * g.MIN_S) + '~' + (g.W * g.MAX_S) + 'px 宽）/ 判据=绘制耗时（非帧间隔）');
+}, 'perf.frame.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');

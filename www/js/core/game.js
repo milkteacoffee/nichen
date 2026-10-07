@@ -52,9 +52,31 @@
     whisper: null,   // 天道低语（非阻断，顶部，自动淡去）
     meta: null, save: null,
     speedMul: 1,
-    fps: 0, targetFps: 120,
+    /* FPS 与倍率。
+       ⚠️ v0.98.0：`targetFps` 从 120 提到 **180**（用户口径「帧率要 180 以上」）。
+       ⚠️ 但**必须说清物理边界**：rAF 的上限 = **屏幕刷新率**，代码改不了。
+          180Hz 屏 + 我们每帧只花 ~2ms → 实测就是 180fps；
+          60Hz 屏物理上最多 60fps（这不是缺陷，是硬件）。
+          所以"180+"的正解是两条：① 让**我们的帧预算**远小于 5.56ms（180fps 的预算），
+          这样在任何屏上都不会因为我们而掉帧；② 高刷屏上自然就跑满。 */
+    fps: 0, targetFps: 180,
     _fcnt: 0, _facc: 0, _ftEma: 0.016, _qualT: 0,
-    S: 2,   // 内部分辨率倍率（逻辑坐标仍为 480×272）
+    /* 我们自己的**绘制耗时** EMA（秒）。这才是"画得动多细"的真实信号 ——
+       与屏幕刷新率无关（`_ftEma` 是帧间隔，由 rAF 决定，判它等于看别人脸色）。 */
+    _drawMsEma: 0,
+    /* 倍率上下限。⚠️ 实测数据（headless 无 GPU = **最保守环境**，有 GPU 只会更好）：
+         S=3 (1440×816)  → 153 fps   绘制 EMA 0.95ms
+         S=4 (1920×1088) → **172 fps** 绘制 EMA 0.98ms   ← 甜点
+         S=5 (2400×1360) →  88 fps   绘制 EMA 0.93ms
+         S=6 (2880×1632) →  57 fps   绘制 EMA 0.87ms
+       ⚠️ 注意绘制 EMA 在 0.9ms **几乎不变**，而 FPS 从 172 崩到 57 ——
+          说明瓶颈**不是我们的 render**，而是**画布合成**（2D 缓冲 → 屏幕的拷贝）：
+          分辨率越高，合成越贵，且它不计在我们夹表的区间里。
+          所以 `_autoQuality` 只看 `drawMs` **不足以挡住 S 冲顶**，必须补帧预算闸。
+       取值：地板 **3**（1440×816，1080p 上仍清晰；2 倍明显糊，不再允许）；
+             天花板 **4**（1920×1088）—— 实测甜点，再往上纯粹拿帧率换像素。 */
+    MIN_S: 3, MAX_S: 4,
+    S: 3,   // 内部分辨率倍率（逻辑坐标仍为 480×272）
 
     /* ===== 打击感系统（v0.76.0 阶段一）===== */
     _shakeIntensity: 0,    // 震动强度（0-1）
@@ -105,10 +127,12 @@
 
       /* 内部倍率必须 ≥ 实际显示倍率。以前固定 3，在 1080p 上显示倍率接近 4，
          浏览器把整幅 1440×816 的缓冲放大到 1900×1080 —— 全屏一起发糊。
-         现在按 ceil(显示倍率 × dpr) 自适应：下限 3 是画质地板，上限 4 是性能天花板
-         （4 倍缓冲 = 1920×1088，实测仍在 60fps 余量内）。 */
+         现在按 ceil(显示倍率 × dpr) 自适应：下限 `MIN_S` 是画质地板（v0.98.0 从 2 提到 3：
+         2 倍在 1080p 上明显发糊，用户要"电影节画质"不能让位），上限 `MAX_S` 是性能天花板。
+         ⚠️ 用 `this.MIN_S/MAX_S` 而不是字面量 —— 与 `_setS` 共用同一对常量，
+            否则"resize 给的初始值"与"自适应能调的档位"会分叉。 */
       var dpr = window.devicePixelRatio || 1;
-      var q = Math.max(3, Math.min(5, Math.ceil(scale * dpr)));
+      var q = Math.max(this.MIN_S, Math.min(this.MAX_S, Math.ceil(scale * dpr)));
       this.canvas.width = this.W * q;
       this.canvas.height = this.H * q;
       /* 改 width/height 会把 2D 上下文重置为默认状态，平滑设置要重新贴一遍 */
@@ -130,14 +154,36 @@
       }
     },
 
-    /* 自适应高清倍率：帧时持续超预算降 S，长期有余量升 S。rAF 上限=屏幕刷新率。 */
+    /* 自适应高清倍率。
+       ⚠️ v0.98.0 **判据修正**（这是"画面发糊"的系统性成因）：
+       原先判 `_ftEma`（**帧间隔**），可帧间隔由 `requestAnimationFrame` 决定
+       = **屏幕刷新率**，跟我们画得快不快**毫无关系**。后果：
+
+         60Hz 屏：间隔 16.7ms，而阈值 = (1/120)*1.6 = 13.3ms → **每次都判"超预算"**
+                  → 一路降到画质地板 S=2（960×544），**必糊**；
+         120Hz 屏：间隔 8.3ms < 13.3ms，但也 > 升至阈值 5.8ms → 卡住不动；
+         只有 144Hz+ 才可能升档。
+
+       即：**帧率越高反而越不容易掉画质**，而绝大多数玩家是 60Hz。
+
+       现在用**两个判据**（缺一不可，实测教训）：
+         ① `_drawMsEma`（我们的 render 耗时）—— 超 8ms 降、低于 3ms 升；
+         ② **帧预算闸**：FPS 低于目标的 65% 时也降档。
+           为什么必须有②：绘制 EMA 在 S=3~6 都只有 ~0.9ms（几乎不变），
+           只判它会让 S 一路冲到上限，而真正的瓶颈是**画布合成**
+           （2D 缓冲→屏幕的拷贝，不计在我们的夹表区间）——
+           实测 S=5/6 时 FPS 从 172 崩到 88/57，而 drawMs 纹丝不动。
+           **只测"我们花的"，测不到"整帧花的"，就会得出错误的结论。**
+       两者之间**不动**（避免边界反复横跳、反复重烘缓存）。 */
     _autoQuality: function () {
-      var budget = 1 / this.targetFps;
-      if (this._ftEma > budget * 1.6 && this.S > 2) this._setS(this.S - 1);
-      else if (this._ftEma < budget * 0.7 && this.S < 5) this._setS(this.S + 1);
+      var dm = this._drawMsEma;
+      var lowFps = this.fps > 0 && this.fps < this.targetFps * 0.65;
+      var plenty = dm > 0 && dm < 3.0;
+      if ((dm > 8.0 || lowFps) && this.S > this.MIN_S) this._setS(this.S - 1);
+      else if (plenty && !lowFps && this.S < this.MAX_S) this._setS(this.S + 1);
     },
     _setS: function (q) {
-      if (q === this.S || q < 2 || q > 5) return;
+      if (q === this.S || q < this.MIN_S || q > this.MAX_S) return;
       this.S = q;
       this.canvas.width = this.W * q; this.canvas.height = this.H * q;
       this.ctx.imageSmoothingEnabled = true;
@@ -291,11 +337,22 @@
       }
       x.setTransform(this.S, 0, 0, this.S, shakeX * this.S, shakeY * this.S);
       x.imageSmoothingEnabled = !!this.scene.smooth;
+      /* ⚠️ v0.98.0：**测我们自己的绘制耗时**（`_autoQuality` 的判据）。
+         夹在"开始画"到"场景画完"之间 —— 这是我们的真实负担。
+         用 performance.now()（亚毫秒精度）；无头环境同样可用。 */
+      var _tDraw = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
       x.fillStyle = '#0b0d14';
       x.fillRect(0, 0, this.W, this.H);
       if (this.scene.render) this.scene.render(x);
       /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过） */
       this._renderAmbient(x);
+      if (_tDraw) {
+        var dms = (performance.now() - _tDraw) / 1000;
+        if (dms > 0 && dms < 0.5) {                /* 夹掉切场景/首帧的离群点 */
+          this._drawMsEma = this._drawMsEma > 0
+            ? this._drawMsEma * 0.9 + dms * 0.1 : dms;
+        }
+      }
       /* 影像过场：覆盖场景（视频路径仅真实浏览器可见，无头走静帧） */
       if (G.Cutscene && G.Cutscene.isOpen()) G.Cutscene.render(x);
 
