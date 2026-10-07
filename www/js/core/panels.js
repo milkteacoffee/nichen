@@ -3073,7 +3073,7 @@
 
     if (!save.beasts.length) {
       G.UI.text(x, { x: BS.lx, y: 110 }, '兽栏空空，尚无灵兽相伴。', 12, G.UI.C.textDim);
-      G.UI.text(x, { x: BS.lx, y: 130 }, '可寻药铺沈伯结缘，或以御兽索在野外驯服。', 11, G.UI.C.textDim);
+      G.UI.text(x, { x: BS.lx, y: 130 }, '可寻药铺沈伯结缘，或以妖囊在战斗中收服。', 11, G.UI.C.textDim);
       return;
     }
 
