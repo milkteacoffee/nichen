@@ -8784,6 +8784,58 @@ step(function () {
   ['arc1', 'arc2', 'arc3', 'arc4', 'arc5'].forEach(function (id) { cine('arc', id); });
   ['dream', 'release'].forEach(function (id) { cine('end', id); });
 }, 'arc.render.contract');
+/* ---------- 天道之战五阶段 + 第三结局契约（v0.86，天道至恶 §7） ----------
+   ① 五阶段敌群结构完整、数值为正、sprite 真实可达（不退 snake 兜底）；
+   ② 编排状态机：brief → 逐阶段胜推进检查点 → 五阶段尽破 finale → 自动进 defy 结局；
+   ③ 战败保底：自当前阶段败则停留该阶段、phase lost，不从头。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.globalLevel = 600; s.qi = 999999; s.items = {}; s.chronicle = [];
+  G.game.save = s;
+  G.game.meta = { endings: {}, progress: { difficulty: 'hell' } };
+  const st = G.Player.computeStats(s);
+  const snake = G.Sprites.beast('snake');
+
+  /* (a) 五阶段敌群 */
+  for (let k = 1; k <= 5; k++) {
+    const grp = G.Data.tiandaowar.makeStage(k, s, G.game.meta, st);
+    if (!grp.length || grp.length > 3) errors.push('天道阶段' + k + ' 敌数非法：' + grp.length);
+    grp.forEach(function (u) {
+      if (!(u.maxhp > 0) || !(u.atk > 0) || !(u.spd > 0)) errors.push('阶段' + k + ' 单位数值非法：' + u.name);
+      if (G.Sprites.beast(u.sprite) === snake) errors.push('阶段' + k + ' sprite 退回 snake：' + u.sprite);
+      (u.skills || []).forEach(function (sk) {
+        if (!sk.n || !(sk.mult > 0)) errors.push('阶段' + k + ' 技能非法：' + sk.n);
+      });
+    });
+  }
+
+  /* (b) 编排：brief → 连胜 → finale → defy */
+  const tw = G.scenes.tiandaowar, en = G.scenes.ending;
+  G.game.changeScene('tiandaowar');
+  if (tw.phase !== 'brief' || tw.stage !== 1) errors.push('天道之战初始应为 brief/1');
+  pump(2, 'td.brief');
+  for (let k = 1; k <= 5; k++) {
+    G.game._tdResult = { stage: k, win: true };
+    G.game.changeScene('tiandaowar');
+    if (k < 5 && (tw.phase !== 'won' || tw.stage !== k + 1)) {
+      errors.push('阶段' + k + ' 胜后应推进到 ' + (k + 1) + '，实为 ' + tw.stage + '/' + tw.phase);
+    }
+  }
+  if (!G.game.meta.tdWarCleared) errors.push('五阶段尽破未置 tdWarCleared');
+  if (G.game.sceneName !== 'ending') errors.push('通关后应进入 ending 场景');
+  if (!en.rec || en.rec.id !== 'defy') errors.push('应自动进入第三结局 defy');
+  if (!G.game.meta.endings.defy) errors.push('第三结局未落 meta.endings.defy');
+  pump(3, 'defy.lines');
+
+  /* (c) 战败保底 */
+  const s2 = JSON.parse(JSON.stringify(s)); s2.tdWar = { stage: 3, done: false };
+  G.game.save = s2;
+  G.game._tdResult = { stage: 3, win: false };
+  G.game.changeScene('tiandaowar');
+  if (tw.phase !== 'lost' || tw.stage !== 3) errors.push('阶段3败应停留 lost/3，实为 ' + tw.phase + '/' + tw.stage);
+  if (s2.tdWar.stage !== 3) errors.push('战败检查点被错误推进');
+  pump(2, 'td.lost');
+}, 'tiandaowar.contract');
 
 /* ---------- 地图地形契约（v0.64.0，用户第 14 点） ----------
    用户口径：「这个地图和这些地面完全不是一个风格，没有区分谷、峰、平原、山地、草原、河流、

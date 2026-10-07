@@ -957,6 +957,42 @@ function bossGen(plan, elem, f) {
     celestial_guard: function () { return bossGen('humanoid','thunder',{weapon:'halberd',cape:true}); },
     primordial: function () { return bossGen('primordial','light',{aura:true}); },
     reaper: function () { return bossGen('lich','dark',{reaper:true,aura:true}); },
+    /* 天道本体 · 云幕冷眼（终局 v0.86）：一只悬于云翳、冷瞰诸世的巨眼。 */
+    tiandao: function () {
+      var o = A.cv(40, 40), x = o.x;
+      var rg = x.createRadialGradient(20, 20, 2, 20, 20, 19);
+      rg.addColorStop(0, 'rgba(150,180,230,0.4)'); rg.addColorStop(1, 'rgba(150,180,230,0)');
+      x.fillStyle = rg; x.fillRect(0, 0, 40, 40);
+      /* 眼白（杏仁形）*/
+      x.fillStyle = '#d8e0ee';
+      x.beginPath();
+      x.moveTo(4, 20);
+      x.quadraticCurveTo(20, 8, 36, 20);
+      x.quadraticCurveTo(20, 32, 4, 20); x.closePath(); x.fill();
+      /* 虹膜（同心冷环）*/
+      [[10, '#3650a4'], [8, '#5a7cd0'], [6, '#9ab4ec'], [4, '#e8f0ff']].forEach(function (r) {
+        x.fillStyle = r[1]; x.beginPath(); x.arc(20, 20, r[0], 0, 6.2832); x.fill();
+      });
+      /* 冷竖瞳 + 高光 */
+      x.fillStyle = '#0a0e1c';
+      x.beginPath(); x.ellipse(20, 20, 1.3, 4.2, 0, 0, 6.2832); x.fill();
+      x.fillStyle = 'rgba(255,255,255,0.95)'; A.blob(x, 17.6, 17.4, 1.1, 1);
+      /* 上下云翳（眼睑），压住眼白上下缘，呈「云中半睁」*/
+      x.fillStyle = '#0a0e1c';
+      x.beginPath(); x.moveTo(3, 15); x.quadraticCurveTo(20, 1, 37, 15);
+      x.lineTo(37, 9); x.quadraticCurveTo(20, -3, 3, 9); x.closePath(); x.fill();
+      x.beginPath(); x.moveTo(3, 25); x.quadraticCurveTo(20, 39, 37, 25);
+      x.lineTo(37, 31); x.quadraticCurveTo(20, 43, 3, 31); x.closePath(); x.fill();
+      /* 放射冷线 */
+      x.strokeStyle = 'rgba(180,200,240,0.5)'; x.lineWidth = 0.6;
+      for (var a = 0; a < 8; a++) {
+        var an = a / 8 * 6.2832;
+        x.beginPath();
+        x.moveTo(20 + Math.cos(an) * 11, 20 + Math.sin(an) * 11);
+        x.lineTo(20 + Math.cos(an) * 14.5, 20 + Math.sin(an) * 14.5); x.stroke();
+      }
+      return o.c;
+    },
     /* 通用陆地坐骑（马形，朝右；explore 左向时镜像）。无素材时的兜底，保证骑乘必有可见坐骑。 */
     mount: function () {
       var o = A.cv(40, 40), x = o.x;

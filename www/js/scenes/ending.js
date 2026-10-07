@@ -43,6 +43,25 @@
     tail: '逆尽尘嚣，还诸世间。'
   };
 
+  var DEFY = {
+    id: 'defy', n: '斩天道',
+    title: '终 · 斩天道',
+    lines: [
+      { pid: null, t: '最后一击落下。云幕深处，那只冷眼，碎了。' },
+      { pid: null, t: '没有光，也没有声音——维系诸世的「规则」，一道一道崩断。' },
+      { pid: null, t: '缠在众生身上的因果锁链，应声而落。' },
+      { pid: null, t: '此后再没有谁，在头顶冷眼相看，定谁的生死，夺谁的牵挂。' },
+      { pid: null, t: '他没有接回任何人。镜花水月，终究是镜花水月。' },
+      { pid: null, t: '可他把那只眼，从所有生灵的头顶，永远地，挪开了。' },
+      { pid: '__hero', t: '这一次，我不求团圆。' },
+      { pid: null, t: '他燃尽道果、燃尽长生、燃尽自己，化作一场新雨，落向人间。' },
+      { pid: null, t: '雨后。一个再没有天道的人间。' },
+      { pid: null, t: '扎穗的少女、扛孙儿的老人、结发的夫妇——都在雨里，自由地笑着。' },
+      { pid: null, t: '「你们不必再认得我。」' },
+      { pid: null, t: '「往后的日子，都是你们自己的了。」' }
+    ],
+    tail: '逆骨成灰，天地新生。'
+  };
   var scene = {
     smooth: true,
     t: 0,
@@ -69,23 +88,29 @@
         });
       }
       this._buildMenu();
+      if (G.game._autoEnding === 'defy') { G.game._autoEnding = null; this._choose(DEFY); return; }
     },
 
     _buildMenu: function () {
-      var self = this;
-      this.buttons = [
-        new G.UI.Btn({
-          x: 70, y: 168, w: 150, h: 40, variant: 'frost',
-          label: '沉梦入梦',
-          onClick: function () { self._choose(DREAM); }
-        }),
-        new G.UI.Btn({
-          x: 260, y: 168, w: 150, h: 40, variant: 'gold',
-          label: '放手 · 逆尘',
-          onClick: function () { self._choose(RELEASE); }
-        })
-      ];
-    },
+    var self = this;
+    this.buttons = [
+      new G.UI.Btn({
+        x: 24, y: 168, w: 136, h: 40, variant: 'frost',
+        label: '沉梦入梦',
+        onClick: function () { self._choose(DREAM); }
+      }),
+      new G.UI.Btn({
+        x: 172, y: 168, w: 136, h: 40, variant: 'default',
+        label: '逆天·斩天道',
+        onClick: function () { G.game.changeScene('tiandaowar'); }
+      }),
+      new G.UI.Btn({
+        x: 320, y: 168, w: 136, h: 40, variant: 'gold',
+        label: '放手 · 逆尘',
+        onClick: function () { self._choose(RELEASE); }
+      })
+    ];
+  },
 
     _choose: function (rec) {
       var meta = G.game.meta, save = G.game.save;
@@ -152,7 +177,7 @@
     render: function (x) {
       var rec = this.rec;
       /* 底色随结局走向：沉梦=冷墨蓝；放手=由冷转暖（按进度）。 */
-      var warm = rec ? rec.id === 'release' : false;
+      var warm = rec ? (rec.id === 'release' || rec.id === 'defy') : false;
       var p = rec && this.phase !== 'menu'
         ? Math.min(1, this.idx / rec.lines.length) : 0;
       var top = warm ? this._mix('#0a0d16', '#1c1a14', p) : '#05070d';
@@ -176,10 +201,11 @@
         x.fillStyle = 'rgba(216,183,104,0.35)';
         x.fillRect(140, 102, 200, 1);
         G.UI.text(x, { x: 240, y: 124 }, '到手的团圆，是镜中花、水中月。', 12.5, '#cfc8b8', 'center');
-        G.UI.text(x, { x: 145, y: 220 }, '留在梦里，与残影相守', 10.5, '#aebfd2', 'center');
-        G.UI.text(x, { x: 335, y: 220 }, '斩断因果，放她们新生', 10.5, '#e0c896', 'center');
+        G.UI.text(x, { x: 92, y: 222 }, '留在梦里', 10, '#aebfd2', 'center');
+        G.UI.text(x, { x: 240, y: 222 }, '燃尽自己，斩碎冷眼', 10, '#e0a898', 'center');
+        G.UI.text(x, { x: 388, y: 222 }, '斩断因果，放她们新生', 10, '#e0c896', 'center');
       } else if (rec) {
-        var col = rec.id === 'release' ? '#ecdcb8' : '#cdd8e6';
+        var col = rec.id === 'release' ? '#ecdcb8' : (rec.id === 'defy' ? '#ecb8a8' : '#cdd8e6');
         G.UI.textOut(x, { x: 240, y: 46 }, rec.title, 22, col, 'center', 'rgba(0,0,0,0.8)', 4);
         if (this.line) this._renderLine(x, this.line);
         if (this.phase === 'done') {
@@ -200,7 +226,7 @@
       var part = ln.tw.part();
       var lines = G.UI.wrapCJK ? G.UI.wrapCJK(part, 13, 360, 2) : [part];
       var y0 = 132 - (lines.length - 1) * 11;
-      var col = this.rec.id === 'release' ? '#e6dcc6' : '#d2dce8';
+      var col = this.rec.id === 'release' ? '#e6dcc6' : (this.rec.id === 'defy' ? '#e8bcac' : '#d2dce8');
       lines.forEach(function (l, i) {
         G.UI.textOut(x, { x: 240, y: y0 + i * 22 }, l, 13.5, col, 'center', 'rgba(0,0,0,0.85)', 3);
       });

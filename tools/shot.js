@@ -1596,6 +1596,33 @@ step(() => {
   clearStoryModal();
 }, 'ending.ni');
 shot('53_ending_ni', 3);
+/* ④b 天道之战五阶段 + 第三结局（v0.86）：brief/won/lost/defy/三按钮菜单 各一张 */
+step(() => {
+  const s = G.game.save;
+  s.globalLevel = 600; s.qi = 999999; s.chronicle = s.chronicle || [];
+  G.game.meta.progress = G.game.meta.progress || {};
+  G.game.meta.progress.difficulty = 'hell';
+  G.game.meta.endings = G.game.meta.endings || {};
+  G.game.changeScene('tiandaowar');
+  clearStoryModal();
+}, 'td.brief');
+shot('84_td_brief', 4);
+
+step(() => { G.game._tdResult = { stage: 1, win: true }; G.game.changeScene('tiandaowar'); }, 'td.won');
+shot('85_td_won', 4);
+
+step(() => { const s = G.game.save; s.tdWar = { stage: 3, done: false }; G.game._tdResult = { stage: 3, win: false }; G.game.changeScene('tiandaowar'); }, 'td.lost');
+shot('86_td_lost', 4);
+
+step(() => { G.game._tdResult = { stage: 5, win: true }; G.game.changeScene('tiandaowar'); }, 'td.finale');
+shot('87_td_defy', 6);
+
+step(() => { G.game._autoEnding = null; G.game.changeScene('ending'); clearStoryModal(); }, 'td.menu');
+shot('88_ending_menu3', 4);
+step(() => { G.game.changeScene('battle', { script: 'tiandao', tdStage: 2, mapId: 'tiandaowar' }); }, 'td.b2');
+shot('89_td_battle2', 8);
+step(() => { G.game.changeScene('battle', { script: 'tiandao', tdStage: 5, mapId: 'tiandaowar' }); }, 'td.b5');
+shot('90_td_battle5', 8);
 
 /* ⑤ 地图地形（v0.64.0，用户第 14 点）：凡界看"大陆感"（草原带/主河道/海岛 + 各区地貌），
    灵界看"浮空屿 + 水泽"——两界的底图逻辑不同，都要肉眼过一遍。 */

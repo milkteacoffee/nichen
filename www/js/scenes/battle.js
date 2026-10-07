@@ -527,6 +527,9 @@
           xm.hp = xm.maxhp;
         }
         list = [xm];
+      } else if (p.script === 'tiandao') {
+        /* 天道之战五阶段（v0.86）：按主角实测属性缩放的程序化敌群，阶段由 tdStage 给。 */
+        list = G.Data.tiandaowar.makeStage(p.tdStage || 1, save, G.game.meta, st);
       } else if (p.enemies && p.enemies.length) list = p.enemies.slice();
       else list = [p.enemy || G.Data.makeEnemy('青纹蛇', 3, '青纹蛇')];
 
@@ -1857,6 +1860,13 @@
          ⚠️ 只算**野外遭遇**（无 script、非副本）—— 剧情战与秘境不该算"云游"。
          ⚠️ 放在 `_victory` 的最前面，任何分支 return 之前都能记上。 */
       if (!p.script && !p.dungeon && !p.enemies) save.wildKills = (save.wildKills || 0) + 1;
+      if (p.script === 'tiandao') {
+        /* 阶段胜：落阶段检查点，回编排场景推进下一阶段。 */
+        G.Storage.saveCurrent(save);
+        G.game._tdResult = { stage: p.tdStage || 1, win: true };
+        this._finish(true, 'tiandaowar');
+        return;
+      }
 
       /* m0-1 沈伯教学：进山打赢 1 场（v0.3 §主线任务表）→ 回镇找沈伯领灵石 50 并解锁 m0-2。
          此前 won1 全项目无人写入，m0-1 → m0-2 直接断链、主线永久卡死。 */
@@ -2133,6 +2143,15 @@
         this._finish(false, 'town', true);
         return;
       }
+      if (this.params.script === 'tiandao') {
+        /* 天道之战败不是死亡：保留半血、自当前阶段重试（阶段保底），系统层不嘲讽。 */
+        this.p.hp = Math.max(1, Math.round(this.p.maxhp * 0.5));
+        save.hp = this.p.hp;
+        this.keepHp = true;
+        G.game._tdResult = { stage: this.params.tdStage || 1, win: false };
+        this._finish(false, 'tiandaowar', true);
+        return;
+      }
       save.hp = 0;
       save._cause = 'war';                /* 死因：战死（轮回 v0.4 §3.1） */
       G.Storage.saveCurrent(save);
@@ -2187,7 +2206,7 @@
         if (win) {
           G.game.changeScene(target || 'field', { returned: true });
         } else if (soft) {
-          G.game.toast('心魔未破');
+          if (target !== 'tiandaowar') G.game.toast('心魔未破');
           G.game.changeScene(target || 'town', { returned: true });
         } else {
           G.game.die(save._cause || 'war');
