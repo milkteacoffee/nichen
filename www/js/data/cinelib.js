@@ -15,6 +15,7 @@
     ],
     arc2: [
       { imgs: ['cine.shanmen'], dur: 5.2,
+        video: 'assets/video/cine_shanmen.mp4',
         captions: [
           { t: 0.3, text: '问罪之下，师父横身挡在他身前，像一座不倒的山。' },
           { t: 3.0, text: '「活下去——别回头。」' }
@@ -29,6 +30,7 @@
     ],
     arc4: [
       { imgs: ['cine.tianlun'], dur: 5.2,
+        video: 'assets/video/cine_tianlun.mp4',
         captions: [
           { t: 0.3, text: '天妒连降，他分寿、割果，三挡，三败。' },
           { t: 3.0, text: '而那孩子，却自己走向了那片黑。' }
