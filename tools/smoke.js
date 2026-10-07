@@ -3527,13 +3527,23 @@ step(function () {
 step(function () {
   const SQ = G.Data.sideQuests;
   if (!SQ) { errors.push('G.Data.sideQuests 缺失'); return; }
-  const acts = {};
+  /* giver 的匹配口径（v0.92.0 修正）：
+     `giver` 存的是 **NPC 的 id**，而拿它去找 talk 入口时也是按 id 找
+     （`onInteract` 里 `SQ.talk(scene, o.id, ...)`）。
+     ⚠️ 但**青溪镇**的 NPC 历史上是 `id` 与 `act` 同形（washer/woodman/market），
+        而**云州城**的 id 是 `yz_market`、act 却是 `market` —— 两者不同形。
+        所以判据要**同时收 id 与 act 两个集合**，否则云州城支线会被误判成"找不到 NPC"。
+     ⚠️ 另外 `chat.<id>` 是青溪镇特有的旧写法（act = 'chat.washer'），一并收。 */
+  const acts = {}, npcIds = {};
   Object.keys(G.Data.maps).forEach(function (m) {
-    (G.Data.maps[m].npcs || []).forEach(function (n) { if (n.act) acts[n.act] = 1; });
+    (G.Data.maps[m].npcs || []).forEach(function (n) {
+      if (n.act) acts[n.act] = 1;
+      if (n.id) npcIds[n.id] = 1;
+    });
   });
   SQ.list.forEach(function (q) {
-    if (!acts['chat.' + q.giver] && !acts[q.giver]) {
-      errors.push(`支线 ${q.id} 的 giver「${q.giver}」在 maps 里找不到对应 NPC act`);
+    if (!npcIds[q.giver] && !acts[q.giver] && !acts['chat.' + q.giver]) {
+      errors.push(`支线 ${q.id} 的 giver「${q.giver}」在 maps 里找不到对应 NPC（id/act 都不匹配）`);
     }
     if (!q.steps || q.steps.length < 2) errors.push(`支线 ${q.id} 步骤不足 2 步`);
     if (!q.reward || (!q.reward.stone && !q.reward.items && !q.reward.rep)) {
@@ -3578,9 +3588,17 @@ step(function () {
   skillQuests.forEach(function (x) {
     const s3 = JSON.parse(JSON.stringify(save));
     s3.side = {}; s3.items = {}; s3.skills = {}; s3.skillEquip = [];
+    /* 满足各类前置（这些支线的 `ready` 读的是不同系统，逐类补上）：
+       · 境界门槛（yz_judge 要筑基）→ 直接给足 gl
+       · 斩妖数（如有）→ 给足 wildKills
+       · 副本进度 → dungeonSlot
+       · 物品代价 → 给足 cost 所需 */
+    s3.globalLevel = 100;                 /* 覆盖所有"境界门槛"型 ready */
+    s3.wildKills = 9999;
+    s3.dungeonSlot = 1;
+    s3.visited = Object.assign({}, s3.visited || {}, { fan4: 1 });
     SQ.accept(s3, x);
     Object.keys(x.cost || {}).forEach(function (k) { s3.items[k] = (x.cost[k] || 1) + 5; });
-    if (x.id === 'sq_keeper' || x.id === 'sq_relic') s3.dungeonSlot = 1;
     SQ.tick(s3);
     const rr = SQ.turnIn(s3, x);
     if (!rr.ok) { errors.push('功法支线 ' + x.id + ' 应能交付：' + rr.reason); return; }
@@ -3611,6 +3629,71 @@ step(function () {
         }
       });
     });
+  }
+
+  /* ⑥ v0.92.0（用户口径「支线任务还是太少了」）：**一个 NPC 可挂多条**，
+     且 `byGiver` 必须按 step **排队**（旧的 `filter(...)[0]` 永远只认第一条，
+     给同一 NPC 挂第二条也永远不会被触发 —— 静默）。
+     判据：模拟"第 1 条做完 → 应轮到第 2 条"。 */
+  {
+    const multi = {};
+    SQ.list.forEach(function (q) {
+      multi[q.giver] = (multi[q.giver] || 0) + 1;
+    });
+    const g2 = Object.keys(multi).filter(function (k) { return multi[k] >= 2; });
+    if (!g2.length) errors.push('没有任何 NPC 挂 ≥2 条支线（多支线能力未验证）');
+    g2.forEach(function (gid) {
+      const ids = SQ.list.filter(function (q) { return q.giver === gid; }).map(function (q) { return q.id; });
+      const sm = JSON.parse(JSON.stringify(save));
+      sm.side = {};
+      /* 全未接 → 应给第一条 */
+      if ((SQ.byGiver(gid, sm) || {}).id !== ids[0]) {
+        errors.push(gid + ' 全未接时应返回第一条支线，实为 ' + JSON.stringify(SQ.byGiver(gid, sm)));
+      }
+      /* 第一条完成后 → 应轮到第二条 */
+      sm.side[ids[0]] = 3;
+      if ((SQ.byGiver(gid, sm) || {}).id !== ids[1]) {
+        errors.push(gid + ' 第一条完成后应轮到第二条，实为 ' + JSON.stringify(SQ.byGiver(gid, sm)));
+      }
+      /* 全部完成 → null（调用方退回普通闲聊） */
+      ids.forEach(function (id) { sm.side[id] = 3; });
+      if (SQ.byGiver(gid, sm) !== null) {
+        errors.push(gid + ' 全部完成后 byGiver 应返回 null');
+      }
+      /* 进行中的（step 1）优先级最高 —— 手上这条先了结 */
+      const sm2 = JSON.parse(JSON.stringify(save));
+      sm2.side = {}; sm2.side[ids[1]] = 1;
+      if ((SQ.byGiver(gid, sm2) || {}).id !== ids[1]) {
+        errors.push(gid + ' 有进行中的支线时应优先返回它');
+      }
+    });
+  }
+
+  /* ⑦ v0.92.0：支线数量必须"够多"（用户明确抱怨太少）。
+     下界写 15（当前 17）—— 防将来删到只剩个位数，同时不绑死具体条数。 */
+  if (SQ.list.length < 15) {
+    errors.push('支线总数仅 ' + SQ.list.length + ' 条（用户要求"不能太少"，应 ≥15）');
+  }
+  /* ⑧ 支线**列表要能滚**：超过一屏（`QP.maxRows`=9）时，
+     `questRows` 必须给出非零 win0，否则第 10 条之后永远看不见（静默截断）。 */
+  {
+    const scq = G.game.scene;
+    const keepSel = scq.questSel, keepTab = scq.questTab;
+    try {
+      scq.questTab = 'side';
+      scq.questSel = SQ.list[SQ.list.length - 1].id;      /* 选最后一条 */
+      if (SQ.list.length > 9) {
+        if (typeof G.Overlays.questRowsForTest !== 'function') {
+          /* 没有导出探针时退回源码闸：win0 不许写死 0 */
+          const ps = fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8');
+          if (/rows: list\.map\([\s\S]{0,80}win0: 0/.test(ps)) {
+            errors.push('源码闸：支线列表 win0 写死 0（超过一屏的支线永远看不见）');
+          }
+        }
+      }
+    } finally {
+      scq.questSel = keepSel; scq.questTab = keepTab;
+    }
   }
 }, 'sidequest.contract');
 
@@ -9358,8 +9441,20 @@ step(function () {
     }
     sc.clearOverlay();
   }
-  /* 服务类 NPC：真点一遍，只断言"不抛异常"是空断言 —— 这里验它确实打开了对应覆盖层 */
+  /* 服务类 NPC：真点一遍，只断言"不抛异常"是空断言 —— 这里验它确实打开了对应覆盖层。
+     ⚠️ v0.92.0：云州城 NPC 现在可挂支线，而**次序是"主线 > 支线 > 服务"**
+        （与青溪镇刘掌柜一致）。所以要点到商店，必须先让支线**无话可谈**：
+        把该 NPC 名下的支线全部标成已完成（step=3），再点。 */
   if (talk('market')) {
+    if (sc.overlay === 'sideq') {
+      /* 支线对话开着 → 说明该 NPC 挂了支线且未完成。先把它们标完再点一次。 */
+      s.side = s.side || {};
+      (G.Data.sideQuests.list || []).forEach(function (q) {
+        if (q.giver === 'yz_market') s.side[q.id] = 3;
+      });
+      sc.clearOverlay();
+      talk('market');
+    }
     if (sc.overlay !== 'shop.buy') errors.push('西市掌柜应打开坊市（shop.buy），实为 ' + sc.overlay);
     sc.clearOverlay();
   }

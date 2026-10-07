@@ -112,6 +112,211 @@
       /* 「秘境残图」= 副本道具（凭证类）：交给老樵夫后他会折成护身符还你。 */
       reward: { items: { '秘境残图': 1, '解封符': 1 }, rep: 20 },
       out: '“好、好……拼上了。这图你收着，往后总用得上。”'
+    }),
+
+    /* ============================================================
+       v0.92.0 批量扩充（用户口径「支线任务还是太少了」）
+       ============================================================
+       设计原则（照抄凡人修仙传的"机缘"感，与前 5 条一致）：
+         · 每条必须**挂在一个真实存在的 NPC** 上（`giver` = maps 里的 NPC id）；
+         · `ready` 只读**已有系统**的字段（物品 / 副本进度 / 境界 / 击杀数 /
+           宗门贡献），不新造子系统 —— 新造子系统等于给它单开一套账本；
+         · `ready` 与 `cost` **成对**（判"够不够" / 扣"扣多少"），
+           无物品代价的显式写 `free: true`；
+         · 奖励向"功法 / 凭证 / 声望 / 材料"倾斜，少给裸灵石 ——
+           灵石已经是野怪与悬赏的主产出，支线不该抢那条线的定位。
+       一个 NPC 可挂**多条**（`byGiver` 按 step 排队，见上）。
+
+       —— 第一组：青溪镇加深（浣衣妇/老樵夫/刘掌柜 各补第 2 条）—— */
+
+    /* 浣衣妇 · 第 2 条：井边的银镯（人情线，纯代价换稳定收益） */
+    S({
+      id: 'sq_washer2', n: '井边的银镯', giver: 'washer',
+      intro: '“井里摸出个镯子……不是我的。你替我打听打听，兴许是谁家丢的。”',
+      steps: [
+        { d: '浣衣妇在井底捞到一只银镯，想寻失主。',
+          hint: '去镇上问问（需境界炼气一重以上，才走得动道）。' },
+        { d: '你打听到镯子是刘记旧物。', hint: '回井边告诉浣衣妇。' },
+        { d: '镯子物归原主，浣衣妇松了口气。', hint: '（已完成）' }
+      ],
+      /* 条件：达到炼气一重（37）—— 挡住刚出镇的玩家，避免"还没见过世面就四处打听" */
+      ready: function (s) { return (s.globalLevel || 1) >= 37; },
+      free: true, cost: null,
+      reward: { stone: 120, rep: 25, items: { '灵泉水': 2 } },
+      out: '“找着了就好。这水是谢你的——井底打上来的，甜。”'
+    }),
+
+    /* 老樵夫 · 第 2 条：山货换药（教玩家"采集 → 兑换"的循环） */
+    S({
+      id: 'sq_woodman2', n: '山货换药', giver: 'woodman',
+      intro: '“你常往山里去？帮我捎些灵草回来，我给你配副好药。”',
+      steps: [
+        { d: '老樵夫想要山里的灵草入药。', hint: '采 4 株灵草（野外采集点）。' },
+        { d: '灵草备齐，可以回镇给他了。', hint: '回镇找老樵夫。' },
+        { d: '老樵夫配了副药，还教了你两味方子。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['灵草'] || 0) >= 4; },
+      cost: { '灵草': 4 },
+      reward: { items: { '大还丹': 1, '饲灵草料': 3 }, rep: 20 },
+      out: '“喏，这丸留着保命。山里的东西，认得比打得多。”'
+    }),
+
+    /* 刘掌柜 · 第 2 条：押货（副本凭证线的延伸） */
+    S({
+      id: 'sq_keeper2', n: '押货走镖', giver: 'market',
+      intro: '“有一趟货要出山，路上不太平。你护一趟，回来记你大功。”',
+      steps: [
+        { d: '刘掌柜要押一批货出山。', hint: '路上得先清掉 20 头野怪。' },
+        { d: '路清干净了，回刘记复命。', hint: '回镇找刘掌柜。' },
+        { d: '货平安送到，刘掌柜塞了你一卷手札。', hint: '（已完成）' }
+      ],
+      /* 条件：累计斩妖 20 —— 用 `wildKills`（战斗已写好，不新造字段） */
+      ready: function (s) { return (s.wildKills || 0) >= 20; },
+      free: true, cost: null,
+      reward: { stone: 260, items: { '解封符': 2 }, rep: 30 },
+      out: '“稳当。往后你要走远路，记得先来我这儿看看货单。”'
+    }),
+
+    /* —— 第二组：云州城 6 个 NPC（此前**一个支线都没有**）—— */
+
+    /* 西市掌柜：市面行情（材料收购） */
+    S({
+      id: 'yz_market', n: '西市行情', giver: 'yz_market',
+      intro: '“西市做的是矿石买卖。你要有玄铁，我按高价收。”',
+      steps: [
+        { d: '西市掌柜想收一批玄铁压仓。', hint: '凑 3 块玄铁（矿脉采集 / 妖兽掉落）。' },
+        { d: '玄铁够了。', hint: '回西市交货。' },
+        { d: '掌柜验过成色，痛快结了账。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['玄铁'] || 0) >= 3; },
+      cost: { '玄铁': 3 },
+      reward: { stone: 320, rep: 25, items: { '灵玉': 1 } },
+      out: '“成色足。往后有好东西尽管拿来，我不压价。”'
+    }),
+
+    /* 客栈小二：跑腿传信（低门槛、纯跑腿） */
+    S({
+      id: 'yz_inn', n: '送信上路', giver: 'yz_inn',
+      intro: '“客官，我这有封信要送去落霞镇，一直没人敢接这趟。”',
+      steps: [
+        { d: '客栈有一封信要送去落霞镇。', hint: '走到落霞镇（东门出城，往东）。' },
+        { d: '信已送到。', hint: '回云州客栈复命。' },
+        { d: '小二千恩万谢，说下回来了给你留间上房。', hint: '（已完成）' }
+      ],
+      /* 条件：去过落霞镇（`save.visited` 是对象映射，见 G50 教训）——
+         ⚠️ 必须按**已存在的形状**读：它是 `{mapId: n}` 的映射，不是数组。 */
+      ready: function (s) { return !!(s.visited && s.visited.fan4); },
+      free: true, cost: null,
+      reward: { stone: 150, items: { '回春丹': 3 }, rep: 20 },
+      out: '“真是麻烦你了。路上还太平吧？”'
+    }),
+
+    /* 铁坊匠人：炼器材料（教玩家"材料 → 打造"） */
+    S({
+      id: 'yz_smith', n: '铁坊缺料', giver: 'yz_smith',
+      intro: '“炉子烧了三天，就差几块精钢。你去外头给我弄点回来？”',
+      steps: [
+        { d: '铁坊等着精钢开炉。', hint: '凑 2 块精钢。' },
+        { d: '精钢到手。', hint: '回铁坊交给匠人。' },
+        { d: '匠人开了炉，顺手替你修了件器物。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['精钢'] || 0) >= 2; },
+      cost: { '精钢': 2 },
+      reward: { stone: 200, items: { '玄铁矿': 2 }, rep: 20 },
+      out: '“好料。下回你要打什么，报我名字就行。”'
+    }),
+
+    /* 丹霞坊主：炼丹线的支线（丹方与人情） */
+    S({
+      id: 'yz_dan', n: '丹霞求药', giver: 'yz_dan',
+      intro: '“丹霞坊的炉火烧得再好，也缺一味引子——你可有火莲？”',
+      steps: [
+        { d: '丹霞坊主需要火莲引火。', hint: '寻 1 朵火莲（熔岩地带 / 采集）。' },
+        { d: '火莲已在手。', hint: '回丹霞坊交给她。' },
+        { d: '她收下火莲，回赠你两丸好丹。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return ((s.items || {})['火莲'] || 0) >= 1; },
+      cost: { '火莲': 1 },
+      reward: { items: { '大还丹': 2 }, rep: 35, skill: '回春诀' },
+      out: '“难得你还记得。这丹你收着——救人也是修行。”'
+    }),
+
+    /* 说书人：故事支线（情报型，给声望与小礼） */
+    S({
+      id: 'yz_story', n: '说书人的旧闻', giver: 'yz_story',
+      intro: '“老朽说了一辈子书，就差一段真事。你在外头见过什么？说来听听。”',
+      steps: [
+        { d: '说书人想听你亲历的奇闻。', hint: '通关任意秘境，才有可讲的事。' },
+        { d: '你在秘境里的见闻够讲一场了。', hint: '回云州城找说书人。' },
+        { d: '说书人把这段编成了新篇，场下叫好声一片。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.dungeonSlot || 0) > 0 || (s.dungeonFarm || 0) > 0; },
+      free: true, cost: null,
+      reward: { stone: 180, rep: 40, items: { '符纸': 3 } },
+      out: '“好一段真事！下回你再出门，记得回来给我讲下半段。”'
+    }),
+
+    /* 城主府执事：声望型（高门槛，给修为向奖励） */
+    S({
+      id: 'yz_steward', n: '城主府的委托', giver: 'yz_steward',
+      intro: '“城主府不轻易用人。你若真行，替云州城清一清外头的祸患。”',
+      steps: [
+        { d: '执事要看你是否真能担事。', hint: '累计斩妖 40 头，证明实力。' },
+        { d: '你的战绩够了。', hint: '回城主府复命。' },
+        { d: '执事点了点头，给了你一份通行凭据。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 40; },
+      free: true, cost: null,
+      reward: { stone: 500, rep: 60, items: { '灵玉': 2 } },
+      out: '“不错。云州城记你一份功——往后出入城门，不必再验。”'
+    }),
+
+    /* 论道台裁判：境界线（长线目标，给功法） */
+    S({
+      id: 'yz_judge', n: '论道台的名次', giver: 'yz_judge',
+      intro: '“上论道台者，至少要筑基。你如今的火候……还差些。”',
+      steps: [
+        { d: '裁判要你以筑基之境再上论道台。', hint: '修至筑基境（角色 → 境界）。' },
+        { d: '你已入筑基。', hint: '回论道台找裁判。' },
+        { d: '裁判记了名次，赠你一卷剑诀。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.globalLevel || 1) >= 73; },   /* 筑基一重初期 */
+      free: true, cost: null,
+      reward: { stone: 400, rep: 80, skill: '流云剑诀' },
+      out: '“筑基之后，方知天地之大。这卷剑诀，拿去。”'
+    }),
+
+    /* —— 第三组：玩法系统支线（采集 / 灵兽 / 宗门）—— */
+
+    /* 猎户（镇外）：御兽入门（灵兽系统支线入口） */
+    S({
+      id: 'sq_hunter', n: '山里的踪迹', giver: 'woodman',
+      intro: '“山里近来多了些生面孔的兽……你若有胆，替我去认认。”',
+      steps: [
+        { d: '老樵夫说山里有陌生的兽踪。', hint: '在野外击杀 12 头妖兽。' },
+        { d: '山里的兽你见过了。', hint: '回镇说给他听。' },
+        { d: '他照着你的描述画了张兽谱。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 12; },
+      free: true, cost: null,
+      reward: { items: { '妖骨': 2, '兽皮': 2, '饲灵草料': 2 }, rep: 25 },
+      out: '“记下了。往后见着这样的兽，知道该避还是该打。”'
+    }),
+
+    /* 刘掌柜 · 第 3 条：宗门人情（给贡献） */
+    S({
+      id: 'sq_keeper3', n: '刘记的荐书', giver: 'market',
+      intro: '“你若想入宗门，我这儿有封旧荐书——是我年轻时欠下的人情。”',
+      steps: [
+        { d: '刘掌柜肯写荐书，但要你先做出成绩。', hint: '累计斩妖 30 头。' },
+        { d: '你的名声够了。', hint: '回刘记取荐书。' },
+        { d: '荐书到手，宗门对你高看一眼。', hint: '（已完成）' }
+      ],
+      ready: function (s) { return (s.wildKills || 0) >= 30; },
+      free: true, cost: null,
+      /* 声望给得高：这是"入宗门"的前置铺垫（宗门入门要境界，声望用来换门派商店） */
+      reward: { stone: 200, rep: 120 },
+      out: '“拿着。到了山门，报我刘记的名号。”'
     })
   ];
 
@@ -122,9 +327,33 @@
   G.Data.sideQuests = {
     list: LIST,
     byId: function (id) { return index[id] || null; },
-    /* 按 giver NPC id 找支线（一个 NPC 一条） */
-    byGiver: function (giverId) {
-      return LIST.filter(function (q) { return q.giver === giverId; })[0] || null;
+    /* 按 giver NPC id 找**该 NPC 当前该谈的那一条**支线。
+       v0.92.0（用户口径「支线任务还是太少了」）：一个 NPC 现在可以挂**多条**
+       （`giver` 相同的按表内顺序排队），返回**第一条没做完的**：
+         · 全都没接 → 返回第一条（玩家先接这条）
+         · 第 1 条进行中/可交 → 返回它（先把手上这条了结）
+         · 第 1 条完成 → 轮到第 2 条；全完成 → null（调用方退回普通闲聊）
+       ⚠️ 旧的实现是 `filter(...)[0]`，**永远只认第一条** —— 那样给同一 NPC
+          挂第二条也永远不会被触发（静默）。这里必须按 step 过滤再取首条。 */
+    byGiver: function (giverId, save) {
+      var cands = LIST.filter(function (q) { return q.giver === giverId; });
+      if (!cands.length) return null;
+      if (!save) return cands[0];
+      var self = this;
+      /* 优先「进行中/可交」的（step 1/2）—— 手上这条先了结 */
+      var active = cands.filter(function (q) {
+        var st = self.stepOf(save, q.id);
+        return st === 1 || st === 2;
+      });
+      if (active.length) return active[0];
+      /* 其次「还没接」的（step 0）—— 按表内顺序解锁 */
+      var fresh = cands.filter(function (q) { return self.stepOf(save, q.id) === 0; });
+      if (fresh.length) return fresh[0];
+      return null;                                   /* 全部完成 */
+    },
+    /* 该 NPC 名下共几条（面板/契约用） */
+    countByGiver: function (giverId) {
+      return LIST.filter(function (q) { return q.giver === giverId; }).length;
     },
     /* 当前步（0 = 未接） */
     stepOf: function (save, id) { return ((save.side || {})[id] | 0); },
@@ -175,6 +404,65 @@
       save.side[q.id] = 1;
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       return true;
+    },
+
+    /* ===== 统一的「找 NPC 谈支线」流程（v0.92.0）=====
+       为什么要提到数据层：青溪镇（town.js）与云州城（yunzhou.js）都要用同一套
+       「按 step 出接下/交付/知道了」的交互。两边各抄一份的话，
+       改一处（比如加"放弃"按钮、改文案）另一处必然漏 —— 项目"两份表必然分叉"的老坑。
+       返回 true = 已开好支线对话（调用方别再走普通闲聊）。
+
+       `label`/`portrait` 是给**对话标题**用的（各镇自己传自己的地名口径）。 */
+    talk: function (scene, npcId, label, portrait) {
+      var save = G.game && G.game.save;
+      if (!scene || !save) return false;
+      /* ⚠️ 必须先 `tick` 再 `byGiver`：tick 把"条件已达成"的支线从 step1 推到 step2，
+         而 byGiver 按 step 决定"该谈哪一条"。顺序反了会选到一条刚够条件的旧支线。 */
+      this.tick(save);
+      var q = this.byGiver(npcId, save);
+      if (!q) return false;
+      var step = this.stepOf(save, q.id);
+      if (step >= 3) return false;                 /* 做完了 → 回到普通闲聊 */
+      var self = this;
+      G.SideCur = q.id;                            /* 对话渲染读它取内容（见各场景 sideq） */
+      var mk = function (x, lb, variant, fn) {
+        return new G.UI.Btn({ x: x, y: 214, w: 100, h: 24, small: true,
+          variant: variant, label: lb, onClick: fn });
+      };
+      var close = function () { scene.clearOverlay(); };
+      var btns = [];
+      if (step === 0) {
+        btns.push(mk(190, '接下', 'gold', function () {
+          self.accept(save, q); G.game.toast('接下支线：' + q.n); close();
+        }));
+        btns.push(mk(70, '再说', 'ghost', close));
+      } else if (step === 2 && this.canTurnIn(save, q)) {
+        btns.push(mk(190, '交付', 'gold', function () {
+          var r = self.turnIn(save, q);
+          if (r.ok) { G.game.toast('了却一桩：' + q.n); G.game.toast(r.text); }
+          else G.game.toast('无法交付：' + r.reason);
+          close();
+        }));
+        btns.push(mk(70, '再说', 'ghost', close));
+      } else {
+        btns.push(mk(190, '知道了', null, close));
+      }
+      scene.setOverlay('sideq', btns);
+      return true;
+    },
+
+    /* 支线对话的内容（各场景的 dialog 表共用这一份）——
+       `save` 用来决定"该显示哪一步的文案"。 */
+    dialogOf: function (save, label, name, portrait) {
+      var q = this.byId(G.SideCur);
+      if (!q) return { title: label || '镇民', name: '镇民', portrait: portrait || 'villager', lines: ['……'] };
+      var step = this.stepOf(save, q.id);
+      var lines;
+      if (step === 0) lines = [q.intro];
+      else if (step >= 3) lines = [q.out];
+      else lines = [q.steps[step - 1].d, '（' + q.steps[step - 1].hint + '）'];
+      return { title: label || '支线', name: name || '镇民',
+        portrait: portrait || 'villager', lines: lines };
     },
     /* 把 step 1 → 2（条件达成时由 tick 调） */
     tick: function (save) {

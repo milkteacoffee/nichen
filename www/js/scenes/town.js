@@ -49,11 +49,10 @@
      NPC：站桩对话（探图 v0.2 §NPC —— 有任务挂标记，无任务聊 1-2 句风味台词）
      覆盖层名 → 台词内容。台词由 G.Overlays.dialog 渲染（立绘 + 名牌 + 自动折行）。
      ============================================================ */
-  /* 支线（内容型）：一个 NPC 一条支线，台词随进度变。
+  /* 支线（内容型）：一个 NPC 可挂**多条**（v0.92.0），台词随进度变。
      `DIALOGS` 支持**函数式条目**（渲染处会 `d(save)`），正好用来按 step 出不同台词。
-     ⚠️ 函数拿不到 scene，所以当前在谈哪条支线靠模块级 `_sideCur` 传递
-       —— 同时只可能开一个对话覆盖层，够用。 */
-  var _sideCur = null;
+     当前在谈哪条支线由 `G.SideCur` 传递（数据层的 `sideQuests.talk` 写入，
+     两个镇共用同一个游标）—— 同时只可能开一个对话覆盖层，够用。 */
   var SIDE_NPC = { washer: '浣衣妇', woodman: '老樵夫', market: '刘掌柜' };
   var SIDE_PORTRAIT = { washer: 'villager', woodman: 'villager', market: 'keeper' };
 
@@ -107,17 +106,11 @@
     },
     sideq: function (save) {
       var SQ = G.Data.sideQuests;
-      var q = SQ && SQ.byId(_sideCur);
-      if (!q) return { title: '青溪镇', name: '镇民', portrait: 'villager', lines: ['……'] };
-      var step = SQ.stepOf(save, q.id);
-      var lines;
-      if (step === 0) lines = [q.intro];
-      else if (step >= 3) lines = [q.out];
-      else lines = [q.steps[step - 1].d, '（' + q.steps[step - 1].hint + '）'];
-      return {
-        title: '青溪镇 · 支线', name: SIDE_NPC[q.giver] || '镇民',
-        portrait: SIDE_PORTRAIT[q.giver] || 'villager', lines: lines
-      };
+      var q = SQ && SQ.byId(G.SideCur);
+      /* 走数据层的**统一**文案生成（v0.92.0）：与云州城共用，改一处两处都变 */
+      return SQ.dialogOf(save, '青溪镇 · 支线',
+        (q && SIDE_NPC[q.giver]) || '镇民',
+        (q && SIDE_PORTRAIT[q.giver]) || 'villager');
     },
 
     chatWasher: {
@@ -294,43 +287,13 @@
 
   /* 支线对话（内容型）：按 step 出「接下 / 交付 / 知道了」。
      返回 false = 该 NPC 现在没有支线可谈（已完成），调用方退回普通闲聊。 */
+  /* 支线对话（内容型）：**走数据层的统一实现**（`sideQuests.talk`）。
+     v0.92.0：原先这里有一份 60 行的私有实现，云州城要用同一套流程时就得再抄一遍 ——
+     已提到 `sidequests.js: talk`，两镇共用（改一处两处都变，不会分叉）。 */
   function sideTalk(scene, npcId) {
     var SQ = G.Data.sideQuests;
-    if (!SQ) return false;
-    var q = SQ.byGiver(npcId);
-    if (!q) return false;
-    var save = G.game.save;
-    SQ.tick(save);
-    var step = SQ.stepOf(save, q.id);
-    if (step >= 3) return false;                 /* 做完了 → 回到普通闲聊 */
-    _sideCur = q.id;
-    var ack = function () {
-      return new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
-        label: '知道了', onClick: function () { scene.clearOverlay(); } });
-    };
-    var btns = [];
-    if (step === 0) {
-      btns.push(new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
-        label: '接下', onClick: function () {
-          SQ.accept(save, q); G.game.toast('接下支线：' + q.n); scene.clearOverlay();
-        } }));
-      btns.push(new G.UI.Btn({ x: 70, y: 214, w: 100, h: 24, small: true, variant: 'ghost',
-        label: '再说', onClick: function () { scene.clearOverlay(); } }));
-    } else if (step === 2 && SQ.canTurnIn(save, q)) {
-      btns.push(new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
-        label: '交付', onClick: function () {
-          var r = SQ.turnIn(save, q);
-          if (r.ok) { G.game.toast('了却一桩：' + q.n); G.game.toast(r.text); }
-          else G.game.toast('无法交付：' + r.reason);
-          scene.clearOverlay();
-        } }));
-      btns.push(new G.UI.Btn({ x: 70, y: 214, w: 100, h: 24, small: true, variant: 'ghost',
-        label: '再说', onClick: function () { scene.clearOverlay(); } }));
-    } else {
-      btns.push(ack());
-    }
-    scene.setOverlay('sideq', btns);
-    return true;
+    if (!SQ || !SQ.talk) return false;
+    return SQ.talk(scene, npcId, '青溪镇 · 支线', SIDE_PORTRAIT[npcId] || 'villager');
   }
 
   /* ===== 外堂探子（m1-2）=====

@@ -1104,9 +1104,27 @@
     if (tab === 'side') {
       /* 内容型支线（`data/sidequests.js`）：有 NPC、有剧情、各记各的进度。
          旧的"系统型"清单已被取代 —— 那一版没有 NPC 也没有剧情，
-         玩家在任务面板里看到的是"秘境历练/功法小成"这种目标，不像任务。 */
+         玩家在任务面板里看到的是"秘境历练/功法小成"这种目标，不像任务。
+         ⚠️ v0.92.0（用户口径「支线任务还是太少了」）：支线从 5 条扩到 20+，
+            超过 `maxRows`(9) 就必须**滚动** —— 旧写法 `win0: 0` 写死，
+            第 10 条之后的支线**永远看不见**（静默截断，面板上毫无提示）。 */
       var list = (G.Data.sideQuests ? G.Data.sideQuests.list : []);
-      return { rows: list.map(function (q) { return { id: q.id, sq: q }; }), win0: 0, total: list.length };
+      var cap = QP.maxRows;
+      var total = list.length;
+      /* 窗口跟随"当前选中项"：选中项尽量居中，且夹在 [0, total-cap] 内 */
+      var w0 = 0;
+      if (total > cap) {
+        var cur = scene.questSel;
+        var ci = -1;
+        for (var ii = 0; ii < list.length; ii++) {
+          if (list[ii].id === cur) { ci = ii; break; }
+        }
+        if (ci >= 0) w0 = Math.max(0, Math.min(ci - Math.floor(cap / 2), total - cap));
+      }
+      return {
+        rows: list.slice(w0, w0 + cap).map(function (q) { return { id: q.id, sq: q }; }),
+        win0: w0, total: total
+      };
     }
     var q = save.quest || { step: 'free', flags: {} };
     /* ⚠️ 顺序表按**当前所在线**取（分叉后主线不再是一条） */
@@ -1192,11 +1210,11 @@
          行文字不在这里画：画了就会判"面板文字压在按钮上"。 */
       mark(x, QP.listX - 8, QP.listY + i * QP.rowH + 2, done ? 'done' : (on ? 'now' : 'todo'));
     });
-    if (tab === 'main') {
-      if (view.win0 > 0) chev(QP.listX + QP.listW - 10, QP.listY - 8, true);
-      if (view.win0 + QP.maxRows < view.total) {
-        chev(QP.listX + QP.listW - 10, QP.listY + view.rows.length * QP.rowH - 2, false);
-      }
+    /* 滚动提示（上/下小三角）：主线与支线**都要** ——
+       v0.92.0 起支线也会超过 maxRows，只在主线画的话支线会"静默截断"。 */
+    if (view.win0 > 0) chev(QP.listX + QP.listW - 10, QP.listY - 8, true);
+    if (view.win0 + QP.maxRows < view.total) {
+      chev(QP.listX + QP.listW - 10, QP.listY + view.rows.length * QP.rowH - 2, false);
     }
 
     /* ---- 右栏：详情 ---- */

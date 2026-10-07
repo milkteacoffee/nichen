@@ -153,12 +153,43 @@
     }
     if (o.type !== 'npc') return;
     var fn = ACTS[o.act];
+    /* ⚠️ 顺序（v0.92.0）：**主线 > 支线 > 服务**，与青溪镇**完全一致**。
+       青溪镇刘掌柜的既有实现就是这个次序（`if (!mainBeat && sideTalk(...)) return;
+       openMarket();` 见 town.js）—— 两镇次序不同会让玩家困惑
+       （"甲镇先接任务、乙镇却直接开店"）。
+       · **主线优先**：执事/裁判该推进剧情时不能被支线挡住（回归实测抓到过）；
+       · **支线次之**：有可谈的支线就先谈（谈完 `talk` 返回 false，自然落到服务）；
+       · **服务兜底**：支线谈完/没有时，才开店/投宿/打造/炼丹。 */
+    if (fn && mainlinePending(o.act)) { fn(scene); return; }
+    if (G.Data.sideQuests && G.Data.sideQuests.talk) {
+      if (G.Data.sideQuests.talk(scene, o.id, '云州城 · 支线', 'villager')) return;
+    }
     if (fn) { fn(scene); return; }
     G.game.toast((o.name || '路人') + '　没什么可说的');
   };
 
+  /* 该 act 现在有没有**主线**要推进（有 → 主线优先于支线）。
+     只列"既挂主线又可能挂支线"的那两个：执事在 m2-1、裁判在 m2-2/m2-3。 */
+  function mainlinePending(act) {
+    var st = (G.game.save && G.game.save.quest && G.game.save.quest.step) || '';
+    if (act === 'steward') return st === 'm2-1';
+    if (act === 'judge') return st === 'm2-2' || st === 'm2-3';
+    return false;
+  }
+
   hooks.renderOverlay = function (x, scene) {
     if (G.Overlays.route(x, scene)) return;
+    /* 支线对话（v0.92.0）：与青溪镇共用 `sideQuests.dialogOf` 生成文案 */
+    if (scene.overlay === 'sideq') {
+      var SQ = G.Data.sideQuests;
+      var sq = SQ && SQ.byId(G.SideCur);
+      var nm = '', npcs = (G.Data.maps.yunzhou.npcs || []);
+      for (var ni = 0; ni < npcs.length; ni++) {
+        if (sq && npcs[ni].id === sq.giver) { nm = npcs[ni].name; break; }
+      }
+      G.Overlays.dialog(x, SQ.dialogOf(G.game.save, '云州城 · 支线', nm || '城中人', 'villager'));
+      return;
+    }
     var d = D[scene.overlay];
     if (d) G.Overlays.dialog(x, d);
   };
