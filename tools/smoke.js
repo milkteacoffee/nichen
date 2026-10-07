@@ -11234,7 +11234,10 @@ step(function () {
      ② **倍率不能自毁**（旧 `_autoQuality` 判帧间隔 → 60Hz 屏必然降到 S=2 发糊）。
    实测（headless 无 GPU = 最保守环境）：解锁帧率上限后各场景 270~380 fps。 */
 step(function () {
-  const errors = [];
+  /* ⚠️ **不许在这里写 `const errors = []`**：全局 `errors`（文件头）才是报告用的那个，
+     写局部声明会把它**遮蔽**——`errors.push` 全进了局部数组，
+     契约永远报 ✓（**静默假绿**，v0.98.0 实测踩到，排查了很久）。
+     `step()` 的 label 只捕获**抛出的异常**，抓不到"推到局部数组"的错误。 */
   const g = G.game;
 
   /* ① 帧预算：`targetFps` 必须 ≥180（决定 `_autoQuality` 的预算基准） */
@@ -11261,7 +11264,6 @@ step(function () {
     const body = strip(src);
     const m = body.match(/_autoQuality: function[\s\S]{0,1400}?\n    \},/);
     const fn = m ? m[0] : '';
-    console.log("[GATE-DBG] fnLen="+fn.length+" hasDraw="+(fn.indexOf("_drawMsEma")>=0)+" hasFt="+/_ftEma/.test(fn));
     if (!fn) errors.push('源码闸：找不到 _autoQuality 函数体');
     else {
       if (fn.indexOf('_drawMsEma') < 0) {
@@ -11303,6 +11305,46 @@ step(function () {
   console.log('  ✓ 帧率与画质：targetFps=' + g.targetFps + ' / 倍率 ' + g.MIN_S + '~' + g.MAX_S
     + '（' + (g.W * g.MIN_S) + '~' + (g.W * g.MAX_S) + 'px 宽）/ 判据=绘制耗时（非帧间隔）');
 }, 'perf.frame.contract');
+
+/* ---------- 契约框架自检（v0.98.0）----------
+   ⚠️ **这是一个真实的静默假绿隐患，v0.98.0 实测踩到并排查了很久**：
+
+   全局 `errors`（文件头）才是报告用的那个。若某个契约块里写了
+   `const errors = [];`（局部），它就会**遮蔽**全局 —— `errors.push` 全进了
+   局部数组，契约末尾也没有 `throw`，于是**无论怎么改都报 ✓**。
+   `step()` 的 label 只捕获**抛出的异常**，抓不到"推到局部数组"的错误。
+
+   项目现有约定是：**局部 errors 必须末尾 `throw new Error(...)`**
+   （`step` 会捕获成 `[label] 消息`）。本自检把这个约定钉住 ——
+   将来有人加契约时漏了 throw，这里会直接报出来。 */
+step(function () {
+  const src = fs.readFileSync(path.join(__dirname, 'smoke.js'), 'utf8').split('\n');
+  const bad = [];
+  let total = 0;
+  for (let i = 0; i < src.length; i++) {
+    if (!/^  (const|let|var) errors = \[\];/.test(src[i])) continue;
+    total++;
+    let end = -1;
+    for (let j = i + 1; j < src.length; j++) {
+      if (/^\}, '[a-z0-9._]+'\);/.test(src[j])) { end = j; break; }
+    }
+    if (end < 0) { bad.push('行 ' + (i + 1) + ' 找不到契约结束'); continue; }
+    let hasThrow = false;
+    for (let j = i + 1; j <= end; j++) {
+      if (/throw new Error/.test(src[j])) { hasThrow = true; break; }
+    }
+    if (!hasThrow) {
+      const lbl = (src[end].match(/'([a-z0-9._]+)'/) || [])[1] || '?';
+      bad.push('契约 ' + lbl + '（行 ' + (i + 1) + '）：局部 errors 但末尾没 throw');
+    }
+  }
+  if (bad.length) {
+    errors.push('契约框架自检：' + bad.length + ' 个契约的 errors 会被静默吞掉 → '
+      + bad.slice(0, 3).join(' | ')
+      + '（局部 errors 必须末尾 throw，否则永远报 ✓）');
+  }
+  console.log('  ✓ 契约框架自检：' + total + ' 个局部 errors 契约全都有 throw（无静默假绿）');
+}, 'harness.selfcheck.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {
