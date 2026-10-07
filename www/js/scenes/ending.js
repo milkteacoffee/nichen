@@ -101,7 +101,9 @@
       }
       G.Storage.saveMeta(meta);
       if (save) G.Storage.saveCurrent(save);
-      this._nextLine();
+      var selfE = this, eShots = G.CineLib && G.CineLib.forEnding(rec.id);
+      if (eShots) G.Cutscene.play(eShots, function () { selfE._nextLine(); });
+      else this._nextLine();
     },
 
     _nextLine: function () {

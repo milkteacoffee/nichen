@@ -94,7 +94,9 @@
       var self = this, arc = this.arc();
       arc.phase = 'crisis'; arc.node = 0;
       G.Storage.saveCurrent(G.game.save);
-      this._crisisNext();
+      var shots = G.CineLib && G.CineLib.forArc(this._def.id);
+      if (shots) G.Cutscene.play(shots, function () { self._crisisNext(); });
+      else this._crisisNext();
     },
 
     /* ===== 阶段：crisis ===== */
@@ -324,10 +326,20 @@
     },
 
     _renderDialog: function (x, ln) {
-      var self = this;
       x.save();
-      /* 立绘 */
-      if (ln.pid) {
+      /* 先画框，立绘随后叠在框上（角色如立于框前） */
+      x.fillStyle = 'rgba(9,13,24,0.97)';
+      x.strokeStyle = 'rgba(216,183,104,0.8)';
+      x.lineWidth = 1;
+      G.UI.rr(x, DLG.x, DLG.y, DLG.w, DLG.h, 6); x.fill(); x.stroke();
+
+      var portW = 0;
+      var pKey = ln.pid ? (ln.pid === '__hero' ? 'portrait.hero' : 'portrait.' + ln.pid) : null;
+      var pImg = pKey ? this._portraitImg(pKey) : null;
+      if (pImg) {
+        portW = this._drawBigPortrait(x, pImg);
+      } else if (ln.pid) {
+        /* 回退：旧 NPC / 灵兽精灵（无高清立绘时） */
         var sp = (this._def.sprites || {})[ln.pid];
         var img = null;
         try {
@@ -335,27 +347,23 @@
           else if (sp && sp.sys === 'beast') img = G.Sprites.beast(sp.kind);
           else if (ln.pid === '__hero') img = G.Sprites.heroFrames()[0];
         } catch (e) { img = null; }
-        var pw = 0;
         if (img) {
-          /* 立绘按目标高度自适应（npc 精灵烘焙尺寸较大，不能直接 ×3） */
           var targetH = 96;
           var sc = sp && sp.scale ? Math.min(sp.scale, targetH / img.height) : targetH / img.height;
-          pw = img.width * sc;
-          x.drawImage(img, DLG.x + 8, DLG.y - img.height * sc + 6, pw, img.height * sc);
+          var pw0 = img.width * sc;
+          x.drawImage(img, DLG.x + 8, DLG.y - img.height * sc + 6, pw0, img.height * sc);
+          portW = pw0;
         }
       }
-      /* 框 */
-      x.fillStyle = 'rgba(9,13,24,0.97)';
-      x.strokeStyle = 'rgba(216,183,104,0.8)';
-      x.lineWidth = 1;
-      G.UI.rr(x, DLG.x, DLG.y, DLG.w, DLG.h, 6); x.fill(); x.stroke();
+
       if (ln.name) {
+        var nameX = DLG.x + 10 + (portW ? portW + 8 : 0);
         x.fillStyle = 'rgba(216,183,104,0.16)';
-        G.UI.rr(x, DLG.x + 10, DLG.y - 11, 76, 20, 4); x.fill();
+        G.UI.rr(x, nameX, DLG.y - 11, 76, 20, 4); x.fill();
         x.strokeStyle = 'rgba(216,183,104,0.6)'; x.stroke();
-        G.UI.text(x, { x: DLG.x + 48, y: DLG.y - 1 }, ln.name, 11, G.UI.C.goldHi, 'center');
+        G.UI.text(x, { x: nameX + 38, y: DLG.y - 1 }, ln.name, 11, G.UI.C.goldHi, 'center');
       }
-      var tx0 = DLG.x + 14 + (pw ? pw + 8 : 0);
+      var tx0 = DLG.x + 14 + (portW ? portW + 8 : 0);
       var part = ln.tw.part();
       var lines = G.UI.wrap(x, part, 12.5, DLG.x + DLG.w - 12 - tx0);
       lines.slice(0, 3).forEach(function (l, i) {
@@ -363,6 +371,35 @@
       });
       if (ln.tw.done) G.UI.text(x, { x: DLG.x + DLG.w - 12, y: DLG.y + DLG.h - 12 }, '点击继续', 8.5, G.UI.C.textDim, 'right');
       x.restore();
+    },
+
+    _portraitImg: function (key) {
+      try { return G.Assets && G.Assets.img ? G.Assets.img(key) : null; } catch (e) { return null; }
+    },
+
+    /* 大尺寸高清立绘：圆角裁剪 + 金边 + 呼吸微动，返回为正文预留的横向宽度 */
+    _drawBigPortrait: function (x, img) {
+      var bw = 92, bx = DLG.x + 6;
+      var by0 = DLG.y - 86;
+      var bh = DLG.y + DLG.h - 6 - by0;
+      var bob = Math.sin(this.t * 1.8) * 1.4;
+      x.save();
+      x.strokeStyle = 'rgba(216,183,104,0.85)';
+      x.lineWidth = 1.2;
+      G.UI.rr(x, bx - 1, by0 - 1 + bob, bw + 2, bh + 2, 9); x.stroke();
+      x.save();
+      G.UI.rr(x, bx, by0 + bob, bw, bh, 8); x.clip();
+      var base = Math.max(bw / img.width, bh / img.height);
+      var dw = img.width * base, dh = img.height * base;
+      x.drawImage(img, bx + (bw - dw) / 2, by0 + bob + (bh - dh) / 2, dw, dh);
+      x.restore();
+      var g = x.createLinearGradient(0, by0, 0, by0 + bh);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, 'rgba(9,13,24,0.32)');
+      x.fillStyle = g;
+      G.UI.rr(x, bx, by0 + bob, bw, bh, 8); x.fill();
+      x.restore();
+      return bw;
     },
 
     /* ===== 程序化背景（按主题，缓存） ===== */

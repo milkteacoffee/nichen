@@ -76,6 +76,16 @@
         label: '关于 · ' + G.VERSION,
         onClick: function () { self._openAbout(); }
       }));
+      var fpsCfg0 = G.TianDao.ensure();
+      var fpsBtn = new G.UI.Btn({
+        x: 330, y: 236, w: 134, h: 22, small: true, variant: 'frost',
+        label: '帧率显示：' + (fpsCfg0.showFps ? '开' : '关'),
+        onClick: function () {
+          var c = G.TianDao.ensure(); c.showFps = !c.showFps; G.TianDao.saveCfg();
+          fpsBtn.label = '帧率显示：' + (c.showFps ? '开' : '关');
+        }
+      });
+      this.buttons.push(fpsBtn);
 
       if (!this.bg) this._buildBackground();
     },

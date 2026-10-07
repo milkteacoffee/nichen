@@ -8663,6 +8663,7 @@ step(function () {
     const btn = (sc.buttons || []).filter(function (x) { return x.label.indexOf(label) >= 0; })[0];
     if (!btn) { errors.push('结局菜单缺「' + label + '」按钮'); return; }
     btn.onClick();
+    if (G.Cutscene && G.Cutscene.isOpen()) G.Cutscene.finish();
     if (!G.game.meta.endings[key]) errors.push(key + ' 结局未写进 meta.endings');
     if (s2.ending !== key) errors.push('本世结局未写进 save.ending（' + key + '）');
     let guard = 0;
@@ -8749,6 +8750,40 @@ step(function () {
     errors.push('执念册应有 5 件（arc6 无），实为 ' + meta.regrets.length);
   }
 }, 'arc.contract');
+
+/* Arc 场景真实渲染 + 过场播放/收尾契约（v0.85.0）：
+   早期 smoke 只驱动 G.Arcs 引擎、从不渲染 arc 场景，导致 rr 位置参数 / _norm 返回 undefined
+   两类致命 bug 长期潜伏（主线场景一渲染即崩、过场瞬间结束）。本契约跑真实 loop 兜底。 */
+step(function () {
+  function mkSave() {
+    return { life: 1, items: {}, globalLevel: 5, chronicle: [], pos: { x: 5, y: 5 },
+      linggen: { elems: ['木'], coef: { '木': 1 }, kind: '单灵根', stoneBonus: 0 },
+      skills: {}, skillEquip: [], stone: 100, qi: 100, po: 10, age: 16, hp: 200,
+      quest: { step: 'free', flags: {} }, chestsOpened: [], bossKilled: false };
+  }
+  /* (a) 每个 arc 场景 enter + 跑帧渲染不抛异常 */
+  G.Arcs.list().forEach(function (d) {
+    const save = mkSave(), meta = { bonds: {}, regrets: [], progress: {} };
+    G.Arcs.ensure(meta); G.Arcs.begin(save, meta, d);
+    G.game.save = save; G.game.meta = meta;
+    G.game.changeScene('arc');
+    pump(3, 'arc.render.' + d.id);
+  });
+  /* (b) 过场必须能打开、跑帧后自动收尾并触发回调 */
+  function cine(kind, id) {
+    const shots = kind === 'arc' ? G.CineLib.forArc(id) : G.CineLib.forEnding(id);
+    if (!shots) { errors.push((kind + ' ' + id) + ' 缺过场'); return; }
+    let finished = false;
+    G.Cutscene.play(shots, function () { finished = true; });
+    if (!G.Cutscene.isOpen()) errors.push(id + ' 过场 play 后未打开');
+    let total = 0; shots.forEach(function (x) { total += x.dur; });
+    pump(Math.ceil(total / 0.0167) + 8, 'cine.' + id);
+    if (G.Cutscene.isOpen()) errors.push(id + ' 过场未自动收尾');
+    if (!finished) errors.push(id + ' 过场回调未触发');
+  }
+  ['arc1', 'arc2', 'arc3', 'arc4', 'arc5'].forEach(function (id) { cine('arc', id); });
+  ['dream', 'release'].forEach(function (id) { cine('end', id); });
+}, 'arc.render.contract');
 
 /* ---------- 地图地形契约（v0.64.0，用户第 14 点） ----------
    用户口径：「这个地图和这些地面完全不是一个风格，没有区分谷、峰、平原、山地、草原、河流、

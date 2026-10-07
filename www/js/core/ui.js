@@ -177,13 +177,17 @@
   }
 
   function rr(x, s, r) {
-    r = r == null ? 3 : r;
+    /* 兼容两种调用：rr(x,{x,y,w,h},r) 与旧式位置参数 rr(x,X,Y,W,H,R) */
+    var X, Y, W, H, R;
+    if (s && typeof s === 'object') { X = s.x; Y = s.y; W = s.w; H = s.h; R = r; }
+    else { X = s; Y = r; W = arguments[2]; H = arguments[3]; R = arguments[4]; }
+    R = R == null ? 3 : R;
     x.beginPath();
-    x.moveTo(s.x + r, s.y);
-    x.arcTo(s.x + s.w, s.y, s.x + s.w, s.y + s.h, r);
-    x.arcTo(s.x + s.w, s.y + s.h, s.x, s.y + s.h, r);
-    x.arcTo(s.x, s.y + s.h, s.x, s.y, r);
-    x.arcTo(s.x, s.y, s.x + s.w, s.y, r);
+    x.moveTo(X + R, Y);
+    x.arcTo(X + W, Y, X + W, Y + H, R);
+    x.arcTo(X + W, Y + H, X, Y + H, R);
+    x.arcTo(X, Y + H, X, Y, R);
+    x.arcTo(X, Y, X + W, Y, R);
     x.closePath();
   }
 

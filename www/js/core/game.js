@@ -52,6 +52,8 @@
     whisper: null,   // 天道低语（非阻断，顶部，自动淡去）
     meta: null, save: null,
     speedMul: 1,
+    fps: 0, targetFps: 120,
+    _fcnt: 0, _facc: 0, _ftEma: 0.016, _qualT: 0,
     S: 2,   // 内部分辨率倍率（逻辑坐标仍为 480×272）
 
     /* ===== 打击感系统（v0.76.0 阶段一）===== */
@@ -106,7 +108,7 @@
          现在按 ceil(显示倍率 × dpr) 自适应：下限 3 是画质地板，上限 4 是性能天花板
          （4 倍缓冲 = 1920×1088，实测仍在 60fps 余量内）。 */
       var dpr = window.devicePixelRatio || 1;
-      var q = Math.max(3, Math.min(4, Math.ceil(scale * dpr)));
+      var q = Math.max(3, Math.min(5, Math.ceil(scale * dpr)));
       this.canvas.width = this.W * q;
       this.canvas.height = this.H * q;
       /* 改 width/height 会把 2D 上下文重置为默认状态，平滑设置要重新贴一遍 */
@@ -126,6 +128,34 @@
         if (G.Sprites && G.Sprites.clear) G.Sprites.clear();
         if (G.UI && G.UI.clearCache) G.UI.clearCache();
       }
+    },
+
+    /* 自适应高清倍率：帧时持续超预算降 S，长期有余量升 S。rAF 上限=屏幕刷新率。 */
+    _autoQuality: function () {
+      var budget = 1 / this.targetFps;
+      if (this._ftEma > budget * 1.6 && this.S > 2) this._setS(this.S - 1);
+      else if (this._ftEma < budget * 0.7 && this.S < 5) this._setS(this.S + 1);
+    },
+    _setS: function (q) {
+      if (q === this.S || q < 2 || q > 5) return;
+      this.S = q;
+      this.canvas.width = this.W * q; this.canvas.height = this.H * q;
+      this.ctx.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in this.ctx) this.ctx.imageSmoothingQuality = 'high';
+      this._rebakeArt();
+    },
+
+    _renderFps: function (x) {
+      var cfg = G.TianDao && G.TianDao.ensure ? G.TianDao.ensure() : null;
+      if (!cfg || !cfg.showFps) return;
+      var s = Math.round(this.fps) + ' FPS · 画质' + this.S + 'x';
+      x.save(); x.font = G.UI.F(9);
+      var w = x.measureText(s).width + 10;
+      x.fillStyle = 'rgba(8,10,18,0.62)';
+      G.UI.rr(x, this.W - w - 6, this.H - 18, w, 14, 3); x.fill();
+      var col = this.fps >= 100 ? '#8fd878' : (this.fps >= 50 ? '#ffd870' : '#ff8a5a');
+      G.UI.text(x, { x: this.W - 11, y: this.H - 16 }, s, 9, col, 'right');
+      x.restore();
     },
 
     changeScene: function (name, params) {
@@ -204,11 +234,18 @@
       var dt = (now - this._last) / 1000;
       if (!(dt > 0)) dt = 0; else if (dt > 0.05) dt = 0.05;
       this._last = now;
+      /* 帧率测量（0.5s 滑窗）+ 帧时 EMA，供自适应高清倍率 */
+      this._fcnt++; this._facc += dt;
+      if (dt > 0) this._ftEma = this._ftEma * 0.95 + dt * 0.05;
+      if (this._facc >= 0.5) { this.fps = this._fcnt / this._facc; this._fcnt = 0; this._facc = 0; }
+      this._qualT += dt;
+      if (this._qualT >= 1.5) { this._qualT = 0; this._autoQuality(); }
       var x = this.ctx, inp = G.Input;
 
       /* 输入分发：按钮优先 */
       for (var i = 0; i < inp.taps.length; i++) {
         var p = inp.taps[i], handled = false;
+        if (G.Cutscene && G.Cutscene.isOpen()) { G.Cutscene.onTap(p); continue; }
         if (G.Story && G.Story.modalOpen()) { G.Story.onTap(p); continue; }
         var btns = this.scene.buttons || [];
         for (var b = 0; b < btns.length; b++) {
@@ -223,7 +260,8 @@
         if (this.scene.onKey) this.scene.onKey(code);
       }
 
-      if (this.scene.update) this.scene.update(dt);
+      if (!(G.Cutscene && G.Cutscene.isOpen()) && this.scene.update) this.scene.update(dt);
+      if (G.Cutscene && G.Cutscene.isOpen()) G.Cutscene.update(dt);
 
       /* 世界时钟（v0.67.0，用户第 28 点）：
          ⚠️ **普通游玩（探索/战斗）不流逝时间** —— 用户原话「玩家在游玩时不会流逝时间，
@@ -258,6 +296,8 @@
       if (this.scene.render) this.scene.render(x);
       /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过） */
       this._renderAmbient(x);
+      /* 影像过场：覆盖场景（视频路径仅真实浏览器可见，无头走静帧） */
+      if (G.Cutscene && G.Cutscene.isOpen()) G.Cutscene.render(x);
 
       /* 悬浮说明：**必须在所有东西画完之后**才画（它是"覆盖层之上的覆盖层"），
          候选区由场景/面板在 render 期间用 G.UI.hover() 登记。
@@ -309,6 +349,7 @@
       }
       this._renderLoot(x);
       this._renderToasts(x);
+      this._renderFps(x);
       /* 突破特效：画在最上层 */
       this._renderBreakthroughEffect(x);
       if (G.Story) G.Story.render(x);

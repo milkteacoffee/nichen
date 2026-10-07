@@ -17,7 +17,8 @@
       /* 单次请求超时（ms）。真机实测云端中转站首字延迟 4s~60s+ 波动很大，
          30s 会把本来能答的请求误判成超时。老存档由 _fill 自动补这个键。
          慢站玩家可以自己调大（改存档 meta.tiandao.timeout），目前不开 UI 入口。 */
-      timeout: 45000
+      timeout: 45000,
+      showFps: false
     };
   }
   var PROTO_LABEL = { openai: 'OpenAI', claude: 'Claude', response: '原生' };
