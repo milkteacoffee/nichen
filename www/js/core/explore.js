@@ -1035,8 +1035,12 @@
          **为什么收敛成函数**：原先各绘制点自己写 `px > 480 || py > 272` ——
          等距下 px/py 是**世界像素**，那套判据会**全错**（世界宽高远大于 480×272，
          结果是一律不裁或一律裁掉）。逐处改 12 个地方必漏，所以统一走这里。
-         ⚠️ 传入的是**世界像素**矩形（不是屏幕），非等距时 AABB 恰好等于原视口，
-            所以行为逐像素不变（零回归）。 */
+
+         ⚠️ **口径必须与世界 AABB 一致**（`_viewBounds` 返回的是**世界像素**）。
+            踩过的坑：调用处传的是 `_proj()` 的**屏幕坐标** → 拿屏幕比世界 AABB
+            → 判断全错（建筑在屏幕 y=114 却被判"不可见"）。
+            **⇒ 本函数收世界像素矩形**；调用处要传 `wx = s.x*TILE`（不是 `_proj` 的结果）。
+         ⚠️ 非等距时 AABB 恰好等于原视口矩形 → 行为逐像素不变（零回归）。 */
       _inView: function (wx, wy, w, h) {
         var b = this._viewBounds();
         return !(wx > b.x1 || wx + w < b.x0 || wy > b.y1 || wy + h < b.y0);
@@ -1166,12 +1170,44 @@
            露出画布底（黑/透明），观感像 bug。
            做法：在应用等距变换**之前**（此刻还是屏幕系）铺满整屏的"远景色"。
            ⚠️ 只在等距时铺：非等距时地图总是盖满屏幕（camX/camY 有夹取），
-              铺了反而会改变边界像素（破坏零回归）。 */
+              铺了反而会改变边界像素（破坏零回归）。
+           ⚠️ v1.9.3：颜色**取调色板的暗色**（不是写死的 #2a2419）——
+              写死色在不同区域（雪原/炎浆）会与地面完全脱节，像"贴了块黑板"。
+              用 `pal.dark` 再压暗一档 → 读作"远处的地面"（大气透视）。 */
         if (ISO_ON && this._groundLayer) {
-          x.fillStyle = '#2a2419';   /* 地图外的"远景土色"（比地面暗一档，读作"远处"。 */
+          var palF = this._pal();
+          x.fillStyle = G.Art.shade((palF && palF.dark) || '#2a2419', -0.25);
           x.fillRect(0, 0, 480, 272);
         }
         this._drawGroundLayer(x, camX, camY);
+
+        /* ===== 地图边界渐隐（v1.9.3）=====
+           **为什么需要**：等距下地面是一张旋转 45° 的矩形 —— 它伸出屏幕外时，
+           地图**边缘**在屏幕上是斜的，且纹理是 24px 一块 → 边缘呈 **24px 阶梯（锯齿）**，
+           观感像 bug（实测截图确认）。
+           **做法**：在**等距变换内部**（此时坐标 = 世界像素）沿地图四条边，
+           向**内**画一条 N px 的渐变（从"远景色"淡到透明）→ 边界被"雾"吃掉，
+           不再有硬边与锯齿。
+           ⚠️ 必须画在**地面之后、高度层之前**（否则会盖住建筑/角色）。
+           ⚠️ 高度 FADE 取 3 格（72px）：比一格厚、又不到"看不清地图"的程度。 */
+        if (ISO_ON) {
+          var FADE = TILE * 3;
+          var palE = this._pal();
+          var fogCol = G.Art.shade((palE && palE.dark) || '#2a2419', -0.25);
+          var wl = this.map.w * TILE, hl = this.map.h * TILE;
+          var _fade = function (x0, y0, x1, y1, gx0, gy0, gx1, gy1) {
+            var gr = x.createLinearGradient(gx0, gy0, gx1, gy1);
+            gr.addColorStop(0, fogCol);
+            gr.addColorStop(1, 'rgba(0,0,0,0)');
+            x.fillStyle = gr;
+            x.fillRect(x0, y0, x1 - x0, y1 - y0);
+          };
+          /* 四条边各一条向内渐变 */
+          _fade(0, 0, wl, FADE, 0, 0, 0, FADE);                       /* 上（世界 y 小侧） */
+          _fade(0, hl - FADE, wl, hl, 0, hl, 0, hl - FADE);           /* 下 */
+          _fade(0, 0, FADE, hl, 0, 0, FADE, 0);                       /* 左（世界 x 小侧） */
+          _fade(wl - FADE, 0, wl, hl, wl, 0, wl - FADE, 0);           /* 右 */
+        }
 
         /* 地形高度（v1.4.0）：抬升的格块 + 崖壁。
            位置：**铺地之上、明暗之下** —— 它是"地面的一部分"，
@@ -1515,9 +1551,9 @@
       _drawFurn: function (x, f, camX, camY) {
         var _q = this._proj(f.x * TILE, f.y * TILE - this._elevPx(f.x, f.y)); var px = _q.x, py = _q.y;
         var w = (f.w || 1) * TILE, h = (f.h || 1) * TILE;
-        /* ⚠️ v1.9.0：等距下 px/py 是**世界像素**，屏幕坐标裁剪全部失效 →
-           改判世界 AABB（）。非等距时 AABB 就是原视口矩形，行为不变。 */
-        if (!this._inView(px, py, w, h)) return;
+        /* ⚠️ 裁剪走世界 AABB（ 是世界口径）→ 必须传**世界像素**，
+           不能传上面  的结果（那是屏幕坐标，口径不一致会误判）。 */
+        if (!this._inView(f.x * TILE, f.y * TILE, w, h)) return;
         var art = G.Art.furn(f.kind, this._pal());
         if (!art) return;
         x.drawImage(art.c, Math.round(px), Math.round(py), art.w, art.h);
@@ -1559,20 +1595,32 @@
         /* 2) 道路：整片软蒙版 + 噪声羽化，路面像被踩进土里（v0.60，用户第 5 点） */
         this._softRoads(m, g, K, pal);
 
-        /* 3) 等距瓦片感（v1.9.0）：**逐格微明暗**，而不是画格线。
-           **为什么不用格线**（实测否决）：画 0.07 alpha 的格线后，采样格线处 vs
-           格内的亮度差只有 **-8.7 ~ +2.3**，完全被纹理噪声（σ≈5）淹没 ——
-           看不出格，反而在平坦区会显"棋盘"。**格线这条路走不通。**
-           **改用"每格一个微小亮度差"**：人眼对**区块**的明暗差异远比细线敏感，
-           读起来是"一格一格的土面"（像踩过的地），而不是网格纸。
-           ⚠️ 用**坐标哈希**取亮度（确定性，不蹭 rng —— 与高度场同一纪律）。
-           ⚠️ 幅度 ±0.035：实测 0.06 开始像"马赛克"，0.035 是"隐约分格"的甜点。 */
+        /* 3) 等距瓦片感（v1.9.3 加强）——**逐格画瓦片**（缝 + 芯）。
+           ⚠️ 为什么不能只改 `gGrass`（v1.9.2 的教训）：
+              `groundTex` 的优先序是「**区域专属底图 → 地面类型素材 → 程序化**」——
+              `ground.grass` / `ground.fan1` **素材存在**，所以程序化 `gGrass`
+              **根本不会执行**（实测纹理输出 448×448 = 素材，不是 216 = GTS）。
+              ⇒ **在程序化层改"地面观感"是无效的**；必须改**烘焙层**（素材之后）。
+           **做法**（逐格两层，都在世界坐标里画 → 等距矩阵自动转成菱形）：
+             · **瓦片缝**：格的上边 + 左边各 1px 暗线（alpha 0.16）
+             · **瓦片芯**：格中心 8×8 极淡亮块（alpha 0.05）+ 坐标哈希的微明暗
+           ⚠️ 数值是实测甜点：缝 0.16 能"读出格"但不刺眼；芯 0.05 让格子有"面"。
+              再大就会像"网格纸"（v1.9.1 的格线方案就是栽在这）。 */
         if (ISO_ON) {
+          var EDGE_A = 0.16, CORE_A = 0.05;
+          g.fillStyle = 'rgba(0,0,0,' + EDGE_A + ')';
+          for (var ey = 0; ey <= m.h; ey++) g.fillRect(0, ey * TILE, w, 1);       /* 横缝 */
+          for (var ex = 0; ex <= m.w; ex++) g.fillRect(ex * TILE, 0, 1, h);       /* 竖缝 */
+          g.fillStyle = 'rgba(255,246,220,' + CORE_A + ')';
+          for (var cy3 = 0; cy3 < m.h; cy3++)
+            for (var cx3 = 0; cx3 < m.w; cx3++)
+              g.fillRect(cx3 * TILE + (TILE - 8) / 2, cy3 * TILE + (TILE - 8) / 2, 8, 8);
+          /* 再叠一层"逐格微明暗"（坐标哈希）：让格子之间**有微差**，不呆板 */
           for (var ty2 = 0; ty2 < m.h; ty2++) {
             for (var tx2 = 0; tx2 < m.w; tx2++) {
               var hv = hashTile(tx2, ty2, this.mapId);
               if (hv < 0.5) continue;                 /* 一半的格不动 → 自然、不成规律 */
-              g.fillStyle = hv > 0.75 ? 'rgba(255,246,220,0.035)' : 'rgba(40,30,16,0.035)';
+              g.fillStyle = hv > 0.75 ? 'rgba(255,246,220,0.030)' : 'rgba(40,30,16,0.030)';
               g.fillRect(tx2 * TILE, ty2 * TILE, TILE, TILE);
             }
           }
@@ -1957,7 +2005,8 @@
           var _q2 = this._proj(s.x * TILE, s.y * TILE - this._elevPx(s.x, s.y));
           px = _q2.x; py = _q2.y;
         }
-        if (!this._inView(px, py, s.w * TILE, s.h * TILE)) return;
+        /* ⚠️ 同 ：裁剪口径是**世界像素**。 */
+        if (!this._inView(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE)) return;
         var pal = this._pal();
         var art = s.kind === 'house' ? G.Art.house(s, pal)
           : s.kind === 'ruin' ? G.Art.ruin(s, pal)
@@ -1968,6 +2017,40 @@
         if (ISO_ON) { px -= (s.w || 1) * TILE / 2; py -= (s.h || 1) * TILE; }
         var bx0 = px + (art.ox || 0), by0 = py + (art.oy || 0);
         var bw0 = art.w, bh0 = art.h;
+
+        /* ===== 等距侧面（v1.9.3）：给建筑补"第二个可见面" =====
+           **为什么需要**：现有 art（`A.house`）画的是"正视前视图"，
+           等距下仍是一张平面图 —— 没有"两个可见面"，就读不出"立方体"。
+           **做法**：在 art **之前**先画一个"右后侧面"的平行四边形（屏幕系，
+           用 `_proj` 投 4 个角），art 再盖在上面 →
+           观感变成"正面（art）+ 右后侧面（新增）+ 屋顶（art 自带）"。
+           ⚠️ 必须在 art **之前**画，否则侧面会盖住正面。
+           ⚠️ 坐标一律用**绝对世界像素**（`_proj` 收的是绝度坐标）——
+              写 `_proj(0, 0)` 是"世界的原点"，不是"建筑的左下角"（踩过）。 */
+        if (ISO_ON) {
+          var wallG = (pal && pal.dark) || '#3a2f22';
+          var wx0 = s.x * TILE;                 /* 建筑左下角（世界像素，绝对值） */
+          var wy0 = s.y * TILE;
+          var ww = (s.w || 1) * TILE, wh = (s.h || 1) * TILE;
+          /* 侧面深度：等距 2:1 下"深度"取格宽的一半，与菱形比例一致 */
+          var DD = ww * (ISO_RATIO * 2 * 0.5) * 0.9;   /* ≈ ww*0.45 */
+          /* 4 角：右后侧面 = 右下(y0) / 右上(y0+wh) / 后右上 / 后右下 */
+          var _a = this._proj(wx0, wy0);              /* 前-左下 */
+          var _b = this._proj(wx0, wy0 + wh);         /* 前-左上 */
+          var _c = this._proj(wx0 + DD, wy0 + wh);    /* 后-左上 */
+          var _d = this._proj(wx0 + DD, wy0);         /* 后-左下 */
+          x.save();
+          x.fillStyle = wallG;
+          x.beginPath();
+          x.moveTo(_b.x, _b.y); x.lineTo(_c.x, _c.y);
+          x.lineTo(_d.x, _d.y); x.lineTo(_a.x, _a.y);
+          x.closePath(); x.fill();
+          /* 侧面顶边暗线（受光对侧，强化"两个面"的转折） */
+          x.strokeStyle = 'rgba(0,0,0,0.38)';
+          x.lineWidth = 1;
+          x.beginPath(); x.moveTo(_b.x, _b.y); x.lineTo(_c.x, _c.y); x.stroke();
+          x.restore();
+        }
 
         /* ===== 立体感 C：建筑基座 + 落地投影（v0.28.0，零出图）=====
            用户口径：「我们能不能做得比较有 3D 的感觉，2.5D 俯视角我们能用吗」。

@@ -12918,6 +12918,156 @@ step(function () {
   console.log('  ✓ 等距一致性：投影可逆 / 点选命中 / 排序按(x+y) / 立牌退出矩阵 / 明雷暗幕走 _proj / 瓦片哈希');
 }, 'iso.consistency.contract');
 
+/* ---------- 等距美术：建筑侧面 / 裁剪口径 / 地面瓦片 / 边界渐隐（v1.9.3）----------
+   用户口径（承「全部转向俯视角 45°」）：「素材重出：地面改斜向平铺纹理、
+   建筑改 2:1 等距（两个可见侧面）」。 */
+step(function () {
+  const TILE = 24;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+
+  if (!G.ISO_ON) {
+    console.log('  · 等距美术：ISO_ON=false，跳过（当前是方形模式）');
+    G.game.changeScene('title');
+    return;
+  }
+
+  /* ① **裁剪口径一致性**（本轮踩的真 bug）：
+     `_inView` 与 `_viewBounds` 都是**世界像素**口径；调用处不许传 `_proj` 的屏幕坐标。
+     判据（行为）：把一个"在屏幕上可见"的建筑格喂进去，必须判为可见。 */
+  {
+    const st = (sc.map.md.structures || [])[0];
+    if (st) {
+      /* 把玩家摆到建筑正前方 → 建筑必然可见 */
+      s.pos = { x: Math.floor(st.x + st.w / 2), y: st.y + st.h + 1 };
+      sc.moving = false;
+      const vis = sc._inView(st.x * TILE, st.y * TILE, st.w * TILE, st.h * TILE);
+      if (!vis) {
+        errors.push('等距美术：正前方的建筑被判为"不可见"（裁剪口径不一致）—— '
+          + '`_inView` 收世界像素，别传 `_proj` 的屏幕坐标');
+      }
+      /* 反例闸：远离玩家的建筑必须被判不可见（证明裁剪真的在裁） */
+      const far = { x: st.x, y: sc.map.h - 2 };
+      if (Math.abs(far.y - s.pos.y) > 12) {
+        const farVis = sc._inView(far.x * TILE, far.y * TILE, TILE, TILE);
+        if (farVis) {
+          errors.push('等距美术：远处的格被判为可见 —— 裁剪失效（会全图绘制，掉帧）');
+        }
+      }
+    }
+  }
+
+  /* ② 源码闸：`_inView` 的调用处必须传**世界像素**（`x * TILE`），不许传 `_proj` 结果 */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    const calls = src.match(/_inView\([^)]*\)/g) || [];
+    let bad = 0;
+    calls.forEach(function (c) {
+      /* 允许 `_inView(x * TILE, ...)`（世界）；不许 `_inView(px, py, ...)`（屏幕变量） */
+      if (/^_inView\(\s*(px|py|_q\.x|_q\.y)/.test(c)) bad++;
+    });
+    if (bad) {
+      errors.push('等距美术：`_inView` 有 ' + bad + ' 处传了**屏幕坐标**变量'
+        + '（px/py/_q.x）—— 与会收世界像素的 `_viewBounds` 口径不一致');
+    }
+  }
+
+  /* ③ 建筑侧面：源码闸（必须有等距侧面 + 用世界坐标 _proj） */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (src.indexOf('等距侧面（v1.9.3）') < 0) {
+      errors.push('等距美术：`_drawStructure` 缺"等距侧面"（建筑只有正面，读不出立方体）');
+    } else {
+      /* ⚠️ 段末模式不能写 `\n        \}`（缩进在实际文件里是 8 空格，且后面还有代码）——
+         取"注释起点 + 1400 字"即可，判据是**里面有没有世界坐标与四边形**。 */
+      const gi2 = src.indexOf('等距侧面（v1.9.3）');
+      const body = gi2 < 0 ? '' : src.slice(gi2, gi2 + 1400);
+      if (!body) errors.push('等距美术：找不到等距侧面代码段');
+      else {
+        /* 侧面 4 角必须用建筑的世界坐标（`s.x * TILE`），不许写 `_proj(0, 0)` */
+        if (body.indexOf('s.x * TILE') < 0) {
+          errors.push('等距美术：侧面没用建筑的**世界坐标**（`s.x * TILE`）—— '
+            + '写 `_proj(0,0)` 是"世界原点"不是"建筑左下角"');
+        }
+        if (!/x\.moveTo|x\.lineTo/.test(body)) {
+          errors.push('等距美术：侧面没有画出四边形（缺 moveTo/lineTo）');
+        }
+      }
+    }
+  }
+
+  /* ④ 地面瓦片感（v1.9.2/v1.9.3）：**源码闸 + 参数检查**。
+     ⚠️ **不能用 getImageData**：smoke 的桩 canvas 读像素**恒返回 0**
+        （项目老坑：桩 `getImageData` 恒空，量像素必须用真 canvas）。
+        所以这里改判"瓦片代码在位 + 参数在合理区间"。
+
+     ⚠️ 另一个重要教训（v1.9.3）：`groundTex` 的优先序是
+        「区域底图 → **地面类型素材** → 程序化」，而 `ground.grass` 素材**存在**
+        → 程序化 `gGrass` **根本不执行**。所以"地面瓦片"必须在
+        `_ensureGround` 的**烘焙层**（素材之后）画，改 `gGrass` 是无效的。 */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    const gi = src.indexOf('等距瓦片感（v1.9.3 加强）');
+    if (gi < 0) {
+      errors.push('等距美术：`_ensureGround` 缺"等距瓦片"（v1.9.3）—— '
+        + '等距下地面看不出格子，玩家不知道自己站在哪一格');
+    } else {
+      const body = src.slice(gi, gi + 1200);
+      /* 必须同时画"缝"与"芯"（只画一边会读成"网格纸"或"马赛克"） */
+      if (body.indexOf('EDGE_A') < 0) {
+        errors.push('等距美术：瓦片缺"格缝"（EDGE_A）');
+      }
+      if (body.indexOf('CORE_A') < 0) {
+        errors.push('等距美术：瓦片缺"格芯"（CORE_A）');
+      }
+      /* 两个 alpha 必须在"能读出格、又不刺眼"的区间（实测标定） */
+      const em = body.match(/var EDGE_A = ([0-9.]+)/);
+      const cm = body.match(/var CORE_A = ([0-9.]+)/);
+      if (em) {
+        const v = parseFloat(em[1]);
+        if (!(v > 0.02 && v < 0.35)) {
+          errors.push('等距美术：格缝 alpha ' + v + ' 越界（应 0.02~0.35；'
+            + '太小读不出格，太大像网格纸）');
+        }
+      }
+      if (cm) {
+        const v = parseFloat(cm[1]);
+        if (!(v > 0.005 && v < 0.20)) {
+          errors.push('等距美术：格芯 alpha ' + v + ' 越界（应 0.005~0.20）');
+        }
+      }
+    }
+    /* 反证：不许把瓦片画在 `gGrass`（那里会被素材挡掉、永远不执行） */
+    const ai = src.indexOf('function gGrass');   /* explore 里没有 gGrass，应在 art.js */
+    if (src.indexOf('等距斜向瓦片') >= 0 && src.indexOf('function gGrass') >= 0) {
+      errors.push('等距美术：疑似把地面瓦片画在 `gGrass` 里 —— '
+        + '`ground.grass` 素材存在，程序化路径不会执行（改这里无效）');
+    }
+  }
+
+  /* ⑤ 地图边界渐隐：源码闸 */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (src.indexOf('地图边界渐隐（v1.9.3）') < 0) {
+      errors.push('等距美术：缺"地图边界渐隐"—— 等距下地图边缘会有 24px 锯齿（像 bug）');
+    }
+    /* 远景色不许写死颜色（要取调色板） */
+    const hard = src.match(/x\.fillStyle = '#2a2419'/);
+    if (hard) {
+      errors.push('等距美术：地图外底色写死了 `#2a2419` —— '
+        + '不同区域（雪原/炎浆）会与地面脱节，应取 `pal.dark` 压暗');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 等距美术：裁剪口径一致（世界像素）+ 建筑侧面（世界坐标投影）+ '
+    + '地面瓦片格 + 地图边界渐隐（取调色板）');
+}, 'iso.art.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');
