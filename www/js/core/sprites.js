@@ -1003,8 +1003,11 @@ function bossGen(plan, elem, f) {
        但要 `aura`（雷系发光，与"雷雨天出没"呼应）。
        ⚠️ 键名与 `enemies.js` 里 `雷貂` 的 `sprite: 'thunder_beast'` 对应 ——
           两处必须一致，否则静默退回 `BAKE.snake()`（一个雷兽长成蛇样）。
-          契约 `weather.encounter.contract` 钉这条。 */
+          契约 `weather.encounter.contract` 钉这条。
+       ⚠️ v1.3.0：**手绘立绘已出**（`battle.enemy.thunder_beast`），本函数降级为
+          "素材丢失时的兜底" —— 但仍必须保留（否则素材一丢就是空图）。 */
     thunder_beast: function () { return bossGen('beast','thunder',{aura:true}); },
+
     ice_warrior: function () { return bossGen('humanoid','ice',{weapon:'sword'}); },
     ice_dragon: function () { return bossGen('dragon','ice',{aura:true}); },
     thunder_warrior: function () { return bossGen('humanoid','thunder',{weapon:'spear'}); },

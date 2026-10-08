@@ -33,7 +33,12 @@
     雷貂: {
       base: '雷貂', elem: '雷',
       hp: [48, 6], atk: [15, 2.3], def: [5, 0.8], spd: [19, 1.9],
-      sprite: 'thunder_beast',
+      /* v1.3.0：手绘立绘已出（`_gen/battle.enemy.thunder_beast.png` → 构建 → 192×192）。
+         ⚠️ `artKey` 与 `sprite` 是**两条不同的回退链**（见 `sprites.js: beastResolve`）：
+            · `artKey` → 查素材 `battle.enemy.<artKey>`（**手绘优先**）
+            · `sprite` → 素材缺图时走 `BAKE.<sprite>` 程序化兜底
+            两个都要指到同一套形象，缺一个就会"素材在但不用"或"素材丢了直接糊"。 */
+      artKey: 'thunder_beast', sprite: 'thunder_beast',
       skills: [
         { lv: 1, s: sp('扑咬', 1.0) },
         { lv: 4, s: sp('雷弧', 1.4, { elem: '雷', cd: 2, hit: 95, status: { t: '麻', chance: .30 } }) },

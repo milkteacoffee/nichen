@@ -1413,8 +1413,16 @@ step(function () {
     if (!seen[k]) errors.push('洞府甬道缺少 ' + k);
   });
   const rate = pairs / 400 * 100;
-  if (Math.abs(rate - (zone.pair || 0)) > 8) {
-    errors.push('洞府双只组概率偏离配置：实测 ' + rate.toFixed(1) + '%（应约 ' + zone.pair + '%）');
+  /* ⚠️ v1.3.0：**天气会给 `pair` 加成**（`encPairAdd`，恶劣天气野兽结伴），
+     所以期望值 = `zone.pair` + 当前天气的 pairAdd —— 不能只拿 `zone.pair` 比。
+     （这条契约原先只在晴天下跑，加天气后第一次跑就红了：实测 43.5% vs 配置 35%。）
+     ⚠️ 但**不能**用"把天气加成当作误差放宽容差"来糊 —— 那会让"加成没生效"也通过。
+        正解是把期望值算准。 */
+  const pairAdd = (G.game.encPairAdd ? G.game.encPairAdd() : 0) * 100;
+  const expect = (zone.pair || 0) + pairAdd;
+  if (Math.abs(rate - expect) > 8) {
+    errors.push('洞府双只组概率偏离配置：实测 ' + rate.toFixed(1) + '%（应约 ' + expect.toFixed(1)
+      + '% = 配置 ' + (zone.pair || 0) + '% + 天气 ' + pairAdd.toFixed(1) + '%）');
   }
 }, 'zone.cave.weights');
 
@@ -11969,10 +11977,105 @@ step(function () {
     }
   }
 
+  /* ③ 顶栏天时的**几何**：不许压到居中的倒计时数字（v1.3.0 截图抓到两轮）
+     倒计时数字居中在 x=240（宽约 20px → 占 230~250）。
+     天时文字实测必须**结束于 230 之前**，否则就是叠字。
+     ⚠️ 这条不能用 `measureText` 判（smoke 的桩量不准 —— 我第一版就是靠它限宽，
+        结果真机上照样叠字）。改为**按字符数 + 字号估算上界**（保守但可靠）。 */
+  {
+    const bs = fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8');
+    const mWx = bs.match(/G\.UI\.textOut\(x, \{ x: (\d+), y: 7 \}, wxTxt([^,]*), (\d+)/);
+    if (!mWx) {
+      errors.push('战斗天时：找不到顶栏天时的绘制调用（几何无法核对）');
+    } else {
+      /* 组 2 = wxTxt 之后、字号之前的**后缀**（正常应为空串）。
+         非空 = 顶栏拼了额外文案 → 宽度不可控 → 直接判违规。 */
+      const suffix = (mWx[2] || '').trim();
+      const startX = parseInt(mWx[1], 10), fs2 = parseInt(mWx[3], 10);
+      /* "天时 · " = 2 个中文字 + 3 个窄符号 + 天气名 2 中文字 */
+      const estW = 2 * fs2 + 3 * fs2 * 0.5 + 2 * fs2;
+      const endX = startX + estW;
+      if (!suffix) {
+        if (endX > 230) {
+          errors.push('战斗天时：文字上界 ' + endX.toFixed(0) + 'px 越过居中倒计时的左沿(230) —— 会叠字'
+            + '（起点 ' + startX + ' + 估宽 ' + estW.toFixed(0) + '）');
+        }
+        if (startX < 148) {
+          errors.push('战斗天时：起点 ' + startX + ' 太靠左 —— 会与「遭遇战」标签（x=108，宽约 36）贴字');
+        }
+      } else {
+        errors.push('战斗天时：顶栏天时拼了额外文案「' + suffix + '」—— 宽度不可控、会压到倒计时'
+          + '（加成明细该放悬停）');
+      }
+      if (bs.indexOf('系功法伤害') < 0) {
+        errors.push('战斗天时：悬停里没有加成明细（那顶栏就只有天气名、看不到效果）');
+      }
+    }
+  }
+
   G.game.changeScene('title');
-  console.log('  ✓ 战斗天时：开战快照（显示与伤害同源 / 降级不消失）'
+  console.log('  ✓ 战斗天时：开战快照（显示与伤害同源 / 降级不消失 / 顶栏不叠字）'
     + ' + 探索奖励：100% 一次性（不重复 / 道具已登记）');
 }, 'battle.weather.reward.contract');
+
+/* ---------- 新物种立绘（v1.3.0）----------
+   用户口径：「给新物种雷貂补手绘立绘（现在是程序化 bossGen）」。
+
+   ⚠️ 判据的关键是"**素材真的生效了**"，而这不能用 smoke 的桩来测像素
+      （桩 `getImageData` 恒空）。所以本契约做**三层**，各自能抓不同漏法：
+        ① 素材文件 + manifest 键存在（出图接进来了）
+        ② `species` 声明了 `artKey` 与 `sprite`（两条回退链都指到同一形象）
+        ③ 源码闸：`BAKE.thunder_beast` 仍在（素材丢了也不至于空图）
+     真像素验证用带真 canvas 的探针做（实测：摘掉素材后立绘签名从
+     6234/1461036 变成 5332/1151086 —— 证明素材确实在生效）。 */
+step(function () {
+  /* ① 素材文件 + manifest */
+  {
+    const mfPath = path.join(WWW, 'assets/manifest.json');
+    if (!fs.existsSync(mfPath)) { errors.push('雷貂立绘：manifest.json 不存在'); return; }
+    const mf = JSON.parse(fs.readFileSync(mfPath, 'utf8'));
+    const key = 'battle.enemy.thunder_beast';
+    if (!mf[key]) {
+      errors.push('雷貂立绘：manifest 里没有 ' + key + '（图没接进素材流程）');
+    } else {
+      const p = path.join(WWW, mf[key]);
+      if (!fs.existsSync(p)) errors.push('雷貂立绘：manifest 指向的文件不存在 ' + mf[key]);
+      else {
+        const sz = fs.statSync(p).size;
+        if (sz < 2000) errors.push('雷貂立绘：文件太小（' + sz + ' 字节），可能是空图/占位');
+      }
+    }
+    /* 尺寸必须在 SIZES 里登记（否则 assets-build 会「未登记尺寸，跳过」） */
+    const bSrc = fs.readFileSync(path.join(__dirname, 'assets-build.py'), 'utf8');
+    if (bSrc.indexOf("'battle.enemy.thunder_beast'") < 0) {
+      errors.push('雷貂立绘：assets-build.py 的 SIZES 未登记 battle.enemy.thunder_beast');
+    }
+  }
+
+  /* ② species 的两条回退链 */
+  {
+    const sp = G.Data.species && G.Data.species['雷貂'];
+    if (!sp) { errors.push('雷貂立绘：species 里没有 雷貂'); return; }
+    if (!sp.artKey) {
+      errors.push('雷貂立绘：species 缺 artKey（手绘素材查的是 battle.enemy.<artKey>）');
+    } else if (sp.artKey !== 'thunder_beast') {
+      errors.push('雷貂立绘：artKey 应为 thunder_beast，实为 ' + sp.artKey);
+    }
+    if (sp.sprite !== 'thunder_beast') {
+      errors.push('雷貂立绘：sprite 兜底键应为 thunder_beast，实为 ' + sp.sprite);
+    }
+  }
+
+  /* ③ 源码闸：程序化兜底仍在（素材丢失时不至于空图） */
+  {
+    const spSrc = fs.readFileSync(path.join(WWW, 'js/core/sprites.js'), 'utf8');
+    if (spSrc.indexOf('thunder_beast:') < 0) {
+      errors.push('雷貂立绘：BAKE 缺 thunder_beast 兜底（素材丢失会出空图）');
+    }
+  }
+
+  console.log('  ✓ 雷貂立绘：素材 + manifest + SIZES 登记 / artKey 与 sprite 双链 / BAKE 兜底仍在');
+}, 'thunderbeast.art.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

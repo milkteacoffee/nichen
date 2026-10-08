@@ -53,6 +53,9 @@ SIZES = {
     'battle.enemy.bloodbat': (192, 192),
     'battle.enemy.xuemian': (192, 192),
     'battle.enemy.heartDemon2': (192, 192),
+    # 雷貂（v1.3.0）：v1.2.0 新增的雷系野怪，原先走程序化 bossGen 兜底；
+    # 2026-10-08 出手绘立绘。`enemies.js` 的 `species['雷貂'].artKey` 指到它。
+    'battle.enemy.thunder_beast': (192, 192),
     # 副本 Boss 立绘（20 张，设计见《副本Boss形象与关卡结构设计 v3.3》§7.1）
     #   大副本：b<n>big = 第 9 关大 Boss；b<n>mid = 第 5 关小 Boss
     #   小副本：s<n>    = 第 5 关头领

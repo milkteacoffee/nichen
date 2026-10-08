@@ -2681,15 +2681,40 @@
         var eb = this.wxSnap.eb || {};
         var ek = Object.keys(eb);
         var wxTxt = '天时 · ' + this.wxSnap.n;
-        if (ek.length) {
-          wxTxt += '　' + ek.map(function (k) {
-            return k + '系+' + Math.round(eb[k] * 100) + '%';
-          }).join(' ');
-        }
         var wcol = this.wxSnap.id === 'storm' ? '#c9b0ff'
           : this.wxSnap.id === 'snow' ? '#e4eefb'
             : this.wxSnap.id === 'miasma' ? '#b9d06a' : '#a9d4f2';
-        G.UI.textOut(x, { x: 176, y: 7 }, wxTxt, 11, wcol);
+        /* ⚠️ v1.3.0：**加成文案不上顶栏**（限宽实测不可靠）。
+           倒计时数字**居中在 x=240**，天时从 x=176 起只有 64px 余量 ——
+           写法一：`measureText` 限宽 → **实测无效**（宽度量不准，仍会压到数字上，
+           截图上是"天时 · 雷14"）。
+           写法二（当前）：顶栏**只放天气名**（"天时 · 雷雨"约 60px，放得下），
+           详细加成挂**悬停**（`G.UI.hover`，那里空间不受限）。
+           用户口径要的是"看得见什么天气、什么效果"——**悬停也是看得见**，
+           而且比挤在顶栏里更完整（能列全部 7 项）。 */
+        /* ⚠️ 起点取 **152**（「遭遇战」标签 x=108、宽约 36 → 结束于 144，留 8px 间隙）：176 起会让
+           "天时 · 雷雨"（约 66px）占到 242，**正好压住居中的倒计时数字**。
+           152 + 66 = 218，与 240 之间留出 22px 安全间隙。
+           另外用 `clip` 兜底：即使将来天气名更长，也不会越界压到数字。 */
+        x.save();
+        x.beginPath(); x.rect(150, 0, 86, 30); x.clip();
+        G.UI.textOut(x, { x: 152, y: 7 }, wxTxt, 11, wcol);
+        x.restore();
+        if (!this.overlay) {
+          var lines = [];
+          lines.push('本场天时：' + this.wxSnap.n + '（开战时锁定）');
+          if (ek.length) {
+            ek.forEach(function (k) {
+              lines.push(k + '系功法伤害　+' + Math.round(eb[k] * 100) + '%');
+            });
+          } else {
+            lines.push('此天气无元素增幅');
+          }
+          lines.push('※ 天气在开战时锁定，本场战斗内不变。');
+          G.UI.hover({ x: 150, y: 4, w: 84, h: 15 }, {
+            title: '天时 · ' + this.wxSnap.n, text: lines.join('\n')
+          });
+        }
       }
 
       if (this.phase === 'command' && !this.auto && !this.over) {
