@@ -810,6 +810,34 @@
         return null;
       },
 
+      /* ===== 排序深度（v1.6.0）：**绘制位置的像素 y，减掉地形高度** =====
+         所有参与 y 排序的物件都走这里 —— 保证"排序基准 == 绘制基准"。
+
+         ⚠️ **口径要按"原来的 y 口径"来，只在其上减高度偏移**：
+            原代码各类物件的排序 y 是**各自调好的**（装饰按格 y、家具按"最下一格"），
+            它们的相对关系正确 —— 本轮的改动**只该加高度**，不该顺手改口径。
+            所以这里**保留原口径**（`o.y` / `o.y + h - 1`），只减 `_elevPx`。
+            若把口径改成"统一脚底像素 y"，会改变**既有地图里的相对顺序**，
+            手写图（无高度）也会跟着变 → 破坏零回归。
+
+         ⚠️ 玩家是**例外**：它的 `o.y` 在入列时已按 `_pxDraw()`（**含高度**）
+            换算过，所以这里**不再减**（减两次 = 双重偏移，反例实测差 32px）。
+
+         ⚠️ 无高度图时 `_elevPx` 恒 0 → depth 退化为原 `y` 序，
+            **手写图逐像素不变**（零回归）。 */
+      _depthOf: function (o) {
+        if (o.player) {
+          /* 已在入列时按 _pxDraw() 换算（含高度）→ 直接用，不再减 */
+          return o.y * TILE;
+        }
+        if (o.furn) {
+          /* 家具按"最下一格"参与排序（与入列时的 `y + (h||1) - 1` 一致） */
+          return o.y * TILE - this._elevPx(o.x, o.y);
+        }
+        /* 装饰 / NPC / 采集 / 明雷：按格 y（原口径），只减高度 */
+        return o.y * TILE - this._elevPx(o.x, o.y);
+      },
+
       /* ===== 相机 =====
          ⚠️ v1.5.0：`_px()` 保持**逻辑基准位置**（不含高度偏移）——
             因为 `_camX/_camY` 也读它，相机跟着高度走会让**整屏随坡上下移动**，
@@ -932,9 +960,36 @@
         (this.map.roams || []).forEach(function (r) {
           list.push({ roam: r, x: r.x, y: r.y });
         });
-        var pp = this._px();
+        /* 玩家：排序键要走 **`_pxDraw()`**（含高度）——与 `_drawPlayer` 同一套基准。
+           ⚠️ v1.6.0 修：原先用 `_px()`（**逻辑**位置，不含高度），
+              于是"排序基准"与"绘制基准"分叉 —— 玩家站高地时排序仍按地面位置，
+              会与邻近低地物件出现遮挡错（详见下方 depth 注释）。 */
+        var pp = this._pxDraw();
         list.push({ player: true, x: pp.x / TILE, y: pp.y / TILE });
-        list.sort(function (a, b) { return a.y - b.y; });
+
+        /* ===== 排序键：**绘制用的脚底 y**（v1.6.0）=====
+           用户口径（承 v1.4/v1.5 的"纸片感/高低差"）：让高低差下的遮挡关系正确。
+
+           **问题**：原先 `list.sort((a,b) => a.y - b.y)` 用的是**格坐标 y**
+           （不含高度）。而绘制位置是 `y*TILE + 12 − elev*ELEV_STEP`。
+           两者基准不同 → 高度差足够大时**绘制顺序反了**：
+             例：(5,10) 高台(elev2) 与 (5,11) 低地(elev0)
+             排序键 10 < 11 → 高台**先画**；但它绘制后的脚底(236) 比低地(276) **更靠上**
+             → 应该"更靠下的后画"（低地压住高台下沿）。顺序反了 = 高台的下沿被低地盖住。
+
+           **修法**：排序键统一成**绘制后的脚底像素 y**（`_depthOf`），
+           与 `_drawPlayer` / `_drawDecor` 等用的基准**完全同一套**。
+           ⚠️ 这是"同一判据禁止两处分写"的又一例：**排序基准必须与绘制基准同源**，
+              否则两者会在某些取值下分叉，且**只在特定高度组合下才显形**（极难查）。
+           ⚠️ 同一格内（depth 相等）保持稳定：用 `index` 兜底，避免 sort 不稳定导致的抖动。 */
+        list.forEach(function (o, i) {
+          o._i = i;
+          o.depth = self._depthOf(o);
+        });
+        list.sort(function (a, b) {
+          if (a.depth !== b.depth) return a.depth - b.depth;
+          return a._i - b._i;
+        });
         list.forEach(function (o) {
           if (o.player) self._drawPlayer(x, camX, camY);
           else if (o.furn) self._drawFurn(x, o.furn, camX, camY);

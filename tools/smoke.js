@@ -12348,6 +12348,127 @@ step(function () {
   console.log('  ✓ 地形起伏：玩家/物件随高度（+16px@elev2）+ 相机不随高度 + 跨落差连续（双线性）');
 }, 'terrain.follow.contract');
 
+/* ---------- 排序基准 == 绘制基准（v1.6.0）----------
+   用户口径（承 v1.4/v1.5 的高低差）：让**高度差下的遮挡关系**正确。
+
+   **问题**：`list.sort` 原用**格坐标 y**，而绘制位置是
+   `y*TILE − elev*ELEV_STEP`。两者基准不同 → 高度差够大时**顺序反了**：
+     · 高台(5,10,elev2) 与低地(5,11,elev0)：排序键 10 < 11 → 高台先画
+     · 但高台绘制后**脚底更靠上**，应该"更靠下的后画"
+     · 顺序反了 = 高台的下沿被低地盖住
+
+   本契约钉三件事：
+     ① 排序走 `_depthOf`，且**它减了高度**（源码闸 + 行为）；
+     ② **零回归**：手写图（无高度）的 `_depthOf` 必须**逐值等于**原口径 `y*TILE`
+        —— 否则既有地图的相对顺序会变；
+     ③ **玩家不许双重减**（它的 `o.y` 入列时已按 `_pxDraw` 含高度）。 */
+step(function () {
+  /* ⚠️ `TILE` 是 explore.js 的**模块私有量**，smoke 作用域里没有 ——
+     不在此处自己定义会抛 ReferenceError，把后面两段（零回归 / 源码闸）**静默跳过**。 */
+  const TILE = 24;
+  const ELEV_STEP = 8;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  try { G.RegionGen.ensure(s, 'fan5'); } catch (e) {}
+  G.game.changeScene('fan5', { toSpawn: true });
+  const sc = G.game.scene, m = sc.map;
+
+  if (typeof sc._depthOf !== 'function') {
+    errors.push('排序深度：缺 _depthOf（排序基准没有统一口）');
+    return;
+  }
+
+  /* ① 有高度的图：高地物件必须"先画"（depth 更小） */
+  {
+    let pair = null;
+    for (let y = 2; y < m.h - 2 && !pair; y++)
+      for (let x = 2; x < m.w - 2; x++) {
+        const eHi = (m.ground[y][x].elev || 0);
+        const eLo = (m.ground[y + 1][x].elev || 0);
+        if (eHi >= 2 && eLo === 0) { pair = { x: x, y: y }; break; }
+      }
+    if (!pair) { errors.push('排序深度：找不到 2/0 的相邻格对，无法验证'); }
+    else {
+      const A = { x: pair.x, y: pair.y };            /* 高台 */
+      const B = { x: pair.x, y: pair.y + 1 };        /* 低地 */
+      const dA = sc._depthOf(A), dB = sc._depthOf(B);
+      /* 高台应"更靠上"（depth 小）→ 先画；低地后画压住它的下沿 */
+      if (!(dA < dB)) {
+        errors.push('排序深度：高台(elev2) 的 depth(' + dA + ') 未小于低地(elev0) 的 depth('
+          + dB + ') —— 高度没进排序（高台下沿会被低地盖住）');
+      }
+      /* 差值 = 一格(24) **+** 高度差(2*8=16) = 40 —— 高台同时"更靠上一格"且"更高两档"，
+         两个方向**同向叠加**（不是相减）。⚠️ 这里一开始写成 8（误按相减），
+         跑出来 40 才发现：depth 就是"绘制脚底 y"，格差与高度差当然同号。 */
+      if (dB - dA !== TILE + 2 * ELEV_STEP) {
+        errors.push('排序深度：2/0 相邻格的 depth 差应为 ' + (TILE + 2 * ELEV_STEP)
+          + '（一格 24 + 高度差 16），实为 ' + (dB - dA));
+      }
+      /* 玩家：入列时已按 _pxDraw 含高度 → `_depthOf` 不许再减 */
+      const pw = sc._depthOf({ player: true, x: 0, y: 10 });
+      if (pw !== 10 * TILE) {
+        errors.push('排序深度：玩家的 depth 应为 y*TILE（已含高度、不许再减），实为 ' + pw);
+      }
+      /* 家具：入列时 y 已换成"最下一格"（`f.y + (f.h||1) - 1`）→ depth 就是 o.y*TILE − 高度。
+         ⚠️ 这条钉的是"入列口径与 _depthOf 口径必须一致" ——
+            若 _depthOf 里改成 `(o.y+1)*TILE`，家具会整体下沉一格，排序错位。 */
+      const df = sc._depthOf({ furn: {}, x: pair.x, y: pair.y });
+      const ef = sc._elevPx(pair.x, pair.y);
+      if (df !== pair.y * TILE - ef) {
+        errors.push('排序深度：家具的 depth 应为 o.y*TILE − 高度（' + (pair.y * TILE - ef)
+          + '），实为 ' + df);
+      }
+    }
+  }
+
+  /* ② 零回归：手写图（无高度）的 depth 必须逐值等于 `y*TILE` */
+  {
+    G.game.changeScene('town', { toSpawn: true });
+    const sc2 = G.game.scene;
+    if (sc2._elevMax() !== 0) {
+      errors.push('排序深度：town 不该有高度（零回归前提）');
+    } else {
+      let bad = 0;
+      for (let y = 1; y < 8; y++) {
+        if (sc2._depthOf({ x: 5, y: y }) !== y * TILE) bad++;
+      }
+      if (bad) {
+        errors.push('排序深度：无高度图的 depth 不等于 y*TILE（' + bad + ' 处）—— '
+          + '既有地图的相对顺序被改了');
+      }
+    }
+  }
+
+  /* ③ 源码闸：排序必须走 _depthOf，且不许直接用 a.y - b.y */
+  {
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (exSrc.indexOf('_depthOf') < 0) errors.push('源码闸：explore 缺 _depthOf');
+    if (/list\.sort\(function \(a, b\) \{ return a\.y - b\.y; \}\)/.test(exSrc)) {
+      errors.push('源码闸：排序又回到裸 `a.y - b.y` —— 高度没进排序');
+    }
+    if (!/list\.sort\(function \(a, b\) \{\s*if \(a\.depth !== b\.depth\)/.test(exSrc)) {
+      errors.push('源码闸：排序没有用 depth（应 compare a.depth / b.depth）');
+    }
+    /* `_depthOf` 必须真的减高度 */
+    const mD = exSrc.match(/_depthOf: function[\s\S]{0,900}?\n      \},/);
+    const body = mD ? mD[0] : '';
+    if (!body) errors.push('源码闸：找不到 _depthOf 函数体');
+    else if (body.indexOf('_elevPx') < 0) {
+      errors.push('源码闸：_depthOf 没读 _elevPx —— 排序基准与绘制基准不同源');
+    }
+    /* 玩家分支必须**不含** _elevPx（防双重偏移） */
+    const pwM = body.match(/if \(o\.player\)[\s\S]{0,200}?return[^;]*;/);
+    if (pwM && pwM[0].indexOf('_elevPx') >= 0) {
+      errors.push('源码闸：玩家的 depth 分支又减了 _elevPx —— 会双重偏移（实测差 32px）');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 排序基准：走 _depthOf（含高度）+ 高地先画 + 玩家不双重减 + 无高度图逐值等价原口径');
+}, 'terrain.depth.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');
