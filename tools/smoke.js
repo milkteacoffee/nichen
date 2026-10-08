@@ -11698,6 +11698,156 @@ step(function () {
   console.log('  ✓ 天气玩法：视野/元素增幅/打坐三处真接入 + 降级归零 + 卷轴迷雾 + 待机小动作');
 }, 'weather.fx.contract');
 
+/* ---------- 天气遭遇 / HUD 天时 / 探索进度（v1.2.0）----------
+   用户口径：「① 天气影响探索遭遇（雨天野怪更凶/雷雨天加成雷系妖兽）；
+   ② 天气进 HUD（玩家要能看见"现在什么天气、什么效果"）；
+   ③ 三界卷轴加"已探明百分比"的探索进度」。
+
+   契约钉三件事，各对应一个**容易做成"看起来有、其实没生效"**的点：
+     ① 天气遭遇：**等级上浮**要真的发生（不是表里有 lvBias 但没人读）；
+        **雷雨天要真的能掷出雷貂** —— 这一条最关键：只加权属性是**不够**的，
+        因为物种池里本来没有雷系兽，权重再高也掷不出来（实测踩到过）。
+     ② HUD 天时：必须**从 WEATHER_FX 派生**文案（不另写一份），
+        且晴天不显示（晴是"无影响"的默认态）。
+     ③ 探索进度：分母必须是该界**全部**区域，分子含当前所在。 */
+step(function () {
+  const g = G.game;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  /* ⚠️ 显式复位（契约共享单例：别的契约可能把 _fogOn 留成 false、场景留在室内） */
+  g._fogOn = true;
+  G.game.changeScene('field', { toSpawn: true });
+
+  const setW = function (xiang, traits) {
+    s.world = s.world || {};
+    s.world.xiang = xiang;
+    s.world.traits = traits || [];
+    g._wxKey = null;
+    if (G.game.sceneName !== 'field') G.game.changeScene('field', { toSpawn: true });
+    return g.weatherId();
+  };
+
+  /* ① 天气遭遇的**三个字段**齐全 */
+  ['clear', 'rain', 'storm', 'snow', 'miasma'].forEach(function (id) {
+    const e = (g.WEATHER_FX[id] || {}).enc;
+    if (!e) { errors.push('天气遭遇：' + id + ' 缺 enc 字段'); return; }
+    ['lvBias', 'elemBias', 'pairAdd'].forEach(function (k) {
+      if (e[k] === undefined) errors.push('天气遭遇：' + id + ' 的 enc 缺 ' + k);
+    });
+  });
+
+  /* ② **雷雨天必须能掷出雷貂** —— 这是"加成雷系妖兽"的真正判据。
+        采样实掷（走真实 `_encounter`），不能只看权重表。 */
+  setW('海岛', ['W10']);                                 /* 雷雨 */
+  const sc = G.game.scene;
+  const seen = {};
+  for (let i = 0; i < 300; i++) {
+    G.rng.next();
+    sc._encounter((sc.map.md.zones || [])[0]);
+    const u = sc._pending && sc._pending.unit;
+    if (u) seen[u.species] = (seen[u.species] || 0) + 1;
+    sc._pending = null;
+  }
+  if (!seen['雷貂']) {
+    errors.push('天气遭遇：雷雨天掷 300 次都没出雷貂 —— '
+      + '只加权属性不够（物种池里本来没有雷系兽），必须把天气专属兽**注入**候选池');
+  } else if (seen['雷貂'] < 20) {
+    errors.push('天气遭遇：雷雨天雷貂仅出现 ' + seen['雷貂'] + '/300（应显著高于其他兽）');
+  }
+  /* ③ 晴天**不该**有雷貂（它不是常驻物种） */
+  setW('群山', []);
+  const seenClear = {};
+  for (let i = 0; i < 200; i++) {
+    G.rng.next();
+    sc._encounter((sc.map.md.zones || [])[0]);
+    const u = sc._pending && sc._pending.unit;
+    if (u) seenClear[u.species] = (seenClear[u.species] || 0) + 1;
+    sc._pending = null;
+  }
+  if (seenClear['雷貂']) {
+    errors.push('天气遭遇：晴天不该出现雷貂（它是雷雨专属），实为 ' + seenClear['雷貂'] + ' 次');
+  }
+
+  /* ④ 等级上浮：雷雨的均级必须高于晴天 */
+  const avgLv = function () {
+    let sum = 0, n = 0;
+    for (let i = 0; i < 200; i++) {
+      G.rng.next();
+      sc._encounter((sc.map.md.zones || [])[0]);
+      if (sc._pending && sc._pending.unit) { sum += sc._pending.unit.level; n++; }
+      sc._pending = null;
+    }
+    return n ? sum / n : 0;
+  };
+  setW('群山', []);
+  const lvClear = avgLv();
+  setW('海岛', ['W10']);
+  const lvStorm = avgLv();
+  if (!(lvStorm > lvClear + 0.5)) {
+    errors.push('天气遭遇：雷雨均级(' + lvStorm.toFixed(1) + ') 应明显高于晴天('
+      + lvClear.toFixed(1) + ') —— 等级上浮没生效');
+  }
+
+  /* ⑤ 源码闸：三处新功能的接入点 + 不许绕过唯一口径 */
+  {
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const exCode = strip(fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8'));
+    const gmCode = strip(fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8'));
+    const pnCode = strip(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
+    const enSrc = fs.readFileSync(path.join(WWW, 'js/data/enemies.js'), 'utf8');
+    const spSrc = fs.readFileSync(path.join(WWW, 'js/core/sprites.js'), 'utf8');
+    if (gmCode.indexOf('weatherSpawns') < 0) errors.push('源码闸：game 缺 weatherSpawns（天气专属兽）');
+    if (exCode.indexOf('weatherSpawns') < 0) errors.push('源码闸：explore 未注入天气专属兽');
+    if (exCode.indexOf('encLvBias') < 0) errors.push('源码闸：explore 未用 encLvBias（等级上浮没接）');
+    if (exCode.indexOf('天气指示') < 0 && exCode.indexOf('天时 · ') < 0) {
+      errors.push('源码闸：HUD 缺天气指示');
+    }
+    if (pnCode.indexOf('已探明') < 0) errors.push('源码闸：地图面板缺"已探明百分比"');
+    /* ⚠️ 新物种必须在**唯一真相源**登记（否则静默退回 snake：地图上是貂、打起来是蛇） */
+    if (enSrc.indexOf("'雷貂': 'thunder_beast'") < 0) {
+      errors.push('源码闸：SPECIES_SPRITE 未登记雷貂（会静默退回 snake 立绘）');
+    }
+    if (spSrc.indexOf('thunder_beast:') < 0) {
+      errors.push('源码闸：sprites 的 BAKE 缺 thunder_beast（立绘会退回兜底）');
+    }
+  }
+
+  /* ⑥ 新物种立绘**真的**接上了。
+     ⚠️⚠️ **不能在 smoke 里比像素**：smoke 的桩 `getImageData` 恒返回空
+        （项目已知限制，历史记忆里记过）—— 两张图都读成全透明，
+        于是像素相同永远成立 → 判据必然假红。
+     正确判据（两条互补，各自能抓不同漏法）：
+       a) **源码闸**： 真的用 bossGen 画（不是退回 BAKE.snake()）；
+       b) **行为**： 出的对象与 snake 兜底**不是同一个**（缓存对象不同 =
+          走了不同烘焙路径）。
+     真像素比对交给带真 canvas 的探针（`tools/fps-probe.js` 那类），不在契约里做。 */
+  {
+    const u = G.Data.makeEnemy('雷貂', 20, '雷貂');
+    if (u.elem !== '雷') errors.push('雷貂的属性应为雷，实为 ' + u.elem);
+    if (u.sprite !== 'thunder_beast') errors.push('雷貂的 sprite 应为 thunder_beast，实为 ' + u.sprite);
+    const spr = G.Sprites.beastResolve(u.artKey, u.sprite);
+    const snake = G.Sprites.beastResolve(null, 'snake');
+    if (!spr) errors.push('雷貂立绘解析失败（null）');
+    else if (spr === snake) {
+      errors.push('雷貂立绘与蛇兜底是**同一个缓存对象** —— 说明走了同一条烘焙路径（立绘没生效）');
+    }
+    /* a) 源码闸：BAKE.thunder_beast 必须走 bossGen，不许直接 return BAKE.snake()。
+       ⚠️ 取到**行尾**即可 —— 用 `[^}]*}` 会因为它内部有 `{aura:true}` 而提前截断
+          （正则按"第一个右花括号"收尾，匹配到的 body 是空的 → 判据假红）。 */
+    const spSrc2 = fs.readFileSync(path.join(WWW, 'js/core/sprites.js'), 'utf8');
+    const mBake = spSrc2.match(/thunder_beast: function \(\) \{([^\n]*)/);
+    const bakeBody = mBake ? mBake[1] : '';
+    if (!bakeBody) errors.push('源码闸：找不到 BAKE.thunder_beast 的函数体');
+    else if (bakeBody.indexOf('bossGen') < 0) {
+      errors.push('源码闸：BAKE.thunder_beast 没用 bossGen 绘制（会退回兜底立绘）');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 天气遭遇：等级上浮 + 雷雨专属雷貂（实掷验证）+ HUD 天时 + 探索进度');
+}, 'weather.encounter.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');

@@ -527,8 +527,36 @@
             list.push({ k: k, w: world.beast[k] });
           });
         }
+        /* ===== 天气专属兽注入（v1.2.0）=====
+           雷雨天把「雷貂」加进候选池。**这是"雷雨天加成雷系妖兽"的真正实现** ——
+           只提高属性权重不够（池子里若本来没有雷系兽，权重再高也掷不出来）。
+           ⚠️ 注入的是**基础权重**，之后还会乘属性加权（雷系 ×6 = 1+5），
+              所以雷雨天的雷貂会明显多于其他兽。
+           ⚠️ 只在**池子非空**时注入（空池意味着这张图本来就没野怪，不该凭空造）。 */
+        if (list.length && G.game.weatherSpawns) {
+          G.game.weatherSpawns().forEach(function (ws) {
+            var found = null;
+            list.forEach(function (it) { if (it.k === ws.species) found = it; });
+            if (found) found.w += ws.w;
+            else list.push({ k: ws.species, w: ws.w });
+          });
+        }
+        /* ===== 天气的属性偏向（v1.2.0，用户口径「雷雨天加成雷系妖兽」）=====
+           把天气关心的属性（`encElemWeight`）乘到权重上 —— 雷雨天雷系兽 ×5，
+           于是"雷雨多雷兽"是从**权重**上自然发生的，而不是特殊分支。
+           ⚠️ 只在**有属性表**时加权（`G.Data.enemies` 里的 `elem`）；
+              查不到属性的老兽按 1 倍（不改变原有分布）。
+           ⚠️ 加权**只影响暗雷重掷**。明雷是地图生成时定好的（mapgen），
+              它的等级/物种**必须与玩家看到的那只一致**，不能临时改（见 `_rollUnitR` 注释）。 */
+        if (G.game.encElemWeight && G.Data.makeEnemy) {
+          list.forEach(function (it) {
+            var el = (G.Data.enemyElemOf && G.Data.enemyElemOf(it.k)) || null;
+            if (el) it.w *= G.game.encElemWeight(el);
+          });
+        }
 
-        var pairChance = (zone.pair || 0) / 100;
+        /* 天气加成双只组概率（恶劣天气野兽结伴） */
+        var pairChance = (zone.pair || 0) / 100 + (G.game.encPairAdd ? G.game.encPairAdd() : 0);
         var isPair = pairChance > 0 && G.rng.next() < pairChance;
 
         var units = [];
@@ -564,10 +592,20 @@
       /* 掷一只该区该物种的敌人（含等级偏移与浮世相位加成） */
       _rollUnit: function (zone, speciesKey) {
         var bias = (zone.bias && zone.bias[speciesKey]) || 0;
-        var L = G.rng.int(zone.enc.min, zone.enc.max) + bias;
+        /* 天气的等级上浮（v1.2.0）：雷雨/瘴气 +2 —— "雨天野怪更凶"。
+           ⚠️ 夹在该分区的 enc 上限**再往上一档**（不超过上限 +3），
+              否则恶劣天气下后山杂鱼会顶到 BOSS 的等级区间。 */
+        var wBias = G.game.encLvBias ? G.game.encLvBias() : 0;
+        var L = G.rng.int(zone.enc.min, zone.enc.max) + bias + wBias;
+        if (zone.enc && L > zone.enc.max + 4) L = zone.enc.max + 4;
         var poolKey = speciesKey === '青纹蛇' ? 'snake'
           : speciesKey === '赤炎狼' ? 'wolf' : null;
-        var nm = poolKey ? G.rng.pick(G.Data.namePools[poolKey]) : '树精';
+        var nm = poolKey ? G.rng.pick(G.Data.namePools[poolKey]) : null;
+        if (!nm) {
+          /* 新物种（如雷貂）先看兽名池里有没有；没有再退回物种名本身。
+             ⚠️ 用 `G.Data.namePools` 的存在性判断，别写死 if 链（加物种会漏）。 */
+          nm = speciesKey;
+        }
         var unit = G.Data.makeEnemy(speciesKey, L, nm);
         this._applyWorldEnemy(unit);
         return unit;
@@ -1995,6 +2033,56 @@
         G.UI.bar(x, { x: 42, y: 34, w: 132, h: 11 }, qiRatio, G.UI.C.jadeHi);
         G.UI.textOut(x, { x: 108, y: 34.5 }, Math.round(qiRatio * 100) + '%', 9.5, '#ffffff', 'center');
         if (G.Time) G.UI.text(x, { x: 244, y: 8 }, G.Time.label(save), 9.5, G.UI.C.jadeHi);
+
+        /* ===== 天气指示（v1.2.0，用户口径「天气进 HUD，玩家要能看见现在什么天气、什么效果」）=====
+           位置：纪年下方（y=20）、资源四格之上（y=27）—— 那块横向空隙正好放一行。
+           ⚠️ **晴天不显示**（`clear`）：晴是"没有效果"的默认态，占一行反而干扰；
+              只有**真的有影响**的天气才提示 —— 玩家看到的每一行都对应一个实际效果。
+           ⚠️ 悬停列**全部效果**（视野/元素/速度/打坐/遭遇），走 `WEATHER_FX` 同一份数据，
+              不在这里另写文案表（否则加一条天气就要改两处）。
+           ⚠️ 颜色按天气取（雨=冷蓝/雷=紫/雪=白/瘴=黄绿），一眼可辨。 */
+        (function () {
+          if (!G.game.weatherId) return;
+          var wid = G.game.weatherId();
+          if (wid === 'none' || wid === 'clear') return;
+          var fx = G.game.weatherFx();
+          var COL = { rain: '#a9d4f2', storm: '#c9b0ff', snow: '#e4eefb', miasma: '#b9d06a' };
+          var col = COL[wid] || '#cfe0f5';
+          var label = '天时 · ' + (fx.n || wid);
+          x.save();
+          x.font = G.UI.F(9.5);
+          var lw = x.measureText(label).width;
+          /* 右侧对齐到资源末格右沿（472），与纪年同侧，视觉成列 */
+          var bx = 472 - lw - 10;
+          G.UI.textOut(x, { x: 472, y: 20 }, label, 9.5, col, 'right');
+          x.restore();
+          if (!self.overlay) {
+            /* 效果清单：**从 WEATHER_FX 派生**，保证"显示的就是生效的" */
+            var lines = [];
+            var vp = Math.round((fx.vision || 1) * 100);
+            if (vp !== 100) lines.push('视野　' + vp + '%');
+            if (fx.eb) Object.keys(fx.eb).forEach(function (k) {
+              lines.push(k + '系功法　+' + Math.round(fx.eb[k] * 100) + '%');
+            });
+            if (fx.spd && fx.spd !== 1) {
+              lines.push('行动速度　' + (fx.spd > 1 ? '+' : '') + Math.round((fx.spd - 1) * 100) + '%');
+            }
+            if (fx.qiWane) lines.push('打坐灵气　-' + Math.round(fx.qiWane * 100) + '%');
+            var enc = fx.enc || {};
+            if (enc.lvBias) lines.push('野怪等级　+' + enc.lvBias);
+            if (enc.pairAdd) lines.push('结伴出没　+' + Math.round(enc.pairAdd * 100) + '%');
+            if (enc.elemBias) {
+              Object.keys(enc.elemBias).forEach(function (k) {
+                lines.push(k + '系妖兽出没　+' + enc.elemBias[k] + '倍');
+              });
+            }
+            G.UI.hover({ x: bx - 4, y: 18, w: lw + 14, h: 14 }, {
+              title: '天时 · ' + (fx.n || wid),
+              text: lines.length ? lines.join('\n') : '此天气暂无额外影响。'
+            });
+          }
+        })();
+
         if (!self.overlay) G.UI.hover({ x: 42, y: 34, w: 132, h: 11 }, {
           title: bs.ready ? '灵气已足 · 可尝试突破' : '灵气修炼进度',
           text: '当前 ' + num(save.qi) + ' / 所需 ' + num(qiNeed) + '。突破还需满足境界条件。'

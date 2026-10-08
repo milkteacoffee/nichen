@@ -3163,6 +3163,26 @@
     });
     if (locked) hint = '还有 ' + locked + ' 界尚未现世（可查看全图）· 拖拽平移 · 点节点传送';
     G.UI.text(x, { x: P.x + 14, y: P.y + P.h - 18 }, hint, 9.5, G.UI.C.textDim);
+
+    /* ===== 历练进度（v1.2.0，用户口径「三界卷轴加已探明百分比的探索进度」）=====
+       显示**本界**已到访区域数 / 总数 + 百分比。
+       ⚠️ 放在**视口左上角**（`V.vx+8, V.vy+8`）：底部那行已有图例、右上角有缩放控件，
+          只有这里空着。且必须画在**暗纱之后**（不然未现世的界会把它压暗看不清）。
+       ⚠️ 分母 = **该界全部区域**（含手写图复用的），因为"玩家眼里这些就是这一界的地方"。
+       ⚠️ 颜色按完成度（<40% 灰、40~99% 玉色、100% 金色）—— 一眼看得出"探完没"。 */
+    {
+      var total = list.length;
+      var seenN = 0;
+      list.forEach(function (r) {
+        if (r.id === cur || visited[r.id]) seenN++;
+      });
+      var pct = total ? Math.round(seenN / total * 100) : 0;
+      var pcol = pct >= 100 ? G.UI.C.goldHi : (pct >= 40 ? G.UI.C.jadeHi : G.UI.C.textDim);
+      x.font = G.UI.F(9.5);
+      G.UI.textOut(x, { x: V.vx + 8, y: V.vy + 6 },
+        '已探明 ' + seenN + '/' + total + '（' + pct + '%）', 9.5, pcol,
+        'left', 'rgba(6,10,20,0.85)', 2.2);
+    }
   }
 
   function buildMap(btns, scene) {

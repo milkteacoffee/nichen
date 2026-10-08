@@ -899,12 +899,18 @@
           而我们**没有"等天气"的手段**（时间只在打坐/战斗中走，见 `_dayTintAt` 注释）。
           所以一律做成"比例增减"，不做"能不能"。 */
     WEATHER_FX: {
-      clear: { n: '晴', vision: 1.00, eb: {}, spd: 1.00, qiWane: 0 },
-      rain: { n: '雨', vision: 0.78, eb: { '水': 0.10 }, spd: 0.96, qiWane: 0.12 },
-      storm: { n: '雷雨', vision: 0.66, eb: { '雷': 0.25, '风': 0.15 }, spd: 1.04, qiWane: 0.20 },
-      snow: { n: '雪', vision: 0.72, eb: { '水': 0.15, '风': 0.05 }, spd: 0.90, qiWane: 0.16 },
-      miasma: { n: '瘴气', vision: 0.58, eb: { '木': 0.12, '暗': 0.18 }, spd: 0.94, qiWane: 0.24 },
-      none: { n: '无', vision: 1.00, eb: {}, spd: 1.00, qiWane: 0 }
+      clear: { n: '晴', vision: 1.00, eb: {}, spd: 1.00, qiWane: 0,
+        enc: { lvBias: 0, elemBias: {}, pairAdd: 0 } },
+      rain: { n: '雨', vision: 0.78, eb: { '水': 0.10 }, spd: 0.96, qiWane: 0.12,
+        enc: { lvBias: 1, elemBias: { '水': 2, '木': 1 }, pairAdd: 0.05 } },
+      storm: { n: '雷雨', vision: 0.66, eb: { '雷': 0.25, '风': 0.15 }, spd: 1.04, qiWane: 0.20,
+        enc: { lvBias: 2, elemBias: { '雷': 5, '风': 1 }, pairAdd: 0.08 } },
+      snow: { n: '雪', vision: 0.72, eb: { '水': 0.15, '风': 0.05 }, spd: 0.90, qiWane: 0.16,
+        enc: { lvBias: 1, elemBias: { '水': 2, '冰': 1 }, pairAdd: 0.04 } },
+      miasma: { n: '瘴气', vision: 0.58, eb: { '木': 0.12, '暗': 0.18 }, spd: 0.94, qiWane: 0.24,
+        enc: { lvBias: 2, elemBias: { '木': 3, '暗': 3 }, pairAdd: 0.10 } },
+      none: { n: '无', vision: 1.00, eb: {}, spd: 1.00, qiWane: 0,
+        enc: { lvBias: 0, elemBias: {}, pairAdd: 0 } }
     },
     weatherFx: function () {
       var id = this.weatherId();
@@ -930,6 +936,42 @@
     qiMul: function () {
       if (this._fogOn === false) return 1;
       return 1 - (this.weatherFx().qiWane || 0);
+    },
+    /* ===== 天气对**遭遇**的影响（v1.2.0，用户口径「雨天野怪更凶/雷雨天加成雷系妖兽」）=====
+       三个字段（唯一口径在 `WEATHER_FX[*].enc`）：
+         · `lvBias`   野怪等级上浮（雷雨/瘴气 +2）—— "更凶"
+         · `elemBias` 属性权重乘子（雷雨 → 雷系 ×5）—— 让该属性的兽**更常出现**
+         · `pairAdd`  双只组概率加成（恶劣天气结伴出没）
+       ⚠️ 一律走 `weatherFx()`（受 `_fogOn` 归零）—— 画面上没天气，遭遇不该变强。 */
+    encLvBias: function () {
+      if (this._fogOn === false) return 0;
+      var e = this.weatherFx().enc;
+      return (e && e.lvBias) || 0;
+    },
+    encPairAdd: function () {
+      if (this._fogOn === false) return 0;
+      var e = this.weatherFx().enc;
+      return (e && e.pairAdd) || 0;
+    },
+    /* 该属性的遭遇权重乘子（1 = 不加权）。用于 _encounter 掷物种时放大天气相关属性。 */
+    encElemWeight: function (speciesElem) {
+      if (this._fogOn === false) return 1;
+      var e = this.weatherFx().enc;
+      if (!e || !e.elemBias || !speciesElem) return 1;
+      return 1 + (e.elemBias[speciesElem] || 0);
+    },
+    /* ===== 天气**专属**兽（v1.2.0）=====
+       有些兽只在特定天气出没 —— 它们**不在** `zone.sp` / `world.beast` 里，
+       而是由天气在掷物种时**临时注入**候选池。
+       为什么这样设计：雷貂若常驻普通池，就与"雷雨天加成雷系妖兽"无关了；
+       只在雷雨天出现，玩家才会把"打雷"和"雷貂"联系起来 —— **天气才成为玩法内容**。
+       ⚠️ 返回的是 `{species, w}` 列表，权重是**基础权重**（还会再乘属性加权）。
+       ⚠️ 只影响**暗雷**：明雷的物种在地图生成时就定了（必须与玩家看到的一致）。 */
+    weatherSpawns: function () {
+      if (this._fogOn === false) return [];
+      var id = this.weatherId();
+      if (id === 'storm') return [{ species: '雷貂', w: 45 }];
+      return [];
     },
     _fogFor: function (sceneName) {
       if (this._fogKey === sceneName) return this._fogCfg;
