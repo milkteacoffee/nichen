@@ -981,13 +981,28 @@ step(function () {
      所以从玩家屏幕位置出发，只在 ±2 格内找：屏幕内（离边 ≥8px）、
         非玩家脚下、非实心、非出口、且 A* 走得到的格。 */
   const TG = G.Art.TILE;
-  const px0 = s.pos.x * TG + TG / 2 - sc2._camX();
-  const py0 = s.pos.y * TG + TG / 2 - sc2._camY();
+  /* ⚠️ v1.9.0：等距下 `_camX/_camY` 恒 0 且屏幕是**旋转**的 ——
+     手算 `pos*TG - cam` 得到的是**世界像素**，不是屏幕坐标。
+     这里必须走场景的投影唯一口（`_isoWorld` 相对玩家 = 屏幕相对中心）。
+     非等距时退回原公式（逐像素不变）。 */
+  const PWP0 = sc2._px();
+  const ISO = !!G.ISO_ON;   /* 读唯一口径，别推断 */
+  const toScr = function (gx, gy) {
+    if (ISO) {
+      const w = sc2._isoWorld(gx * TG + TG / 2, gy * TG + TG / 2);
+      const c = sc2._isoWorld(PWP0.x, PWP0.y);
+      return { x: w.x - c.x + 240, y: w.y - c.y + 136 };
+    }
+    return { x: gx * TG + TG / 2 - sc2._camX(), y: gy * TG + TG / 2 - sc2._camY() };
+  };
+  const p0 = toScr(s.pos.x, s.pos.y);
+  const px0 = p0.x, py0 = p0.y;
   let target = null, tapPt = null;
   for (let dy = -2; dy <= 2 && !target; dy++) {
     for (let dx = -2; dx <= 2; dx++) {
       if (!dx && !dy) continue;
-      const sx = Math.round(px0 + dx * TG), sy = Math.round(py0 + dy * TG);
+      const txy = toScr(s.pos.x + dx, s.pos.y + dy);
+      const sx = Math.round(txy.x), sy = Math.round(txy.y);
       if (sx < 8 || sy < 8 || sx >= 480 - 8 || sy >= 272 - 8) continue;
       const tx = s.pos.x + dx, ty = s.pos.y + dy;
       if (tx < 1 || ty < 1 || tx >= sc2.map.w - 1 || ty >= sc2.map.h - 1) continue;
@@ -7153,12 +7168,22 @@ step(function () {
           这里必须**从地图数据读出口格**、并用 `G.Art.TILE` 换算，
           写死 (18,23)×16 会点在旧位置上（本契约当时就是因此假红）。
        ⚠️ v1.8.0：世界层纵向压了 1/VIEW_Y，`onTap` 里会把屏幕 y **乘 VIEW_Y**
-          再换算成格。所以这里算"屏幕坐标"必须**除以 VIEW_Y** ——
-          否则算出来的 y 落在屏幕外，点不中（本契约当场假红）。 */
+          再换算成格。所以这里算"屏幕坐标"必须**除以 VIEW_Y**。
+       ⚠️ v1.9.0：等距下屏幕是**旋转**的 —— 手写公式全失效，必须走
+          场景的投影唯一口（与 `onTap` 的等距分支严格互逆）。 */
     const TG = G.Art.TILE;
     const VY = 1.06;   /* 与 explore.js 的 VIEW_Y 同值 */
-    const pe = G.Data.maps.town.exits[0];
-    const p = { x: pe.x0 * TG + TG / 2 - sc._camX(), y: (pe.y * TG + TG / 2 - sc._camY()) / VY };
+    const pe = G.data_maps_exits_hack || G.Data.maps.town.exits[0];
+    let p;
+    if (G.ISO_ON) {
+      /* 等距：世界像素 → 屏幕（相对玩家；玩家恒在屏幕中心） */
+      const pwp = sc._px();
+      const w = sc._isoWorld(pe.x0 * TG + TG / 2, pe.y * TG + TG / 2);
+      const c = sc._isoWorld(pwp.x, pwp.y);
+      p = { x: w.x - c.x + 240, y: w.y - c.y + 136 };
+    } else {
+      p = { x: pe.x0 * TG + TG / 2 - sc._camX(), y: (pe.y * TG + TG / 2 - sc._camY()) / VY };
+    }
     sc.onTap(p);
     if (G.game.sceneName !== 'field') {
       errors.push('点出口传送阵没有切到下一张图，实为 ' + G.game.sceneName);
@@ -12397,6 +12422,11 @@ step(function () {
      不在此处自己定义会抛 ReferenceError，把后面两段（零回归 / 源码闸）**静默跳过**。 */
   const TILE = 24;
   const ELEV_STEP = 8;
+  /* ⚠️ v1.9.0：等距模式下排序键是 (x+y)。契约必须按**当前模式**算期望值，
+     否则会拿方形口径去比等距结果 → 假红。
+     ⚠️ 读 `G.ISO_ON`（explore 暴露的唯一口径），**不要**自己推断
+        （`G.game.scene` 在此刻可能还指向上一个场景 → 判错）。 */
+  const ISO_ON_NOW = !!G.ISO_ON;
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
   G.game.save = s;
@@ -12437,23 +12467,27 @@ step(function () {
           + '（一格 24 + 高度差 16），实为 ' + (dB - dA));
       }
       /* 玩家：入列时已按 _pxDraw 含高度 → `_depthOf` 不许再减 */
+      /* ⚠️ v1.9.0：等距下排序键是 (x+y)（屏幕 y ∝ x+y）——不是裸 y。 */
+      const dense = ISO_ON_NOW ? (0 + 10) : 10;
       const pw = sc._depthOf({ player: true, x: 0, y: 10 });
-      if (pw !== 10 * TILE) {
-        errors.push('排序深度：玩家的 depth 应为 y*TILE（已含高度、不许再减），实为 ' + pw);
+      if (pw !== dense * TILE) {
+        errors.push('排序深度：玩家的 depth 应为 键*TILE（等距键=x+y；已含高度、不许再减），实为 ' + pw
+          + '（应 ' + (dense * TILE) + '）');
       }
       /* 家具：入列时 y 已换成"最下一格"（`f.y + (f.h||1) - 1`）→ depth 就是 o.y*TILE − 高度。
          ⚠️ 这条钉的是"入列口径与 _depthOf 口径必须一致" ——
             若 _depthOf 里改成 `(o.y+1)*TILE`，家具会整体下沉一格，排序错位。 */
+      const dfk = ISO_ON_NOW ? (pair.x + pair.y) : pair.y;
       const df = sc._depthOf({ furn: {}, x: pair.x, y: pair.y });
       const ef = sc._elevPx(pair.x, pair.y);
-      if (df !== pair.y * TILE - ef) {
+      if (df !== dfk * TILE - ef) {
         errors.push('排序深度：家具的 depth 应为 o.y*TILE − 高度（' + (pair.y * TILE - ef)
           + '），实为 ' + df);
       }
     }
   }
 
-  /* ② 零回归：手写图（无高度）的 depth 必须逐值等于 `y*TILE` */
+  /* ② 零回归：手写图（无高度）的 depth 必须逐值等于"排序键 * TILE" */
   {
     G.game.changeScene('town', { toSpawn: true });
     const sc2 = G.game.scene;
@@ -12462,10 +12496,12 @@ step(function () {
     } else {
       let bad = 0;
       for (let y = 1; y < 8; y++) {
-        if (sc2._depthOf({ x: 5, y: y }) !== y * TILE) bad++;
+        /* 等距键 = x + y（x 固定 5） */
+        const want = (ISO_ON_NOW ? (5 + y) : y) * TILE;
+        if (sc2._depthOf({ x: 5, y: y }) !== want) bad++;
       }
       if (bad) {
-        errors.push('排序深度：无高度图的 depth 不等于 y*TILE（' + bad + ' 处）—— '
+        errors.push('排序深度：无高度图的 depth 不等于 排序键*TILE（' + bad + ' 处）—— '
           + '既有地图的相对顺序被改了');
       }
     }
@@ -12713,21 +12749,45 @@ step(function () {
   {
     const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
     if (exSrc.indexOf('var VIEW_Y = ') < 0) errors.push('源码闸：explore 缺 VIEW_Y 常量');
-    /* 反投影必须乘 VIEW_Y */
-    const tapM = exSrc.match(/var ty = Math\.floor\(this\._camY\(\) \/ TILE \+ [^;]*\);/);
-    if (!tapM || tapM[0].indexOf('VIEW_Y') < 0) {
-      errors.push('源码闸：onTap 的反投影没有乘 VIEW_Y —— 点击会偏');
+    /* 反投影必须乘 VIEW_Y（非等距分支）。
+       ⚠️ v1.9.0：等距分支走 `_isoScreen`（不是 camY 公式），所以这里
+          只在**非等距**公式里要求 VIEW_Y，同时**要求等距分支存在** ——
+          两条都要有，"只改一条"才是真错。 */
+    const tapIso = exSrc.match(/if \(ISO_ON\)[\s\S]{0,400}?_isoScreen\(/);
+    if (!tapIso) {
+      errors.push('源码闸：onTap 缺等距反投影分支（应走 `_isoScreen`）');
     }
-    /* 相机必须用 _viewH()/VIEW_Y 算可见范围，不能写死 272 */
-    const camM = exSrc.match(/_camY: function[\s\S]{0,320}?\n      \},/);
+    const tapM = exSrc.match(/ty = Math\.floor\(this\._camY\(\) \/ TILE \+ [^;]*\);/);
+    if (!tapM || tapM[0].indexOf('VIEW_Y') < 0) {
+      errors.push('源码闸：onTap 的（非等距）反投影没有乘 VIEW_Y —— 点击会偏');
+    }
+    /* _camY 必须处理两种模式：等距返回 0、非等距用 VIEW_Y */
+    const camM = exSrc.match(/_camY: function[\s\S]{0,420}?\n      \},/);
     if (!camM || camM[0].indexOf('VIEW_Y') < 0) {
       errors.push('源码闸：_camY 没用 VIEW_Y 算可见范围 —— 压扁后会露出地图外空白');
     }
-    /* save/restore 条件必须成对（曾出现"只存不取"的变换泄漏） */
-    const nSave = (exSrc.match(/if \(_zoom !== 1 \|\| _shk \|\| _viewY !== 1\) x\.save\(\)|if \(_zoom !== 1 \|\| _shk \|\| _viewY !== 1\) \{/g) || []).length;
-    const nRest = (exSrc.match(/if \(_zoom !== 1 \|\| _shk \|\| _viewY !== 1\) x\.restore\(\)/g) || []).length;
-    if (nRest < 1) {
-      errors.push('源码闸：世界层的 restore 条件与 save 不成对（变换会泄漏到 UI）');
+    if (!camM || camM[0].indexOf('ISO_ON') < 0) {
+      errors.push('源码闸：_camY 没处理等距模式（等距下应返回 0，由矩阵接手）');
+    }
+    /* save/restore 条件必须成对（曾出现"只存不取"的变换泄漏）。
+       ⚠️ v1.9.0：等距模式下会在**立牌层之前**提前 restore 一次
+          （让立牌保持竖直），末尾那次必须条件化跳过（`_isoRestored`）。
+          所以这里改成三段判据：
+            ① save 条件里要有 ISO_ON
+            ② 末尾 restore 必须判 `!_isoRestored`
+            ③ 提前 restore 必须存在（否则立牌会跟着转） */
+    if (!/x\.save\(\);/.test(exSrc) || exSrc.indexOf('_isoRestored') < 0) {
+      errors.push('源码闸：世界层缺 save/restore 配对或 `_isoRestored` 守卫');
+    }
+    const preRestore = exSrc.match(/if \(ISO_ON\) x\.restore\(\);\s*\n\s*var _isoRestored = ISO_ON;/);
+    if (!preRestore) {
+      errors.push('源码闸：缺"立牌层之前退出等距"的那次 restore —— '
+        + '建筑/角色会跟着地面一起旋转（躺倒）');
+    }
+    const tailRestore = exSrc.match(/if \(!_isoRestored && \(_zoom !== 1[^)]*\)\) x\.restore\(\);/);
+    if (!tailRestore) {
+      errors.push('源码闸：末尾 restore 没有 `!_isoRestored` 守卫 —— '
+        + '等距下会还两次，吃掉调用方变换（UI 整体错位）');
     }
   }
 

@@ -27,6 +27,31 @@
      ⚠️ 它只影响**世界层**（地面/建筑/装饰/角色/NPC），
         HUD、追踪栏、浮层、对话框**一律不压**（UI 压扁会糊且不像 UI）。 */
   var VIEW_Y = 1.06;
+  /* ===== 等距（45° 俯视）投影（v1.9.0）=====
+     用户口径：「我现在希望的是全部转向俯视角 45°，看起来更立体，还有地图参考《烟雨江湖》」。
+
+     **做法：一个 canvas 变换覆盖全部绘制点**（与 v1.8.0 的纵向压缩同一思路）。
+     现有 18 个绘制点算的都是 `tx*TILE - camX / ty*TILE - camY` ——
+     只要让 `cam` 在等距模式下变成"玩家世界像素"并置零偏移，
+     它们输出的就是**世界像素**；再由一个等距矩阵统一变成屏幕坐标。
+     **⇒ 18 处换算一处都不用改。**
+
+     矩阵（标准 2:1 等距）：
+         屏幕x = 中心x + (wx - wy)
+         屏幕y = 中心y + (wx + wy) * 0.5
+       ⇒ canvas `transform(a,b,c,d,e,f)` 对应 a=1,b=0.5,c=-1,d=0.5。
+     ⚠️ **菱形纵横比 2:1** 是等距的行业标准（`√2:1` 是数学等距，2:1 是"游戏等距"，
+        更好看且纹理不被非均匀拉伸）。改 ISO_RATIO 会同时改观感与可见范围。
+
+     ⚠️ **零回归**：`ISO_ON = false` 时**整段跳过** —— 走路、排序、反投影、
+        视口裁剪全部走原路径，手写图逐像素不变。这是整个改造的安全闸。 */
+  var ISO_ON = true;
+  /* ⚠️ 暴露给契约/探针读"当前是否等距" —— **唯一口径**。
+     契约里不许自己拼 `_camX()===0` 之类的推断（那依赖于当时的场景对象，
+     而契约常在切场景**之前**取 `G.game.scene` → 拿到上一个场景 → 判错）。 */
+  G.ISO_ON = ISO_ON;
+  var ISO_RATIO = 0.5;                    /* 纵向压扁比（2:1 = 0.5） */
+  var ISO_CX = 240, ISO_CY = 136;         /* 屏幕中心（等距原点落在屏幕正中） */
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
@@ -711,12 +736,25 @@
            （v0.11.2 修：之前 HUD_H=48 / BOT_H=28 整段挡掉，会让贴边的副本入口点不到。） */
         if (p.y < 4) return;
         if (p.y >= 272 - 4) return;
-        var tx = Math.floor(this._camX() / TILE + p.x / TILE);
-        /* ⚠️ v1.8.0 **反投影必须乘 VIEW_Y**：世界层纵向被压了 `1/VIEW_Y`，
-           所以"屏幕上的 1px"对应"世界里的 VIEW_Y px"。
-           漏了这一步的表现是：**点击位置总是比实际点到的格子偏上**（越靠下偏得越多），
-           而画面完全正常 —— 属"看着对但点不准"的静默错。 */
-        var ty = Math.floor(this._camY() / TILE + p.y * VIEW_Y / TILE);
+        var tx, ty;
+        if (ISO_ON) {
+          /* ⚠️ v1.9.0 等距反投影：屏幕点先经逆矩阵回到"世界像素（相对玩家）"，
+             再加上玩家的世界像素。**必须走 `_isoScreen`** ——
+             自己在这写 `(sx-sy)/2` 之类的三角公式，是"两处分写同一判据"的老坑。 */
+          var pw = this._isoScreen(p.x, p.y);           /* 相对 ISO 中心的世界像素 */
+          var pp = this._px();
+          var wx = pw.x - ISO_CX + pp.x;                /* 世界像素 */
+          var wy = pw.y - ISO_CY + pp.y;
+          tx = Math.floor(wx / TILE);
+          ty = Math.floor(wy / TILE);
+        } else {
+          tx = Math.floor(this._camX() / TILE + p.x / TILE);
+          /* ⚠️ v1.8.0 **反投影必须乘 VIEW_Y**：世界层纵向被压了 `1/VIEW_Y`，
+             所以"屏幕上的 1px"对应"世界里的 VIEW_Y px"。
+             漏了这一步的表现是：**点击位置总是比实际点到的格子偏上**（越靠下偏得越多），
+             而画面完全正常 —— 属"看着对但点不准"的静默错。 */
+          ty = Math.floor(this._camY() / TILE + p.y * VIEW_Y / TILE);
+        }
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
 
         /* ⓪ 点到出口传送阵：直接切图。
@@ -840,16 +878,21 @@
          ⚠️ 无高度图时 `_elevPx` 恒 0 → depth 退化为原 `y` 序，
             **手写图逐像素不变**（零回归）。 */
       _depthOf: function (o) {
+        /* ⚠️ v1.9.0：等距下"谁在前"由**屏幕 y** 决定，而屏幕 y ∝ (x + y)。
+           所以排序键必须换成 `(x + y)`，否则"站在左后方的物体会压住右前方的"（穿帮）。
+           ⚠️ **不要试图在等距下继续用 y** —— 那正是"+ 加一维信息却没接进判据"的经典错。
+           判据仍要**减高度**（高地物件持续靠上）。 */
+        var key = ISO_ON ? (o.x + o.y) : o.y;
         if (o.player) {
-          /* 已在入列时按 _pxDraw() 换算（含高度）→ 直接用，不再减 */
-          return o.y * TILE;
+          /* 已在入列时按 `_pxDraw()` 换算（含高度）→ 直接用，不再减 */
+          return key * TILE;
         }
         if (o.furn) {
           /* 家具按"最下一格"参与排序（与入列时的 `y + (h||1) - 1` 一致） */
-          return o.y * TILE - this._elevPx(o.x, o.y);
+          return key * TILE - this._elevPx(o.x, o.y);
         }
-        /* 装饰 / NPC / 采集 / 明雷：按格 y（原口径），只减高度 */
-        return o.y * TILE - this._elevPx(o.x, o.y);
+        /* 装饰 / NPC / 采集 / 明雷：按格坐标，只减高度 */
+        return key * TILE - this._elevPx(o.x, o.y);
       },
 
       /* ===== 相机 =====
@@ -881,6 +924,11 @@
         return { x: p.x, y: p.y - this._elevPx(x, y) };
       },
       _camX: function () {
+        /* ⚠️ v1.9.0：等距模式下返回 **0** —— 让所有绘制点输出的 `tx*TILE - camX`
+           就等于**世界像素**，再由 render 里的等距矩阵统一变屏幕。
+           这正是"18 处换算一处都不改"的原理（与 v1.8.0 的压缩同一思路）。
+           非等距时保持原语义（视口左上角的世界坐标 + 边界夹取）。 */
+        if (ISO_ON) return 0;
         var cx = this._px().x;
         return Math.max(0, Math.min(this.map.w * TILE - 480, cx - 240));
       },
@@ -888,8 +936,10 @@
          ⚠️ v1.8.0：**必须乘 VIEW_Y**，否则相机以为只看得见 272px 世界，
             压扁后会**露出地图外的空白**（底边出现黑带）。
          ⚠️ 居中偏移用 `272*VIEW_Y/2`（可见范围的**一半**），不是固定 136 ——
-            用 136 会让主角在压缩后**偏上**（不再居中）。 */
+            用 136 会让主角在压缩后**偏上**（不再居中）。
+         ⚠️ v1.9.0：等距模式下同样返回 0（见 `_camX`）。 */
       _camY: function () {
+        if (ISO_ON) return 0;
         var cy = this._px().y;
         var vis = 272 * VIEW_Y;
         return Math.max(0, Math.min(this.map.h * TILE - vis, cy - vis / 2));
@@ -897,6 +947,133 @@
       /* 当前可见的世界高度（像素）：纵向压缩后是 272*VIEW_Y。
          视口裁剪、视口范围计算都该走它 —— 别各写一份 272。 */
       _viewH: function () { return 272 * VIEW_Y; },
+
+      /* ===== 等距投影（v1.9.0）=====
+         **唯一口**：世界像素 ↔ 屏幕。所有手动换算（反投影、视口裁剪）
+         都必须走这里，不许自己写三角公式（否则迟早有一处漏改）。 */
+
+      /* 世界像素 → 屏幕像素 */
+      _isoWorld: function (wx, wy) {
+        var u = wx - ISO_CX, v = wy - ISO_CY;
+        return { x: ISO_CX + (u - v), y: ISO_CY + (u + v) * ISO_RATIO };
+      },
+
+      /* 屏幕像素 → 世界像素（`_isoWorld` 的逆）。
+         Δx = u - v,  Δy = (u + v)R  ⇒  u = Δx/2 + Δy/(2R),  v = -Δx/2 + Δy/(2R) */
+      _isoScreen: function (sx, sy) {
+        var dx = sx - ISO_CX, dy = sy - ISO_CY;
+        var u = dx / 2 + dy / (2 * ISO_RATIO);
+        var v = -dx / 2 + dy / (2 * ISO_RATIO);
+        return { x: u + ISO_CX, y: v + ISO_CY };
+      },
+
+      /* 可见区域在世界像素里的 AABB（等距下屏幕是**旋转**的，不能用屏幕矩形裁剪）。
+         ⚠️ **必须用 AABB 而不是半径** —— 判断者是矩形包含，用半径会漏画角上的物件。
+         ⚠️ 等距的 AABB 是屏幕矩形（±240, ±136）经逆矩阵得到的：
+              四角 → u,v ∈ [-256, 256]（RATIO=0.5 时）→ 比方形视口大得多，
+              不减视口尺寸会出现"边缘一整条空白"。 */
+      _viewBounds: function () {
+        var camX = this._camX(), camY = this._camY();
+        if (!ISO_ON) {
+          return { x0: camX, y0: camY, x1: camX + 480, y1: camY + this._viewH() };
+        }
+        /* 等距：以屏幕四角求世界 AABB（相对中心） */
+        var px = this._px().x, py = this._px().y;
+        var R = 0, RY = 0;
+        var cs = [[0, 0], [480, 0], [0, 272], [480, 272]];
+        var minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+        for (var i = 0; i < 4; i++) {
+          var w = this._isoScreen(cs[i][0], cs[i][1]);
+          var u = w.x - ISO_CX, v = w.y - ISO_CY;
+          if (u < minU) minU = u; if (u > maxU) maxU = u;
+          if (v < minV) minV = v; if (v > maxV) maxV = v;
+        }
+        return {
+          x0: px + minU, y0: py + minV,
+          x1: px + maxU, y1: py + maxV
+        };
+      },
+
+      /* ===== 等距投影（v1.9.0）=====
+         **唯一口**：世界像素 ↔ 屏幕。所有需要手动换算的地方（反投影、视口裁剪）
+         都必须走这两个函数，不许自己写三角公式（否则迟早有一处漏改）。 */
+
+      /* 世界像素 → 屏幕像素 */
+      _isoWorld: function (wx, wy) {
+        var u = wx - ISO_CX, v = wy - ISO_CY;
+        return { x: ISO_CX + (u - v), y: ISO_CY + (u + v) * ISO_RATIO };
+      },
+
+      /* 屏幕像素 → 世界像素（`_isoWorld` 的逆）。
+         逆矩阵：Δx = u - v,  Δy = (u + v) * R
+               ⇒ u = Δx/2 + Δy/(2R),  v = -Δx/2 + Δy/(2R) */
+      _isoScreen: function (sx, sy) {
+        var dx = sx - ISO_CX, dy = sy - ISO_CY;
+        var u = dx / 2 + dy / (2 * ISO_RATIO);
+        var v = -dx / 2 + dy / (2 * ISO_RATIO);
+        return { x: u + ISO_CX, y: v + ISO_CY };
+      },
+
+      /* 视口裁剪的唯一判据（v1.9.0）。
+         **为什么收敛成函数**：原先各绘制点自己写 `px > 480 || py > 272` ——
+         等距下 px/py 是**世界像素**，那套判据会**全错**（世界宽高远大于 480×272，
+         结果是一律不裁或一律裁掉）。逐处改 12 个地方必漏，所以统一走这里。
+         ⚠️ 传入的是**世界像素**矩形（不是屏幕），非等距时 AABB 恰好等于原视口，
+            所以行为逐像素不变（零回归）。 */
+      _inView: function (wx, wy, w, h) {
+        var b = this._viewBounds();
+        return !(wx > b.x1 || wx + w < b.x0 || wy > b.y1 || wy + h < b.y0);
+      },
+
+      /* ===== 立牌（billboard）变换（v1.9.0）=====
+         **为什么必须有**：等距矩阵会把**整个世界**旋转 45° —— 地面变成菱形（正确），
+         但角色/建筑/树也跟着被旋转，结果就是"人物躺在地上"（实测截图确认）。
+
+         标准做法（所有等距游戏都这么做）：
+           · **地面**：跟着矩阵旋转（菱形铺开）
+           · **立牌**（角色/建筑/树/家具）：**保持屏幕竖直**，只把"锚点"投到屏幕
+
+         实现：把一个点 (wx,wy) 投到屏幕后，在该点处**反转等距矩阵**再画精灵 ——
+         效果是精灵"竖着站在菱形格上"。
+         ⚠️ 反转后的变换会**放大/压扁精灵**（矩阵含纵向 ×0.5）。所以还要
+            `scale(1, 1/ISO_RATIO)` 把它拉回原比例（否则人会矮一半）。
+         ⚠️ 只对**立牌**用；地面/明暗/高度层的格块**不要**用（它们该是菱形）。 */
+      _billboard: function (x, wx, wy, fn) {
+        if (!ISO_ON) { fn(); return; }
+        var s = this._isoWorld(wx, wy);
+        x.save();
+        x.translate(s.x, s.y);
+        /* 反转等距的线性部分：M = [[1,-1],[R,R]]  ⇒  M⁻¹ = [[0.5, 1/(2R)],[-0.5, 1/(2R)]] */
+        var inv = 1 / (2 * ISO_RATIO);
+        x.transform(0.5, -0.5, inv, inv, 0, 0);
+        /* 矩阵纵向压了 R 倍（且横向上有 √2 的放大）→ 补偿回原比例。
+           ⚠️ 横向也会被放大约 1.414 倍（|a|+|c| 的行范数），所以两个方向都要补。 */
+        var k = 1;
+        x.scale(k / Math.SQRT2, (k / Math.SQRT2) / ISO_RATIO);
+        /* fn 里用**相对该点**的坐标（与原本的 `- camX - 中心` 等价：此处原点已在锚点） */
+        fn();
+        x.restore();
+      },
+
+      /* ===== 立牌投影（v1.9.0）=====
+         **唯一口**：把"世界像素坐标"变成"绘制坐标"。
+         · 非等距：恒等（减去 camX/camY，与原逻辑完全一致 → 零回归）
+         · 等距：**投到屏幕**（`_isoWorld`），且**不带旋转** —— 立牌保持屏幕竖直
+
+         ⚠️ **为什么立牌必须单独投而不是跟着矩阵转**（实测截图发现）：
+            等距矩阵把整个世界旋转 45°，地面变菱形（正确），
+            但角色/建筑/树也跟着被旋转 → **人物"躺在地上"**。
+            所有等距游戏的做法都是：**地面跟着矩阵转，立牌保持竖直**。
+         ⚠️ 立牌的**锚点**用世界坐标（含高度），所以"站在坡上"依然正确。
+         ⚠️ 立牌的**尺寸**不缩放（`scale(1, 1)`）—— 人还是那么高，
+            不会因为"在等距世界里"而变矮（这与 v1.8.0 的角色反向补偿同一理念）。 */
+      _proj: function (wx, wy) {
+        if (!ISO_ON) return { x: wx - this._camX(), y: wy - this._camY() };
+        var pw = this._px();
+        var s = this._isoWorld(wx, wy);
+        var c = this._isoWorld(pw.x, pw.y);
+        return { x: s.x - c.x + ISO_CX, y: s.y - c.y + ISO_CY };
+      },
 
       /* ===== 渲染 ===== */
       render: function (x) {
@@ -926,11 +1103,39 @@
            **为什么相机要改**：压扁后 272px 屏幕对应**更多**世界内容
              （272 * VIEW_Y = 288px）→ 相机可见范围变大，见 `_camY`。 */
         var _viewY = VIEW_Y;
-        if (_zoom !== 1 || _shk || _viewY !== 1) {
+        /* ===== 等距（45° 俯视）矩阵（v1.9.0）=====
+           用户口径：「我现在希望的是全部转向俯视角 45°，看起来更立体，还有地图参考《烟雨江湖》」。
+
+           **一次性覆盖全部绘制点**：等距模式下 `_camX/_camY` 返回 0，
+           所以每个绘制点算出的 `tx*TILE - camX` 就是**世界像素**；
+           这里再用矩阵把它变到屏幕 —— **18 处换算一处都不用改**。
+
+           矩阵构造（屏幕 = ISO_CX/CY + M·(世界 - 玩家世界像素)）：
+             ① translate(ISO_CX, ISO_CY)        → 原点挪到屏幕中心
+             ② transform(1, R, -1, R, 0, 0)     → 等距旋转+压缩
+                （canvas 的 a,b,c,d：x' = a·x + c·y, y' = b·x + d·y）
+             ③ translate(-ux, -uy)              → 把玩家挪到原点
+           其中 (ux,uy) = 玩家世界像素 − ISO 中心（保持玩家恒在屏幕中心）。
+
+           ⚠️ 顺序是"先绕中心旋转再平移玩家"，与方形模式的"cam 平移"不同 ——
+              写成 translate(240-ux, 136-uy) 会错（那是方形，不是旋转）。
+           ⚠️ 纵向压缩 VIEW_Y 与等距**不能同时开**（等距自带 2:1 压缩）→ 等距时置 1。 */
+        var _isoT = null;
+        if (ISO_ON) {
+          var pwp = this._px();
+          var ux = pwp.x - ISO_CX, uy = pwp.y - ISO_CY;
+          _isoT = { ux: ux, uy: uy };
+        }
+        if (_zoom !== 1 || _shk || _viewY !== 1 || ISO_ON) {
           x.save();
           x.translate(240 + (_shk ? Math.sin(_trib.t * 61) * _shk : 0),
             136 + (_shk ? Math.sin(_trib.t * 73) * _shk : 0));
-          x.scale(_zoom, _zoom * (1 / _viewY));   /* ← 纵向压缩在这里 */
+          if (ISO_ON) {
+            x.transform(1, ISO_RATIO, -1, ISO_RATIO, 0, 0);   /* 等距旋转+压缩 */
+            x.translate(-_isoT.ux, -_isoT.uy);                /* 玩家回到屏幕中心 */
+          } else {
+            x.scale(_zoom, _zoom * (1 / _viewY));             /* 斜俯角纵向压缩 */
+          }
           x.translate(-240, -136);
         }
 
@@ -938,6 +1143,17 @@
            详见 _bakeGround —— 逐格从 672×672 大纹理取子块实测每帧 7.8~22.6ms，
            室内大图直接把帧率压到 30fps，是整个游戏最浪费的一处。
            这一趟仍关平滑：源层按 K 烘、目标按 S 画，K===S 时就是 1:1 像素搬运。 */
+        /* ⚠️ v1.9.0：等距下**必须先在屏幕系铺一层地图外底色** ——
+           等距可见范围是一个**旋转的正方形**（玩家 ±256px），
+           当玩家靠近地图边界时，这个菱形会有一角**伸出地图之外** →
+           露出画布底（黑/透明），观感像 bug。
+           做法：在应用等距变换**之前**（此刻还是屏幕系）铺满整屏的"远景色"。
+           ⚠️ 只在等距时铺：非等距时地图总是盖满屏幕（camX/camY 有夹取），
+              铺了反而会改变边界像素（破坏零回归）。 */
+        if (ISO_ON && this._groundLayer) {
+          x.fillStyle = '#2a2419';   /* 地图外的"远景土色"（比地面暗一档，读作"远处"。 */
+          x.fillRect(0, 0, 480, 272);
+        }
         this._drawGroundLayer(x, camX, camY);
 
         /* 地形高度（v1.4.0）：抬升的格块 + 崖壁。
@@ -948,9 +1164,20 @@
         /* 整屏大尺度明暗（在铺地之上、建筑之下） */
         this._drawShade(x, this._baseType(), this._pal(), camX, camY);
 
-        /* 出口传送阵（云雾）。画在铺地/明暗之上、角色之下 ——
-           角色站到阵上时人影压在雾上，读起来才是"站在阵里"而不是"雾浮在人身上"。
-           洞穴暗幕在更后面才画，所以洞里的传送阵会被压暗一档，属于预期（它就该埋在暗里发光）。 */
+        /* ===== 等距：底层到此为止，立牌层退出等距变换（v1.9.0）=====
+           **必须在这里分出两层**（实测截图发现）：
+             · **底层**（地面 / 高度块 / 崖壁 / 明暗 / 传送阵）：跟着等距矩阵转 → 菱形铺开
+             · **立牌层**（建筑 / 装饰 / 家具 / NPC / 玩家 / 宝箱 / Boss / 界门…）：
+               **必须退出矩阵、在屏幕系里画** —— 否则建筑会跟着地面"斜躺下来"，
+               角色会"躺在地上"（这正是第一次截图的样子）。
+           所有立牌绘制都走 `_proj`（世界像素 → 屏幕），所以退出后位置依然正确。
+           ⚠️ 非等距时这段是 no-op（下面那个 `if (ISO_ON)` 不成立）。 */
+        if (ISO_ON) x.restore();
+        var _isoRestored = ISO_ON;
+
+        /* 出口传送阵（云雾）。它在**底层之上、立牌之下** ——
+           所以放在退出等距**之后**用 `_proj` 画（否则阵会跟着地面斜躺）。
+           观感依据：角色站到阵上时人影压在雾上，读起来才是"站在阵里"。 */
         var selfP = this;
         (this.map.md.exits || []).forEach(function (e) {
           selfP._drawPortal(x, e, camX, camY);
@@ -969,8 +1196,13 @@
               做法：装饰在**入列前**就按屏幕矩形筛掉（排序量也同比减少，sort 是 O(n log n)）。
               余量给 2 格：树冠画在锚点**上方**（`DECOR_SIZE.tree.h` = 48 > TILE 24），
               只有 1 格余量时贴下边缘的树顶会被切掉。 */
-        var mvL = camX - TILE * 2, mvT = camY - TILE * 3;
-        var mvR = camX + G.game.W + TILE * 2, mvB = camY + G.game.H + TILE * 3;
+        /* ⚠️ v1.9.0：**裁剪必须走 **（世界 AABB）。
+           原来手算  的屏幕矩形 —— 等距下 camX 恒 0、且屏幕是旋转的，
+           那套判据会把**整个世界**当成可见（1000+ 装饰全进排序）或全部裁掉。
+            在非等距时恰好等于原矩形 → 逐像素不变。 */
+        var mvB2 = this._viewBounds();
+        var mvL = mvB2.x0 - TILE * 2, mvT = mvB2.y0 - TILE * 3;
+        var mvR = mvB2.x1 + TILE * 2, mvB = mvB2.y1 + TILE * 3;
         function inView(o) {
           var ox = o.x * TILE, oy = o.y * TILE;
           return ox >= mvL && ox <= mvR && oy >= mvT && oy <= mvB;
@@ -1058,8 +1290,11 @@
            原来是 `if (_zoom !== 1 || _shk)` 存、`if (_zoom !== 1)` 取 ——
            天劫震屏时（有 _shk 但 _zoom===1）**只存不取**，变换泄漏到 UI 层
            （HUD/追踪栏会跟着抖）。这类"存取条件不成对"是画布变换的经典坑，
-           两个条件写在同一屏、隔 130 行很容易走散，所以都在这里注明。 */
-        if (_zoom !== 1 || _shk || _viewY !== 1) x.restore();   /* 世界层收口，UI 不参与 */
+           两个条件写在同一屏、隔 130 行很容易走散，所以都在这里注明。
+           ⚠️ v1.9.0：等距模式下**已经在立牌层之前 restore 过一次**（为了让立牌
+              保持竖直），所以这里必须**跳过**，否则会"还两次" ——
+              多还一次会吃掉调用方（game.js）的变换，症状是**整个 UI 错位**。 */
+        if (!_isoRestored && (_zoom !== 1 || _shk || _viewY !== 1)) x.restore();
 
         /* ===== 昼夜色温 + 体积雾（v0.99.0）=====
            ⚠️ **必须在这里**（世界层收口处、HUD 之前）—— 而不是 game.js 的最外层。
@@ -1153,8 +1388,12 @@
       _drawPortal: function (x, e, camX, camY) {
         var bottom = (e.y >= this.map.h - 1);
         var LIFT = bottom ? 14 : 0;
-        var cx = (e.x0 + e.x1 + 1) / 2 * TILE - camX;
-        var cy = e.y * TILE - camY + 10 - LIFT;
+        /* ⚠️ v1.9.0：传送阵画在**立牌层**（已退出等距），所以走 `_proj`
+           —— 它虽然贴地，但因为画在退出之后，用屏幕投影才不会歪。
+           （让它当"立牌"是有意的：阵的辉光是**屏幕对齐的径向渐变**，
+             跟着等距转会被压成椭圆，读起来不像"光晕"。） */
+        var _q = this._proj((e.x0 + e.x1 + 1) / 2 * TILE, e.y * TILE + 10 - LIFT);
+        var cx = _q.x, cy = _q.y;
         var rx = ((e.x1 - e.x0 + 1) * TILE) / 2 + 3;
         if (cx + rx < -10 || cx - rx > 490) return;
         var t = performance.now() / 1000;
@@ -1257,9 +1496,11 @@
       },
 
       _drawFurn: function (x, f, camX, camY) {
-        var px = f.x * TILE - camX, py = f.y * TILE - camY - this._elevPx(f.x, f.y);
+        var _q = this._proj(f.x * TILE, f.y * TILE - this._elevPx(f.x, f.y)); var px = _q.x, py = _q.y;
         var w = (f.w || 1) * TILE, h = (f.h || 1) * TILE;
-        if (px > 480 || px + w < 0 || py > this._viewH() || py + h < 0) return;
+        /* ⚠️ v1.9.0：等距下 px/py 是**世界像素**，屏幕坐标裁剪全部失效 →
+           改判世界 AABB（）。非等距时 AABB 就是原视口矩形，行为不变。 */
+        if (!this._inView(px, py, w, h)) return;
         var art = G.Art.furn(f.kind, this._pal());
         if (!art) return;
         x.drawImage(art.c, Math.round(px), Math.round(py), art.w, art.h);
@@ -1361,10 +1602,22 @@
         x.imageSmoothingEnabled = false;
         if (this._groundLayer) {
           var gk = G.Art.K;
-          x.drawImage(this._groundLayer,
-            Math.round(camX * gk), Math.round(camY * gk),
-            Math.round(480 * gk), Math.round(272 * gk),
-            0, 0, 480, 272);
+          if (ISO_ON) {
+            /* 等距：屏幕是**旋转**的 → 不能用"视口矩形"取源（那会取到世界的
+               一个正矩形，旋转后盖不全屏幕）。改成**整张地图铺出去**：
+               由矩阵负责旋转，被裁掉的区域 culling 由浏览器做（代价可接受，
+               因为地面只有 1 次 drawImage）。
+               ⚠️ 目标坐标是**世界像素 (0,0)→(w,h)**，不是屏幕坐标 ——
+                  矩阵会把它转成菱形铺满屏幕。 */
+            x.drawImage(this._groundLayer, 0, 0,
+              Math.round(this.map.w * TILE * gk), Math.round(this.map.h * TILE * gk),
+              0, 0, this.map.w * TILE, this.map.h * TILE);
+          } else {
+            x.drawImage(this._groundLayer,
+              Math.round(camX * gk), Math.round(camY * gk),
+              Math.round(480 * gk), Math.round(272 * gk),
+              0, 0, 480, 272);
+          }
         }
         x.imageSmoothingEnabled = !!this.smooth;
       },
@@ -1636,6 +1889,15 @@
         if (this._isCaveGround() || kind === 'floor') return;
         var SP = G.Art.GROUND_TS;
         var sc = G.Art.shadeTex(kind, pal);
+        if (ISO_ON) {
+          /* 等距：铺满**世界**范围（矩阵会转成菱形盖住屏幕）——
+             用 camX modulo + 屏幕循环在这里会完全失效（camX 恒 0）。 */
+          var wl = this.map.w * TILE, hl = this.map.h * TILE;
+          for (var wyy = 0; wyy < hl; wyy += SP)
+            for (var wxx = 0; wxx < wl; wxx += SP)
+              x.drawImage(sc, wxx, wyy, SP, SP);
+          return;
+        }
         var ox = -(((camX % SP) + SP) % SP), oy = -(((camY % SP) + SP) % SP);
         for (var yy = oy; yy < 272; yy += SP)
           for (var xx = ox; xx < 480; xx += SP)
@@ -1643,13 +1905,31 @@
       },
 
       _drawStructure: function (x, s, camX, camY) {
-        var px = s.x * TILE - camX, py = s.y * TILE - camY - this._elevPx(s.x, s.y);
-        if (px > 480 || px + s.w * TILE < 0 || py > this._viewH() || py + s.h * TILE < 0) return;
+        /* ⚠️ v1.9.0：等距下**立牌的锚点必须是"脚底"**（建筑底边的中点），
+           不是左上角 —— 因为等距要表达的是"这个物体**站在**哪一格的地面上"。
+           用左上角会把建筑整体挪到地图的右上方（实测截图：建筑跑到屏幕右上角）。
+           非等距时退回原公式（左上角 − cam），逐像素不变。 */
+        var art0 = s.kind === 'house' ? G.Art.house(s, this._pal())
+          : s.kind === 'ruin' ? G.Art.ruin(s, this._pal())
+            : s.kind === 'gate' ? G.Art.gate(s, this._pal()) : null;
+        var px, py;
+        if (ISO_ON) {
+          var _q = this._proj((s.x + (s.w || 1) / 2) * TILE,
+            (s.y + (s.h || 1)) * TILE - this._elevPx(s.x, s.y));
+          px = _q.x; py = _q.y;
+        } else {
+          var _q2 = this._proj(s.x * TILE, s.y * TILE - this._elevPx(s.x, s.y));
+          px = _q2.x; py = _q2.y;
+        }
+        if (!this._inView(px, py, s.w * TILE, s.h * TILE)) return;
         var pal = this._pal();
         var art = s.kind === 'house' ? G.Art.house(s, pal)
           : s.kind === 'ruin' ? G.Art.ruin(s, pal)
             : s.kind === 'gate' ? G.Art.gate(s, pal) : null;
         if (!art) return;
+        /* 等距下 (px,py) 是**脚底中点** → 换回"结构格左上角"，
+           好让下面的 `art.ox/oy` 逻辑（按格尺寸算的偏移）继续成立。 */
+        if (ISO_ON) { px -= (s.w || 1) * TILE / 2; py -= (s.h || 1) * TILE; }
         var bx0 = px + (art.ox || 0), by0 = py + (art.oy || 0);
         var bw0 = art.w, bh0 = art.h;
 
@@ -1700,7 +1980,7 @@
       _drawGather: function (x, o, camX, camY) {
         var done = (G.Gather && G.Gather.gatheredToday)
           ? G.Gather.gatheredToday(G.game.save, this.mapId, o) : false;
-        var px = Math.round(o.x * TILE - camX), py = Math.round(o.y * TILE - camY) - this._elevPx(o.x, o.y);
+        var _q = this._proj(o.x * TILE, o.y * TILE - this._elevPx(o.x, o.y)); var px = Math.round(_q.x), py = Math.round(_q.y);
         var id = G.Overlays.itemIconId ? G.Overlays.itemIconId(o.mat) : o.mat;
         var SZ = 22;
         var ic = G.Art.itemIcon(id, SZ);
@@ -1725,7 +2005,7 @@
       },
 
       _drawDecor: function (x, o, camX, camY) {
-        var px = o.x * TILE - camX, py = o.y * TILE - camY - this._elevPx(o.x, o.y);
+        var _q = this._proj(o.x * TILE, o.y * TILE - this._elevPx(o.x, o.y)); var px = _q.x, py = _q.y;
         var h1 = (((o.x * 73856093) ^ (o.y * 19349663)) >>> 0);
         var v = (h1 % 3 + 3) % 3;
         /* 缩放走 3 档预烘（见 A.decorScaled）：同一变体在每个位置都一模一样，
@@ -1833,7 +2113,7 @@
       },
 
       _drawWellSpecial: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
+        var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y)); var px = _q.x, py = _q.y;
         var art = paintedSingle('prop.well', 30);
         if (!art) return;
         var bx = px + art.ox, by = py + art.oy;
@@ -1852,13 +2132,13 @@
 
       _drawChest: function (x, sp, camX, camY) {
         var opened = G.game.save.chestsOpened.indexOf(sp.id) >= 0;
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
+        var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y)); var px = _q.x, py = _q.y;
         var art = G.Art.chest(opened);
         G.Art.blit(x, art, px, py);
       },
 
       _drawBoss: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
+        var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y)); var px = _q.x, py = _q.y;
         var art = G.Art.boss(this._pal());
         G.Art.blit(x, art, px, py);
         /* 脉动血光 */
@@ -1872,7 +2152,7 @@
       /* 秘境裂隙（区域副本入口）：紫雾脉动 + 裂口。
          它同时承担"这里有一处秘境"的信息量，所以光环比物件本身更醒目。 */
       _drawEntrance: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
+        var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y)); var px = _q.x, py = _q.y;
         var t = performance.now() / 620;
         x.save();
         x.fillStyle = 'rgba(168,116,236,' + (0.12 + 0.09 * Math.sin(t)).toFixed(3) + ')';
@@ -1885,7 +2165,7 @@
 
       /* 界门（四界往返）：蓝色光晕脉动 + 石拱光幕 */
       _drawWorldgate: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
+        var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y)); var px = _q.x, py = _q.y;
         var t = performance.now() / 900;
         x.save();
         x.fillStyle = 'rgba(132,182,255,' + (0.10 + 0.07 * Math.sin(t)).toFixed(3) + ')';
@@ -2031,7 +2311,10 @@
 
       _drawPlayer: function (x, camX, camY) {
         var pp = this._pxDraw();   /* 玩家绘制：带地形高度偏移（v1.5.0） */
-        var px = pp.x - camX, py = pp.y - camY;
+        /* ⚠️ v1.9.0：等距下走  —— 玩家是**立牌**，必须保持屏幕竖直
+           （跟着等距矩阵转会"躺在地上"，实测截图确认）。 */
+        var _pq = this._proj(pp.x, pp.y);
+        var px = _pq.x, py = _pq.y;
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
 
         /* ===== 程序化行走 / 待机动效（v0.22.0）=====
@@ -2217,7 +2500,7 @@
          站桩不需要呼吸感；动画留给走路的 1 帧上抬（heroSprite 那 1 像素就够）。
          头顶任务标记保持浮动，那是 UI 层而非人物本身。 */
       _drawNpc: function (x, n, camX, camY) {
-        var px = n.x * TILE - camX + 8, py = n.y * TILE - camY + 12 - this._elevPx(n.x, n.y);
+        var _q = this._proj(n.x * TILE + 8, n.y * TILE + 12 - this._elevPx(n.x, n.y)); var px = _q.x, py = _q.y;
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
         var top = py + 3 - HH;
         x.save();
@@ -2319,7 +2602,7 @@
         var m = this.mark;
         if (!m) return;
         /* ⚠️ v1.8.0：同 _drawInteractHint —— 屏幕系，纵向除 VIEW_Y */
-        var px = m.x * TILE - camX + 8, py = (m.y * TILE - camY + 8 - this._elevPx(m.x, m.y)) / VIEW_Y;
+        var _q = this._proj(m.x * TILE + 8, m.y * TILE + 8 - this._elevPx(m.x, m.y)); var px = _q.x, py = _q.y;
         var k = m.t / 0.55;                       /* 1 → 0 */
         var r = 5 + (1 - k) * 7;
         x.save();
@@ -2340,7 +2623,7 @@
         var f = this._front(save.pos, this.dir);
         if (!this.map.interact[f.x + ',' + f.y]) return;
         /* ⚠️ v1.8.0：画在世界层 restore 之后（屏幕系）→ 纵向除 VIEW_Y 才能与世界对齐 */
-        var px = f.x * TILE - camX + 8, py = (f.y * TILE - camY - this._elevPx(f.x, f.y)) / VIEW_Y;
+        var _q = this._proj(f.x * TILE + 8, f.y * TILE - this._elevPx(f.x, f.y)); var px = _q.x, py = _q.y;
         var pu = 0.5 + 0.5 * Math.sin(performance.now() / 240);
         x.save();
         x.globalAlpha = 0.55 + 0.45 * pu;
