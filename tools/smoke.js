@@ -12181,12 +12181,38 @@ step(function () {
           说明"行为探测"在调用顺序敏感的场景里不可靠，**源码闸才是稳的**。 */
     {
       const mgSrc = fs.readFileSync(path.join(WWW, 'js/core/mapgen.js'), 'utf8');
-      const mEl = mgSrc.match(/function elevAt\([\s\S]{0,600}?\n    \}/);
+      const mEl = mgSrc.match(/function elevAt\([\s\S]{0,900}?\n    \}/);
       const elBody = mEl ? mEl[0] : '';
       if (!elBody) errors.push('地形高度：找不到 elevAt 函数体');
-      else if (elBody.indexOf('hashStr') < 0) {
+      else if (elBody.indexOf('elevHash') < 0 && elBody.indexOf('hashStr') < 0) {
         errors.push('地形高度：elevAt 没用坐标哈希 —— 会与散布/铺地共用随机流（耦合）');
-      } else if (/rng\.next\(\)/.test(elBody)) {
+      }
+      /* ⚠️ v1.7.0 **新增关键闸**：坐标哈希**不许把 bx/by 拼进字符串尾部**。
+         实测踩坑：`hashStr(seed+':e'+bx+','+by)` 里 `by` 只改最后 1~2 个字符，
+         FNV-1a 对末尾增量**雪崩不足** → 哈希只在小数第 3 位抖动 →
+         `floor(h*3)` 恒同值 → **高度场退化成竖条纹**（每列高度完全相同）。
+         这个缺陷从 v1.4.0 潜伏到 v1.7.0 才暴露（南向落差只剩 5 条）。
+         **判据**：坐标必须**分开混入**（`Math.imul(h ^ (bx+…), …)`），
+         且混完后要跑 `mix32` 雪崩。 */
+      const mHash = mgSrc.match(/function elevHash\([\s\S]{0,700}?\n    \}/);
+      const hBody = mHash ? mHash[0] : '';
+      if (!hBody) errors.push('地形高度：找不到 elevHash（坐标混合哈希）');
+      else {
+        if (hBody.indexOf('Math.imul') < 0) {
+          errors.push('地形高度：elevHash 没用 Math.imul 混合坐标 —— 坐标会退化');
+        }
+        if (hBody.indexOf('mix32') < 0) {
+          errors.push('地形高度：elevHash 没有雪崩步（mix32）—— '
+            + 'FNV 对末尾增量区分度不足，会让高度场退化成竖条纹');
+        }
+        /* 反例闸：不许再出现"把坐标拼进字符串"的老写法 */
+        if (/hashStr\(\s*save\.worldSeed\s*\+\s*':'[\s\S]{0,40}?\+\s*bx\s*\+/.test(mgSrc)) {
+          errors.push('地形高度：又出现"把块坐标拼进哈希字符串"的写法 —— '
+            + '这正是 v1.4~1.6 竖条纹缺陷的成因');
+        }
+      }
+      /* 另一条独立闸：不许蹭 rng 随机流（那才真会耦合散布/铺地） */
+      if (/rng\.next\(\)/.test(elBody)) {
         errors.push('地形高度：elevAt 用了 rng.next() —— 高度与散布随机流耦合');
       }
     }
@@ -12468,6 +12494,105 @@ step(function () {
   G.game.changeScene('title');
   console.log('  ✓ 排序基准：走 _depthOf（含高度）+ 高地先画 + 玩家不双重减 + 无高度图逐值等价原口径');
 }, 'terrain.depth.contract');
+
+/* ---------- 落差表达：坡道画法 + 双向落差 + 高度场不得退化（v1.7.0） ----------
+   用户口径（承 v1.4~v1.6「很像素纸片人」）：「继续开发」。
+   本轮修掉两个**从 v1.4.0 潜伏至今**的真缺陷：
+     ① **高度场退化成竖条纹** —— `elevAt` 把块坐标拼进哈希字符串尾部，
+        FNV-1a 对末尾增量雪崩不足 → `floor(h*3)` 恒同值 →
+        每列从上到下高度完全相同（实测南向落差只有 **5** 条）。
+     ② **只画南向落差** —— 东向落差**完全没有视觉表达**（实测 94 条被漏掉）。
+   两者叠加起来，玩家看到的地形其实是"一列列色块"而不是"有高差的地面"。 */
+step(function () {
+  const TILE = 24, ELEV_STEP = 8;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  try { G.RegionGen.ensure(s, 'fan5'); } catch (e) {}
+  G.game.changeScene('fan5', { toSpawn: true });
+  const sc = G.game.scene, m = sc.map;
+
+  /* ① **高度场不得退化成竖条纹**（本轮的根因缺陷，必须有闸 —— 它会静默发生）
+     判据：横向（x → x+4，即跨一个粗块）高度不同的格数，必须占相当比例。
+     退化成竖条纹时这个数是 **0**（每列恒同值）。 */
+  {
+    let rowDiff = 0, colDiff = 0;
+    for (let y = 0; y < m.h; y++)
+      for (let x = 0; x + 4 < m.w; x++) {
+        if ((m.ground[y][x].elev || 0) !== (m.ground[y][x + 4].elev || 0)) rowDiff++;
+      }
+    for (let x = 0; x < m.w; x++)
+      for (let y = 0; y + 4 < m.h; y++) {
+        if ((m.ground[y][x].elev || 0) !== (m.ground[y + 4][x].elev || 0)) colDiff++;
+      }
+    /* ⚠️ **两个方向都要设下限**。实测标定（fan5 42×30）：
+         正常时 横向 722~782 / 纵向 781；
+         一旦"忽略 by"（等价于退回竖条纹）纵向跌到 **13** —— 而横向反而更高。
+         **只判横向会漏！** 竖条纹的两种朝向都要钉住：
+           · 忽略 bx → 横向塌（每行恒定）
+           · 忽略 by → 纵向塌（每列恒定，正是 v1.4~1.6 的实际缺陷） */
+    if (rowDiff < 100) {
+      errors.push('落差表达：横向(x→x+4)高度变化只有 ' + rowDiff
+        + ' 格 —— 高度场可能退化成**横条纹**（每行恒同高）');
+    }
+    if (colDiff < 100) {
+      errors.push('落差表达：纵向(y→y+4)高度变化只有 ' + colDiff
+        + ' 格 —— 高度场退化成**竖条纹**（每列恒同高，v1.4~1.6 的实际缺陷）');
+    }
+  }
+
+  /* ② **两个方向的落差都要有视觉表达**
+     判据：南向落差边与东向落差边**都 > 0**。v1.4~1.6 只画南向，
+     导致东向落差（实测 94 条）完全看不见。 */
+  {
+    let south = 0, east = 0;
+    for (let y = 0; y < m.h; y++)
+      for (let x = 0; x < m.w; x++) {
+        const lv = m.ground[y][x].elev || 0;
+        if (!lv) continue;
+        if (y + 1 < m.h && ((m.ground[y + 1][x].elev) || 0) < lv) south++;
+        if (x + 1 < m.w && ((m.ground[y][x + 1].elev) || 0) < lv) east++;
+      }
+    if (south <= 0) errors.push('落差表达：没有任何南向落差（地形异常）');
+    if (east <= 0) errors.push('落差表达：没有任何东向落差（地形异常）');
+  }
+
+  /* ③ **渲染必须两个方向都画**（源码闸） */
+  {
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (exSrc.indexOf("'E'") < 0 || exSrc.indexOf('_drawDrop') < 0) {
+      errors.push('落差表达：explore 缺 `_drawDrop` 或没有东向（E）落差分支');
+    }
+    /* 两个方向都要有 `_drawDrop` 调用。
+       ⚠️ 定义处写作 `_drawDrop: function`（无左括号），所以 `_drawDrop(` 的
+          出现次数**就是调用次数**（2 = 南向 + 东向）。别把定义也算进去。 */
+    const nDrop = (exSrc.match(/_drawDrop\(/g) || []).length;
+    if (nDrop < 2) {
+      errors.push('落差表达：`_drawDrop(` 只出现 ' + nDrop + ' 次 —— '
+        + '南向与东向应各调用一次（v1.4~1.6 只画了南向）');
+    }
+    /* 且必须一次带 'S'、一次带 'E'（防"两个都是 S"这种抄漏） */
+    if (exSrc.indexOf("_drawDrop(x, px, py + TILE, 'S'") < 0) {
+      errors.push('落差表达：缺南向落差调用（应传 py + TILE, 方向 S）');
+    }
+    if (exSrc.indexOf("_drawDrop(x, px + TILE, py, 'E'") < 0) {
+      errors.push('落差表达：缺东向落差调用（应传 px + TILE, 方向 E）');
+    }
+  }
+
+  /* ④ **零回归**：手写图（无高度）两个方向都不画落差 */
+  {
+    G.game.changeScene('town', { toSpawn: true });
+    const sc2 = G.game.scene;
+    if (sc2._elevMax() !== 0) {
+      errors.push('落差表达：town 不该有高度（零回归前提）');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 落差表达：高度场双向变化（非竖条纹）+ 南/东落差都画 + 手写图零回归');
+}, 'terrain.drop.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

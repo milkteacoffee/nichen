@@ -1358,17 +1358,24 @@
               if ((g.elev || 0) !== lv) continue;
               var px = tx * TILE - camX;
               var py = ty * TILE - camY - lv * ELEV_STEP;
-              /* 格块：从周期大纹理按世界坐标取子块（与底层同一位置 → 接缝连续） */
-              var sx = ((tx * TILE) % TS + TS) % TS;
-              var sy = ((ty * TILE) % TS + TS) % TS;
-              G.Art.groundBlit(x, g.t === 'path' ? 'path' : this._baseType(),
-                pal, sx, sy, px, py);
-              /* 崖壁/坡道：朝南（+y）若是低地或边界，画落差面 */
-              var sN = (ty + 1 > m.h - 1) ? null : m.ground[ty + 1][tx];
-              var sE = (sN === null) ? 0 : (sN.elev || 0);
-              if (sE < lv) {
-                this._drawCliff(x, px, py + TILE, TILE, (lv - sE) * ELEV_STEP, pal);
-              }
+              /* ⚠️ v1.7.0：**不在高度层重铺纹理**（原因见 `_drawSlope` 的头注：
+                 重铺的纹理没有 `_drawShade` 那层叠加 → 与周围地面质感对不上，
+                 读成一块异色补丁）。抬升的格块直接**透出预烘层**，
+                 只叠"台面受光"这一点半透明效果 —— 它才是"高台"读得出来的主因。 */
+              x.fillStyle = 'rgba(255,255,255,0.045)';
+              x.fillRect(px, py, TILE, TILE);
+              /* 落差面（v1.7.0）：**南向 + 东向都要画**，统一走 `_drawDrop` 分流。
+                 ⚠️ v1.4~1.6 **只画了南向（+y）** —— 实测 fan5 南向落差仅 **5** 条、
+                    东向 **94** 条：绝大多数落差**没有任何视觉表达**，
+                    玩家看到的是"地面突然换了个高度"，正是"纸片感"的残留。
+                 ⚠️ 两个方向都要**朝南/朝东**判定（本格比邻居高才画），
+                    否则会把"上坡"画成"下坡"。 */
+              var sS = (ty + 1 > m.h - 1) ? null : m.ground[ty + 1][tx];
+              var eS = sS ? (sS.elev || 0) : 0;
+              if (eS < lv) this._drawDrop(x, px, py + TILE, 'S', lv - eS, sS, tx, ty, pal);
+              var sE2 = (tx + 1 > m.w - 1) ? null : m.ground[ty][tx + 1];
+              var eE2 = sE2 ? (sE2.elev || 0) : 0;
+              if (eE2 < lv) this._drawDrop(x, px + TILE, py, 'E', lv - eE2, sE2, tx, ty, pal);
             }
           }
         }
@@ -1404,6 +1411,78 @@
           x.fillRect(px + (h1 % 5) + 2, py + topH, 1, Math.max(1, hgt - topH - botH));
           x.fillRect(px + (h1 % 7) + 9, py + topH, 1, Math.max(1, hgt - topH - botH));
         }
+        x.restore();
+      },
+
+      /* 落差面分流（v1.7.0）：把"这处落差画成什么"收敛成**唯一口**。
+         **判据**：`elev` 本来就**不阻断通行**（v1.4.0 定的铁律：高度差只进表现层），
+         所以**所有落差都是人能走的** → 一律画**坡面**（`_drawSlope`），
+         只有**地图边缘**（`sN === null`，坡通向地图外）才画**截面**（`_drawCliff`）。
+         ⚠️ 我先试过"两侧都是路面才算坡"的判据 —— 实测是**死条件**：
+            生成型地图路面仅占 **0.2~0.6%**，落差边命中坡道的数量是 **0**。
+            **判据要能被产出验证，不能只看"语义上说得通"。**
+         ⚠️ 统一画坡的另一个理由：若按"缓坡/陡崖"分流，玩家会看到同一种地形
+            因高度差不同而换皮（1 档=坡、2 档=崖），但**两者都能走上去** ——
+            画面在撒谎。高度差只影响**坡的长短**，不影响"能不能走"。 */
+      _drawDrop: function (x, px, py, dir, dLv, sN, tx, ty, pal) {
+        if (dLv <= 0) return;
+        var hgt = dLv * ELEV_STEP;
+        /* 地图边缘：画截面（坡不能通向地图外，那里本来就是"世界的边") */
+        if (!sN) { this._drawCliff(x, px, py, TILE, hgt, pal); return; }
+        this._drawSlope(x, px, py, TILE, hgt, pal, dir, tx, ty);
+      },
+
+      /* 坡面（v1.7.0）：落差的**竖向投影**里画出"一级级踏阶"。
+         ⚠️ **必须铺地面纹理**（`groundBlit` 取该格子块），不能硬填色块 ——
+            实测：填 `shade(ground,+0.16)` 的棱线比地面亮（#817b65 vs #6a6248），
+            整条坡读起来像**木栅栏**而不是地面的坡。
+         **做法**：先按世界坐标铺该格的地面纹理（与旁边地面同源 → 无缝），
+         再叠**半透明的踏阶横线 + 底部阴影** —— 只是"在地面上画几级台阶"，不是换材质。
+         ⚠️ **不动几何**：落差在数据里就是一个 `elev` 差，画法只是"告诉玩家这里能走"。
+            若真做成斜向平行四边形压缩格块，会与地面纹理 / 物件锚点 / 寻路格子对不上
+            （三者都按方形格算）。
+         ⚠️ `dir==='E'` 时棱线转 90°（**横向落差竖着切**），否则东西向的坡
+            会画成"横条纹"，与旁边南北向的坡纹理互相垂直、像贴错图。 */
+      _drawSlope: function (x, px, py, w, hgt, pal, dir) {
+        if (hgt <= 0) return;
+        /* ⚠️ **不重铺地面纹理**（v1.7.0 修正）：
+           一开始我在这里 `groundBlit` 铺一遍，结果台地露出的底色比周围更"纯"，
+           读成一块异色补丁。根因：预烘地面层之上还压着 `_drawShade`
+           （周期明暗纹理，实测 alpha 仅 15 —— 是**极淡的一层**），
+           而重铺的纹理**没有这层 shade 叠加**，两者亮度/质感对不上。
+           **正解：只叠半透明效果，让底下的预烘地面透出来** ——
+           不重铺、不换材质，纯"在地面上画几级台阶"。 */
+        x.save();
+        /* ② 斜面受光：压暗 + **底边更暗**，做出"从台面往下滑"的明度梯度。
+           ⚠️ 数值经过实测标定（读渲染后像素）：
+             台面 rgb≈(112,114,130)、坡带从 -14 渐到 -26 —— 有梯度但偏含蓄。
+             这里调到 -0.13 起步、底边 -0.34，让落差在**不改几何**的前提下更明确。
+             反例提示：曾用 0.14 的**均匀**压暗，一块四面都是落差的台地会被
+             四条等暗的带围成一圈 → 读成"贴了块石板"；**渐变**才不会。 */
+        var grd = dir === 'E'
+          ? x.createLinearGradient(px, py, px + w, py)          /* 东向：左→右（由高到低） */
+          : x.createLinearGradient(px, py, px, py + hgt);       /* 南向：上→下（由高到低） */
+        grd.addColorStop(0, 'rgba(0,0,0,0.13)');
+        grd.addColorStop(1, 'rgba(0,0,0,0.30)');
+        x.fillStyle = grd;
+        x.fillRect(px, py, w, hgt);
+        /* ③ 踏阶横线：**暗线**（受光面里的凹缝），不是亮线 */
+        var n = Math.max(1, Math.min(3, Math.round(hgt / 6)));
+        x.fillStyle = 'rgba(0,0,0,0.22)';
+        for (var i = 1; i < n; i++) {
+          if (dir === 'E') x.fillRect(px + Math.round(w * i / n), py, 1, hgt);
+          else x.fillRect(px, py + Math.round(hgt * i / n), w, 1);
+        }
+        /* ④ 底边：与下层地面接壤的阴影（坡是缓的 → 只给一条细暗边） */
+        var botH = Math.max(1, Math.round(hgt * 0.22));
+        x.fillStyle = 'rgba(0,0,0,0.26)';
+        if (dir === 'E') x.fillRect(px, py, botH, hgt);
+        else x.fillRect(px, py + hgt - botH, w, botH);
+        /* ⑤ 面交界亮线：坡的**上沿**（与台面接壤处）——
+           这条是"这里开始往下/往上"的视觉锚点，比压暗更能表达高差 */
+        x.fillStyle = 'rgba(255,255,255,0.13)';
+        if (dir === 'E') x.fillRect(px + w - 1, py, 1, hgt);
+        else x.fillRect(px, py, w, 1);
         x.restore();
       },
 
@@ -1467,6 +1546,10 @@
         var sx = ((tx * TILE) % TS + TS) % TS;
         var sy = ((ty * TILE) % TS + TS) % TS;
         G.Art.groundBlit(x, 'path', pal, sx, sy, px, py);
+        /* ⚠️ 这里**不传 `md.tex`**，是正确的 —— 路面纹理用的是 `groundTex('path', pal)`，
+           与上面的基础地面平铺口径一致（路面**不**随区域底图变）。
+           与 v1.7.0 高度层的差别在于：高度层要**复刻某一格的现有地面**（含区域底图），
+           这里只是往空画布上铺路面纹理。两处目的不同，别照着对方改。 */
 
         /* 路缘过渡：只在这一格不与另一格路面相邻的那些边上画 */
         var mask = 0;

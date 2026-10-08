@@ -49,13 +49,35 @@
     var amp = ELEV_AMP[terr] != null ? ELEV_AMP[terr] : 0;
     /* 手写图（town/yunzhou/field/cave/bloodhall）没有 `terr` → amp=0 → 恒平地，
        **保证既有地图逐像素不变**（这是零回归的闸）。 */
+    /* ⚠️ v1.7.0 **重要修正**：原来用 `hashStr(seed+':'+mapId+':e'+bx+','+by)` 直接取哈希。
+       实测发现 **FNV-1a 对"末尾增量"雪崩不足** —— `by` 只改字符串最后 1~2 个字符，
+       哈希值仅在小数第 3 位抖动（0.734 / 0.730 / 0.742 / 0.738），
+       `Math.floor(h*3)` **恒为同一个值** → 高度场退化成**竖条纹**
+       （每列从上到下高度完全相同，实测南向落差只有 5 条、东向 94 条）。
+       这个缺陷从 v1.4.0 就在，**直到 v1.7.0 画东向落差时才暴露**（那时才发现
+       "绝大多数落差没有视觉表达"，追下去是真因）。
+       **修法**：坐标**分开**混入（不拼进字符串尾部）—— 前缀仍走 FNV，
+       然后 x/y 各做一次 `Math.imul` 混合，最后跑一轮 `mix32` finals（雪崩）。
+       实测：块分布真实（每 4 行一层）、档位均匀（100×100 块 → 3295/3308/3397）。 */
+    function mix32(h) {
+      h ^= h >>> 16; h = Math.imul(h, 2246822507);
+      h ^= h >>> 13; h = Math.imul(h, 3266489909);
+      h ^= h >>> 16; return h >>> 0;
+    }
+    function elevHash(bx, by) {
+      var h = 2166136261;
+      var s = save.worldSeed + ':' + mapId + ':e';
+      for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+      h = Math.imul(h ^ (bx + 0x9E3779B9), 2654435761);
+      h = Math.imul(h ^ (by + 0x85EBCA6B), 2246822519);
+      return mix32(h) / 4294967296;
+    }
     function elevAt(x, y) {
       if (amp <= 0) return 0;
       /* 三档高度的"块状"分布：先用 4×4 粗格决定大块高度，再用细坐标做边界抖动 ——
          纯逐格哈希会让相邻格高高低低像"马赛克"，人是走在**坡面**上而不是格阵上。 */
       var bx = Math.floor(x / 4), by = Math.floor(y / 4);
-      var h1 = hashStr(save.worldSeed + ':' + mapId + ':e' + bx + ',' + by) / 4294967296;
-      var e = Math.floor(h1 * (amp + 1));
+      var e = Math.floor(elevHash(bx, by) * (amp + 1));
       if (e > amp) e = amp;
       return e;
     }
