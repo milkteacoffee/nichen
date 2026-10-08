@@ -17,6 +17,16 @@
      1/3 格（8px）是"看得出坡、又不至于把格子错得认不出网格"的实测甜点 ——
      取半格（12px）会让相邻格看起来"断开"，取太小（4px）则读不出层级。 */
   var ELEV_STEP = 8;
+  /* 斜俯角模拟：**世界层纵向压缩系数**（v1.8.0）。
+     用户口径：「② 斜俯角模拟（远景轻微 Y 压缩，补最后一条"无纵深"）」。
+     原理：把世界层纵向 scale(1, 1/VIEW_Y)，格块高度与格间距**同时**被压 →
+     格与格之间不留缝（这是"自洽"的关键）；角色再反向 scale(1, VIEW_Y) 补回来
+     防变形（人应该是"站着"的，不该被压扁）。
+     ⚠️ **1.06 是实测甜点**：压 3% 时完全看不出（等同没做）；
+        压 15% 时格块明显变扁、草地纹理出现摩尔纹、建筑也矮了一截（像"趴着"）。
+     ⚠️ 它只影响**世界层**（地面/建筑/装饰/角色/NPC），
+        HUD、追踪栏、浮层、对话框**一律不压**（UI 压扁会糊且不像 UI）。 */
+  var VIEW_Y = 1.06;
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
@@ -702,7 +712,11 @@
         if (p.y < 4) return;
         if (p.y >= 272 - 4) return;
         var tx = Math.floor(this._camX() / TILE + p.x / TILE);
-        var ty = Math.floor(this._camY() / TILE + p.y / TILE);
+        /* ⚠️ v1.8.0 **反投影必须乘 VIEW_Y**：世界层纵向被压了 `1/VIEW_Y`，
+           所以"屏幕上的 1px"对应"世界里的 VIEW_Y px"。
+           漏了这一步的表现是：**点击位置总是比实际点到的格子偏上**（越靠下偏得越多），
+           而画面完全正常 —— 属"看着对但点不准"的静默错。 */
+        var ty = Math.floor(this._camY() / TILE + p.y * VIEW_Y / TILE);
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
 
         /* ⓪ 点到出口传送阵：直接切图。
@@ -870,10 +884,19 @@
         var cx = this._px().x;
         return Math.max(0, Math.min(this.map.w * TILE - 480, cx - 240));
       },
+      /* 相机 Y 上限：可见世界高度 = 272 * VIEW_Y（屏幕被纵向压缩后能装更多世界内容）。
+         ⚠️ v1.8.0：**必须乘 VIEW_Y**，否则相机以为只看得见 272px 世界，
+            压扁后会**露出地图外的空白**（底边出现黑带）。
+         ⚠️ 居中偏移用 `272*VIEW_Y/2`（可见范围的**一半**），不是固定 136 ——
+            用 136 会让主角在压缩后**偏上**（不再居中）。 */
       _camY: function () {
         var cy = this._px().y;
-        return Math.max(0, Math.min(this.map.h * TILE - 272, cy - 136));
+        var vis = 272 * VIEW_Y;
+        return Math.max(0, Math.min(this.map.h * TILE - vis, cy - vis / 2));
       },
+      /* 当前可见的世界高度（像素）：纵向压缩后是 272*VIEW_Y。
+         视口裁剪、视口范围计算都该走它 —— 别各写一份 272。 */
+      _viewH: function () { return 272 * VIEW_Y; },
 
       /* ===== 渲染 ===== */
       render: function (x) {
@@ -891,11 +914,24 @@
         /* 天劫震屏：用 `t` 的正弦做抖动（**不用 Math.random** —— 随机会让截图钉不住） */
         var _trib = this.trib;
         var _shk = _trib ? _trib.shake : 0;
-        if (_zoom !== 1 || _shk) {
+
+        /* ===== 斜俯角：世界层纵向压缩（v1.8.0）=====
+           用户口径：「② 斜俯角模拟（远景轻微 Y 压缩，补最后一条"无纵深"）」。
+           **为什么 scale 世界层就够**（不用逐绘制点改）：
+             `scale(1, 1/VIEW_Y)` 会**同时**压格块高度与格间距 ——
+             两者同一系数 → 格子仍严丝合缝（不留缝），
+             所有 `y*TILE` 的绘制自动跟着变，**18 个投影点一处都不用改**。
+           **为什么要给角色反向补偿**：世界被压扁 6%，角色若跟着压就"矮胖变形"。
+             人应该是站着的 → 角色单独 `scale(1, VIEW_Y)` 抵消。
+           **为什么相机要改**：压扁后 272px 屏幕对应**更多**世界内容
+             （272 * VIEW_Y = 288px）→ 相机可见范围变大，见 `_camY`。 */
+        var _viewY = VIEW_Y;
+        if (_zoom !== 1 || _shk || _viewY !== 1) {
           x.save();
           x.translate(240 + (_shk ? Math.sin(_trib.t * 61) * _shk : 0),
             136 + (_shk ? Math.sin(_trib.t * 73) * _shk : 0));
-          x.scale(_zoom, _zoom); x.translate(-240, -136);
+          x.scale(_zoom, _zoom * (1 / _viewY));   /* ← 纵向压缩在这里 */
+          x.translate(-240, -136);
         }
 
         /* 地面：整图已预烘好，每帧只 blit 视口这一块（1 次，而不是逐格 540 次）。
@@ -1018,7 +1054,12 @@
            洞窟里的火星、阴气要在暗幕之上才有"发光"感，放下面会被一起压暗。 */
         this._drawParticles(x);
 
-        if (_zoom !== 1) x.restore();      /* 世界层缩放到此为止，UI 不参与 */
+        /* ⚠️ restore 的条件必须与上面 save 的**完全一致**（v1.8.0 顺手修）：
+           原来是 `if (_zoom !== 1 || _shk)` 存、`if (_zoom !== 1)` 取 ——
+           天劫震屏时（有 _shk 但 _zoom===1）**只存不取**，变换泄漏到 UI 层
+           （HUD/追踪栏会跟着抖）。这类"存取条件不成对"是画布变换的经典坑，
+           两个条件写在同一屏、隔 130 行很容易走散，所以都在这里注明。 */
+        if (_zoom !== 1 || _shk || _viewY !== 1) x.restore();   /* 世界层收口，UI 不参与 */
 
         /* ===== 昼夜色温 + 体积雾（v0.99.0）=====
            ⚠️ **必须在这里**（世界层收口处、HUD 之前）—— 而不是 game.js 的最外层。
@@ -1218,7 +1259,7 @@
       _drawFurn: function (x, f, camX, camY) {
         var px = f.x * TILE - camX, py = f.y * TILE - camY - this._elevPx(f.x, f.y);
         var w = (f.w || 1) * TILE, h = (f.h || 1) * TILE;
-        if (px > 480 || px + w < 0 || py > 272 || py + h < 0) return;
+        if (px > 480 || px + w < 0 || py > this._viewH() || py + h < 0) return;
         var art = G.Art.furn(f.kind, this._pal());
         if (!art) return;
         x.drawImage(art.c, Math.round(px), Math.round(py), art.w, art.h);
@@ -1349,7 +1390,7 @@
         var x0 = Math.max(0, Math.floor(camX / TILE) - 1);
         var x1 = Math.min(m.w - 1, Math.ceil((camX + 480) / TILE) + 1);
         var y0 = Math.max(0, Math.floor(camY / TILE) - 1);
-        var y1 = Math.min(m.h - 1, Math.ceil((camY + 272) / TILE) + 4);
+        var y1 = Math.min(m.h - 1, Math.ceil((camY + this._viewH()) / TILE) + 4);
         /* 按 elev 分层画：低 → 高 */
         for (var lv = 1; lv <= emax; lv++) {
           for (var ty = y0; ty <= y1; ty++) {
@@ -1432,57 +1473,82 @@
         this._drawSlope(x, px, py, TILE, hgt, pal, dir, tx, ty);
       },
 
-      /* 坡面（v1.7.0）：落差的**竖向投影**里画出"一级级踏阶"。
-         ⚠️ **必须铺地面纹理**（`groundBlit` 取该格子块），不能硬填色块 ——
-            实测：填 `shade(ground,+0.16)` 的棱线比地面亮（#817b65 vs #6a6248），
-            整条坡读起来像**木栅栏**而不是地面的坡。
-         **做法**：先按世界坐标铺该格的地面纹理（与旁边地面同源 → 无缝），
-         再叠**半透明的踏阶横线 + 底部阴影** —— 只是"在地面上画几级台阶"，不是换材质。
-         ⚠️ **不动几何**：落差在数据里就是一个 `elev` 差，画法只是"告诉玩家这里能走"。
-            若真做成斜向平行四边形压缩格块，会与地面纹理 / 物件锚点 / 寻路格子对不上
-            （三者都按方形格算）。
-         ⚠️ `dir==='E'` 时棱线转 90°（**横向落差竖着切**），否则东西向的坡
-            会画成"横条纹"，与旁边南北向的坡纹理互相垂直、像贴错图。 */
+      /* 坡面（v1.8.0）：落差的竖向投影里画**真梯形**（远边窄、近边宽）。
+         **为什么梯形才是"斜的"**：矩形坡面读起来是"一格色块"（平面），
+         而**上窄下宽的梯形**天然表达"这个面朝观察者倾斜"——
+         这正是《烟雨江湖》坡道的读法：靠形状而不是靠贴图。
+         ⚠️ **仍然不动格子位置**：梯形只是格内画出的形状，
+            格子的坐标、寻路、物件锚点全都不变（三者都按方形格算）。
+            所以"几何上仍是 2.5D 平面"，但**视觉上有了斜面**。
+         ⚠️ **不重铺地面纹理**（v1.7.0 教训）：预烘层之上还压着 
+            （周期明暗，alpha 仅 15），重铺的纹理没有这层叠加 → 质感对不上、
+            读成异色补丁。**只叠半透明，让底下的预烘地面透出来。**
+         ⚠️ （东西向落差）时梯形要**横过来**（左右收窄），
+            否则纹理方向与南北向的坡互相垂直、像贴错图。 */
       _drawSlope: function (x, px, py, w, hgt, pal, dir) {
         if (hgt <= 0) return;
-        /* ⚠️ **不重铺地面纹理**（v1.7.0 修正）：
-           一开始我在这里 `groundBlit` 铺一遍，结果台地露出的底色比周围更"纯"，
-           读成一块异色补丁。根因：预烘地面层之上还压着 `_drawShade`
-           （周期明暗纹理，实测 alpha 仅 15 —— 是**极淡的一层**），
-           而重铺的纹理**没有这层 shade 叠加**，两者亮度/质感对不上。
-           **正解：只叠半透明效果，让底下的预烘地面透出来** ——
-           不重铺、不换材质，纯"在地面上画几级台阶"。 */
+        /* 收窄量：近边满宽，远边收窄。
+           ⚠️ **基准必须按"被收窄的那个方向"取**（v1.8.0 修正）：
+              南向落差的收窄发生在**横向** → 以格宽 w 为基准；
+              东向落差的收窄发生在**纵向** → 以坡长 hgt 为基准。
+            一开始两个方向都用 hgt*0.42 —— 南向正确（16→7，收 29%），
+            东向则错（16 高的左边被收掉 14 → 只剩 2px，几乎成了三角形）。
+            这是**从顶点序列实测**发现的：(100,57)(124,50)(124,66)(100,59)。
+          ⚠️ 上限 0.30：收太多会露出底下的方形地面（地面是方的、坡是梯形的）。 */
+        var ins = dir === 'E'
+          ? Math.round(Math.min(w * 0.42, hgt * 0.30))
+          : Math.round(Math.min(hgt * 0.42, w * 0.30));
         x.save();
-        /* ② 斜面受光：压暗 + **底边更暗**，做出"从台面往下滑"的明度梯度。
-           ⚠️ 数值经过实测标定（读渲染后像素）：
-             台面 rgb≈(112,114,130)、坡带从 -14 渐到 -26 —— 有梯度但偏含蓄。
-             这里调到 -0.13 起步、底边 -0.34，让落差在**不改几何**的前提下更明确。
-             反例提示：曾用 0.14 的**均匀**压暗，一块四面都是落差的台地会被
-             四条等暗的带围成一圈 → 读成"贴了块石板"；**渐变**才不会。 */
+        /* ① 梯形路径（两个方向各一种朝向） */
+        x.beginPath();
+        if (dir === 'E') {
+          /* 东西向：**左边（远/高侧）窄、右边（近/低侧）宽** ——
+             与南北向同理，只是收窄发生在纵向。
+             ⚠️ 一开始这里写成了矩形（只有外层 4 顶点、没有纵向收窄），
+                实测顶点 `(107,50)(124,50)(124,66)(107,66)` —— 左右都是 107/124，
+                即"整体平移了个矩形"，**完全没有梯形效果**。已修。 */
+          x.moveTo(px, py + ins);
+          x.lineTo(px + w, py);
+          x.lineTo(px + w, py + hgt);
+          x.lineTo(px, py + hgt - ins);
+        } else {
+          /* 南北向：上（远/高侧）窄，下（近/低侧）宽 */
+          x.moveTo(px + ins, py);
+          x.lineTo(px + w - ins, py);
+          x.lineTo(px + w, py + hgt);
+          x.lineTo(px, py + hgt);
+        }
+        x.closePath();
+        /* ② 斜面受光：渐变压暗（远边浅、近边深 —— 越靠下越背光） */
         var grd = dir === 'E'
-          ? x.createLinearGradient(px, py, px + w, py)          /* 东向：左→右（由高到低） */
-          : x.createLinearGradient(px, py, px, py + hgt);       /* 南向：上→下（由高到低） */
+          ? x.createLinearGradient(px, py, px + w, py)
+          : x.createLinearGradient(px, py, px, py + hgt);
         grd.addColorStop(0, 'rgba(0,0,0,0.13)');
         grd.addColorStop(1, 'rgba(0,0,0,0.30)');
         x.fillStyle = grd;
-        x.fillRect(px, py, w, hgt);
-        /* ③ 踏阶横线：**暗线**（受光面里的凹缝），不是亮线 */
+        x.fill();
+        /* ③ 踏阶暗线：梯形内按比例插值（跟随收窄，不是等宽横条） */
         var n = Math.max(1, Math.min(3, Math.round(hgt / 6)));
         x.fillStyle = 'rgba(0,0,0,0.22)';
         for (var i = 1; i < n; i++) {
-          if (dir === 'E') x.fillRect(px + Math.round(w * i / n), py, 1, hgt);
-          else x.fillRect(px, py + Math.round(hgt * i / n), w, 1);
+          var t = i / n;
+          if (dir === 'E') {
+            /* 东西向：竖线，左界随 t 从 px+ins 左移到 px（跟随梯形收窄） */
+            x.fillRect(px + ins * (1 - t), py, 1, hgt);
+          } else {
+            var xl = px + ins * (1 - t), xr = px + w - ins * (1 - t);
+            x.fillRect(xl, py + Math.round(hgt * t), xr - xl, 1);
+          }
         }
-        /* ④ 底边：与下层地面接壤的阴影（坡是缓的 → 只给一条细暗边） */
+        /* ④ 底边：与下层地面接壤的阴影（沿近边全长） */
         var botH = Math.max(1, Math.round(hgt * 0.22));
         x.fillStyle = 'rgba(0,0,0,0.26)';
-        if (dir === 'E') x.fillRect(px, py, botH, hgt);
+        if (dir === 'E') x.fillRect(px + ins, py, botH, hgt);
         else x.fillRect(px, py + hgt - botH, w, botH);
-        /* ⑤ 面交界亮线：坡的**上沿**（与台面接壤处）——
-           这条是"这里开始往下/往上"的视觉锚点，比压暗更能表达高差 */
+        /* ⑤ 上沿亮线：与台面接壤（远边）—— 高差的视觉锚点 */
         x.fillStyle = 'rgba(255,255,255,0.13)';
         if (dir === 'E') x.fillRect(px + w - 1, py, 1, hgt);
-        else x.fillRect(px, py, w, 1);
+        else x.fillRect(px + ins, py, w - ins * 2, 1);
         x.restore();
       },
 
@@ -1578,7 +1644,7 @@
 
       _drawStructure: function (x, s, camX, camY) {
         var px = s.x * TILE - camX, py = s.y * TILE - camY - this._elevPx(s.x, s.y);
-        if (px > 480 || px + s.w * TILE < 0 || py > 272 || py + s.h * TILE < 0) return;
+        if (px > 480 || px + s.w * TILE < 0 || py > this._viewH() || py + s.h * TILE < 0) return;
         var pal = this._pal();
         var art = s.kind === 'house' ? G.Art.house(s, pal)
           : s.kind === 'ruin' ? G.Art.ruin(s, pal)
@@ -1859,7 +1925,11 @@
         if (vs >= 0.995) return;                       /* 晴天 / 无天气：零回归 */
         var pp = this._px();
         var camX = this._camX(), camY = this._camY();
-        var sx = pp.x - camX, sy = pp.y - camY;
+        var sx = pp.x - camX;
+        /* ⚠️ v1.8.0：这里画在**世界层 restore 之后**（屏幕坐标系），
+           而 `_px()/_camY()` 都是世界坐标 → 纵向要**除以 VIEW_Y** 回到屏幕。
+           漏了的话，雾圈的圆心会比主角**偏下**（压得越多偏得越多）。 */
+        var sy = (pp.y - camY) / VIEW_Y;
         /* 基准可视半径 190 → 按天气倍率收缩（瘴气 0.58 → 110） */
         var R = 190 * vs;
         /* 雾色按天气取（雨=冷灰蓝、雪=亮白、瘴气=黄绿）—— 与粒子同源，读起来一致 */
@@ -2109,12 +2179,33 @@
             x.scale(1, breathe);
             x.translate(0, -footY);
           }
+          /* ===== 斜俯角反向补偿（v1.8.0）=====
+             世界层被纵向压了 `1/VIEW_Y`，角色若跟着压就"矮胖变形"——
+             人应该是**站着**的。这里乘回 `VIEW_Y` 抵消。
+             ⚠️ **以脚底为不动点**（与上面的呼吸同法）：
+                绕中心放大会让人"从地里长出来"，脚离地。
+             顺序：先移到脚底 → 反向缩放 → 移回 → 再画。
+             ⚠️ 与 `breathe` 分开写两次 scale 是可以的（都是纵向，
+                结果等价于 `breathe * VIEW_Y`），但**合并会与呼吸的
+                "脚底不动点"逻辑纠缠**，分开更清楚。 */
+          if (VIEW_Y !== 1) {
+            var footY2 = animY + AH;
+            x.translate(0, footY2);
+            x.scale(1, VIEW_Y);
+            x.translate(0, -footY2);
+          }
           x.drawImage(frames[fi], Math.round(-AW / 2), animY, AW, AH);
           x.restore();
         } else {
           var spr0 = G.Sprites.heroFrames()[this.dir][this.frame];
           x.save();
           x.translate(px, py + 3);
+          /* 兜底帧同样要做反向补偿（不然只有"有动画帧"的角色不变形） */
+          if (VIEW_Y !== 1) {
+            x.translate(0, -HH + bob);
+            x.scale(1, VIEW_Y);
+            x.translate(0, HH - bob);
+          }
           x.drawImage(spr0, Math.round(-HW / 2), Math.round(-HH + bob), HW, HH);
           x.restore();
         }
@@ -2227,7 +2318,8 @@
       _drawMark: function (x, camX, camY) {
         var m = this.mark;
         if (!m) return;
-        var px = m.x * TILE - camX + 8, py = m.y * TILE - camY + 8 - this._elevPx(m.x, m.y);
+        /* ⚠️ v1.8.0：同 _drawInteractHint —— 屏幕系，纵向除 VIEW_Y */
+        var px = m.x * TILE - camX + 8, py = (m.y * TILE - camY + 8 - this._elevPx(m.x, m.y)) / VIEW_Y;
         var k = m.t / 0.55;                       /* 1 → 0 */
         var r = 5 + (1 - k) * 7;
         x.save();
@@ -2247,7 +2339,8 @@
         var save = G.game.save;
         var f = this._front(save.pos, this.dir);
         if (!this.map.interact[f.x + ',' + f.y]) return;
-        var px = f.x * TILE - camX + 8, py = f.y * TILE - camY - this._elevPx(f.x, f.y);
+        /* ⚠️ v1.8.0：画在世界层 restore 之后（屏幕系）→ 纵向除 VIEW_Y 才能与世界对齐 */
+        var px = f.x * TILE - camX + 8, py = (f.y * TILE - camY - this._elevPx(f.x, f.y)) / VIEW_Y;
         var pu = 0.5 + 0.5 * Math.sin(performance.now() / 240);
         x.save();
         x.globalAlpha = 0.55 + 0.45 * pu;

@@ -7151,10 +7151,14 @@ step(function () {
     /* 点出口格 → 直接切图
        ⚠️ v0.91.0：格宽从 16 提到 24（TILE），且地图放大 ×1.4；
           这里必须**从地图数据读出口格**、并用 `G.Art.TILE` 换算，
-          写死 (18,23)×16 会点在旧位置上（本契约当时就是因此假红）。 */
+          写死 (18,23)×16 会点在旧位置上（本契约当时就是因此假红）。
+       ⚠️ v1.8.0：世界层纵向压了 1/VIEW_Y，`onTap` 里会把屏幕 y **乘 VIEW_Y**
+          再换算成格。所以这里算"屏幕坐标"必须**除以 VIEW_Y** ——
+          否则算出来的 y 落在屏幕外，点不中（本契约当场假红）。 */
     const TG = G.Art.TILE;
+    const VY = 1.06;   /* 与 explore.js 的 VIEW_Y 同值 */
     const pe = G.Data.maps.town.exits[0];
-    const p = { x: pe.x0 * TG + TG / 2 - sc._camX(), y: pe.y * TG + TG / 2 - sc._camY() };
+    const p = { x: pe.x0 * TG + TG / 2 - sc._camX(), y: (pe.y * TG + TG / 2 - sc._camY()) / VY };
     sc.onTap(p);
     if (G.game.sceneName !== 'field') {
       errors.push('点出口传送阵没有切到下一张图，实为 ' + G.game.sceneName);
@@ -12593,6 +12597,144 @@ step(function () {
   G.game.changeScene('title');
   console.log('  ✓ 落差表达：高度场双向变化（非竖条纹）+ 南/东落差都画 + 手写图零回归');
 }, 'terrain.drop.contract');
+
+/* ---------- 坡道几何 + 斜俯角（v1.8.0）----------
+   用户口径：「① 真正的坡道瓦片（斜向几何，需同时处理地面纹理/物件锚点/寻路格子三者对位）；
+             ② 斜俯角模拟（远景轻微 Y 压缩，补最后一条"无纵深"）」。
+   两项共享同一底层（格坐标 → 屏幕纵向投影），所以一起做、一起验。 */
+step(function () {
+  const TILE = 24, VY = 1.06;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  try { G.RegionGen.ensure(s, 'fan5'); } catch (e) {}
+  G.game.changeScene('fan5', { toSpawn: true });
+  const sc = G.game.scene;
+
+  /* ===== ① 坡道：必须是**梯形**（远边窄），且两个方向的收窄方向正确 =====
+     判据用**桩 ctx 记录 path 顶点** —— 直接量几何，不看截图观感。 */
+  {
+    const mk = function () {
+      const pts = [];
+      return {
+        pts: pts,
+        save: function () {}, restore: function () {}, beginPath: function () {},
+        moveTo: function (a, b) { pts.push([a, b]); },
+        lineTo: function (a, b) { pts.push([a, b]); },
+        closePath: function () {}, fill: function () {}, fillRect: function () {},
+        createLinearGradient: function () { return { addColorStop: function () {} }; },
+        fillStyle: '', globalAlpha: 1
+      };
+    };
+    /* 南向：上边（远）窄、下边（近）宽 */
+    const a = mk(); sc._drawSlope(a, 100, 50, TILE, 16, sc._pal(), 'S');
+    if (a.pts.length < 4) errors.push('坡道几何：南向坡没有画出 4 个顶点（不是梯形路径）');
+    else {
+      const topW = a.pts[1][0] - a.pts[0][0];
+      const botW = a.pts[2][0] - a.pts[3][0];
+      if (!(topW < botW)) {
+        errors.push('坡道几何：南向坡上边宽(' + topW + ') 未小于下边宽(' + botW
+          + ') —— 不是上窄下宽的梯形，读起来仍是"一格色块"');
+      }
+      if (topW <= 0) errors.push('坡道几何：南向坡上边宽 ' + topW + ' —— 收窄过度（成了三角形）');
+    }
+    /* 东向：左边（远）矮、右边（近）高 */
+    const b = mk(); sc._drawSlope(b, 100, 50, TILE, 16, sc._pal(), 'E');
+    if (b.pts.length < 4) errors.push('坡道几何：东向坡没有画出 4 个顶点');
+    else {
+      const lh = Math.abs(b.pts[3][1] - b.pts[0][1]);   /* 左边（远）高 */
+      const rh = Math.abs(b.pts[2][1] - b.pts[1][1]);   /* 右边（近）高 */
+      if (!(lh < rh)) {
+        errors.push('坡道几何：东向坡左边高(' + lh + ') 未小于右边高(' + rh
+          + ') —— 东西向的坡没有横向收窄（会读成"整体平移的矩形"）');
+      }
+      /* ⚠️ 收窄量要**对称**：两个方向各自按"被收窄的方向"取基准。
+         曾用同一个 `hgt*0.42` → 东向把 16px 高收成 2px（几乎成三角形）。 */
+      const southTop = (function () {
+        const c = mk(); sc._drawSlope(c, 100, 50, TILE, 16, sc._pal(), 'S');
+        return c.pts[1][0] - c.pts[0][0];
+      })();
+      if (lh < southTop * 0.35) {
+        errors.push('坡道几何：东向收窄过度（左边高仅 ' + lh + '，南向上边宽 ' + southTop
+          + '）—— 收窄基准没按"被收窄的方向"取');
+      }
+    }
+    /* **_drawDrop 仍要分流**：地图边缘画截面（不是坡） */
+    const cc = mk();
+    sc._drawDrop(cc, 100, 50, 'S', 2, null, 5, 5, sc._pal());
+    if (cc.pts.length) {
+      errors.push('坡道几何：地图边缘的落差画成了坡（应画截面 —— 坡不能通向地图外）');
+    }
+  }
+
+  /* ===== ② 斜俯角：可见范围 / 相机居中 / 反投影可逆 ===== */
+  {
+    if (Math.abs(sc._viewH() - 272 * VY) > 0.01) {
+      errors.push('斜俯角：_viewH() 应为 272*VIEW_Y=' + (272 * VY) + '，实为 ' + sc._viewH());
+    }
+    /* 相机居中：主角应处于可见范围**正中**（受边界夹取时除外） */
+    s.pos = { x: Math.floor(sc.map.w / 2), y: Math.floor(sc.map.h / 2) };
+    sc.moving = false;
+    const py = sc._px().y, cy = sc._camY(), vis = 272 * VY;
+    const maxCam = sc.map.h * TILE - vis;
+    if (cy > 0.01 && cy < maxCam - 0.01) {
+      const off = (py - cy) - vis / 2;
+      if (Math.abs(off) > 1) {
+        errors.push('斜俯角：主角在可见范围里不居中（偏 ' + off.toFixed(1)
+          + 'px）—— camY 的居中偏移应减可见高度的一半（' + (vis / 2) + '），不是固定 136');
+      }
+    }
+    /* 反投影可逆：正投影(格→屏幕) 再 反投影(屏幕→格) 必须回到原格 */
+    let bad = 0, checked = 0, firstBad = '';
+    const camX = sc._camX(), camY = sc._camY();
+    for (let ty = 2; ty < Math.min(sc.map.h - 2, 20); ty += 3) {
+      for (let tx = 2; tx < Math.min(sc.map.w - 2, 30); tx += 5) {
+        const scr = { x: tx * TILE + 12 - camX, y: (ty * TILE + 12 - camY) / VY };
+        if (scr.x < 4 || scr.x > 476 || scr.y < 4 || scr.y > 268) continue;
+        /* 与 onTap 同一公式 */
+        const btx = Math.floor(sc._camX() / TILE + scr.x / TILE);
+        const bty = Math.floor(sc._camY() / TILE + scr.y * VY / TILE);
+        checked++;
+        if (btx !== tx || bty !== ty) {
+          bad++;
+          if (!firstBad) firstBad = '(' + tx + ',' + ty + ')→(' + btx + ',' + bty + ')';
+        }
+      }
+    }
+    if (!checked) errors.push('斜俯角：反投影往返测试没有可测的格（视口判据有问题）');
+    if (bad) {
+      errors.push('斜俯角：反投影不可逆（' + checked + ' 格里 ' + bad + ' 个失配，'
+        + '首个 ' + firstBad + '）—— 点击会偏，画面却完全正常');
+    }
+  }
+
+  /* ===== ③ 源码闸 ===== */
+  {
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (exSrc.indexOf('var VIEW_Y = ') < 0) errors.push('源码闸：explore 缺 VIEW_Y 常量');
+    /* 反投影必须乘 VIEW_Y */
+    const tapM = exSrc.match(/var ty = Math\.floor\(this\._camY\(\) \/ TILE \+ [^;]*\);/);
+    if (!tapM || tapM[0].indexOf('VIEW_Y') < 0) {
+      errors.push('源码闸：onTap 的反投影没有乘 VIEW_Y —— 点击会偏');
+    }
+    /* 相机必须用 _viewH()/VIEW_Y 算可见范围，不能写死 272 */
+    const camM = exSrc.match(/_camY: function[\s\S]{0,320}?\n      \},/);
+    if (!camM || camM[0].indexOf('VIEW_Y') < 0) {
+      errors.push('源码闸：_camY 没用 VIEW_Y 算可见范围 —— 压扁后会露出地图外空白');
+    }
+    /* save/restore 条件必须成对（曾出现"只存不取"的变换泄漏） */
+    const nSave = (exSrc.match(/if \(_zoom !== 1 \|\| _shk \|\| _viewY !== 1\) x\.save\(\)|if \(_zoom !== 1 \|\| _shk \|\| _viewY !== 1\) \{/g) || []).length;
+    const nRest = (exSrc.match(/if \(_zoom !== 1 \|\| _shk \|\| _viewY !== 1\) x\.restore\(\)/g) || []).length;
+    if (nRest < 1) {
+      errors.push('源码闸：世界层的 restore 条件与 save 不成对（变换会泄漏到 UI）');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 坡道几何：南/东都是真梯形（收窄方向正确）+ 边缘仍画截面；'
+    + ' 斜俯角：可见范围/相机居中/反投影可逆');
+}, 'terrain.slope.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {
