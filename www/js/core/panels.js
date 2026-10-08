@@ -283,6 +283,76 @@
   /* 推进分叉；返回本次推进的文案（供 toast）。
      ⚠️ 用 `while` 而不是 `if` —— 玩家可能在一步里同时满足多步条件（比如一口气刷完），
         只推一步会让主线"卡在半路"直到下次进镇。 */
+  /* ===== 探索奖励：某界探明 100% 的一次性奖励（v1.3.0）=====
+     用户口径：「探索进度解锁奖励（探明 100% 给一次性奖励）」。
+     **唯一口径**：本函数是所有"探明度奖励"的判定与发放口。
+     · 判定：该界**全部**区域（`regions.of(w)`）都被到访过（含当前所在）
+     · 发放：写 `meta.achieve['explore.' + w]`（**复用既有的一次性机制**，
+       不新造字段 —— `xianliOf` 的成就也走它，语义一致）
+     · 奖励按界递增（凡界→灵界→仙界→道界），越往后越稀有
+     ⚠️ 必须在**进镇/打开地图**这类"自然检查点"调用，而不是每帧 ——
+        每帧判会反复算且在战斗中触发（奖励弹在战斗里很怪）。
+     ⚠️ `meta.achieve` 是**跨世**的：探明过就一直算探明（与"visited 按世重置"不同）
+        —— 这是刻意的："你曾经走遍这一界"是玩家的成就，不该因轮回而清零。 */
+  /* ⚠️ 奖励道具**必须用已登记的**（`ITEM_ICON_ID` 里有的）——
+     我第一版写了「淬灵丹 / 仙灵玉 / 道则碎片」，三个都**没登记**：
+     发出去就是"背包里一个没图标、没用途说明的字符串"，
+     是典型的**静默半成品**（玩家拿到却看不懂，且不报错）。
+     契约 `explore.reward.contract` 会逐个核对 `ITEM_ICON_ID`。 */
+  var EXPLORE_REWARD = {
+    fan: { stone: 3000, items: { '回春丹': 3 }, rep: 0, text: '凡界已尽在脚下' },
+    ling: { stone: 6000, items: { '聚气散': 3 }, rep: 30, text: '灵界已尽在脚下' },
+    xian: { stone: 12000, items: { '大还丹': 2, '灵玉': 3 }, rep: 50, text: '仙界已尽在脚下' },
+    dao: { stone: 20000, items: { '道纹丹': 1, '道纹草': 5 }, rep: 80, text: '道界已尽在脚下' }
+  };
+  G.Overlays.tickExplore = function (save, meta) {
+    if (!save || !meta) return [];
+    var Rg = G.Data.regions;
+    if (!Rg || !Rg.of) return [];
+    var visited = save.visited || {};
+    var out = [];
+    WORLD_ORDER.forEach(function (w) {
+      var key = 'explore.' + w;
+      meta.achieve = meta.achieve || {};
+      if (meta.achieve[key]) return;                    /* 已领过 */
+      var list = Rg.of(w) || [];
+      if (!list.length) return;
+      /* 全部区域都到访过？（当前所在也算 —— 否则"站在最后一个区"时判不出来） */
+      var curId = Rg.regionIdOf ? Rg.regionIdOf(save.map) : null;
+      var all = list.every(function (r) {
+        return r.id === curId || !!visited[r.id];
+      });
+      if (!all) return;
+      meta.achieve[key] = 1;
+      var rw = EXPLORE_REWARD[w] || { stone: 0, items: {} };
+      save.stone = (save.stone || 0) + (rw.stone || 0);
+      Object.keys(rw.items || {}).forEach(function (k) {
+        save.items = save.items || {};
+        save.items[k] = (save.items[k] || 0) + rw.items[k];
+      });
+      if (rw.rep) save.sectRep = (save.sectRep || 0) + rw.rep;
+      out.push('踏遍' + (Rg.worldNames[w] || w) + ' · ' + (rw.text || '')
+        + '（灵石 +' + (rw.stone || 0)
+        + (rw.rep ? '，宗门声望 +' + rw.rep : '') + '）');
+    });
+    return out;
+  };
+  /* 供契约/探针查（不发放） */
+  G.Overlays.exploreProgress = function (save) {
+    var Rg = G.Data.regions;
+    var visited = (save && save.visited) || {};
+    var curId = Rg && Rg.regionIdOf ? Rg.regionIdOf(save.map) : null;
+    var res = {};
+    WORLD_ORDER.forEach(function (w) {
+      var list = (Rg && Rg.of(w)) || [];
+      var seen = 0;
+      list.forEach(function (r) { if (r.id === curId || visited[r.id]) seen++; });
+      res[w] = { seen: seen, total: list.length, done: list.length > 0 && seen >= list.length };
+    });
+    return res;
+  };
+  G.Overlays.EXPLORE_REWARD = EXPLORE_REWARD;
+
   G.Overlays.tickQuest = function (save) {
     var q = save && save.quest;
     if (!q) return [];

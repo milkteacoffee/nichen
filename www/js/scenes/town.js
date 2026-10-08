@@ -394,6 +394,12 @@
     if (G.Overlays.tickQuest) {
       G.Overlays.tickQuest(save).forEach(function (t) { G.game.toast(t); });
     }
+    /* 探索奖励（v1.3.0）：某界探明 100% → 一次性奖励。
+       与 tickQuest 同处"进镇检查点" —— 这不是每帧该做的事，
+       而"进镇"是玩家自然回到安全区、能安心看奖励的时机。 */
+    if (G.Overlays.tickExplore) {
+      G.Overlays.tickExplore(save, G.game.meta).forEach(function (t) { G.game.toast(t, 3.4); });
+    }
     /* 宗门岁俸（S4）：每长一岁领一次（位阶由贡献推导） */
     if (G.Player.tickStipend) {
       G.Player.tickStipend(save).forEach(function (t) { G.game.toast(t); });

@@ -364,6 +364,25 @@
          自动战斗中不计时（auto 自己跑）；非 command 阶段（已出手/等待）也暂停。 */
       this.cmdTimer = CMD_TIMER;
 
+      /* ===== 战斗时的天气**快照**（v1.3.0，用户口径「天气进战斗界面」）=====
+         ⚠️ **必须在开战时快照**，不能每帧读 `weatherId()`：
+            ① 战斗里 `_fogOn` 可能被帧率降级关掉 → 每帧读会让加成**中途消失**
+               （玩家看到"雷系+25%"打出伤害后又没了）；
+            ② 天气本身也不会在一场战斗里变（时间只在打坐/战斗中推进，
+               而战斗内的推进发生在结算时）—— 快照与"不中途变"的语义一致。
+         ⚠️ 存**已算好的数值**（不是 id）：即使中途 `_fogOn` 变了，
+            本场战斗的加成也稳定 —— 与"开战那一刻的天时"绑定。
+         ⚠️ 晴/无天气 → `null`（不显示、无加成）：晴是"无影响"的默认态。 */
+      this.wxSnap = (function () {
+        var g = G.game;
+        if (!g || !g.weatherId) return null;
+        if (g._fogOn === false) return null;              /* 降级：加成归零（画面/玩法一致） */
+        var id = g.weatherId();
+        if (id === 'none' || id === 'clear') return null;
+        var fx = g.weatherFx();
+        return { id: id, n: fx.n, eb: fx.eb || {} };
+      })();
+
       /* v0.76.0 连击系统（阶段二）：3秒内连续攻击累加combo，伤害+1%/combo（上限50%） */
       this.comboCount = 0;        // 当前连击数
       this.comboTimer = 0;        // 连击倒计时（秒）
@@ -1563,8 +1582,13 @@
       if (skill.elem && skill.elem !== '无') {
         var atkEb = 0;
         if (atk.eb && atk.eb[skill.elem]) atkEb += atk.eb[skill.elem];
-        /* 天气增幅只给玩家（世界对主角生效，不替敌人加成） */
-        if (atk === this.p && G.game.weatherElemBonus) atkEb += G.game.weatherElemBonus(skill.elem);
+        /* 天气增幅只给玩家（世界对主角生效，不替敌人加成）。
+           ⚠️ v1.3.0：读**开战快照** `this.wxSnap` 而不是实时 `G.game.weatherElemBonus()`
+              —— 否则帧率降级关掉氛围时，加成会在战斗**中途消失**
+              （与顶栏显示的"雷系+25%"不一致）。快照 = "开战那一刻的天时"。 */
+        if (atk === this.p && this.wxSnap && this.wxSnap.eb && this.wxSnap.eb[skill.elem]) {
+          atkEb += this.wxSnap.eb[skill.elem];
+        }
         if (atkEb) base *= (1 + atkEb);
       }
       /* v0.76.0 连击加成：每combo +1%伤害，上限50% */
@@ -2645,6 +2669,28 @@
       var label = p.script === 'heartDemon' ? '问心魔劫'
         : this.es[0].boss ? '首领战' : (p.script ? '剧情战' : '遭遇战');
       G.UI.textOut(x, { x: 108, y: 7 }, label, 12, '#8f95a6');
+
+      /* ===== 天时（v1.3.0，用户口径「天气进战斗界面：战斗中显示'雷雨天·雷系+25%'」）=====
+         位置：遭遇战标签之后（x≈176 起），倒计时（正中 240）之前 —— 那块横向空间够。
+         ⚠️ **只显示对本次战斗真的生效的项**：天气的元素增幅若与你这场的元素无关
+            （比如雷雨天但你打的是木系），显示了也没意义，反而误导。
+            所以这里**只列有 `eb` 的项**，并且是"玩家实际会吃到的那部分"。
+         ⚠️ 读**开战快照**（`wxSnap`），不实时读 —— 与 `_calc` 同源，
+            保证"显示的加成"与"打出的伤害"永远一致（这是本功能的意义）。 */
+      if (this.wxSnap) {
+        var eb = this.wxSnap.eb || {};
+        var ek = Object.keys(eb);
+        var wxTxt = '天时 · ' + this.wxSnap.n;
+        if (ek.length) {
+          wxTxt += '　' + ek.map(function (k) {
+            return k + '系+' + Math.round(eb[k] * 100) + '%';
+          }).join(' ');
+        }
+        var wcol = this.wxSnap.id === 'storm' ? '#c9b0ff'
+          : this.wxSnap.id === 'snow' ? '#e4eefb'
+            : this.wxSnap.id === 'miasma' ? '#b9d06a' : '#a9d4f2';
+        G.UI.textOut(x, { x: 176, y: 7 }, wxTxt, 11, wcol);
+      }
 
       if (this.phase === 'command' && !this.auto && !this.over) {
         var t = Math.max(0, Math.ceil(this.cmdTimer));

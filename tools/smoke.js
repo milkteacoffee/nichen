@@ -11666,7 +11666,15 @@ step(function () {
     const gmCode = strip(gmSrc), exCode = strip(exSrc), gtCode = strip(gtSrc);
     const pnCode = strip(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
     if (exCode.indexOf('_drawWeatherVeil') < 0) errors.push('源码闸：explore 缺 _drawWeatherVeil（视野没接）');
-    if (gmCode.indexOf('weatherElemBonus') < 0) errors.push('源码闸：battle 没接 weatherElemBonus（元素增幅没接）');
+    /* ⚠️ v1.3.0：战斗侧的天气增幅改走**开战快照** `wxSnap`（保证"显示的加成"与
+       "打出的伤害"一致），所以判据从"有没有调 weatherElemBonus"改为"有没有 wxSnap 链路"。
+       两个都要断：快照字段存在 + `_calc` 真的读它（防"只显示不加成"）。 */
+    if (gmCode.indexOf('wxSnap') < 0) {
+      errors.push('源码闸：battle 缺 wxSnap（战斗天气快照）—— 加成会中途消失');
+    }
+    if (!/_calc: function[\s\S]{0,2200}?this\.wxSnap/.test(gmCode)) {
+      errors.push('源码闸：battle 的 _calc 没读 this.wxSnap（天气元素增幅没进伤害）');
+    }
     if (gtCode.indexOf('qiMul') < 0) errors.push('源码闸：gametime 没接 qiMul（打坐效率没接）');
     /* ⚠️ eb 必须**真的被消费**（不再是"只合并不读"） */
     if (!/atk\.eb/.test(gmCode)) errors.push('源码闸：battle 的 _calc 没读 atk.eb（属性增幅仍未被消费）');
@@ -11847,6 +11855,124 @@ step(function () {
   G.game.changeScene('title');
   console.log('  ✓ 天气遭遇：等级上浮 + 雷雨专属雷貂（实掷验证）+ HUD 天时 + 探索进度');
 }, 'weather.encounter.contract');
+
+/* ---------- 战斗天时快照 / 探索奖励（v1.3.0）----------
+   用户口径：「② 天气进战斗界面（战斗中显示"雷雨天·雷系+25%"）；
+   ③ 探索进度解锁奖励（探明 100% 给一次性奖励）」。
+
+   契约各钉最关键的**一致性**，而不是"有没有画/有没有发"：
+     ① 战斗：**显示与伤害必须同源** —— 都读开战快照 `wxSnap`。
+        否则会出现"顶栏写着雷系+25%，打出来却没加成"（或反过来）——
+        这是"显示类"功能最典型的失败方式，而且**两边单独测都通过**。
+     ② 快照必须**不随帧率降级消失**（`_fogOn` 中途变 false 时加成仍在），
+        也不能每帧实时读（那样加成会在战斗中途凭空消失）。
+     ③ 探索奖励：**不重复发**（`meta.achieve`）、**不够条件不发**、
+        且奖励道具**必须在 `ITEM_ICON_ID` 里登记**（否则背包里是没图标的字符串）。 */
+step(function () {
+  const g = G.game;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  g._fogOn = true;
+  g._wxKey = null;
+
+  /* ① 战斗天气快照 */
+  {
+    s.world.xiang = '海岛';
+    s.world.traits = ['W10'];                            /* 雷雨 */
+    g._wxKey = null;
+    G.game.changeScene('battle', {
+      enemy: G.Data.makeEnemy('赤炎狼', 20, '赤炎狼'), mapId: 'field'
+    });
+    const b = G.game.scene;
+    if (!b.wxSnap) {
+      errors.push('战斗天时：雷雨开战却没有 wxSnap（快照没建立）');
+    } else {
+      if (b.wxSnap.id !== 'storm') errors.push('战斗天时：快照天气应为 storm，实为 ' + b.wxSnap.id);
+      if (!(b.wxSnap.eb && b.wxSnap.eb['雷'] > 0)) errors.push('战斗天时：快照缺雷系增幅');
+      /* ⚠️ 关键：**中途降级不许让加成消失** */
+      const before = JSON.parse(JSON.stringify(b.wxSnap));
+      g._fogOn = false;
+      if (!b.wxSnap || b.wxSnap.eb['雷'] !== before.eb['雷']) {
+        errors.push('战斗天时：帧率降级后快照变了（加成会在战斗中途消失）');
+      }
+      g._fogOn = true;
+      /* ⚠️ 关键：**显示与伤害同源** —— 快照里的加成必须真的进伤害。
+         造一个雷系技能，比较"有天气"与"无天气"两次 _calc。 */
+      const dmgOf = function (withWx) {
+        const bak = b.wxSnap;
+        if (!withWx) b.wxSnap = null;
+        let sum = 0;
+        for (let i = 0; i < 40; i++) sum += b._calc(b.p, b.es[0], { mult: 1, elem: '雷' }).dmg;
+        b.wxSnap = bak;
+        return sum / 40;
+      };
+      const dOn = dmgOf(true), dOff = dmgOf(false);
+      if (!(dOn > dOff * 1.15)) {
+        errors.push('战斗天时：快照里的雷系+25% 没进伤害（有天气 ' + dOn.toFixed(1)
+          + ' vs 无天气 ' + dOff.toFixed(1) + '）—— 显示与伤害不同源');
+      }
+    }
+    /* 晴/无天气 → 不该有快照（不显示、无加成） */
+    s.world.traits = [];
+    s.world.xiang = '群山';
+    g._wxKey = null;
+    G.game.changeScene('battle', {
+      enemy: G.Data.makeEnemy('赤炎狼', 20, '赤炎狼'), mapId: 'field'
+    });
+    if (G.game.scene.wxSnap) errors.push('战斗天时：晴天不该有 wxSnap（晴是"无影响"默认态）');
+    G.game.changeScene('field', { toSpawn: true });
+  }
+
+  /* ② 探索奖励：不够条件不发 / 够了发 / 不重复发 */
+  {
+    if (!G.Overlays.tickExplore) { errors.push('探索奖励：缺 tickExplore'); return; }
+    if (!G.Overlays.exploreProgress) errors.push('探索奖励：缺 exploreProgress（查询口）');
+    G.game.meta = G.game.meta || {};
+    G.game.meta.achieve = {};
+    const Rg = G.Data.regions;
+    const fanList = Rg.of('fan') || [];
+    if (!fanList.length) { errors.push('探索奖励：凡界没有区域，无法验'); return; }
+    s.visited = {};
+    s.map = 'town';
+    /* 不到 100% → 不发 */
+    fanList.slice(0, fanList.length - 1).forEach(function (r) { s.visited[r.id] = 1; });
+    let got = G.Overlays.tickExplore(s, G.game.meta);
+    if (got.length) errors.push('探索奖励：只到访 ' + (fanList.length - 1) + '/' + fanList.length + ' 就发了：' + got[0]);
+    /* 100% → 发 */
+    fanList.forEach(function (r) { s.visited[r.id] = 1; });
+    const stone0 = s.stone || 0;
+    got = G.Overlays.tickExplore(s, G.game.meta);
+    if (!got.length) errors.push('探索奖励：凡界 100% 却没发奖励');
+    if (!((s.stone || 0) > stone0)) errors.push('探索奖励：发了提示但灵石没增加（文案与实际不符）');
+    /* 不重复发 */
+    const stone1 = s.stone;
+    got = G.Overlays.tickExplore(s, G.game.meta);
+    if (got.length || s.stone !== stone1) errors.push('探索奖励：重复发放了（meta.achieve 没生效）');
+    /* ⚠️ 奖励道具必须是**已登记**的（否则背包里是没图标/没用途的字符串） */
+    {
+      const pnSrc = fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8');
+      const mItem = pnSrc.match(/var ITEM_ICON_ID = \{([\s\S]*?)\n  \};/);
+      const reg = {};
+      if (mItem) (mItem[1].match(/'([^']+)'\s*:/g) || []).forEach(function (x) {
+        reg[x.replace(/[':]/g, '').trim()] = 1;
+      });
+      const rw = G.Overlays.EXPLORE_REWARD || {};
+      Object.keys(rw).forEach(function (w) {
+        Object.keys((rw[w] && rw[w].items) || {}).forEach(function (it) {
+          if (!reg[it]) {
+            errors.push('探索奖励：' + w + ' 的奖励道具「' + it + '」未在 ITEM_ICON_ID 登记 —— '
+              + '发出去是背包里一个没图标、没用途说明的字符串');
+          }
+        });
+      });
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 战斗天时：开战快照（显示与伤害同源 / 降级不消失）'
+    + ' + 探索奖励：100% 一次性（不重复 / 道具已登记）');
+}, 'battle.weather.reward.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {
