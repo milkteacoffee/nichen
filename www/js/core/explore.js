@@ -900,6 +900,17 @@
 
         if (_zoom !== 1) x.restore();      /* 世界层缩放到此为止，UI 不参与 */
 
+        /* ===== 昼夜色温 + 体积雾（v0.99.0）=====
+           ⚠️ **必须在这里**（世界层收口处、HUD 之前）—— 而不是 game.js 的最外层。
+              理由：`_drawHUD` 是本场景的内部方法，它也在 `scene.render()` 之内。
+              先前把色温层挂在 game.js（scene.render 之后）→ **把气血条/资源数字也染蓝了**
+              （截图一眼看出：夜晚整条 HUD 偏色，读不清）。
+              色温要染的是"世界"，不是"界面"。
+           ⚠️ 也必须在 `_zoom` 恢复**之后** —— 否则闪白缩放会把色温层一起放大，
+              边缘露出未染色的黑边。 */
+        G.game._renderDayTint(x);
+        G.game._renderFog(x);
+
         this._drawHUD(x);
         this._drawTracker(x);
         this._drawInteractHint(x, camX, camY);
@@ -1677,7 +1688,24 @@
           x.save();
           x.translate(px, py + 3);
           if (this.dir === 'left') x.scale(-1, 1);
-          x.drawImage(frames[fi], Math.round(-AW / 2), Math.round(-AH + bob), AW, AH);
+          /* ===== 待机呼吸（v0.99.0，用户口径「多帧行走/待机动画」）=====
+             原先待机只有眨眼两帧，"站着像立牌"。加一层**极轻的纵向呼吸**：
+             `scale(1, 1±0.012)` —— 只压/放 1.2%，肉眼是"胸腔起伏"而不是"抖动"。
+             ⚠️ **以脚底为不动点**：先把原点移到脚底（`-AH` 处），缩放后再移回，
+                否则人会**整体上下浮**（脚离地），比不动还假。
+             ⚠️ 走路时**不叠加**（走的 bob 已经给了节奏），否则两个频率打架。
+             ⚠️ 幅度超过 2% 就会像"在蹦"，1.2% 是实测的舒适上限。 */
+          var breathe = 1;
+          var animY = Math.round(-AH + bob);
+          if (!this.moving) {
+            breathe = 1 + 0.012 * Math.sin(G.game.time * 2.1);
+            /* 以脚底（y = animY + AH）为不动点缩放 */
+            var footY = animY + AH;
+            x.translate(0, footY);
+            x.scale(1, breathe);
+            x.translate(0, -footY);
+          }
+          x.drawImage(frames[fi], Math.round(-AW / 2), animY, AW, AH);
           x.restore();
         } else {
           var spr0 = G.Sprites.heroFrames()[this.dir][this.frame];

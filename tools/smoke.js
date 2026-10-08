@@ -11397,6 +11397,102 @@ step(function () {
   console.log('  ✓ 契约框架自检：' + total + ' 个局部 errors 契约全都有 throw（无静默假绿）');
 }, 'harness.selfcheck.contract');
 
+/* ---------- 氛围契约（v0.99.0，用户口径「动态光照 / 体积雾 / 日夜光照色温变化」）----------
+   三项断言，各钉一个真缺陷：
+     ① **昼夜色温曲线**：正午必须**零染色**（这是"白天=基线"的零回归前提）；
+        午夜必须冷蓝且够暗；**跨午夜连续**（0 点与 24 点同值）；相邻时段跳变要小
+        （否则"天说黑就黑"，观感很硬）。
+     ② **只染世界不染界面**（源码闸 + 位置断言）：色温/雾必须在
+        `explore.render` 的**世界层收口处**（`_zoom` 恢复之后、`_drawHUD` 之前）——
+        实测挂错位置（game.js 最外层）会把 HUD 一起染色，夜晚整条气血条偏蓝。
+     ③ **雾层成本**：必须**只画可见块**（9 参数 drawImage），不许整层 blit ——
+        整层 1840×352 大部分在画布外，浏览器不会自动裁，S=4 下白白光栅化 2100 万像素。 */
+step(function () {
+  const g = G.game;
+
+  /* ① 昼夜色温曲线 */
+  if (typeof g._dayTintAt !== 'function') {
+    errors.push('氛围：缺 _dayTintAt（昼夜色温曲线）');
+  } else {
+    const noon = g._dayTintAt(12);
+    if (noon[3] !== 0) {
+      errors.push('昼夜色温：正午 alpha 应为 0（白天 = 零染色基线，否则所有截图基线全变），实为 ' + noon[3]);
+    }
+    const mid = g._dayTintAt(0);
+    if (!(mid[3] >= 0.35)) errors.push('昼夜色温：午夜该足够暗（alpha ≥0.35），实为 ' + mid[3]);
+    if (!(mid[2] > mid[0] + 30)) {
+      errors.push('昼夜色温：午夜该偏冷蓝（B 明显大于 R），实为 rgb(' + mid.slice(0, 3).join(',') + ')');
+    }
+    const h0 = g._dayTintAt(0), h24 = g._dayTintAt(24);
+    for (let i = 0; i < 4; i++) {
+      if (Math.abs(h0[i] - h24[i]) > 0.001) {
+        errors.push('昼夜色温：h=0 与 h=24 不等（跨午夜会跳变）：' + h0[i] + ' vs ' + h24[i]);
+        break;
+      }
+    }
+    let maxJump = 0;
+    for (let h = 0; h < 24; h += 0.25) {
+      const a = g._dayTintAt(h), b = g._dayTintAt(h + 0.25);
+      const j = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+      if (j > maxJump) maxJump = j;
+    }
+    if (maxJump > 60) {
+      errors.push('昼夜色温：相邻时段跳变过大（' + maxJump.toFixed(0) + ' > 60）—— "天说黑就黑"');
+    }
+  }
+
+  /* ② 只染世界不染界面：源码闸 + 调用位置 */
+  {
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    const gmSrc = fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8');
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const exB = strip(exSrc), gmB = strip(gmSrc);
+    const callIdx = exB.indexOf('G.game._renderDayTint(x)');
+    const hudIdx = exB.indexOf('this._drawHUD(x)');
+    if (callIdx < 0) {
+      errors.push('氛围：explore.render 里没有调用 _renderDayTint（色温没挂上）');
+    } else if (hudIdx > 0 && callIdx > hudIdx) {
+      errors.push('氛围：色温层画在了 _drawHUD **之后** —— 会把 HUD 也染色（夜晚整条气血条偏蓝）');
+    }
+    if (gmB.indexOf('this._renderDayTint(x);') >= 0) {
+      errors.push('氛围：game.js 最外层又挂了 _renderDayTint —— 会与 explore 里的双重染色');
+    }
+    const fogM = gmB.match(/_renderFog: function[\s\S]{0,1600}?\n    \},/);
+    const fogBody = fogM ? fogM[0] : '';
+    if (!fogBody) errors.push('氛围：找不到 _renderFog 函数体');
+    else {
+      if (!/drawImage\(layer, ox, oy,/.test(fogBody)) {
+        errors.push('氛围：雾层没走"只画可见块"的 9 参数 drawImage —— '
+          + '整层 blit 会把大片画布外像素也光栅化（实测掉一半帧率）');
+      }
+      if (gmB.indexOf('_fogOn') < 0) {
+        errors.push('氛围：缺 _fogOn 降级开关（帧率不足时该先丢氛围、不降分辨率）');
+      }
+    }
+  }
+
+  /* ③ 真驱动：各时段渲染不抛 */
+  {
+    const s = JSON.parse(JSON.stringify(save));
+    s.quest = { step: 'free', flags: {} };
+    G.game.save = s;
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    let bad = null;
+    [0, 6, 12, 18, 23].forEach(function (h) {
+      if (bad) return;
+      if (G.Time.ensure) G.Time.ensure(s);
+      s.gt = h * (G.Time.MIN_PER_HOUR || 60) + 3 * (G.Time.MIN_PER_DAY || 1440);
+      try { sc.update(0.03); sc.render(g.ctx); } catch (e) { bad = h + ' 时渲染抛错：' + e.message; }
+    });
+    if (bad) errors.push('氛围：' + bad);
+    G.game.changeScene('title');
+  }
+
+  console.log('  ✓ 氛围：昼夜色温（正午零染色 / 午夜冷蓝 / 跨午夜连续）+ 只染世界（HUD 不染色）'
+    + ' + 雾层只画可见块（带帧率降级）');
+}, 'ambience.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');
