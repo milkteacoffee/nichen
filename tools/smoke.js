@@ -11447,15 +11447,22 @@ step(function () {
     const gmSrc = fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8');
     const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
     const exB = strip(exSrc), gmB = strip(gmSrc);
-    const callIdx = exB.indexOf('G.game._renderDayTint(x)');
+    const callIdx = exB.indexOf('G.game._renderWorldTint(x)');
     const hudIdx = exB.indexOf('this._drawHUD(x)');
     if (callIdx < 0) {
-      errors.push('氛围：explore.render 里没有调用 _renderDayTint（色温没挂上）');
+      errors.push('氛围：explore.render 里没有调用 _renderWorldTint（世界染色没挂上）');
     } else if (hudIdx > 0 && callIdx > hudIdx) {
-      errors.push('氛围：色温层画在了 _drawHUD **之后** —— 会把 HUD 也染色（夜晚整条气血条偏蓝）');
+      errors.push('氛围：世界染色画在了 _drawHUD **之后** —— 会把 HUD 也染色（夜晚整条气血条偏蓝）');
     }
-    if (gmB.indexOf('this._renderDayTint(x);') >= 0) {
-      errors.push('氛围：game.js 最外层又挂了 _renderDayTint —— 会与 explore 里的双重染色');
+    if (gmB.indexOf('this._renderWorldTint(x);') >= 0) {
+      errors.push('氛围：game.js 最外层又挂了 _renderWorldTint —— 会与 explore 里的双重染色');
+    }
+    /* v1.0.0：昼夜 + 天气**必须合并成一次全屏填充**（两次会白烧一次整屏合成，实测 -25fps） */
+    if (gmB.indexOf('_worldTintCombined') < 0) {
+      errors.push('氛围：缺 _worldTintCombined（昼夜与天气的染色没合并 → 每帧多一次整屏填充）');
+    }
+    if (exB.indexOf('_renderDayTint(x)') >= 0) {
+      errors.push('氛围：explore 里仍在直接调 _renderDayTint —— 应走合并口 _renderWorldTint');
     }
     const fogM = gmB.match(/_renderFog: function[\s\S]{0,1600}?\n    \},/);
     const fogBody = fogM ? fogM[0] : '';

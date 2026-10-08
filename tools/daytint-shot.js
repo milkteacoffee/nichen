@@ -42,7 +42,7 @@ function connect(wsUrl) {
 }
 
 /* 进指定场景，把游戏时间设到指定小时，渲染一帧。 */
-function driver(sceneName, hour) {
+function driver(sceneName, hour, xiang, traits) {
   return `(async function () {
     var G = window.G;
     var t0 = Date.now();
@@ -53,9 +53,11 @@ function driver(sceneName, hour) {
       life: 1, worldSeed: 12345, world: G.Data.generateWorld(12345, true),
       linggen: { elems: ['木'], coef: { '木': 1.2 } }, talents: [], skills: {}, skillEquip: [],
       items: {}, stone: 500, qi: 1200, po: 30, globalLevel: 200, age: 30,
-      wildKills: 99, side: {}, visited: {}, quest: { step: 'm1done', flags: {} },
+      wildKills: 99, side: {}, visited: {}, quest: { step: 'free', flags: {} },
       chestsOpened: [], pos: null, hp: 900, map: 'town'
     };
+    G.game.save.world.xiang = '${xiang || '群山'}';
+    G.game.save.world.traits = ${traits ? JSON.stringify(traits) : '[]'};
     (G.Data.StoryEvents.list || []).forEach(function (e) { G.game.save.quest.flags['se_' + e.id] = true; });
     G.game.changeScene('${sceneName}', { toSpawn: true });
     await new Promise(function (r) { setTimeout(r, 400); });
@@ -70,7 +72,10 @@ function driver(sceneName, hour) {
     sc.render(G.game.ctx);
     var t = G.game.dayTint();
     return JSON.stringify({ scene: '${sceneName}', hour: ${hour},
-      tint: t, cal: G.Time.cal(G.game.save).h, fogOn: G.game._fogOn });
+      tint: t, cal: G.Time.cal(G.game.save).h, fogOn: G.game._fogOn,
+      weather: G.game.weatherId(),
+      xiang: G.game.save.world.xiang,
+      traits: G.game.save.world.traits || [] });
   })()`;
 }
 
@@ -93,17 +98,28 @@ function driver(sceneName, hour) {
     await sleep(2500);
 
     /* 城镇：日出 / 正午 / 黄昏 / 子夜 */
-    const jobs = [['town', 7, '60_daytint_dawn'], ['town', 12, '60_daytint_noon'],
-      ['town', 18, '60_daytint_dusk'], ['town', 0, '60_daytint_night']];
-    for (const [scn, h, name] of jobs) {
+    /* [场景, 小时, 输出名, 世界相, 世界特质]
+       v1.0.0 起兼拍**天气**：天气由世界设定推出（雪域→雪 / W10→雷雨 / W9→瘴气）。 */
+    const jobs = [
+      ['town', 7, '60_daytint_dawn', '群山', []],
+      ['town', 12, '60_daytint_noon', '群山', []],
+      ['town', 18, '60_daytint_dusk', '群山', []],
+      ['town', 0, '60_daytint_night', '群山', []],
+      ['field', 12, '61_weather_rain', '水泽', []],
+      ['field', 12, '61_weather_snow', '雪域', []],
+      ['field', 20, '61_weather_storm', '海岛', ['W10']],
+      ['field', 20, '61_weather_miasma', '群山', ['W9']]
+    ];
+    for (const [scn, h, name, xiang, traits] of jobs) {
       const r = await client.send('Runtime.evaluate', {
-        expression: driver(scn, h), awaitPromise: true, returnByValue: true
+        expression: driver(scn, h, xiang, traits), awaitPromise: true, returnByValue: true
       });
       if (r.exceptionDetails) { console.log('  ✗ ' + name + '：' + JSON.stringify((r.exceptionDetails.exception || {}).description || r.exceptionDetails)); continue; }
       const rep = JSON.parse(r.result.value);
       const shot = await client.send('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(shot.data, 'base64'));
       console.log('  ✓ ' + name + '  gt→' + rep.hour + ' 时(cal=' + rep.cal + ')  '
+        + '天气=' + rep.weather + ' (' + rep.xiang + (rep.traits.length ? '+' + rep.traits.join(',') : '') + ')  '
         + 'RGBA=' + rep.tint.map((n) => (typeof n === 'number' ? n.toFixed(2) : n)).join(','));
     }
   } catch (e) { console.error('失败：' + e.message); process.exitCode = 1; }

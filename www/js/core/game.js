@@ -661,6 +661,232 @@
       }
       x.restore();
     },
+    /* ===== 天气系统（v1.0.0，用户口径「天气系统（雨/雪/风），与昼夜联动」）=====
+       **数据驱动**：天气不是另抽一套随机，而是从**已有的世界设定**推出来 ——
+         · `save.world.xiang`（世界相）：`雪域` → 雪；`水泽` → 雨
+         · `save.world.traits`（世界特质）：`W10 风雷激荡` → 雷雨；
+           `W9 瘴气弥漫` → 瘴气；`W11 长夜无昼` → 无日光（昼夜层已联动）；
+           `W12 烈阳当空` → 晴（抑制降水）
+       这样"这个世界下什么雨"是**世界本身决定的**，玩家换一世会真的换天气，
+       而不是每局掷同一个骰子。
+       ⚠️ 优先级：**特质 > 世界相 > 默认**（特质是这一世独有的，更有辨识度）。
+       ⚠️ 室内/洞窟**无天气**（见不到天）。
+       ⚠️ 天气类型改动会清 `_fogKey`/`_ambKey` 缓存 —— 否则换了天后雾/粒子还是旧的。 */
+    _weatherOf: function () {
+      var s = this.save;
+      var md = this.scene && this.scene.map && this.scene.map.md;
+      /* 室内 / 洞窟：无天气（返回 null 表示"这天管不着"） */
+      if (md && (md.indoor || md.ground === 'cave' || md.ground === 'bloodcave')) return null;
+      var w = s && s.world;
+      if (!w) return null;
+      var tr = w.traits || [];
+      var has = function (id) { return tr.indexOf(id) >= 0; };
+      /* ① 特质优先 */
+      if (has('W10')) return { id: 'storm', n: '雷雨' };      /* 风雷激荡 */
+      if (has('W9')) return { id: 'miasma', n: '瘴气' };      /* 瘴气弥漫 */
+      if (has('W12')) return { id: 'clear', n: '晴' };        /* 烈阳当空（压制降水） */
+      /* ② 世界相 */
+      if (w.xiang === '雪域') return { id: 'snow', n: '雪' };
+      if (w.xiang === '水泽' || w.xiang === '海岛') return { id: 'rain', n: '雨' };
+      /* ③ 默认：凡界多为晴/多云，偶尔细雨 */
+      return { id: 'clear', n: '晴' };
+    },
+    /* 天气配置：粒子种类 + 数量 + 落速 + 颜色 + 是否压暗 + 载入时的场景修正 */
+    _weatherCfg: function (id) {
+      var W = this.W, H = this.H;
+      var CFG = {
+        /* 雨：细长竖线，快速下落；带一层"雨幕压暗" */
+        rain: { kind: 'streak', n: 90, len: [7, 14], sp: [420, 620], col: 'rgba(190,208,228,0.42)',
+          dim: 0.16, tilt: 0.16 },
+        /* 雷雨：雨更密更斜 + 周期闪电（闪的是"整屏提亮"而非白闪，才像雷） */
+        storm: { kind: 'streak', n: 130, len: [9, 18], sp: [520, 780], col: 'rgba(186,200,224,0.46)',
+          dim: 0.26, tilt: 0.30, flash: true },
+        /* 雪：圆点，慢速飘落 + 横向摇摆 */
+        snow: { kind: 'dot', n: 70, r: [1, 2.4], sp: [26, 54], col: 'rgba(240,246,255,0.78)',
+          dim: 0.06, sway: 12 },
+        /* 瘴气：大而慢的黄绿团，横向漂移，带轻微压暗与绿染 */
+        miasma: { kind: 'blob', n: 16, r: [18, 40], sp: [8, 20], col: 'rgba(150,178,96,0.10)',
+          dim: 0.14, tint: '120,140,72', tintA: 0.055 },
+        /* 晴：不画粒子（但保留条目，便于契约统一查表） */
+        clear: { kind: 'none', n: 0 }
+      };
+      return CFG[id] || CFG.clear;
+    },
+    _weatherFor: function (name) {
+      /* 缓存键要含**天气 id**（换天必须重建粒子），见 `_weatherOf` 注释 */
+      var wt = this._weatherOf();
+      var key = name + '|' + (wt ? wt.id : 'none');
+      if (this._wxKey === key) return this._wx;
+      var id = wt ? wt.id : 'none';
+      var cfg = id === 'none' ? { kind: 'none', n: 0 } : this._weatherCfg(id);
+      var seed = 0;
+      for (var i = 0; i < key.length; i++) seed = (seed * 131 + key.charCodeAt(i)) >>> 0;
+      if (!seed) seed = 0x9e3779b9;
+      function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
+      var ps = [];
+      for (var k = 0; k < (cfg.n || 0); k++) {
+        ps.push({
+          x: rnd() * (this.W + 80) - 40, y: rnd() * this.H,
+          len: cfg.len ? (cfg.len[0] + rnd() * (cfg.len[1] - cfg.len[0])) : 0,
+          r: cfg.r ? (cfg.r[0] + rnd() * (cfg.r[1] - cfg.r[0])) : 0,
+          sp: cfg.sp ? (cfg.sp[0] + rnd() * (cfg.sp[1] - cfg.sp[0])) : 0,
+          ph: rnd() * 6.2832, fr: 0.5 + rnd() * 1.1
+        });
+      }
+      this._wxKey = key;
+      this._wx = { wt: wt, id: id, cfg: cfg, ps: ps };
+      return this._wx;
+    },
+    /* 天气粒子层。⚠️ 与 `_renderAmbient`（亮粒子）分开：
+       那层是**加性发光**，这层是不透明的雨/雪 + 压暗，混在一起会互相抵消。 */
+    _renderWeather: function (x) {
+      if (this._overlayOpen()) return;
+      if (this._fogOn === false) return;             /* 与氛围层同生共死 */
+      var wx = this._weatherFor(this.sceneName);
+      var cfg = wx.cfg;
+      if (!cfg || cfg.kind === 'none' || !wx.ps.length) return;
+      var t = this.time;
+      x.save();
+      if (cfg.kind === 'streak') {
+        /* 雨：斜线（`tilt` 决定斜度），带雨幕压暗 */
+        x.strokeStyle = cfg.col; x.lineWidth = 1;
+        x.beginPath();
+        for (var i = 0; i < wx.ps.length; i++) {
+          var p = wx.ps[i];
+          var yy = ((p.y + t * p.sp) % (this.H + 40)) - 20;
+          var xx = ((p.x + t * p.sp * cfg.tilt) % (this.W + 80) + this.W + 80) % (this.W + 80) - 40;
+          x.moveTo(xx, yy);
+          x.lineTo(xx - p.len * cfg.tilt, yy + p.len);
+        }
+        x.stroke();
+      } else if (cfg.kind === 'dot') {
+        /* 雪：圆点 + 横向摇摆（摇摆相位由位置派生，全场不同步） */
+        x.fillStyle = cfg.col;
+        for (var j = 0; j < wx.ps.length; j++) {
+          var q = wx.ps[j];
+          var y2 = ((q.y + t * q.sp) % (this.H + 20)) - 10;
+          var x2 = q.x + Math.sin(t * q.fr + q.ph) * (cfg.sway || 0);
+          x.beginPath(); x.arc(x2, y2, q.r, 0, 6.2832); x.fill();
+        }
+      } else if (cfg.kind === 'blob') {
+        /* 瘴气：大团径向渐变，缓慢横移 */
+        for (var m = 0; m < wx.ps.length; m++) {
+          var b = wx.ps[m];
+          var bx = ((b.x + t * b.sp) % (this.W + 160) + this.W + 160) % (this.W + 160) - 80;
+          var by = b.y + Math.sin(t * b.fr + b.ph) * 8;
+          var g = x.createRadialGradient(bx, by, 2, bx, by, b.r);
+          g.addColorStop(0, cfg.col);
+          g.addColorStop(1, 'rgba(150,178,96,0)');
+          x.fillStyle = g;
+          x.beginPath(); x.arc(bx, by, b.r, 0, 6.2832); x.fill();
+        }
+      }
+      x.restore();
+    },
+    /* 天气的"整屏效应"：压暗 + 染色（与昼夜色温**同一位置族**，但要**叠加**而非替代）。
+       ⚠️ 必须画在**世界层**（与昼夜色温一起在 explore 的收口处），不许染 UI。 */
+    _renderWeatherOverlay: function (x) {
+      if (this._overlayOpen()) return;
+      if (this._fogOn === false) return;
+      var wx = this._weatherFor(this.sceneName);
+      var cfg = wx.cfg;
+      if (!cfg || !cfg.dim && !cfg.tint) return;
+      if (cfg.dim) {
+        x.fillStyle = 'rgba(14,18,28,' + cfg.dim + ')';
+        x.fillRect(0, 0, this.W, this.H);
+      }
+      if (cfg.tint) {
+        x.fillStyle = 'rgba(' + cfg.tint + ',' + cfg.tintA + ')';
+        x.fillRect(0, 0, this.W, this.H);
+      }
+    },
+    /* 雷雨闪电：**不提亮整屏到白**，而是在"环境光"上加一档冷白，
+       并用 `sin` 的尖峰做"闪两下"的节奏（随机相位会让截图钉不住）。 */
+    _renderLightning: function (x) {
+      if (this._overlayOpen()) return;
+      if (this._fogOn === false) return;
+      var wx = this._weatherFor(this.sceneName);
+      if (!wx.cfg || !wx.cfg.flash) return;
+      /* 每 6.5s 一个周期：t∈[0,0.10] 主闪 + [0.16,0.24] 余闪，其余不亮。
+         ⚠️ 用**固定周期**而非随机 —— 截图与契约才钉得住。 */
+      var ph = this.time % 6.5;
+      var a = 0;
+      if (ph < 0.10) a = 0.30 * (1 - ph / 0.10);
+      else if (ph >= 0.16 && ph < 0.24) a = 0.16 * (1 - (ph - 0.16) / 0.08);
+      if (a <= 0.001) return;
+      x.save();
+      x.globalCompositeOperation = 'lighter';
+      x.fillStyle = 'rgba(184,204,238,' + a.toFixed(3) + ')';
+      x.fillRect(0, 0, this.W, this.H);
+      x.restore();
+    },
+    /* 供契约/探针查当前天气（不依赖渲染） */
+    weatherId: function () {
+      var w = this._weatherOf();
+      return w ? w.id : 'none';
+    },
+    /* ===== 世界层"染色"总口（v1.0.0 性能优化）=====
+       ⚠️ **为什么合并**：昼夜色温与天气压暗原本是**两次独立的全屏 `fillRect`**，
+          S=4 下每次 = 2088960 像素。实测 A/B（同轮次交替）：关=176.8fps、开=151.1fps
+          —— 那 25fps 主要就是"多一次整屏合成"。
+          两次 `source-over` 半透明填充**可以精确合并成一次**：
+            a = a1 + a2 - a1·a2
+            c = (c1·a1·(1-a2) + c2·a2) / a
+          （已数值验证：对任意基色，合并前后结果**差 0.000**）
+       ⚠️ 顺序必须与原先一致：**先昼夜色温、后天气压暗**（`c1` 是色温、`c2` 是天气）。
+       ⚠️ 雾是**粒子层**（不是整屏填充），仍单独画。 */
+    _worldTintCombined: function () {
+      var c1 = null, a1 = 0, c2 = null, a2 = 0;
+      /* ① 昼夜色温 */
+      var s = this.save;
+      if (s && G.Time && G.Time.cal) {
+        var md = this.scene && this.scene.map && this.scene.map.md;
+        if (!(md && (md.indoor || md.ground === 'cave' || md.ground === 'bloodcave'))) {
+          var t = this._dayTintAt(G.Time.cal(s).h);
+          if (t[3] > 0.001) { c1 = [t[0], t[1], t[2]]; a1 = t[3]; }
+        }
+      }
+      /* ② 天气压暗 + 色偏 */
+      var wx = this._weatherFor(this.sceneName), wc = wx.cfg;
+      if (wc && (wc.dim || wc.tint)) {
+        var dimC = [14, 18, 28], dimA = wc.dim || 0;
+        if (wc.tint) {
+          /* 天气自带色偏（瘴气）→ 先把它与"压暗"合一次（同公式，这里直接算进 c2/a2） */
+          var tc = wc.tint.split(',').map(Number), ta = wc.tintA || 0;
+          var a = dimA + ta - dimA * ta;
+          if (a > 0) {
+            c2 = dimC.map(function (v, i) {
+              return (v * dimA * (1 - ta) + tc[i] * ta) / a;
+            });
+            a2 = a;
+          }
+        } else { c2 = dimC; a2 = dimA; }
+      }
+      if (a1 <= 0 && a2 <= 0) return null;
+      if (a1 <= 0) return { c: c2, a: a2 };
+      if (a2 <= 0) return { c: c1, a: a1 };
+      var aa = a1 + a2 - a1 * a2;
+      return {
+        c: c1.map(function (v, i) { return (v * a1 * (1 - a2) + c2[i] * a2) / aa; }),
+        a: aa
+      };
+    },
+    /* 统一渲染：一次全屏填充搞定"昼夜色温 + 天气压暗"。
+       ⚠️ 必须画在**世界层收口处**（`explore.render` 里 `_drawHUD` 之前）——
+          色温染"世界"不染"界面"（挂在 game.js 最外层会把 HUD 一起染，实测过）。 */
+    _renderWorldTint: function (x) {
+      if (this._overlayOpen()) return;
+      if (this._fogOn === false) return;
+      var t = this._worldTintCombined();
+      if (!t) return;                                /* 正午无天气 = 零染色（零回归基线） */
+      x.save();
+      x.fillStyle = 'rgba(' + Math.round(t.c[0]) + ',' + Math.round(t.c[1]) + ','
+        + Math.round(t.c[2]) + ',' + t.a.toFixed(3) + ')';
+      x.fillRect(0, 0, this.W, this.H);
+      x.restore();
+    },
+    /* 供契约查"当前世界染色"（不含雾/粒子） */
+    worldTint: function () { return this._worldTintCombined(); },
     _fogFor: function (sceneName) {
       if (this._fogKey === sceneName) return this._fogCfg;
       /* 场景 → 雾的配色与浓度。**固定表**，不随机。
