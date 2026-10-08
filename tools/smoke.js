@@ -12796,6 +12796,128 @@ step(function () {
     + ' 斜俯角：可见范围/相机居中/反投影可逆');
 }, 'terrain.slope.contract');
 
+/* ---------- 等距（45° 俯视）一致性与立牌层（v1.9.0 阶段二）----------
+   用户口径：「我现在希望的是全部转向俯视角 45°，看起来更立体，还有地图参考《烟雨江湖》」。
+   阶段一建了投影内核；本轮做**系统性一致性与分层正确性**：
+     ① 投影往返可逆（世界像素 ↔ 屏幕）；
+     ② **点选命中**（屏幕点 → 格，与 onTap 同一算法）；
+     ③ 遮挡顺序按 (x+y)（屏幕 y ∝ x+y）；
+     ④ **立牌必须退出等距矩阵** —— 否则角色/建筑"躺在地上"；
+     ⑤ 所有立牌绘制点都走 `_proj`（防漏接）。 */
+step(function () {
+  const TILE = 24;
+  /* ⚠️ 本契约只在**等距模式**下有意义（非等距时 `_proj` 恒等、排序键是 y）——
+     关掉 ISO_ON 后应整体跳过，否则会拿方形口径去比等距期望值 → 假红。 */
+  if (!G.ISO_ON) {
+    console.log('  · 等距一致性：ISO_ON=false，跳过（当前是方形模式）');
+    return;
+  }
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  s.pos = { x: 20, y: 12 }; sc.moving = false;
+
+  /* ① 投影往返可逆 */
+  {
+    let bad = 0;
+    for (let i = 0; i < 120; i++) {
+      const wx = 100 + (i * 37) % 800, wy = 100 + (i * 53) % 600;
+      const p = sc._proj(wx, wy);
+      const iso = sc._isoScreen(p.x, p.y);
+      const pp = sc._px();
+      const bx = iso.x - 240 + pp.x, by = iso.y - 136 + pp.y;
+      if (Math.abs(bx - wx) > 0.01 || Math.abs(by - wy) > 0.01) bad++;
+    }
+    if (bad) errors.push('等距：投影往返不可逆（' + bad + ' 点失配）—— 画面与点击会分叉');
+  }
+
+  /* ② 点选命中：屏幕点 → 格（与 onTap 同一算法） */
+  {
+    let hit = 0, miss = 0;
+    for (let ty = 5; ty < 25; ty += 4) {
+      for (let tx = 5; tx < 35; tx += 4) {
+        const p = sc._proj(tx * TILE + 12, ty * TILE + 12);
+        if (p.x < 4 || p.x > 476 || p.y < 4 || p.y > 268) continue;
+        const iso = sc._isoScreen(p.x, p.y);
+        const pp = sc._px();
+        const btx = Math.floor((iso.x - 240 + pp.x) / TILE);
+        const bty = Math.floor((iso.y - 136 + pp.y) / TILE);
+        if (btx === tx && bty === ty) hit++; else miss++;
+      }
+    }
+    if (!hit) errors.push('等距：点选命中用例为 0（视口判据有问题）');
+    if (miss) errors.push('等距：点选失配 ' + miss + ' 例（命中 ' + hit + '）—— 点击会偏');
+  }
+
+  /* ③ 遮挡顺序：等距下必须按 (x+y)，且同键稳定 */
+  {
+    const A = sc._depthOf({ x: 5, y: 5 }), B = sc._depthOf({ x: 6, y: 6 });
+    if (!(A < B)) {
+      errors.push('等距：depth 未按 (x+y) 递增（(5,5)=' + A + ' 应小于 (6,6)=' + B
+        + '）—— 左后方的物体会压住右前方（穿帮）');
+    }
+    const C = sc._depthOf({ x: 5, y: 6 }), D = sc._depthOf({ x: 6, y: 5 });
+    if (Math.abs(C - D) > 0.01) {
+      errors.push('等距：同 (x+y) 的两格 depth 不等（' + C + ' vs ' + D
+        + '）—— 会让排序在并列时抖动');
+    }
+  }
+
+  /* ④ 立牌必须退出等距矩阵（源码闸）：
+     判据 = `_drawShade` 之后有 `if (ISO_ON) x.restore();` + `_isoRestored` 守卫。 */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (src.indexOf('var _isoRestored = ISO_ON;') < 0) {
+      errors.push('等距：缺"立牌层退出矩阵"的标记（`_isoRestored`）—— '
+        + '角色/建筑会跟着地面旋转、躺在地上');
+    }
+    if (!/if \(ISO_ON\) x\.restore\(\);/.test(src)) {
+      errors.push('等距：缺 `if (ISO_ON) x.restore();`（立牌层之前必须先退出等距）');
+    }
+    if (!/if \(!_isoRestored && /.test(src)) {
+      errors.push('等距：末尾 restore 缺 `!_isoRestored` 守卫 —— 等距下会还两次（UI 错位）');
+    }
+    /* ⑤ 所有立牌绘制点都走 `_proj`（防漏接）。
+       判据：`_proj(` 的调用数 ≥ 14（12 立牌 + 玩家 + 传送阵 + 屏系提示）。 */
+    const nProj = (src.match(/_proj\(/g) || []).length;
+    if (nProj < 14) {
+      errors.push('等距：`_proj(` 只出现 ' + nProj + ' 次（应 ≥14）—— '
+        + '有立牌绘制点漏接（会停在"世界坐标当屏幕坐标"的位置）');
+    }
+    /* 明雷与暗幕必须走 _proj（本轮新修的两处） */
+    const roamM = src.match(/_drawRoam: function[\s\S]{0,400}?_proj\(/);
+    if (!roamM) {
+      errors.push('等距：`_drawRoam`（明雷）没走 `_proj` —— 等距下会停在画面外');
+    }
+    const veilM = src.match(/_drawVeil: function[\s\S]{0,400}?_proj\(/);
+    if (!veilM) {
+      errors.push('等距：`_drawVeil`（洞窟暗幕）没走 `_proj` —— 光圈会跑到画面外');
+    }
+  }
+
+  /* ⑥ 地面瓦片感：等距下必须逐格加微明暗（且用坐标哈希，不蹭 rng） */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (src.indexOf('function hashTile(') < 0) {
+      errors.push('等距：缺 `hashTile`（逐格确定性哈希）');
+    } else {
+      const hb = src.match(/function hashTile\([\s\S]{0,700}?\n  \}/);
+      if (!hb || hb[0].indexOf('Math.imul') < 0 || hb[0].indexOf('>>> 16') < 0) {
+        errors.push('等距：`hashTile` 缺坐标混入或雪崩步（会退化成条纹）');
+      }
+      if (hb && /rng\.next\(\)/.test(hb[0])) {
+        errors.push('等距：`hashTile` 用了 rng —— 会污染全局随机序列');
+      }
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 等距一致性：投影可逆 / 点选命中 / 排序按(x+y) / 立牌退出矩阵 / 明雷暗幕走 _proj / 瓦片哈希');
+}, 'iso.consistency.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');

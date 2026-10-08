@@ -53,6 +53,23 @@
   var ISO_RATIO = 0.5;                    /* 纵向压扁比（2:1 = 0.5） */
   var ISO_CX = 240, ISO_CY = 136;         /* 屏幕中心（等距原点落在屏幕正中） */
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
+
+  /* 逐格确定性哈希（v1.9.0）：给"等距瓦片微明暗"用。
+     ⚠️ **坐标必须分开混入**，不许拼进字符串尾部 ——
+        mapgen 的 `elevAt` 就是这么踩的（FNV-1a 对末尾增量雪崩不足 →
+        高度场退化成竖条纹，潜伏了三个版本才发现）。
+     ⚠️ 不用 `G.rng`：会推移全局随机序列、污染所有依赖它的回归基线。 */
+  function hashTile(tx, ty, salt) {
+    var h = 2166136261;
+    var s = 'wt:' + (salt || '');
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    h = Math.imul(h ^ (tx + 0x9E3779B9), 2654435761);
+    h = Math.imul(h ^ (ty + 0x85EBCA6B), 2246822519);
+    h ^= h >>> 16; h = Math.imul(h, 2246822507);
+    h ^= h >>> 13; h = Math.imul(h, 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
 
@@ -1542,6 +1559,25 @@
         /* 2) 道路：整片软蒙版 + 噪声羽化，路面像被踩进土里（v0.60，用户第 5 点） */
         this._softRoads(m, g, K, pal);
 
+        /* 3) 等距瓦片感（v1.9.0）：**逐格微明暗**，而不是画格线。
+           **为什么不用格线**（实测否决）：画 0.07 alpha 的格线后，采样格线处 vs
+           格内的亮度差只有 **-8.7 ~ +2.3**，完全被纹理噪声（σ≈5）淹没 ——
+           看不出格，反而在平坦区会显"棋盘"。**格线这条路走不通。**
+           **改用"每格一个微小亮度差"**：人眼对**区块**的明暗差异远比细线敏感，
+           读起来是"一格一格的土面"（像踩过的地），而不是网格纸。
+           ⚠️ 用**坐标哈希**取亮度（确定性，不蹭 rng —— 与高度场同一纪律）。
+           ⚠️ 幅度 ±0.035：实测 0.06 开始像"马赛克"，0.035 是"隐约分格"的甜点。 */
+        if (ISO_ON) {
+          for (var ty2 = 0; ty2 < m.h; ty2++) {
+            for (var tx2 = 0; tx2 < m.w; tx2++) {
+              var hv = hashTile(tx2, ty2, this.mapId);
+              if (hv < 0.5) continue;                 /* 一半的格不动 → 自然、不成规律 */
+              g.fillStyle = hv > 0.75 ? 'rgba(255,246,220,0.035)' : 'rgba(40,30,16,0.035)';
+              g.fillRect(tx2 * TILE, ty2 * TILE, TILE, TILE);
+            }
+          }
+        }
+
         this._groundLayer = c;
         this._groundKey = key;
       },
@@ -2178,7 +2214,11 @@
 
       _drawVeil: function (x, camX, camY) {
         var pp = this._px();
-        var sx = pp.x - camX, sy = pp.y - camY;
+        /* ⚠️ v1.9.0：暗幕是**屏幕系的径向渐变**（画在世界层收口之后）→
+           必须把玩家位置投到屏幕（`_proj`），否则等距下光圈会跑到画面外
+           （症状：整屏全黑或光圈错位）。 */
+        var _vq = this._proj(pp.x, pp.y);
+        var sx = _vq.x, sy = _vq.y;
         var rg = x.createRadialGradient(sx, sy, 30, sx, sy, 160);
         rg.addColorStop(0, 'rgba(4,5,10,0)');
         rg.addColorStop(0.48, 'rgba(4,5,10,0.34)');
@@ -2204,12 +2244,12 @@
         var vs = G.game.visionScale ? G.game.visionScale() : 1;
         if (vs >= 0.995) return;                       /* 晴天 / 无天气：零回归 */
         var pp = this._px();
-        var camX = this._camX(), camY = this._camY();
-        var sx = pp.x - camX;
-        /* ⚠️ v1.8.0：这里画在**世界层 restore 之后**（屏幕坐标系），
-           而 `_px()/_camY()` 都是世界坐标 → 纵向要**除以 VIEW_Y** 回到屏幕。
-           漏了的话，雾圈的圆心会比主角**偏下**（压得越多偏得越多）。 */
-        var sy = (pp.y - camY) / VIEW_Y;
+        /* ⚠️ 走 `_proj` 统一口径（它内部已处理"非等距除 VIEW_Y / 等距投屏幕"）。
+           ⚠️ v1.8.0 的坑：这里画在**世界层 restore 之后**（屏幕坐标系），
+              直接用世界坐标会让雾圈比主角**偏下**。
+           ⚠️ v1.9.0：等距下更错（camX/camY 恒 0）→ 光圈会跑到画面外。 */
+        var _wq = this._proj(pp.x, pp.y);
+        var sx = _wq.x, sy = _wq.y;
         /* 基准可视半径 190 → 按天气倍率收缩（瘴气 0.58 → 110） */
         var R = 190 * vs;
         /* 雾色按天气取（雨=冷灰蓝、雪=亮白、瘴气=黄绿）—— 与粒子同源，读起来一致 */
@@ -2531,7 +2571,10 @@
          头顶加一枚低调的血气指示（红点），玩家一眼能分出"这格有野怪"，
          而不是和装饰石头混淆 —— 这是"明雷"能被**看见**的关键。 */
       _drawRoam: function (x, r, camX, camY) {
-        var gx = r.x * TILE - camX + 8, gy = r.y * TILE - camY + 12;
+        /* ⚠️ v1.9.0：明雷是**立牌**（画在退出等距之后）→ 必须走 `_proj`，
+           否则它在等距下会停在"方形世界坐标当屏幕坐标"的位置（跑到画面外）。 */
+        var _rq = this._proj(r.x * TILE + 8, r.y * TILE + 12);
+        var gx = _rq.x, gy = _rq.y;
         /* 游荡呼吸：用确定性相位（roam.ph）+ 全局时钟，无头环境稳定 */
         var bob = Math.sin(G.game.time * 1.8 + r.ph * 6.2832);
         /* 尺寸取 30：与主角（28×42）体量相当，一眼能认出"这是只怪"；
