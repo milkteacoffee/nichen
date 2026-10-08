@@ -11500,6 +11500,81 @@ step(function () {
     + ' + 雾层只画可见块（带帧率降级）');
 }, 'ambience.contract');
 
+/* ---------- 天气契约（v1.0.0，用户口径「天气系统（雨/雪/风），与昼夜联动」）----------
+   核心是**数据驱动**：天气必须由**已有的世界设定**推出，不能另抽一套随机 ——
+   否则"这个世界下什么雨"与这个世界无关，玩家换一世也换不了天气（设计目的落空）。
+   断言四条：
+     ① 世界相 → 天气（雪域→雪 / 水泽→雨）；
+     ② 世界特质**优先于**世界相（W10→雷雨 / W9→瘴气 / W12 压制降水）；
+     ③ **室内/洞窟无天气**（见不到天的地方不该下雨）；
+     ④ 源码闸：天气必须读 `save.world`（防有人改成随机）。 */
+step(function () {
+  const g = G.game;
+  if (typeof g.weatherId !== 'function') {
+    errors.push('天气：缺 weatherId（无法查询当前天气）');
+    return;
+  }
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  G.game.changeScene('field', { toSpawn: true });   /* 野外才有天气 */
+
+  const set = function (xiang, traits) {
+    s.world = s.world || {};
+    s.world.xiang = xiang;
+    s.world.traits = traits || [];
+    g._wxKey = null;                                 /* 清缓存（换天必须重建粒子） */
+    return g.weatherId();
+  };
+  /* ① 世界相 */
+  if (set('雪域', []) !== 'snow') errors.push('天气：雪域应下雪，实为 ' + g.weatherId());
+  if (set('水泽', []) !== 'rain') errors.push('天气：水泽应下雨，实为 ' + g.weatherId());
+  if (set('群山', []) !== 'clear') errors.push('天气：群山默认应晴，实为 ' + g.weatherId());
+  /* ② 特质优先 */
+  if (set('群山', ['W10']) !== 'storm') errors.push('天气：W10 风雷激荡应雷雨（特质优先），实为 ' + g.weatherId());
+  if (set('群山', ['W9']) !== 'miasma') errors.push('天气：W9 瘴气弥漫应瘴气，实为 ' + g.weatherId());
+  if (set('雪域', ['W12']) !== 'clear') {
+    errors.push('天气：W12 烈阳当空应压制降水（晴天），实为 ' + g.weatherId());
+  }
+  /* ③ 室内/洞窟无天气 */
+  set('雪域', []);
+  G.game.changeScene('cave', { toSpawn: true });
+  if (g.weatherId() !== 'none') errors.push('天气：洞窟不该有天气，实为 ' + g.weatherId());
+  G.game.changeScene('bloodhall', { toSpawn: true });
+  if (g.weatherId() !== 'none') errors.push('天气：血煞堂（室内）不该有天气，实为 ' + g.weatherId());
+
+  /* ④ 源码闸：必须读 save.world（防改成随机） */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/game.js'), 'utf8');
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const m = strip(src).match(/_weatherOf: function[\s\S]{0,1400}?\n    \},/);
+    const body = m ? m[0] : '';
+    if (!body) errors.push('天气：找不到 _weatherOf 函数体');
+    else {
+      if (body.indexOf('w.xiang') < 0 || body.indexOf('w.traits') < 0) {
+        errors.push('天气：_weatherOf 没读 save.world.xiang/traits —— 天气与世界脱钩了');
+      }
+      if (/Math\.random|G\.rng\./.test(body)) {
+        errors.push('天气：_weatherOf 用了随机 —— 天气必须由世界设定**确定**推出');
+      }
+    }
+  }
+
+  /* ⑤ 真驱动：五种天气各渲染一帧不抛 */
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+  let bad = null;
+  [['雪域', []], ['水泽', []], ['海岛', ['W10']], ['群山', ['W9']], ['群山', []]].forEach(function (c) {
+    if (bad) return;
+    set(c[0], c[1]);
+    try { sc.update(0.03); sc.render(g.ctx); } catch (e) { bad = c[0] + c[1].join('') + ' 渲染抛错：' + e.message; }
+  });
+  if (bad) errors.push('天气：' + bad);
+  G.game.changeScene('title');
+
+  console.log('  ✓ 天气：世界驱动（雪域→雪 / 水泽→雨 / W10→雷雨 / W9→瘴气 / W12 压制）+ 室内无天气');
+}, 'weather.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');
