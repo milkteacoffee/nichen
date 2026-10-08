@@ -12234,6 +12234,120 @@ step(function () {
     + ' + 不影响寻路 + regiongen 透传 terr');
 }, 'terrain.elev.contract');
 
+/* ---------- 角色/物件随地形起伏（v1.5.0）----------
+   用户口径：「地图和行走还是很像纸片人」——这是"高低差"的第三层：
+   地面错层之后，**人与物必须站在对应的高度上**，否则"坡"只是背景。
+
+   本契约钉三件最容易做错的事：
+     ① **绘制位置真的随高度偏移**（不是写了函数没人调）；
+     ② **相机不许跟着高度走** —— 否则整屏随坡上下移动，观感是"地形在动、人不动"
+        （正好反了）。这是本轮最容易犯的错：`_px()` 被相机与绘制共用，
+        直接在它里面减高度会让相机一起动。正解是**分成 `_px()`（逻辑）与
+        `_pxDraw()`（绘制）**。
+     ③ **跨落差必须连续**（双线性插值）—— 直接取整格高度会让跨落差那一帧**突跳**。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  try { G.RegionGen.ensure(s, 'fan5'); } catch (e) {}
+  G.game.changeScene('fan5', { toSpawn: true });
+  const sc = G.game.scene, m = sc.map;
+
+  if (!(sc._elevMax && sc._elevMax() > 0)) {
+    errors.push('地形起伏：fan5 没有高度（前置：terrain.elev.contract 应先保证数据）');
+    return;
+  }
+  if (typeof sc._pxDraw !== 'function') {
+    errors.push('地形起伏：缺 _pxDraw（绘制口）—— 玩家不会随地形起伏');
+    return;
+  }
+
+  /* ① 高度偏移：找 elev=2 与 elev=0 的两个空格，比较 _pxDraw().y */
+  {
+    let hi = null, lo = null;
+    for (let y = 2; y < m.h - 2 && !(hi && lo); y++)
+      for (let x = 2; x < m.w - 2; x++) {
+        if (m.solid[y][x]) continue;
+        const e = m.ground[y][x].elev || 0;
+        if (e >= 2 && !hi) hi = { x: x, y: y };
+        if (e === 0 && !lo) lo = { x: x, y: y };
+        if (hi && lo) break;
+      }
+    if (!hi || !lo) { errors.push('地形起伏：找不到 elev=2 与 elev=0 的空格，无法验证'); return; }
+    const yOf = function (p) {
+      s.pos = { x: p.x, y: p.y };
+      sc.moving = false;
+      return sc._pxDraw().y;
+    };
+    const yHi = yOf(hi), yLo = yOf(lo);
+    /* 同一行时两格逻辑 y 相同 → 差值应恰为 (elevHi)*ELEV_STEP = 16 */
+    if (hi.y === lo.y) {
+      const d = yLo - yHi;
+      if (!(d >= 15 && d <= 17)) {
+        errors.push('地形起伏：elev=2 与 elev=0 的绘制 y 差应为 16px（2×8），实为 ' + d.toFixed(1));
+      }
+    } else if (!(yHi < yLo)) {
+      errors.push('地形起伏：高地绘制 y 没有比低地更靠上');
+    }
+    /* ② **相机不许跟着高度走**：同一格，`_camY` 必须与高度无关。
+       判据：把该格高度临时改成 0 再算 _camY —— 必须完全一致。 */
+    s.pos = { x: hi.x, y: hi.y };
+    sc.moving = false;
+    const camWithElev = sc._camY();
+    const bak = m.ground[hi.y][hi.x].elev;
+    m.ground[hi.y][hi.x].elev = 0;
+    sc._elevMaxCache = null;                        /* 清高度缓存，让 _elevPx 读到新值 */
+    const camWithout = sc._camY();
+    m.ground[hi.y][hi.x].elev = bak;
+    sc._elevMaxCache = null;
+    if (camWithElev !== camWithout) {
+      errors.push('地形起伏：相机随高度变了（' + camWithElev + ' → ' + camWithout
+        + '）—— 整屏会随坡上下移动（观感正好反了）');
+    }
+    /* ③ 跨落差连续：找相邻的 2→0，插值过程不许有 >ELEV_STEP 的突跳 */
+    let a = null, b = null;
+    for (let y = 1; y < m.h - 1 && !a; y++)
+      for (let x = 1; x < m.w - 2; x++) {
+        if ((m.ground[y][x].elev || 0) >= 2 && (m.ground[y][x + 1].elev || 0) === 0) {
+          a = { x: x, y: y }; b = { x: x + 1, y: y }; break;
+        }
+      }
+    if (a) {
+      sc.from = { x: a.x, y: a.y }; sc.to = b; sc.moving = true;
+      const ys = [];
+      for (let t = 0; t <= 1.001; t += 0.2) { sc.mt = t; ys.push(sc._pxDraw().y); }
+      sc.moving = false;
+      let maxStep = 0;
+      for (let i = 1; i < ys.length; i++) maxStep = Math.max(maxStep, Math.abs(ys[i] - ys[i - 1]));
+      if (maxStep > 8) {
+        errors.push('地形起伏：跨落差有突跳（单步 ' + maxStep.toFixed(1) + 'px > 一格高）'
+          + '—— 说明取的是整格高度而非双线性插值');
+      }
+    }
+  }
+
+  /* ④ 源码闸：12 个物件绘制点都要接（防漏一处） */
+  {
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    const need = ['f', 's', 'o', 'sp', 'n', 'm'];              /* 各绘制函数的坐标变量前缀 */
+    const cnt = (exSrc.match(/_elevPx\(/g) || []).length;
+    if (cnt < 12) {
+      errors.push('地形起伏：_elevPx 只被调用 ' + cnt + ' 次（应 ≥12 —— '
+        + '玩家 1 + 物件 11）—— 有绘制点漏接了，那些物体会"浮在坡外"');
+    }
+    /* 相机必须走 `_px()`（不含高度），不许走 `_pxDraw()` */
+    const camM = exSrc.match(/_camY: function[\s\S]{0,240}?\n      \},/);
+    if (camM && camM[0].indexOf('_pxDraw') >= 0) {
+      errors.push('地形起伏：_camY 用了 _pxDraw —— 相机会随高度移动（整屏晃）');
+    }
+    if (exSrc.indexOf('_pxDraw()') < 0) errors.push('地形起伏：explore 缺 _pxDraw 的调用');
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 地形起伏：玩家/物件随高度（+16px@elev2）+ 相机不随高度 + 跨落差连续（双线性）');
+}, 'terrain.follow.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');

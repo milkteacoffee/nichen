@@ -810,7 +810,12 @@
         return null;
       },
 
-      /* ===== 相机 ===== */
+      /* ===== 相机 =====
+         ⚠️ v1.5.0：`_px()` 保持**逻辑基准位置**（不含高度偏移）——
+            因为 `_camX/_camY` 也读它，相机跟着高度走会让**整屏随坡上下移动**，
+            观感是"地形在动、人不动"（正好反了！）。
+            高度偏移单独由 `_pxDraw()` 提供，只用于**绘制**。
+            这样"人上坡"= 人在屏幕上**相对地形**往上走 → 才是"走上去"的感觉。 */
       _px: function () {
         var save = G.game.save;
         var x = save.pos.x, y = save.pos.y;
@@ -819,6 +824,19 @@
           y = this.from.y + (this.to.y - this.from.y) * this.mt;
         }
         return { x: x * TILE + 8, y: y * TILE + 12 };
+      },
+      /* 绘制用的玩家位置 = 逻辑位置 − 地形高度（双线性插值，跨落差连续）。
+         ⚠️ 只有绘制该用它；**相机、粒子锚点、光效一律用 `_px()`** ——
+            否则它们也会随坡偏移（粒子会脱地、相机整屏动）。 */
+      _pxDraw: function () {
+        var save = G.game.save;
+        var x = save.pos.x, y = save.pos.y;
+        if (this.moving) {
+          x = this.from.x + (this.to.x - this.from.x) * this.mt;
+          y = this.from.y + (this.to.y - this.from.y) * this.mt;
+        }
+        var p = this._px();
+        return { x: p.x, y: p.y - this._elevPx(x, y) };
       },
       _camX: function () {
         var cx = this._px().x;
@@ -1143,7 +1161,7 @@
       },
 
       _drawFurn: function (x, f, camX, camY) {
-        var px = f.x * TILE - camX, py = f.y * TILE - camY;
+        var px = f.x * TILE - camX, py = f.y * TILE - camY - this._elevPx(f.x, f.y);
         var w = (f.w || 1) * TILE, h = (f.h || 1) * TILE;
         if (px > 480 || px + w < 0 || py > 272 || py + h < 0) return;
         var art = G.Art.furn(f.kind, this._pal());
@@ -1348,12 +1366,38 @@
         return mx;
       },
 
-      /* 该格的高度偏移（供角色/物件绘制用；无高度图返回 0） */
+      /* 该格的高度像素偏移（整数格坐标；`_elevPx` 的简化版，供物件使用）。
+         ⚠️ 无高度图返回 0（零回归）。 */
       _elevAt: function (tx, ty) {
-        var m = this.map;
         if (!(this._elevMax() > 0)) return 0;
+        var m = this.map;
         var g = m.ground[ty] && m.ground[ty][tx];
         return ((g && g.elev) || 0) * ELEV_STEP;
+      },
+
+      /* ===== 高度偏移的**唯一出口**（v1.5.0）=====
+         所有"随地形起伏"的绘制（玩家 / NPC / 树石 / 建筑 / 宝箱…）都走这里，
+         不许各自去读 `ground[y][x].elev` —— 13 个绘制函数各写一份必然漏（项目老坑）。
+         **双线性插值**（关键）：玩家移动时代入的是**浮点格坐标**，
+          若直接取整格高度，跨落差的那一帧会**突跳**一格高（像被弹了一下）。
+          双线性让"上坡/下坡"是**连续过渡**的 —— 这正是"坡"而非"台阶"的观感来源。
+         ⚠️ 整数格坐标调用时（物件）双线性退化为最近格值，不会失真。 */
+      _elevPx: function (fx, fy) {
+        if (!(this._elevMax() > 0)) return 0;
+        var m = this.map;
+        var x0 = Math.floor(fx), y0 = Math.floor(fy);
+        var tx = fx - x0, ty = fy - y0;
+        var g = function (x, y) {
+          var row = m.ground[y];
+          var c = row && row[x];
+          return ((c && c.elev) || 0);
+        };
+        /* 采样点夹在合法范围（边缘外按边界值，不做环绕） */
+        var xa = Math.max(0, Math.min(m.w - 1, x0)), xb = Math.max(0, Math.min(m.w - 1, x0 + 1));
+        var ya = Math.max(0, Math.min(m.h - 1, y0)), yb = Math.max(0, Math.min(m.h - 1, y0 + 1));
+        var e = g(xa, ya) * (1 - tx) * (1 - ty) + g(xb, ya) * tx * (1 - ty)
+          + g(xa, yb) * (1 - tx) * ty + g(xb, yb) * tx * ty;
+        return e * ELEV_STEP;
       },
 
       /* 单个路格：路面纹理块 + 与基础地面交界处的路缘镶边。
@@ -1395,7 +1439,7 @@
       },
 
       _drawStructure: function (x, s, camX, camY) {
-        var px = s.x * TILE - camX, py = s.y * TILE - camY;
+        var px = s.x * TILE - camX, py = s.y * TILE - camY - this._elevPx(s.x, s.y);
         if (px > 480 || px + s.w * TILE < 0 || py > 272 || py + s.h * TILE < 0) return;
         var pal = this._pal();
         var art = s.kind === 'house' ? G.Art.house(s, pal)
@@ -1452,7 +1496,7 @@
       _drawGather: function (x, o, camX, camY) {
         var done = (G.Gather && G.Gather.gatheredToday)
           ? G.Gather.gatheredToday(G.game.save, this.mapId, o) : false;
-        var px = Math.round(o.x * TILE - camX), py = Math.round(o.y * TILE - camY);
+        var px = Math.round(o.x * TILE - camX), py = Math.round(o.y * TILE - camY) - this._elevPx(o.x, o.y);
         var id = G.Overlays.itemIconId ? G.Overlays.itemIconId(o.mat) : o.mat;
         var SZ = 22;
         var ic = G.Art.itemIcon(id, SZ);
@@ -1477,7 +1521,7 @@
       },
 
       _drawDecor: function (x, o, camX, camY) {
-        var px = o.x * TILE - camX, py = o.y * TILE - camY;
+        var px = o.x * TILE - camX, py = o.y * TILE - camY - this._elevPx(o.x, o.y);
         var h1 = (((o.x * 73856093) ^ (o.y * 19349663)) >>> 0);
         var v = (h1 % 3 + 3) % 3;
         /* 缩放走 3 档预烘（见 A.decorScaled）：同一变体在每个位置都一模一样，
@@ -1585,7 +1629,7 @@
       },
 
       _drawWellSpecial: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
         var art = paintedSingle('prop.well', 30);
         if (!art) return;
         var bx = px + art.ox, by = py + art.oy;
@@ -1604,13 +1648,13 @@
 
       _drawChest: function (x, sp, camX, camY) {
         var opened = G.game.save.chestsOpened.indexOf(sp.id) >= 0;
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
         var art = G.Art.chest(opened);
         G.Art.blit(x, art, px, py);
       },
 
       _drawBoss: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
         var art = G.Art.boss(this._pal());
         G.Art.blit(x, art, px, py);
         /* 脉动血光 */
@@ -1624,7 +1668,7 @@
       /* 秘境裂隙（区域副本入口）：紫雾脉动 + 裂口。
          它同时承担"这里有一处秘境"的信息量，所以光环比物件本身更醒目。 */
       _drawEntrance: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
         var t = performance.now() / 620;
         x.save();
         x.fillStyle = 'rgba(168,116,236,' + (0.12 + 0.09 * Math.sin(t)).toFixed(3) + ')';
@@ -1637,7 +1681,7 @@
 
       /* 界门（四界往返）：蓝色光晕脉动 + 石拱光幕 */
       _drawWorldgate: function (x, sp, camX, camY) {
-        var px = sp.x * TILE - camX, py = sp.y * TILE - camY;
+        var px = sp.x * TILE - camX, py = sp.y * TILE - camY - this._elevPx(sp.x, sp.y);
         var t = performance.now() / 900;
         x.save();
         x.fillStyle = 'rgba(132,182,255,' + (0.10 + 0.07 * Math.sin(t)).toFixed(3) + ')';
@@ -1778,7 +1822,7 @@
       },
 
       _drawPlayer: function (x, camX, camY) {
-        var pp = this._px();
+        var pp = this._pxDraw();   /* 玩家绘制：带地形高度偏移（v1.5.0） */
         var px = pp.x - camX, py = pp.y - camY;
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
 
@@ -1944,7 +1988,7 @@
          站桩不需要呼吸感；动画留给走路的 1 帧上抬（heroSprite 那 1 像素就够）。
          头顶任务标记保持浮动，那是 UI 层而非人物本身。 */
       _drawNpc: function (x, n, camX, camY) {
-        var px = n.x * TILE - camX + 8, py = n.y * TILE - camY + 12;
+        var px = n.x * TILE - camX + 8, py = n.y * TILE - camY + 12 - this._elevPx(n.x, n.y);
         var HW = G.Sprites.HERO_W, HH = G.Sprites.HERO_H;
         var top = py + 3 - HH;
         x.save();
@@ -2045,7 +2089,7 @@
       _drawMark: function (x, camX, camY) {
         var m = this.mark;
         if (!m) return;
-        var px = m.x * TILE - camX + 8, py = m.y * TILE - camY + 8;
+        var px = m.x * TILE - camX + 8, py = m.y * TILE - camY + 8 - this._elevPx(m.x, m.y);
         var k = m.t / 0.55;                       /* 1 → 0 */
         var r = 5 + (1 - k) * 7;
         x.save();
@@ -2065,7 +2109,7 @@
         var save = G.game.save;
         var f = this._front(save.pos, this.dir);
         if (!this.map.interact[f.x + ',' + f.y]) return;
-        var px = f.x * TILE - camX + 8, py = f.y * TILE - camY;
+        var px = f.x * TILE - camX + 8, py = f.y * TILE - camY - this._elevPx(f.x, f.y);
         var pu = 0.5 + 0.5 * Math.sin(performance.now() / 240);
         x.save();
         x.globalAlpha = 0.55 + 0.45 * pu;
