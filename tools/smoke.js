@@ -11575,6 +11575,129 @@ step(function () {
   console.log('  ✓ 天气：世界驱动（雪域→雪 / 水泽→雨 / W10→雷雨 / W9→瘴气 / W12 压制）+ 室内无天气');
 }, 'weather.contract');
 
+/* ---------- 天气影响玩法 / 卷轴迷雾 / 待机小动作（v1.1.0）----------
+   用户口径：「天气影响玩法（雨雪降低视野/雷雨提升雷系）——让它不只是画面；
+   三界卷轴加'未到访压雾'的探索感；主角待机随机小动作（理袖、远眺）」。
+
+   本契约钉三件事，各对应一个**容易静默失效**的点：
+     ① **天气的玩法效果必须真的接进三处**（视野 / 伤害 / 打坐），
+        而不是"定义了表没人读" —— 项目刚踩过 `eb` 定义在却从未消费的坑。
+        判据：断言数值**确实变化**（不只看表里有值）。
+     ② **帧率降级时玩法效果必须归零** —— 画面没天气却扣灵气，是"看不见的惩罚"。
+     ③ 卷轴迷雾 / 待机小动作：源码闸 + 零回归（晴天/已到访/走路路径不变）。 */
+step(function () {
+  const g = G.game;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  /* ⚠️ **必须显式复位 `_fogOn`**：它是 G.game 上的全局状态，前面的
+     `perf.frame.contract`（帧率降级测试）会把它设成 false 且不还原 ——
+     `_fogOn === false` 时天气的三类玩法效果**全部返回中性值**（这是设计），
+     于是本契约的断言会全线假红。**契约之间共享单例，前置条件必须自己保证。** */
+  g._fogOn = true;
+  G.game.changeScene('field', { toSpawn: true });
+
+  const setW = function (xiang, traits) {
+    s.world = s.world || {};
+    s.world.xiang = xiang;
+    s.world.traits = traits || [];
+    g._wxKey = null;
+    /* ⚠️ 必须**每次回到野外图**再断言：前面的契约可能把场景留在 town / cave /
+       血煞堂（室内或洞窟 → `weatherId()` 返回 none → vision/qiMul 恒为 1）。
+       这是"契约的前置条件被前一条契约改掉"的典型 —— 断言必须自己保证前置。 */
+    if (G.game.sceneName !== 'field') G.game.changeScene('field', { toSpawn: true });
+    return g.weatherId();
+  };
+
+  /* ① 天气效果表存在且四类效果齐全 */
+  if (!g.WEATHER_FX) { errors.push('天气玩法：缺 WEATHER_FX（天气效果表）'); return; }
+  ['clear', 'rain', 'storm', 'snow', 'miasma'].forEach(function (id) {
+    const f = g.WEATHER_FX[id];
+    if (!f) { errors.push('天气玩法：WEATHER_FX 缺 ' + id); return; }
+    if (typeof f.vision !== 'number') errors.push('天气玩法：' + id + ' 缺 vision');
+    if (typeof f.spd !== 'number') errors.push('天气玩法：' + id + ' 缺 spd');
+    if (typeof f.qiWane !== 'number') errors.push('天气玩法：' + id + ' 缺 qiWane');
+    if (!f.eb) errors.push('天气玩法：' + id + ' 缺 eb（元素增幅）');
+  });
+
+  /* ② 视野**真的**被天气压低（不只表里有值） */
+  setW('群山', []);
+  const vClear = g.visionScale();
+  setW('群山', ['W9']);                                  /* 瘴气 */
+  const vMiasma = g.visionScale();
+  if (!(vClear === 1)) errors.push('天气玩法：晴天 visionScale 应为 1（零回归基线），实为 ' + vClear);
+  if (!(vMiasma < 0.7)) errors.push('天气玩法：瘴气应显著压低视野（<0.7），实为 ' + vMiasma);
+
+  /* ③ 元素增幅**真的**给到（雷雨助雷） */
+  setW('海岛', ['W10']);                                 /* 雷雨 */
+  const ebLei = g.weatherElemBonus('雷');
+  const ebJin = g.weatherElemBonus('金');
+  if (!(ebLei > 0.1)) errors.push('天气玩法：雷雨应助雷（>0.1），实为 ' + ebLei);
+  if (ebJin !== 0) errors.push('天气玩法：雷雨不该助金，实为 ' + ebJin);
+  setW('群山', []);
+  if (g.weatherElemBonus('雷') !== 0) errors.push('天气玩法：晴天不该有元素增幅');
+
+  /* ④ 打坐效率**真的**被天气削减，且晴天为 1 */
+  setW('群山', ['W9']);
+  const qBad = g.qiMul();
+  setW('群山', []);
+  const qOk = g.qiMul();
+  if (qOk !== 1) errors.push('天气玩法：晴天 qiMul 应为 1，实为 ' + qOk);
+  if (!(qBad < 1)) errors.push('天气玩法：瘴气应削减打坐效率，实为 ' + qBad);
+  /* ⚠️ 且必须**小于 1 但不为 0**（不做"禁止打坐"型惩罚 —— 玩家没有等天气的手段） */
+  if (qBad <= 0) errors.push('天气玩法：打坐效率不该被削到 0（玩家会无路可走）');
+
+  /* ⑤ **帧率降级时玩法效果归零**（画面没天气 → 玩法不该有惩罚） */
+  setW('海岛', ['W10']);
+  g._fogOn = false;
+  if (g.visionScale() !== 1) errors.push('天气玩法：降级关氛围后 visionScale 应回 1（画面与玩法要一致）');
+  if (g.weatherElemBonus('雷') !== 0) errors.push('天气玩法：降级关氛围后元素增幅应回 0');
+  if (g.qiMul() !== 1) errors.push('天气玩法：降级关氛围后 qiMul 应回 1');
+  g._fogOn = true;
+
+  /* ⑥ 源码闸：三处接入点必须存在（防"定义了表没人读"） */
+  {
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    const gmSrc = fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8');
+    const gtSrc = fs.readFileSync(path.join(WWW, 'js/core/gametime.js'), 'utf8');
+    /* ⚠️ 扫**去注释后**的代码 —— 否则修改说明里提到"错误名"也会被判违规
+       （本仓注释习惯把"曾经的错"写清楚，不去注释会自己把自己扫红）。 */
+    const gmCode = strip(gmSrc), exCode = strip(exSrc), gtCode = strip(gtSrc);
+    const pnCode = strip(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
+    if (exCode.indexOf('_drawWeatherVeil') < 0) errors.push('源码闸：explore 缺 _drawWeatherVeil（视野没接）');
+    if (gmCode.indexOf('weatherElemBonus') < 0) errors.push('源码闸：battle 没接 weatherElemBonus（元素增幅没接）');
+    if (gtCode.indexOf('qiMul') < 0) errors.push('源码闸：gametime 没接 qiMul（打坐效率没接）');
+    /* ⚠️ eb 必须**真的被消费**（不再是"只合并不读"） */
+    if (!/atk\.eb/.test(gmCode)) errors.push('源码闸：battle 的 _calc 没读 atk.eb（属性增幅仍未被消费）');
+    /* ⚠️ 错误名不许复活（只看代码，注释里说明历史不算违规） */
+    if (gmCode.indexOf('G.Data.elemCoef') >= 0) {
+      errors.push('源码闸：battle 又出现 G.Data.elemCoef（不存在的名字，静默失效）');
+    }
+    /* 卷轴迷雾 + 待机小动作
+       ⚠️ 判据要用**代码特征**而不是注释词（本仓注释习惯写中文说明，
+          `待机小动作` 只出现在注释里 → 去注释后扫不到 → 自己把自己判红）。
+          代机动作的代码特征 = `CYC`（周期常量）与 `env`（包络）。 */
+    if (pnCode.indexOf('fogR') < 0) {
+      errors.push('源码闸：panels 缺"未到访压雾"（卷轴探索感）');
+    }
+    if (exCode.indexOf('CYC') < 0 || exCode.indexOf('理袖') < 0 && exCode.indexOf('cycN') < 0) {
+      errors.push('源码闸：explore 缺待机小动作（理袖/远眺）');
+    }
+  }
+
+  /* ⑦ 零回归：走路路径的 bob/tilt 公式必须还在（待机动作不许污染走路） */
+  {
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (exSrc.indexOf('Math.abs(Math.sin(step * Math.PI)) * 2.2') < 0) {
+      errors.push('回归：走路的 bob 公式被改了（应保持原样）');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 天气玩法：视野/元素增幅/打坐三处真接入 + 降级归零 + 卷轴迷雾 + 待机小动作');
+}, 'weather.fx.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');

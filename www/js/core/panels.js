@@ -3025,6 +3025,44 @@
     drawMapClouds(x, w, V);
     x.restore();
 
+    /* ===== 未到访区域的"迷雾"（v1.1.0，用户口径「三界卷轴加未到访压雾的探索感」）=====
+       在**未到访**的节点位置压一团雾，到访过的则**拨云见日**。
+       为什么有效：地图从"一堆同质圆点"变成"已知区 vs 待探区"，玩家一眼看得出
+       "还有哪里没走" —— 这就是探索欲的来源。
+       ⚠️ **必须画在节点之下、名字标注之上之前** —— 压在节点上会把"未到访的空心圈"
+          也糊掉，玩家就分不清"有地方"和"雾"了。
+       ⚠️ 用**固定种子**（按 `worldId + regionId`）—— 同一次打开面板雾形一致，
+          截图与契约才钉得住（项目老规矩）。
+       ⚠️ 已到访的不画雾（含当前所在）→ 已探明的区域**逐像素不变**（零回归）。 */
+    (function () {
+      var fogR = Math.max(26, V.vw * 0.085);
+      list.forEach(function (r) {
+        var isCur = r.id === cur;
+        if (isCur || visited[r.id]) return;            /* 已到访/当前：无雾 */
+        var nx = V.vx + r.mx * V.vw, ny = V.vy + r.my * V.vh;
+        /* 视口外的雾不画（省绘制；也让"放大后"不会有一堆雾飘在视野外） */
+        if (nx < V.vx - fogR || nx > V.vx + V.vw + fogR
+          || ny < V.vy - fogR || ny > V.vy + V.vh + fogR) return;
+        var seed = 0;
+        var key = w + '|' + r.id;
+        for (var i = 0; i < key.length; i++) seed = (seed * 131 + key.charCodeAt(i)) >>> 0;
+        var rnd = G.Art.rnd(seed || 1);
+        /* 三团叠出来的"云雾"：单团太像圆圈，三团错位才像雾 */
+        for (var k = 0; k < 3; k++) {
+          var ox = (rnd() - 0.5) * fogR * 0.7;
+          var oy = (rnd() - 0.5) * fogR * 0.5;
+          var rr = fogR * (0.62 + rnd() * 0.45);
+          var al = 0.20 + rnd() * 0.14;
+          var g = x.createRadialGradient(nx + ox, ny + oy, 1, nx + ox, ny + oy, rr);
+          g.addColorStop(0, 'rgba(196,208,226,' + al.toFixed(3) + ')');
+          g.addColorStop(0.6, 'rgba(186,198,218,' + (al * 0.55).toFixed(3) + ')');
+          g.addColorStop(1, 'rgba(176,190,212,0)');
+          x.fillStyle = g;
+          x.beginPath(); x.arc(nx + ox, ny + oy, rr, 0, 6.2832); x.fill();
+        }
+      });
+    })();
+
     /* 区域节点 */
     list.forEach(function (r) {
       var nx = V.vx + r.mx * V.vw, ny = V.vy + r.my * V.vh;

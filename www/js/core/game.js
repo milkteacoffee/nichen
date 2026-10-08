@@ -916,8 +916,12 @@
       if (this._fogOn === false) return 1;
       return this.weatherFx().vision;
     },
-    /* 天气的元素增幅（供战斗伤害用）。返回 {} 表示无加成。 */
+    /* 天气的元素增幅（供战斗伤害用）。返回 0 表示无加成。
+       ⚠️ 帧率降级（`_fogOn === false`）时必须返回 0 —— 画面上没有天气，
+          玩法上就不该有天气加成/惩罚（**画面与玩法必须一致**，
+          否则玩家在低配机上会莫名其妙多 25% 雷伤，且完全看不出原因）。 */
     weatherElemBonus: function (elem) {
+      if (this._fogOn === false) return 0;
       if (!elem || elem === '无') return 0;
       var fx = this.weatherFx();
       return (fx.eb && fx.eb[elem]) || 0;
