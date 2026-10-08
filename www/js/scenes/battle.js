@@ -441,6 +441,18 @@
         atk: st.atk, def: st.def, spd: st.spd,
         crit: st.crit, critDmg: st.critDmg,
         elem: st.attackElem, im: st.im,
+        /* 属性增幅（v1.1.0）：天赋 + 世界特质的 `eb` 合并。
+           ⚠️ 直接从两个**唯一口径**取（`talentEffects` / `worldEffects`），
+              不在这里另拼一份 —— 它们内部都是"取 max 不叠加"的语义。 */
+        eb: (function () {
+          var out = {};
+          [G.Player.talentEffects(save), G.Player.worldEffects(save)].forEach(function (src) {
+            if (src && src.eb) Object.keys(src.eb).forEach(function (k) {
+              out[k] = Math.max(out[k] || 0, src.eb[k]);
+            });
+          });
+          return out;
+        })(),
         skills: skills, buffs: { atk: 0, turns: 0 },
         guard: false, statuses: {}, shield: 0
       };
@@ -821,15 +833,27 @@
           var tail = sk.cdLeft > 0 ? '（冷却 ' + sk.cdLeft + '）'
             : (sk.cost > 0 ? '（法力 ' + sk.cost + '）' : '');
 
-          /* v0.76.0 阶段六：属性克制提示 */
+          /* v0.76.0 阶段六：属性克制提示
+             ⚠️ v1.1.0 **修一个静默失效**：这里原先调 `G.Data.elemCoef` ——
+                那个名字**根本不存在**（真实导出是 `G.Data.elem.coef`）。
+                外面又套了 `if (G.Data.elemCoef)` 守卫 → 永远为假 →
+                **技能列表的克制提示从未显示过**（静默，不报错）。
+                同一文件 1528 行用的是正确名，所以只有"列表"这一处漏了。
+                ⚠️ 教训：守卫写成 `if (G.Data.xxx)` 时，名字打错**不会报错**，
+                   只会永远不进分支 —— 这类"空守卫"要靠契约钉（见 smoke 的属性克制段）。 */
           var restrain = '';
           var subText = poor ? '法力不足 ' + self.p.mp + '/' + sk.cost : null;
           var subColor = '#e08a7a';
-          if (sk.elem && G.Data.elemCoef) {
+          if (sk.elem && G.Data.elem && G.Data.elem.coef) {
+            /* ⚠️ v1.1.0：`_aliveEs()` 返回的是**单位本身**（`this.es[i]`），
+               不是 `{u: ...}` 包装 —— 原先这里写 `alive[0].u` 会得到 undefined，
+               再读 `.elem` 就抛错。这个 bug 一直藏着，因为外层守卫
+               `if (G.Data.elemCoef)`（错误名）永远为假，**根本走不到这一行**。
+               修好名字后它立刻暴露 —— 典型的"修好 A 才看见 B"。 */
             var alive = self._aliveEs();
-            if (alive.length > 0) {
-              var target = alive[0].u;
-              var coef = G.Data.elemCoef(sk.elem, target.elem || '无');
+            var target = alive[0];
+            if (target) {
+              var coef = G.Data.elem.coef(sk.elem, target.elem || '无');
               if (coef > 1.2) {
                 restrain = '　克制！';
                 if (!poor) { subText = '对 ' + target.elem + ' 克制 ×' + coef.toFixed(1); subColor = '#a7e29a'; }
@@ -1514,7 +1538,7 @@
       }
     },
 
-    /* 伤害 = (攻×倍率×增益×狂暴 − 防×0.55×(1−破防)) × 属性克制 × 浮动 × 守御 × 暴击 × 连击加成 */
+    /* 伤害 = (攻×倍率×增益×狂暴 − 防×0.55×(1−破防)) × 属性克制 × **属性增幅** × 浮动 × 守御 × 暴击 × 连击加成 */
     _calc: function (atk, def, skill) {
       var mult = skill.mult == null ? 1 : skill.mult;
       var buff = 1 + (atk.buffs && atk.buffs.atk || 0);
@@ -1527,6 +1551,22 @@
       var base = Math.max(1, atk.atk * mult * buff * rage * (1 + jusha) - defTerm);
       var ec = G.Data.elem.coef(skill.elem, def.elem);
       base *= ec;
+      /* ===== 属性增幅 `eb`（v1.1.0 补齐）=====
+         ⚠️ `eb`（天赋/世界特质给的"某属性功法+N%"）**一直被合并却从未被消费** ——
+            `mergeInto` 把它并进 `te.eb` / `we.eb`，但伤害计算里没人读它，
+            于是"剑骨：金系功法 +15%"这类天赋**完全无效**（静默，面板也不会显示）。
+         口径：**我方攻击**吃自己的 `eb`；**敌方攻击**吃敌方的 —— 但敌方没有 eb
+            字段（`this.es[i]` 不带），所以只对玩家生效，这正是设计意图
+            （eb 来源只有玩家天赋/世界特质）。
+         ⚠️ 天气的元素增幅（`weatherElemBonus`）也在这里并入 —— 同一个乘区，
+            否则"天气助雷"会与"雷灵之体"各自乘一遍而互相放大。 */
+      if (skill.elem && skill.elem !== '无') {
+        var atkEb = 0;
+        if (atk.eb && atk.eb[skill.elem]) atkEb += atk.eb[skill.elem];
+        /* 天气增幅只给玩家（世界对主角生效，不替敌人加成） */
+        if (atk === this.p && G.game.weatherElemBonus) atkEb += G.game.weatherElemBonus(skill.elem);
+        if (atkEb) base *= (1 + atkEb);
+      }
       /* v0.76.0 连击加成：每combo +1%伤害，上限50% */
       var comboBonus = Math.min(this.COMBO_MAX_BONUS, this.comboCount * 0.01);
       base *= (1 + comboBonus);

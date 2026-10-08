@@ -887,6 +887,46 @@
     },
     /* 供契约查"当前世界染色"（不含雾/粒子） */
     worldTint: function () { return this._worldTintCombined(); },
+    /* ===== 天气的**玩法效果**（v1.1.0，用户口径「天气影响玩法，让它不只是画面」）=====
+       ⚠️ **唯一口径**：所有"天气影响玩法"的数值都从这里取。
+          面板 / 战斗 / 视野三处若各写一份，加一条天气就要改三处（漏一处静默）。
+       设计（克制但可感）：
+         · `vision`  视野半径倍率 —— 雨雪遮蔽视线（<1），瘴气更差，晴=1
+         · `eb`      元素增幅 —— 雷雨助雷、雪助水、瘴气助木/暗
+         · `spd`     行动速度 —— 雪地难行、雷雨风急更快
+         · `qiWane`  打坐灵气效率 —— 恶劣天气按比例削减（暴雨瘴气不易入定）
+       ⚠️ **不含"绝对禁止"型惩罚**（比如雨天不能打坐）—— 那会让玩家被迫等天气，
+          而我们**没有"等天气"的手段**（时间只在打坐/战斗中走，见 `_dayTintAt` 注释）。
+          所以一律做成"比例增减"，不做"能不能"。 */
+    WEATHER_FX: {
+      clear: { n: '晴', vision: 1.00, eb: {}, spd: 1.00, qiWane: 0 },
+      rain: { n: '雨', vision: 0.78, eb: { '水': 0.10 }, spd: 0.96, qiWane: 0.12 },
+      storm: { n: '雷雨', vision: 0.66, eb: { '雷': 0.25, '风': 0.15 }, spd: 1.04, qiWane: 0.20 },
+      snow: { n: '雪', vision: 0.72, eb: { '水': 0.15, '风': 0.05 }, spd: 0.90, qiWane: 0.16 },
+      miasma: { n: '瘴气', vision: 0.58, eb: { '木': 0.12, '暗': 0.18 }, spd: 0.94, qiWane: 0.24 },
+      none: { n: '无', vision: 1.00, eb: {}, spd: 1.00, qiWane: 0 }
+    },
+    weatherFx: function () {
+      var id = this.weatherId();
+      return this.WEATHER_FX[id] || this.WEATHER_FX.clear;
+    },
+    /* 视野半径倍率（供 explore 的暗幕用） */
+    visionScale: function () {
+      /* 帧率降级时氛围层已关 → 不该还让玩家"看不见"（画面与玩法要一致） */
+      if (this._fogOn === false) return 1;
+      return this.weatherFx().vision;
+    },
+    /* 天气的元素增幅（供战斗伤害用）。返回 {} 表示无加成。 */
+    weatherElemBonus: function (elem) {
+      if (!elem || elem === '无') return 0;
+      var fx = this.weatherFx();
+      return (fx.eb && fx.eb[elem]) || 0;
+    },
+    /* 打坐灵气倍率（供 G.Time / 打坐结算用） */
+    qiMul: function () {
+      if (this._fogOn === false) return 1;
+      return 1 - (this.weatherFx().qiWane || 0);
+    },
     _fogFor: function (sceneName) {
       if (this._fogKey === sceneName) return this._fogCfg;
       /* 场景 → 雾的配色与浓度。**固定表**，不随机。

@@ -156,7 +156,14 @@
   function meditateGain(save, tier) {
     var r = (G.Player.rates && G.Player.rates(save)) || { qi: 0 };
     var coef = linggenCoef(save);
-    return Math.max(1, Math.round(meditateBase(save, tier) * coef * (1 + (r.qi || 0))));
+    /* ⚠️ v1.1.0：**天气影响打坐效率**（用户口径「天气影响玩法」）。
+       恶劣天气（暴雨/瘴气）不易入定 → 按比例削减（见 `G.game.WEATHER_FX`）。
+       ⚠️ 做成**比例削减**而非"禁止打坐"：时间只在打坐/战斗中推进，
+          玩家**没有"等天气"的手段** —— 禁止会变成"被迫空耗寿元"，
+          与"玩家永远有路可走"的项目原则冲突。
+       ⚠️ 走 `G.game.qiMul()` 唯一口径，不在这里写第二份天气表。 */
+    var wxMul = (G.game && G.game.qiMul) ? G.game.qiMul() : 1;
+    return Math.max(1, Math.round(meditateBase(save, tier) * coef * (1 + (r.qi || 0)) * wxMul));
   }
 
   /* 闭关能不能坐得起：耗掉的年数不能超过剩余寿元（否则等于自杀）。

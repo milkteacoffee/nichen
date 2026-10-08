@@ -910,11 +910,6 @@
               边缘露出未染色的黑边。 */
         /* 世界层染色（v1.0.0）：**昼夜色温 + 天气压暗合并成一次全屏填充**。
            顺序（都在这里，`_drawHUD` 之前）：雾/天气粒子 → 合并染色 → 闪电。
-           ⚠️ 合并是性能优化（实测省 25fps），数学已数值验证等价（差 0.000）。
-           ⚠️ 粒子在下、整屏染色在上 —— 雨雪要看起来"在画面里"而不是"浮在暗纱上"。
-           ⚠️ 闪电是"环境光"（把暗处照亮），所以放在染色之后。 */
-        /* 世界层染色（v1.0.0）：**昼夜色温 + 天气压暗合并成一次全屏填充**。
-           顺序（都在这里，`_drawHUD` 之前）：雾/天气粒子 → 合并染色 → 闪电。
            ⚠️ 合并是性能优化，数学已数值验证等价（差 0.000）。
            ⚠️ 粒子在下、整屏染色在上 —— 雨雪要看起来"在画面里"而不是"浮在暗纱上"。
            ⚠️ 闪电是"环境光"（把暗处照亮），所以放在染色之后。
@@ -924,6 +919,10 @@
         G.game._renderWeather(x);
         G.game._renderWorldTint(x);
         G.game._renderLightning(x);
+        /* 天气视野压制（v1.1.0）：雨雪/瘴气**收窄可视范围** —— 让天气影响玩法而非只看。
+           画在染色之后（它是"遮挡"，该压在最上层）、HUD 之前（不许挡界面）。
+           ⚠️ 只有天气恶化了视野才画；晴天 `vision === 1` → 直接返回（零回归基线）。 */
+        this._drawWeatherVeil(x);
 
         this._drawHUD(x);
         this._drawTracker(x);
@@ -1517,6 +1516,36 @@
         wg.addColorStop(1, 'rgba(255,170,90,0)');
         x.fillStyle = wg;
         x.fillRect(0, 0, 480, 272);
+      },
+
+      /* 天气视野压制（v1.1.0，用户口径「雨雪降低视野」）：
+         以玩家为中心收窄一圈"看得清"的范围，外面压上雨/雪的雾色。
+         ⚠️ **晴天直接返回**（`vision === 1`）—— 保证不改晴天下的任何像素（零回归基线）。
+         ⚠️ 半径不是"硬边圆圈"：用**两段渐变**（内圈透明 → 中圈半透 → 外圈实）
+            才像"能见度下降"，单段硬边会像"戴了个望远镜"。
+         ⚠️ 洞窟/室内**没有天气**（`weatherId()` 返回 none → vision=1）→ 自然不画。 */
+      _drawWeatherVeil: function (x) {
+        var vs = G.game.visionScale ? G.game.visionScale() : 1;
+        if (vs >= 0.995) return;                       /* 晴天 / 无天气：零回归 */
+        var pp = this._px();
+        var camX = this._camX(), camY = this._camY();
+        var sx = pp.x - camX, sy = pp.y - camY;
+        /* 基准可视半径 190 → 按天气倍率收缩（瘴气 0.58 → 110） */
+        var R = 190 * vs;
+        /* 雾色按天气取（雨=冷灰蓝、雪=亮白、瘴气=黄绿）—— 与粒子同源，读起来一致 */
+        var wx = G.game._weatherFor ? G.game._weatherFor(this.mapId) : null;
+        var col = '150,168,196';                       /* 默认冷灰 */
+        if (wx && wx.id === 'snow') col = '226,236,248';
+        else if (wx && wx.id === 'miasma') col = '140,164,96';
+        else if (wx && wx.id === 'storm') col = '120,134,162';
+        x.save();
+        var rg = x.createRadialGradient(sx, sy, R * 0.30, sx, sy, R);
+        rg.addColorStop(0, 'rgba(' + col + ',0)');
+        rg.addColorStop(0.55, 'rgba(' + col + ',0.30)');
+        rg.addColorStop(1, 'rgba(' + col + ',0.62)');
+        x.fillStyle = rg;
+        x.fillRect(0, 0, 480, 272);
+        x.restore();
       },
 
       /* 室内环境光：中心偏暖，四周压暗；比野外暗幕轻得多，不挡视线。
