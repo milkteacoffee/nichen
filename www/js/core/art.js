@@ -594,11 +594,37 @@
   }
 
   /* ---------- 草地 ---------- */
+  /* ⚠️ v1.9.0 起，程序化地面改成"等距斜向瓦片"：
+     原来的"草叶散点"是无方向性的噪声，等距下旋转成"斜向噪声"看不出瓦片感。
+     现在画"格线 + 中央微图案"——旋转 45° 后就是清晰的菱形瓦片地面。
+     等距下：每格中央有一个微亮的"瓦片芯"，格线暗 → 旋转后是菱形/尖角指向地平线。 */
   function gGrass(x, pal) {
     var TS = GTS, r = rnd(9001), base = pal.ground;
     x.fillStyle = base; x.fillRect(0, 0, TS, TS);
+    /* 草地底噪点：保持（等距下会跟着旋转，远处像风过的草色） */
     speckle(x, TS, base, 5, 12, 4, 0.13, -0.15, 0.08, 0.46);
     patches(x, TS, base, r, 30, 8, 30, 0.85);
+
+    /* 等距斜向瓦片：24×24 世界像素格 × 3×3 = 216（与 TS 对齐）。
+       每格画一个"中央微亮+边缘暗"的小方块 → 经等距矩阵旋转成菱形瓦片。 */
+    var CELL = 24;
+    for (var cy = 0; cy < TS; cy += CELL) {
+      for (var cx = 0; cx < TS; cx += CELL) {
+        /* 边缘 1px 暗线（瓦片缝）—— 经等距矩阵后变成"菱形缝" */
+        x.fillStyle = alpha(shade(pal.dark, 0.18), 0.42);
+        x.fillRect(cx, cy, CELL, 1);
+        x.fillRect(cx, cy, 1, CELL);
+        /* 中心 6×6 略亮（瓦片芯）—— 让格有"块"感（不被纹路淹没） */
+        x.fillStyle = alpha(shade(base, 0.10), 0.18);
+        x.fillRect(cx + (CELL - 6) / 2, cy + (CELL - 6) / 2, 6, 6);
+      }
+    }
+    /* 一小撮随机斑（让瓦片间有微差，不是死板的均匀格） */
+    for (var p = 0; p < 8; p++) {
+      var px = r() * TS, py = r() * TS;
+      x.fillStyle = alpha(r() > 0.5 ? shade(pal.grass, 0.20) : shade(pal.dark, 0.05), 0.25);
+      blob(x, px, py, 2 + r() * 2, 1);
+    }
 
     /* 草叶：样式在生成时算好，绘制时不再拼字符串 */
     var blades = [];
