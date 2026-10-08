@@ -28,6 +28,43 @@
         ground[y][x] = { t: md.ground, v: rng.int(0, 5) };
       }
     }
+    /* ===== 地形高度场（v1.4.0，用户口径「场景里没有区分道路上坡下坡」）=====
+       **设计：不引入 3D，只给每格一个 `elev`（0/1/2 三档）** ——
+       与《宝可梦》的 elevation、《烟雨江湖》的高度层同一个思路：
+       落差**靠美术表达**（崖壁/坡道瓦片），逻辑上仍是 2D 格。
+       ⚠️ **寻路完全不动**：`elev` 不参与 `solid` / `_astar` ——
+          高度差不阻断通行（玩家能走上去），只影响**画出来的样子**。
+          这是刻意的：把高度塞进连通性判定会牵动 A*、可达性契约与 50+ 条回归。
+       ⚠️ **确定性**：用"世界种子 + 地图 id + 格子坐标"的哈希，**不用 `rng`** ——
+          用 rng 会推移全局随机序列、污染所有依赖 rng 的回归基线（项目老坑）。
+       ⚠️ 数据源是**已有的** `terr` 字段（plain/peak/ridge/valley/moor/cave…），
+          不新造地形概念：`terr` 决定这一带"该有多起伏"，坐标哈希决定"具体哪格高"。 */
+    var ELEV_AMP = {
+      plain: 0, town: 0, floor: 0,        /* 平地 / 城镇 / 室内：**恒 0**（零回归） */
+      valley: 1, moor: 1, marsh: 1,       /* 缓起伏 */
+      ridge: 2, peak: 2, hill: 2,         /* 明显高低差 */
+      cave: 1, bloodcave: 1               /* 洞窟：洞内小起伏 */
+    };
+    var terr = md.terr || (md.safe ? 'plain' : 'plain');
+    var amp = ELEV_AMP[terr] != null ? ELEV_AMP[terr] : 0;
+    /* 手写图（town/yunzhou/field/cave/bloodhall）没有 `terr` → amp=0 → 恒平地，
+       **保证既有地图逐像素不变**（这是零回归的闸）。 */
+    function elevAt(x, y) {
+      if (amp <= 0) return 0;
+      /* 三档高度的"块状"分布：先用 4×4 粗格决定大块高度，再用细坐标做边界抖动 ——
+         纯逐格哈希会让相邻格高高低低像"马赛克"，人是走在**坡面**上而不是格阵上。 */
+      var bx = Math.floor(x / 4), by = Math.floor(y / 4);
+      var h1 = hashStr(save.worldSeed + ':' + mapId + ':e' + bx + ',' + by) / 4294967296;
+      var e = Math.floor(h1 * (amp + 1));
+      if (e > amp) e = amp;
+      return e;
+    }
+    for (var ey = 0; ey < h; ey++) {
+      for (var ex = 0; ex < w; ex++) {
+        var ev = elevAt(ex, ey);
+        if (ev) ground[ey][ex].elev = ev;      /* 0 不写字段（省内存，且"没有=平地"） */
+      }
+    }
     var occupied = {};
     function mark(x, y) { occupied[x + ',' + y] = true; }
     function isMarked(x, y) { return !!occupied[x + ',' + y]; }

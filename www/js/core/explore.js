@@ -13,6 +13,10 @@
         一旦有地方漏改，表现是"只有那一样东西位置错"（静默、难查）。
         `TILE.contract` 会扫源码闸拦裸 16。 */
   var TILE = 24;
+  /* 地形高度：每档抬升多少像素（v1.4.0）。
+     1/3 格（8px）是"看得出坡、又不至于把格子错得认不出网格"的实测甜点 ——
+     取半格（12px）会让相邻格看起来"断开"，取太小（4px）则读不出层级。 */
+  var ELEV_STEP = 8;
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
   var HUD_H = 48;                         /* 顶栏高度：渲染与版位常量；onTap 不再整段挡（v0.11.2 改） */
   var BOT_H = 28;                         /* 底栏高度：同上，渲染用，不再整段挡 */
@@ -854,6 +858,11 @@
            这一趟仍关平滑：源层按 K 烘、目标按 S 画，K===S 时就是 1:1 像素搬运。 */
         this._drawGroundLayer(x, camX, camY);
 
+        /* 地形高度（v1.4.0）：抬升的格块 + 崖壁。
+           位置：**铺地之上、明暗之下** —— 它是"地面的一部分"，
+           要被 `_drawShade` 一起压暗才不显得浮。 */
+        this._drawElevation(x, camX, camY);
+
         /* 整屏大尺度明暗（在铺地之上、建筑之下） */
         this._drawShade(x, this._baseType(), this._pal(), camX, camY);
 
@@ -1244,6 +1253,107 @@
             0, 0, 480, 272);
         }
         x.imageSmoothingEnabled = !!this.smooth;
+      },
+
+      /* ===== 地形高度的逐格绘制（v1.4.0）=====
+         玩家口径：「场景里没有区分道路上坡下坡，想想《烟雨江湖》的上坡下坡、
+                   《宝可梦》的瓦片分层」。
+         **做法不引入 3D**：每格有 `elev`（0/1/2），绘制时整格**上移 `elev*STEP` px**，
+         并在**朝南的落差边**画一道崖壁（`_drawCliff`）—— 这正是宝可梦 GBA 的手法。
+         ⚠️ 只对**有高度的图**生效：`_elevMax() === 0` 时**整段跳过**，
+            手写图（town/field/…）逐像素不变（零回归）。
+         ⚠️ 绘制顺序：**从低到高**（先画 elev 小的）—— 高地后画才会压住低地的崖壁，
+            反过来高地会被低地盖住（成了"坑"而不是"台"）。
+         ⚠️ 地面整层 `_groundLayer` 已经画过一遍平铺底，这里是在它之上**再叠**
+            抬升后的格块 —— 所以底层会透出一点，正好当"坡地的阴影面"。 */
+      _drawElevation: function (x, camX, camY) {
+        var emax = this._elevMax();
+        if (!emax) return;
+        var m = this.map, pal = this._pal();
+        var base = G.Art.groundTex(this._baseType(), pal, m.md.tex);
+        var TS = G.Art.GROUND_TS;
+        /* 视口范围（多留 2 格余量：高度会把格块往上推，边缘那几格仍要画） */
+        var x0 = Math.max(0, Math.floor(camX / TILE) - 1);
+        var x1 = Math.min(m.w - 1, Math.ceil((camX + 480) / TILE) + 1);
+        var y0 = Math.max(0, Math.floor(camY / TILE) - 1);
+        var y1 = Math.min(m.h - 1, Math.ceil((camY + 272) / TILE) + 4);
+        /* 按 elev 分层画：低 → 高 */
+        for (var lv = 1; lv <= emax; lv++) {
+          for (var ty = y0; ty <= y1; ty++) {
+            for (var tx = x0; tx <= x1; tx++) {
+              var g = m.ground[ty][tx];
+              if ((g.elev || 0) !== lv) continue;
+              var px = tx * TILE - camX;
+              var py = ty * TILE - camY - lv * ELEV_STEP;
+              /* 格块：从周期大纹理按世界坐标取子块（与底层同一位置 → 接缝连续） */
+              var sx = ((tx * TILE) % TS + TS) % TS;
+              var sy = ((ty * TILE) % TS + TS) % TS;
+              G.Art.groundBlit(x, g.t === 'path' ? 'path' : this._baseType(),
+                pal, sx, sy, px, py);
+              /* 崖壁/坡道：朝南（+y）若是低地或边界，画落差面 */
+              var sN = (ty + 1 > m.h - 1) ? null : m.ground[ty + 1][tx];
+              var sE = (sN === null) ? 0 : (sN.elev || 0);
+              if (sE < lv) {
+                this._drawCliff(x, px, py + TILE, TILE, (lv - sE) * ELEV_STEP, pal);
+              }
+            }
+          }
+        }
+      },
+
+      /* 崖壁：一格宽的竖向落差面 —— 读起来是"土坡/岩壁的截面"。
+         三层结构（与 2.5D 建筑的"落地投影 + 墙脚基座"同一套语言）：
+           · 主体    `pal.dark`（比地面暗一档的**土色**，不是把 ground 直接调暗 ——
+                     草地绿调暗会变橄榄色，在草地上像"砖块"）
+           · 顶部亮边 受光面（与地面相接处那条线，"台"靠它读出来）
+           · 底部暗边 与下层地面接壤的阴影
+         ⚠️ 基座色取 `pal.dark` 而不是 `shade(pal.ground, -0.3)`：
+            后者在绿地上会算出偏红棕的色，像贴了块砖。 */
+      _drawCliff: function (x, px, py, w, hgt, pal) {
+        if (hgt <= 0) return;
+        x.save();
+        /* 主体：土层暗色（用 pal.dark —— 它本来就是"这一带地面的暗部"） */
+        x.fillStyle = pal.dark || G.Art.shade(pal.ground, -0.30);
+        x.fillRect(px, py, w, hgt);
+        /* 顶部亮边：与地面相接处受光 */
+        var topH = Math.max(1, Math.round(hgt * 0.22));
+        x.fillStyle = G.Art.shade(pal.ground, 0.10);
+        x.fillRect(px, py, w, topH);
+        /* 底部暗边：与下一层地面接壤的阴影 */
+        var botH = Math.max(1, Math.round(hgt * 0.30));
+        x.fillStyle = G.Art.shade(pal.dark, -0.34);
+        x.fillRect(px, py + hgt - botH, w, botH);
+        /* 竖向纹理：2 道（按坐标派生，确定） —— 纯色块太"塑料"，
+           竖纹让它读成"被冲刷出的土壁"。 */
+        x.fillStyle = G.Art.shade(pal.dark, -0.20);
+        var h1 = ((px * 73856093) ^ (py * 19349663)) >>> 0;
+        if (hgt >= 5) {
+          x.fillRect(px + (h1 % 5) + 2, py + topH, 1, Math.max(1, hgt - topH - botH));
+          x.fillRect(px + (h1 % 7) + 9, py + topH, 1, Math.max(1, hgt - topH - botH));
+        }
+        x.restore();
+      },
+
+      /* 该图的最大高度（0 = 纯平地，直接跳过整个高度层） */
+      _elevMax: function () {
+        var m = this.map;
+        if (this._elevMaxCache != null && this._elevMaxKey === this.mapId) return this._elevMaxCache;
+        var mx = 0;
+        for (var y = 0; y < m.h; y++)
+          for (var x = 0; x < m.w; x++) {
+            var e = m.ground[y][x].elev || 0;
+            if (e > mx) mx = e;
+          }
+        this._elevMaxCache = mx; this._elevMaxKey = this.mapId;
+        return mx;
+      },
+
+      /* 该格的高度偏移（供角色/物件绘制用；无高度图返回 0） */
+      _elevAt: function (tx, ty) {
+        var m = this.map;
+        if (!(this._elevMax() > 0)) return 0;
+        var g = m.ground[ty] && m.ground[ty][tx];
+        return ((g && g.elev) || 0) * ELEV_STEP;
       },
 
       /* 单个路格：路面纹理块 + 与基础地面交界处的路缘镶边。

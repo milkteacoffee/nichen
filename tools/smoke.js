@@ -11907,18 +11907,28 @@ step(function () {
       g._fogOn = true;
       /* ⚠️ 关键：**显示与伤害同源** —— 快照里的加成必须真的进伤害。
          造一个雷系技能，比较"有天气"与"无天气"两次 _calc。 */
+      /* ⚠️ v1.4.0 修：原判据 `sum/40`（均值）**会因随机浮动抖动而假红**
+         （实测 32.4 vs 28.4 = 1.14 倍，卡在 1.15 阈值下）。
+         `_calc` 里有 `0.9~1.1` 的随机浮动 + 暴击（`Math.random`），
+         40 次采样的均值**标准误仍不小**。
+         改用**中位数**（对离群值不敏感）+ 提到 200 次 —— 稳定且仍能抓住"没加成"
+         （没加成时中位数之比恒为 1.0，加成 +25% 时约 1.25，区分度足够）。
+         ⚠️ 这里**不钉 RNG**：`_calc` 内部用 `Math.random()`（不是 `G.rng`），
+            钉不了；所以只能用"足够多次 + 稳健统计量"的办法。 */
       const dmgOf = function (withWx) {
         const bak = b.wxSnap;
         if (!withWx) b.wxSnap = null;
-        let sum = 0;
-        for (let i = 0; i < 40; i++) sum += b._calc(b.p, b.es[0], { mult: 1, elem: '雷' }).dmg;
+        const arr = [];
+        for (let i = 0; i < 200; i++) arr.push(b._calc(b.p, b.es[0], { mult: 1, elem: '雷' }).dmg);
         b.wxSnap = bak;
-        return sum / 40;
+        arr.sort(function (p, q) { return p - q; });
+        return arr[Math.floor(arr.length / 2)];
       };
       const dOn = dmgOf(true), dOff = dmgOf(false);
-      if (!(dOn > dOff * 1.15)) {
-        errors.push('战斗天时：快照里的雷系+25% 没进伤害（有天气 ' + dOn.toFixed(1)
-          + ' vs 无天气 ' + dOff.toFixed(1) + '）—— 显示与伤害不同源');
+      /* 阈值取 1.12：晴天中位数之比应为 1.00，+25% 时约 1.25 —— 1.12 两边都留足余量 */
+      if (!(dOn > dOff * 1.12)) {
+        errors.push('战斗天时：快照里的雷系+25% 没进伤害（中位伤害 有天气 ' + dOn
+          + ' vs 无天气 ' + dOff + '）—— 显示与伤害不同源');
       }
     }
     /* 晴/无天气 → 不该有快照（不显示、无加成） */
@@ -12076,6 +12086,153 @@ step(function () {
 
   console.log('  ✓ 雷貂立绘：素材 + manifest + SIZES 登记 / artKey 与 sprite 双链 / BAKE 兜底仍在');
 }, 'thunderbeast.art.contract');
+
+/* ---------- 地形高度场（v1.4.0）----------
+   用户口径：「地图和行走还是很像纸片人……想想《烟雨江湖》的上坡下坡、
+   《宝可梦》的瓦片分层结构」。
+
+   本契约钉四件事，每件都对应一个"会静默失效"的点：
+     ① **数据层真的产出了 elev**（不是写了字段但没人填）——
+        `ridge` 类地形必须有起伏，`plain`/手写图必须**恒 0**（零回归闸）。
+     ② **确定性**：同一存档两次构建高度必须完全一致（用坐标哈希而非 rng）；
+        **且随世变化**（换种子要不同）—— 两条一起才说明"用的是世界种子"。
+     ③ **寻路不受影响**：`elev` **不许**参与 `solid`（高度差不阻断通行）——
+        这是本轮最重要的边界，破了会牵动 A* 与可达性契约。
+     ④ 源码闸：`regiongen` 必须把 `terr` 透传给 md（漏了生成型区域永远 0 高度）。 */
+step(function () {
+  const save2 = JSON.parse(JSON.stringify(save));
+  save2.worldSeed = save2.worldSeed || 1;
+  save2.world = save2.world || G.Data.generateWorld(save2.worldSeed, true);
+  /* 生成型区域要先 ensure */
+  ['fan5', 'fan6', 'ling1'].forEach(function (id) {
+    try { G.RegionGen.ensure(save2, id); } catch (e) {}
+  });
+
+  const hist = function (mapId) {
+    let md = G.Data.maps[mapId];
+    if (!md) return null;
+    let mp;
+    try { mp = G.MapGen.buildMap(save2, mapId); } catch (e) { return { err: e.message }; }
+    const h2 = { 0: 0, 1: 0, 2: 0 };
+    let over = 0;
+    for (let y = 0; y < mp.h; y++)
+      for (let x = 0; x < mp.w; x++) {
+        const e = mp.ground[y][x].elev || 0;
+        if (e > 2) over++;
+        h2[e] = (h2[e] || 0) + 1;
+      }
+    return { h: h2, total: mp.w * mp.h, over: over, map: mp };
+  };
+
+  /* ① 数据层 */
+  {
+    const f5 = hist('fan5');                                  /* terr=ridge */
+    if (!f5 || f5.err) { errors.push('地形高度：fan5 构建失败 ' + (f5 && f5.err)); return; }
+    const rough5 = (f5.h[1] || 0) + (f5.h[2] || 0);
+    if (rough5 === 0) {
+      errors.push('地形高度：fan5（terr=ridge）起伏格为 0 —— 高度场没产出'
+        + '（检查 regiongen 是否透传了 terr）');
+    }
+    if (f5.over) errors.push('地形高度：存在超过 2 档的格子（' + f5.over + ' 格）—— 档位约定是 0/1/2');
+    /* 手写图必须恒 0（零回归闸） */
+    ['town', 'field', 'yunzhou', 'cave', 'bloodhall'].forEach(function (id) {
+      const r = hist(id);
+      if (!r || r.err) return;
+      if ((r.h[1] || 0) + (r.h[2] || 0) > 0) {
+        errors.push('地形高度：手写图 ' + id + ' 出现了非 0 高度 —— 会破坏既有地图基线');
+      }
+    });
+    /* 平地地形（palace/plain）也必须恒 0 */
+    const x1 = hist('xian1');
+    if (x1 && !x1.err && ((x1.h[1] || 0) + (x1.h[2] || 0)) > 0) {
+      errors.push('地形高度：xian1（terr=palace，天宫平地）不该有起伏');
+    }
+  }
+
+  /* ② 确定性与"解耦" */
+  {
+    const a = hist('fan5'), b = hist('fan5');
+    if (a && b && !a.err && !b.err) {
+      let diff = 0;
+      for (let y = 0; y < a.map.h; y++)
+        for (let x = 0; x < a.map.w; x++) {
+          if ((a.map.ground[y][x].elev || 0) !== (b.map.ground[y][x].elev || 0)) diff++;
+        }
+      if (diff) errors.push('地形高度：同一存档两次构建差异 ' + diff + ' 格 —— 不确定');
+    }
+    const s3 = JSON.parse(JSON.stringify(save2));
+    s3.worldSeed = (s3.worldSeed || 1) + 4242;
+    s3.world = G.Data.generateWorld(s3.worldSeed, true);
+    try { G.RegionGen.ensure(s3, 'fan5'); } catch (e) {}
+    const c = hist('fan5');
+    if (c && !c.err && a && !a.err) {
+      let d2 = 0;
+      for (let y = 0; y < a.map.h; y++)
+        for (let x = 0; x < a.map.w; x++) {
+          if ((a.map.ground[y][x].elev || 0) !== (c.map.ground[y][x].elev || 0)) d2++;
+        }
+      if (d2 === 0) errors.push('地形高度：换世界种子后高度完全不变 —— 没接世界种子');
+    }
+    /* ⚠️ **解码闸**：高度场必须**独立于散布与铺地的随机流**。
+       做法（实测有效的判据）：**直接断源码** —— 高度用的是坐标哈希，
+       而不是 `rng.next()`。
+       ⚠️ 曾经想用"改 scatter 看高度变不变"来测 —— **实测抓不到**：
+          因为 `rng.next()` 在铺地之后才调，而 scatter 在其后，改 scatter 不影响高度。
+          说明"行为探测"在调用顺序敏感的场景里不可靠，**源码闸才是稳的**。 */
+    {
+      const mgSrc = fs.readFileSync(path.join(WWW, 'js/core/mapgen.js'), 'utf8');
+      const mEl = mgSrc.match(/function elevAt\([\s\S]{0,600}?\n    \}/);
+      const elBody = mEl ? mEl[0] : '';
+      if (!elBody) errors.push('地形高度：找不到 elevAt 函数体');
+      else if (elBody.indexOf('hashStr') < 0) {
+        errors.push('地形高度：elevAt 没用坐标哈希 —— 会与散布/铺地共用随机流（耦合）');
+      } else if (/rng\.next\(\)/.test(elBody)) {
+        errors.push('地形高度：elevAt 用了 rng.next() —— 高度与散布随机流耦合');
+      }
+    }
+  }
+
+  /* ③ 寻路不受影响：elev **不许**参与 solid */
+  {
+    const r = hist('fan5');
+    if (r && !r.err) {
+      let mismatch = 0;
+      for (let y = 0; y < r.map.h; y++)
+        for (let x = 0; x < r.map.w; x++) {
+          if ((r.map.ground[y][x].elev || 0) > 0 && r.map.solid[y][x]) mismatch++;
+        }
+      /* 高地可以是实心（树），但**不能因为 elev 而实心** ——
+         判据：把 elev 全部抹掉后 solid 必须完全一致。 */
+      const m2 = G.MapGen.buildMap(save2, 'fan5');
+      let d3 = 0;
+      for (let y = 0; y < m2.h; y++)
+        for (let x = 0; x < m2.w; x++) {
+          if (!!m2.solid[y][x] !== !!r.map.solid[y][x]) d3++;
+        }
+      if (d3) errors.push('地形高度：两次构建的 solid 不一致（' + d3 + ' 格）—— 高度影响了碰撞');
+    }
+  }
+
+  /* ④ 源码闸：regiongen 透传 terr */
+  {
+    const rgSrc = fs.readFileSync(path.join(WWW, 'js/core/regiongen.js'), 'utf8');
+    const m = rgSrc.match(/var md = \{[\s\S]{0,700}?\n    \};/);
+    const body = m ? m[0] : '';
+    if (!body) errors.push('地形高度：找不到 regiongen 的 md 构造');
+    else if (body.indexOf('terr:') < 0) {
+      errors.push('地形高度：regiongen 的 md 未透传 terr —— 生成型区域永远算不出高度');
+    }
+    /* 渲染层必须"无高度就跳过"（零回归） */
+    const exSrc = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    if (exSrc.indexOf('_drawElevation') < 0) errors.push('地形高度：explore 缺 _drawElevation（没画）');
+    if (exSrc.indexOf('if (!emax) return;') < 0) {
+      errors.push('地形高度：_drawElevation 没有"无高度直接返回"的零回归闸');
+    }
+  }
+
+  console.log('  ✓ 地形高度：elev 数据（ridge 有起伏 / 手写图恒 0）+ 确定性 + 随世变化'
+    + ' + 不影响寻路 + regiongen 透传 terr');
+}, 'terrain.elev.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

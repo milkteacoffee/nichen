@@ -291,6 +291,10 @@
       id: regionId, regionId: regionId, n: rn, label: rn,
       tex: regionId,   /* 区域专属底图键（ground.<regionId>） */
       w: w, h: h, ground: r.ground, safe: !!r.safe,
+      /* ⚠️ v1.4.0：把**地形语义**透传给 `mapgen` —— 它用它决定高度场振幅
+         （`ridge`/`peak` 起伏大、`plain` 恒平地）。漏了这行 → 生成型区域
+         永远算不出高度（实测 `terr=ridge` 也全是 0）。 */
+      terr: r.terr,
       zones: r.zones || [],
       structures: structures, paths: [], fences: [],
       pal: pal,
