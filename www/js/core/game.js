@@ -76,6 +76,9 @@
        取值：地板 **3**（1440×816，1080p 上仍清晰；2 倍明显糊，不再允许）；
              天花板 **4**（1920×1088）—— 实测甜点，再往上纯粹拿帧率换像素。 */
     MIN_S: 3, MAX_S: 4,
+    /* 氛围层（雾 + 昼夜色温）开关。初始开；帧率不足时由 _autoQuality 先关它、
+       再降分辨率（氛围是锦上添花，分辨率是可读性）。 */
+    _fogOn: true,
     S: 3,   // 内部分辨率倍率（逻辑坐标仍为 480×272）
 
     /* ===== 打击感系统（v0.76.0 阶段一）===== */
@@ -179,7 +182,18 @@
       var dm = this._drawMsEma;
       var lowFps = this.fps > 0 && this.fps < this.targetFps * 0.65;
       var plenty = dm > 0 && dm < 3.0;
-      if ((dm > 8.0 || lowFps) && this.S > this.MIN_S) this._setS(this.S - 1);
+      /* ⚠️ 降档**优先级**：先丢"氛围层"（雾/色温），再降分辨率。
+         理由：氛围层是**锦上添花**（没有它画面依然完整），而分辨率是**可读性**
+         （降到 S=2 字就糊了）。所以帧率不足时先关雾保帧率，
+         而不是一上来就把画面调糊 —— "电影感"不如"看清"重要。 */
+      if (lowFps) {
+        if (this._fogOn !== false) { this._fogOn = false; return; }
+        if (this.S > this.MIN_S) { this._setS(this.S - 1); return; }
+      } else if (plenty && this.fps > this.targetFps * 0.9) {
+        /* 帧率充裕 → 先把雾加回来，再谈升分辨率 */
+        if (this._fogOn === false) { this._fogOn = true; return; }
+      }
+      if (dm > 8.0 && this.S > this.MIN_S) this._setS(this.S - 1);
       else if (plenty && !lowFps && this.S < this.MAX_S) this._setS(this.S + 1);
     },
     _setS: function (q) {
@@ -346,6 +360,11 @@
       if (this.scene.render) this.scene.render(x);
       /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过） */
       this._renderAmbient(x);
+      /* 昼夜色温 + 体积雾**不在这里挂载** ——
+         它们在 `explore.render` 的"世界层收口处"（`_zoom` 恢复之后、`_drawHUD` 之前）调用。
+         原因：`_drawHUD` 是**场景内部**方法，也在 `scene.render()` 之内；
+         挂在这里会把 HUD（气血条、资源数字）一起染色 —— 实测夜晚整条 HUD 偏蓝读不清。
+         色温要染的是"世界"，不是"界面"。 */
       if (_tDraw) {
         var dms = (performance.now() - _tDraw) / 1000;
         if (dms > 0 && dms < 0.5) {                /* 夹掉切场景/首帧的离群点 */
@@ -488,6 +507,194 @@
         x.beginPath(); x.arc(xx, yy, p.r, 0, 6.2832); x.fill();
       }
       x.restore();
+    },
+
+    /* ===== 昼夜色温（v0.99.0，用户口径「动态光照 / 日夜光照色温变化」）=====
+       数据源：`G.Time.cal(save).h`（0..23 游戏小时）—— **本来就有**，
+       只是从没用于画面（HUD 只显示到"月"）。
+       ⚠️ 时间只在**打坐 / 战斗**推进，行走不推进 ——
+          所以这是"场景静止、天光在变"：玩家闭关一次可能天就黑了。
+       强度用户选了**极强（电影感）**：夜晚真的暗下来、黄昏真的橙。
+       ⚠️ **只染世界层**（这个函数在 scene.render 之后、UI 之前）——
+          面板/对话/toast 必须保持中性白，否则读不清（截图里那种"整个屏幕发蓝"很难看）。
+       ⚠️ 室内（`md.indoor`）与洞窟**不染色温**：见不到天的地方不该有天光，
+          它们各走自己的暗幕（`_drawVeil` / `_ensureIndoor`）。 */
+    _dayTintAt: function (h) {
+      /* 关键帧：h → [r,g,b,alpha]。用**两段插值**（跨午夜要绕回）。
+         ⚠️ 全部走固定关键帧、不用随机 —— 截图与契约才钉得住。 */
+      var KF = [
+        [0,  46, 62, 118, 0.46],   /* 子夜 · 冷蓝，很暗 */
+        [4,  54, 68, 126, 0.42],   /* 拂晓前 */
+        [5.5, 128, 108, 130, 0.34],/* 微明（加一帧，避免日出段"说亮就亮"） */
+        [7,  236, 158, 96, 0.24],  /* 日出 · 橙金 */
+        [8.5, 250, 206, 158, 0.14],/* 晨（再补一帧，收敛更缓） */
+        [10, 255, 240, 208, 0.06], /* 上午 · 微暖 */
+        [12, 255, 252, 240, 0.00], /* 正午 · 中性（零染色，作为基线） */
+        [15, 255, 240, 208, 0.06], /* 下午 */
+        [17, 248, 178, 108, 0.20], /* 黄昏 · 橙 */
+        [18.5, 226, 138, 98, 0.32],/* 日落 · 红（补帧） */
+        [20, 120, 104, 134, 0.40], /* 入夜 */
+        [22, 62, 78, 128, 0.45],   /* 夜 */
+        [24, 46, 62, 118, 0.46]    /* 回到子夜（与 h=0 同值，保证连续） */
+      ];
+      h = ((h % 24) + 24) % 24;
+      for (var i = 0; i < KF.length - 1; i++) {
+        var a = KF[i], b = KF[i + 1];
+        if (h >= a[0] && h <= b[0]) {
+          var u = (b[0] === a[0]) ? 0 : (h - a[0]) / (b[0] - a[0]);
+          /* 平滑（smoothstep）—— 线性会让"天说黑就黑"，很硬 */
+          u = u * u * (3 - 2 * u);
+          return [Math.round(a[1] + (b[1] - a[1]) * u),
+            Math.round(a[2] + (b[2] - a[2]) * u),
+            Math.round(a[3] + (b[3] - a[3]) * u),
+            a[4] + (b[4] - a[4]) * u];
+        }
+      }
+      return [255, 255, 255, 0];
+    },
+    /* 供契约/探针查当前色温（不依赖渲染） */
+    dayTint: function () {
+      var s = this.save;
+      if (!s || !G.Time || !G.Time.cal) return [255, 255, 255, 0];
+      return this._dayTintAt(G.Time.cal(s).h);
+    },
+    _renderDayTint: function (x) {
+      if (this._overlayOpen()) return;              /* 面板打开时不染（读信息优先） */
+      if (this._fogOn === false) return;            /* 与雾同生共死（同属氛围层） */
+      if (!this.save || !G.Time || !G.Time.cal) return;
+      var sc = this.scene;
+      /* 室内/洞窟：见不到天，不染 */
+      var md = sc && sc.map && sc.map.md;
+      if (md && (md.indoor || md.ground === 'cave' || md.ground === 'bloodcave')) return;
+      var t = this._dayTintAt(G.Time.cal(this.save).h);
+      if (!(t[3] > 0.001)) return;                  /* 正午零染色 = 零回归基线 */
+      x.save();
+      /* `multiply` 不做 —— 它会把画面压到全黑；用 source-over 的半透明色纱，
+         配合一个 `overlay` 的暖/冷分量，才能既染色又保住明暗层次。 */
+      x.globalCompositeOperation = 'source-over';
+      x.fillStyle = 'rgba(' + t[0] + ',' + t[1] + ',' + t[2] + ',' + t[3].toFixed(3) + ')';
+      x.fillRect(0, 0, this.W, this.H);
+      x.restore();
+    },
+
+    /* ===== 体积雾（v0.99.0，用户口径「体积雾」）=====
+       与 `_renderAmbient`（漂浮光点/落花）是**两层不同的东西**：
+         · ambient = 亮的小粒子（萤火、雪、落花）→ 加性叠加
+         · 这一层 = **大团半透明雾**，随时间缓慢流动 → 压对比、出纵深
+       ⚠️ 走**固定种子** —— 随机会让截图钉不住。
+       ⚠️ 洞窟/室内不铺（那里有暗幕，再叠雾就全糊了）。
+       ⚠️ **雾团必须预烘**（v0.99.0 实测教训）：原先每帧对每团现算
+          `createRadialGradient` —— ling1 有 9 团、半径 ~170，S=4 下那是
+          9 次大半径渐变求值，绘制 EMA 从 5.3ms 涨到 **9.35ms**（超 8ms 阈值）。
+          改成"一张雾团纹理 + 按半径缩放 blit"后回到 ~1ms。 */
+    /* ===== 体积雾（v0.99.0，用户口径「体积雾」）=====
+       与 `_renderAmbient`（漂浮光点/落花）是**两层不同的东西**：
+         · ambient = 亮的小粒子（萤火、雪、落花）→ 加性叠加
+         · 这一层 = **大团半透明雾**，随时间缓慢流动 → 压对比、出纵深
+
+       ⚠️⚠️ **实现方式是实测逼出来的**（v0.99.0，别改回去）：
+       最初每帧对每团现算 `createRadialGradient` + `arc fill` ——
+       9 团大半径（~170px）在 S=4 下极贵。
+       改成"128×128 雾团纹理 + 按半径缩放 blit"**更糟**：
+       ling1 的绘制 EMA 从 5.3ms 涨到 **12~19ms**，帧率从 311 掉到 **57**。
+       真因是**非 1:1 的缩放采样**（128→340，CPU 双线性）比"只在圆内求值渐变"贵得多。
+       ⚠️ 教训：**"预烘纹理 + 缩放 blit" 不是无条件的优化** ——
+          当缩放倍率大、团数多、又没 GPU 时，它比直接画渐变还慢。
+
+       最终方案：**整片雾预烘成一张可平铺的层**，每帧只做
+       **两个整数偏移的 1:1 blit**（无缩放采样、无渐变求值）。
+       代价是雾的形状不再逐帧变化，只在**相位上平移** —— 视觉上完全够用
+       （雾本来就该"缓慢流动"，而不是"每团独立呼吸"）。 */
+    _fogLayer: function () {
+      var K = G.Art.K || 3;
+      var key = 'fog|' + this.sceneName + '|' + K;
+      if (this._fogLayerC && this._fogLayerKey === key) return this._fogLayerC;
+      var F = this._fogFor(this.sceneName);
+      if (!F || !F.ps.length) { this._fogLayerC = null; this._fogLayerKey = key; return null; }
+      /* 层比视口稍大：留出平移余量，避免边缘露白 */
+      var lw = this.W + 160, lh = this.H + 80;
+      var o = G.Art.cv(lw, lh);
+      var g = o.x;
+      g.globalCompositeOperation = 'source-over';
+      for (var i = 0; i < F.ps.length; i++) {
+        var p = F.ps[i];
+        var rg = g.createRadialGradient(p.x, p.y, 2, p.x, p.y, p.r);
+        var ca = F.col;
+        rg.addColorStop(0, 'rgba(' + ca + ',' + p.a.toFixed(3) + ')');
+        rg.addColorStop(0.55, 'rgba(' + ca + ',' + (p.a * 0.5).toFixed(3) + ')');
+        rg.addColorStop(1, 'rgba(' + ca + ',0)');
+        g.fillStyle = rg;
+        g.beginPath(); g.arc(p.x, p.y, p.r, 0, 6.2832); g.fill();
+      }
+      this._fogLayerC = o.c; this._fogLayerKey = key;
+      return o.c;
+    },
+    _renderFog: function (x) {
+      if (this._overlayOpen()) return;
+      if (this._fogOn === false) return;            /* 帧率不足时自动降级（见 _autoQuality） */
+      var sc = this.scene;
+      var md = sc && sc.map && sc.map.md;
+      if (md && (md.indoor || md.ground === 'cave' || md.ground === 'bloodcave')) return;
+      var layer = this._fogLayer();
+      if (!layer) return;
+      var lw = layer.width, lh = layer.height;
+      /* 缓慢平移（整数、取模 → 无缝绕回）。
+         ⚠️ **只画可见的那一小块**（v0.99.0 实测教训）：
+            初版 `drawImage(layer, ox, oy)` 直接画整层（1840×352），
+            而其中大部分在画布之外 —— 浏览器**不会**自动裁掉画布外的部分，
+            S=4 下等于每帧白白光栅化 2100 万像素，ling1 帧率从 311 掉到 111。
+            正解：**用 9 参数版 drawImage 显式取源矩形**，
+            只把"恰好落在视口里的那一块"搬过来。 */
+      var ox = (Math.round(this.time * 7)) % lw;
+      var oy = (Math.round(this.time * 3)) % Math.max(1, lh - this.H);
+      x.save();
+      x.globalCompositeOperation = 'source-over';
+      /* 视口 (0,0,W,H) 对应层内 (ox, oy) 起的区域。
+         `ox + W` 可能超出层宽 → 先画右边余量、再绕回画左边。 */
+      var needW = Math.min(this.W, lw - ox);
+      if (needW > 0) {
+        x.drawImage(layer, ox, oy, needW, Math.min(this.H, lh - oy), 0, 0, needW, Math.min(this.H, lh - oy));
+      }
+      var restW = this.W - needW;
+      if (restW > 0) {
+        x.drawImage(layer, 0, oy, restW, Math.min(this.H, lh - oy), needW, 0, restW, Math.min(this.H, lh - oy));
+      }
+      x.restore();
+    },
+    _fogFor: function (sceneName) {
+      if (this._fogKey === sceneName) return this._fogCfg;
+      /* 场景 → 雾的配色与浓度。**固定表**，不随机。
+         夜/昼由 `_renderDayTint` 负责，这里只管"这一带该有多少水汽"。 */
+      var CFG = {
+        town: { col: '214,224,238', n: 5, r: [90, 150], a: [0.05, 0.09] },
+        yunzhou: { col: '220,226,240', n: 5, r: [90, 150], a: [0.05, 0.09] },
+        field: { col: '206,220,232', n: 7, r: [100, 170], a: [0.05, 0.10] },
+        cave: { col: '180,190,205', n: 0, r: [80, 120], a: [0.04, 0.07] },
+        bloodhall: { col: '198,158,168', n: 0, r: [80, 120], a: [0.04, 0.07] },
+        ling1: { col: '168,208,226', n: 9, r: [110, 190], a: [0.06, 0.12] },
+        xian1: { col: '236,232,250', n: 8, r: [110, 190], a: [0.06, 0.11] },
+        dao1: { col: '196,176,228', n: 8, r: [110, 190], a: [0.06, 0.12] },
+        _wild: { col: '200,214,228', n: 6, r: [100, 165], a: [0.05, 0.10] }
+      };
+      var T = CFG[sceneName] || CFG._wild;
+      var rnd = G.Art.rnd('fog|' + sceneName);
+      var ps = [];
+      for (var i = 0; i < T.n; i++) {
+        ps.push({
+          /* ⚠️ 铺满**整张雾层**（W+160 × H+80），不是只铺视口 ——
+             层要左右绕回平铺，只铺视口会在绕回时露出空白带。 */
+          x: rnd() * (this.W + 160),
+          y: rnd() * (this.H + 80),
+          r: T.r[0] + rnd() * (T.r[1] - T.r[0]),
+          a: T.a[0] + rnd() * (T.a[1] - T.a[0]),
+          fr: 0.06 + rnd() * 0.12,
+          ph: rnd() * 6.28,
+          amp: 4 + rnd() * 10
+        });
+      }
+      this._fogKey = sceneName;
+      this._fogCfg = { col: T.col, ps: ps };
+      return this._fogCfg;
     },
 
     /* 濒死警告（v0.18.0）：气血低于 25% 时**全屏泛红 + 呼吸**。
