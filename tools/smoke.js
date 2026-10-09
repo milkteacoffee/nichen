@@ -87,16 +87,24 @@ function bfsReach(mp, from) {
 function drawSpy() {
   const c = makeCtx();
   const hits = [];
-  c.drawImage = function (img) {
-    if (!img) throw new Error('drawImage(null) —— 素材/精灵为空');
-    hits.push({ img, x: arguments[1], y: arguments[2], w: arguments[3], h: arguments[4] });
-  };
-  c.__hits = hits;
-  /* 变换记录（v0.32.0）：面板滑入这类"整体位移"用 drawImage 的 y **查不到** ——
-     探针记的是**变换前**的实参，`x.translate` 不改它们。所以单独记 translate。 */
+  /* ⚠️ v1.9.4：`drawImage` 的实参是**局部坐标**（主角画法是
+     `translate(px, py+3)` 之后画 `-AW/2, animY`）。等距下局部 y **恒定**，
+     只取实参看不到"走路浮动"。所以这里**把"最近一次 translate"记到每个命中上**
+     —— 判据就是"局部 y + 最近 translate 的 y"，这才是真实屏幕 y。 */
+  c.__lastTr = { x: 0, y: 0 };
   c.__tr = [];
   const _tr = c.translate;
-  c.translate = function (tx, ty) { c.__tr.push({ x: tx, y: ty }); return _tr.apply(c, arguments); };
+  c.translate = function (tx, ty) {
+    c.__tr.push({ x: tx, y: ty });
+    c.__lastTr = { x: tx, y: ty };
+    return _tr.apply(c, arguments);
+  };
+  c.drawImage = function (img) {
+    if (!img) throw new Error('drawImage(null) —— 素材/精灵为空');
+    hits.push({ img, x: arguments[1], y: arguments[2], w: arguments[3], h: arguments[4],
+      sy: arguments[2] + c.__lastTr.y, sx: arguments[1] + c.__lastTr.x });
+  };
+  c.__hits = hits;
   return c;
 }
 
@@ -286,7 +294,13 @@ function pump(frames, label) {
   }
 }
 function step(fn, label) {
-  try { fn(); } catch (e) { errors.push(`[${label}] ${e.message}`); }
+  /* ⚠️ v1.9.4：`SMOKE_STACK=1` 时打出异常栈 —— 定位"契约里的 obscure TypeError"必备
+     （本轮靠它一行定位到 `_blocked` 收到 undefined；只报 message 完全看不出位置）。
+     平时不打印，保持输出清爽。 */
+  try { fn(); } catch (e) {
+    errors.push(`[${label}] ${e.message}`
+      + (process.env.SMOKE_STACK ? ("\n" + (e.stack || "")) : ""));
+  }
 }
 
 const G = sandbox.G;
@@ -642,7 +656,27 @@ const INDOOR = ['town_home', 'town_shop', 'town_market', 'field_temple'];
        角色都会自己一路向下走，踩到暗雷又进战斗，`loop.check` 读到的是
        刚被重新 enter 过的战斗实例（round=1、auto=false），看起来就像"自动战斗死锁"。
        顺带一提，这个假象以前被闪白 P0 掩盖着：闪白永不推进，暗雷根本进不了战斗。 */
-    const realHeld = sc._heldDir;
+    /* ⚠️ v1.9.4：等距下按键走**世界对角**，对角位更容易被墙角挡 → 出生点可能四向全挡。
+     契约测的是"走路有浮动"，所以要**先找一个四向都能走的开阔格**再测。 */
+  {
+    let found = null;
+    for (let yy = 2; yy < sc.map.h - 2; yy++) {
+      for (let xx = 2; xx < sc.map.w - 2; xx++) {
+        let free = !sc.map.solid[yy][xx];
+        if (free) {
+          const ds = [sc._keyVec("right"), sc._keyVec("left"), sc._keyVec("up"), sc._keyVec("down")];
+          for (let q = 0; q < 4; q++) {
+            const t = { x: xx + ds[q][0], y: yy + ds[q][1] };
+            if (sc._blocked(t.x, t.y)) { free = false; break; }
+          }
+        }
+        if (free) { found = { x: xx, y: yy }; break; }
+      }
+      if (found) break;
+    }
+    if (found) G.game.save.pos = found;
+  }
+  const realHeld = sc._heldDir;
     sc._heldDir = () => 'down';
     for (let i = 0; i < 40; i++) sc.update(0.05);
     sc.onTap({ x: 240, y: 140 });
@@ -3899,20 +3933,50 @@ step(function () {
   G.game.save = s2;
   G.game.changeScene('field', { toSpawn: true });
   const sc = G.game.scene;
+  /* ⚠️ v1.9.4：**必须叠加 `translate` 的位移**再取 y。
+     `drawImage` 的实参是**局部坐标**（主角是 `translate(px,py+3)` 后画 `-AW/2, animY`），
+     而 `_drawPlayer` 的局部 y 在等距下**恒定**（-42）—— 只取实参永远看不到浮动。
+     `drawSpy` 已把每帧的 translate 记进 `__tr`，这里取**最后一次** translate 的 y 加上局部 y。 */
   function heroY() {
     const c = drawSpy();
     sc.render(c);
     const hit = (c.__hits || []).filter(function (h) { return h.w === HW && h.h === HH; });
-    return hit.length ? hit[hit.length - 1].y : null;
+    /* `h.sy` = 局部 y + 最近 translate 的 y（见 drawSpy 注释） */
+    return hit.length ? hit[hit.length - 1].sy : null;
   }
   /* ⚠️ 不能只试一个方向：出生点旁边可能正好有树/石挡着（实测 right 就被挡了）。
-     逐个方向试，取第一个真的走起来的。 */
+     逐个方向试，取第一个真的走起来的。
+     ⚠️ v1.9.4：等距下按键映射成**世界对角**（按 ↑ 走 (-1,-1)）——
+        对角位更容易被"墙角"挡住，且 `_astar` 的斜向许可也可能拒绝。
+        所以这里**每个方向多试几帧**，并且只要**任意方向**能走起来就算通过
+        （契约测的是"走路有浮动"，不是"某个特定方向能走"）。 */
+  /* ⚠️ v1.9.4：等距下按键走**世界对角**，对角位更容易被墙角/树石挡 →
+     出生点常常**四向全挡**（实测 field 出生点 right 就挡）。契约测的是
+     "走路有浮动"，所以**先找一个四向都能走的开阔格**再测。 */
+  {
+    let found = null;
+    for (let yy = 2; yy < sc.map.h - 2 && !found; yy++) {
+      for (let xx = 2; xx < sc.map.w - 2; xx++) {
+        if (sc.map.solid[yy][xx]) continue;
+        const ds = [sc._keyVec('right'), sc._keyVec('left'), sc._keyVec('up'), sc._keyVec('down')];
+        let free = true;
+        for (let q = 0; q < 4; q++) {
+          /* ⚠️ 对角偏移可能越界（`_blocked` 里 `solid[y][x]` 会读 undefined）→ 先夹边界 */
+          const t = { x: xx + ds[q][0], y: yy + ds[q][1] };
+          if (t.x < 0 || t.y < 0 || t.x >= sc.map.w || t.y >= sc.map.h) { free = false; break; }
+          if (sc._blocked(t.x, t.y)) { free = false; break; }
+        }
+        if (free) { found = { x: xx, y: yy }; break; }
+      }
+    }
+    if (found) { G.game.save.pos = found; sc.moving = false; }
+  }
   const realHeld = sc._heldDir;
   const ys = {};
   const DIRS = ['right', 'left', 'up', 'down'];
   for (let di = 0; di < DIRS.length && Object.keys(ys).length < 2; di++) {
     sc._heldDir = (function (dd) { return function () { return dd; }; })(DIRS[di]);
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 40; i++) {
       sc.update(0.03);
       /* ⚠️ **只看"正在走"的帧**：待机呼吸也会让 y 变化，
          不筛的话"关掉走路浮动"照样能通过（反例验证时踩到过）。 */
@@ -4526,6 +4590,29 @@ step(() => {
     G.game.save = sx;
     G.game.changeScene('field', { toSpawn: true });
     const sc = G.game.scene;
+    /* ⚠️ v1.9.4：等距下按键走**世界对角**，出生点常被墙角挡 →
+        这里**找一个四向都能走的开阔格**并**直接写回 `save.pos`**
+        （changeScene 会把 pos 覆盖成 spawn，所以必须在这之后赋值）。
+        否则测到的 `mt` 恒为 0（两种速度都是 0 → "骑乘更快"的判据失效）。 */
+    {
+      let found = null;
+      for (let yy = 2; yy < sc.map.h - 2 && !found; yy++) {
+        for (let xx = 2; xx < sc.map.w - 2; xx++) {
+          if (sc.map.solid[yy][xx]) continue;
+          const ds = [sc._keyVec('right'), sc._keyVec('left'), sc._keyVec('up'), sc._keyVec('down')];
+          let free = true;
+          for (let q = 0; q < 4; q++) {
+            /* ⚠️ 对角偏移可能越界（_blocked 里 solid[y][x] 读 undefined）→ 先夹边界 */
+            const t = { x: xx + ds[q][0], y: yy + ds[q][1] };
+            if (t.x < 0 || t.y < 0 || t.x >= sc.map.w || t.y >= sc.map.h) { free = false; break; }
+            if (sc._blocked(t.x, t.y)) { free = false; break; }
+          }
+          if (free) { found = { x: xx, y: yy }; break; }
+        }
+      }
+      if (found) sx.pos = found;
+    }
+    sc.moving = false;
     const held = sc._heldDir;
     sc._heldDir = function () { return 'right'; };
     sc.update(0.02); sc.update(0.02);
@@ -13067,6 +13154,128 @@ step(function () {
   console.log('  ✓ 等距美术：裁剪口径一致（世界像素）+ 建筑侧面（世界坐标投影）+ '
     + '地面瓦片格 + 地图边界渐隐（取调色板）');
 }, 'iso.art.contract');
+
+/* ---------- 8 向移动：寻路对角 + 等距方向映射（v1.9.4）----------
+   用户口径（承「全部转向俯视角 45°」）：「继续开发」——等距下 4 向移动手感别扭
+   （"屏幕正上"其实是世界对角），本轮做真 8 向 + 输入按视觉方向映射。 */
+step(function () {
+  const TILE = 24;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+  G.game.changeScene('town', { toSpawn: true });
+  const sc = G.game.scene;
+  const m = sc.map;
+  const saved = m.solid.map(function (r) { return r.slice(); });
+
+  /* ① 对角穿墙防护（**核心安全判据**）
+     ⚠️ 判据不能是"有没有路径" —— **绕远路也是路径**！
+        要判"路径里有没有那个对角步"（第一次就是这么假失败的）。 */
+  {
+    for (let y = 2; y < 12; y++) for (let x = 2; x < 12; x++) m.solid[y][x] = false;
+    m.solid[6][6] = true; m.solid[5][5] = true;      /* 造一个"墙角" */
+    const p = sc._astar(5, 6, 6, 5);
+    let crossed = false;
+    if (p) {
+      let px = 5, py = 6;
+      p.forEach(function (n) {
+        if (Math.abs(n.x - px) === 1 && Math.abs(n.y - py) === 1) crossed = true;
+        px = n.x; py = n.y;
+      });
+    }
+    if (crossed) {
+      errors.push('8 向寻路：对角穿墙了（两侧正交邻都是实心却走了对角）'
+        + ' —— 斜向许可判据失效');
+    }
+    /* 反证：清掉一块挡板后应能通过（证明判据不是"永远拒绝对角"） */
+    m.solid[6][6] = false;
+    const p2 = sc._astar(5, 6, 6, 5);
+    if (!p2) {
+      errors.push('8 向寻路：清掉挡板后仍走不到 —— 斜向许可过于严格（对角完全不可用）');
+    }
+  }
+
+  /* ② 对角代价 √2（不该偏爱斜走）。
+     ⚠️ **行为判据抓不到这个缺陷**（实测验证）：把对角代价改成 1 后，
+        `(3,3)→(8,3)` **仍是 5 步直线** —— 因为 A* 的 tie-break 让
+        "同为 5 成本"的路径中直线先被找到（4 正交通道在邻接表前面）。
+        ⇒ 这种"数值写错但不改结果"的缺陷**只能靠源码闸**。
+        行为判据保留作"路径不退化"的兜底（万一 A* 改实现）。 */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
+    const di = src.indexOf('_astar: function');
+    const body = di < 0 ? '' : src.slice(di, di + 1400);
+    if (!body) errors.push('8 向寻路：找不到 `_astar` 函数体');
+    else {
+      /* 对角 4 项的第 3 个元素必须是 √2（或 SQ2 常量） */
+      const m = body.match(/\[1, 1, ([^\]]+)\]/);
+      if (!m) errors.push('8 向寻路：`_astar` 邻接表里找不到对角项 [1,1,…]');
+      else if (m[1].indexOf('SQ2') < 0 && Math.abs(parseFloat(m[1]) - 1.4142) > 0.01) {
+        errors.push('8 向寻路：对角代价写成 ' + m[1] + '（应 √2）—— '
+          + '虽然某些用例看不出来（A* tie-break），但"斜向便宜"会系统性偏向之字形');
+      }
+      /* 启发式必须是八向（max + min·√2），不能是曼哈顿 */
+      if (body.indexOf('Math.min(dx, dy)') < 0) {
+        errors.push('8 向寻路：启发式不是八向距离（应 `max + min·√2`）—— '
+          + '曼哈顿会高估对角距离，A* 退化成 Dijkstra');
+      }
+    }
+    /* 行为兜底：轴向目标仍应走直线 */
+    for (let y = 2; y < 14; y++) for (let x = 2; x < 14; x++) m.solid[y][x] = false;
+    const p = sc._astar(3, 3, 8, 3);
+    if (!p || p.length !== 5) {
+      errors.push('8 向寻路：轴向目标(3,3)→(8,3) 应 5 步直线，实为 ' + (p ? p.length : 'null') + ' 步');
+    }
+  }
+
+  /* ③ 对角确实可用：对角目标应走纯对角（3 步，而非 6 步） */
+  {
+    const p = sc._astar(3, 3, 6, 6);
+    if (!p || p.length !== 3) {
+      errors.push('8 向寻路：对角目标(3,3)→(6,6) 应 3 步纯对角，实为 '
+        + (p ? p.length : 'null') + ' 步');
+    }
+  }
+  m.solid = saved.map(function (r) { return r.slice(); });
+
+  /* ④ 等距方向映射：按"↑"的**屏幕位移方向**必须朝上（不是斜的） */
+  if (G.ISO_ON) {
+    /* [方向, 期望的屏幕 dx 符号, 期望的屏幕 dy 符号]（0 = 该轴不主导） */
+    const chk = [['up', 0, -1], ['down', 0, 1], ['left', -1, 0], ['right', 1, 0]];
+    chk.forEach(function (c) {
+      const kv = sc._keyVec(c[0]);
+      /* 世界位移 → 屏幕位移：Δsx = Δx − Δy, Δsy = (Δx + Δy)·RATIO
+         ⚠️ **只比方向（谁主导 + 符号）**，不比数值 —— 等距横向有 √2 放大
+            （实测 left 的屏幕 dx = −2，符号对但数值是 2）。 */
+      const sx = kv[0] - kv[1], sy = (kv[0] + kv[1]) * 0.5;
+      const got = Math.abs(sy) > Math.abs(sx) ? 'y' : 'x';
+      const want = c[2] !== 0 ? 'y' : 'x';
+      const sign = c[2] !== 0 ? Math.sign(sy) : Math.sign(sx);
+      if (got !== want || (c[2] !== 0 ? Math.sign(c[2]) : Math.sign(c[1])) !== sign) {
+        errors.push('等距方向：按 ' + c[0] + ' 的屏幕位移方向应为 ('
+          + c[1] + ',' + c[2] + ')，实为 (' + sx.toFixed(2) + ',' + sy.toFixed(2)
+          + ') —— 输入没跟着视角转（按上却斜着走）');
+      }
+    });
+    /* 朝向：`_dirVec` 必须保持**世界 4 邻**（朝向语境，NPC/交互数据按世界格写） */
+    const uv = sc._dirVec('up');
+    if (uv[0] !== 0 || uv[1] !== -1) {
+      errors.push('等距方向：`_dirVec("up")` 应是世界 (0,-1)（朝向语境）—— '
+        + '它跟随 `_keyVec` 改成对角会让"面向正上方 NPC"的判定失效');
+    }
+    /* 对角位移的朝向要**降级**到 4 向（角色只有 4 套图） */
+    const d = sc._dirTo({ x: 5, y: 5 }, { x: 6, y: 6 });
+    if (['up', 'down', 'left', 'right'].indexOf(d) < 0) {
+      errors.push('等距方向：对角位移的 `_dirTo` 返回 ' + d + '（不是 4 向名）—— '
+        + '角色没有对应朝向图会画错');
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 8 向移动：对角不穿墙 / 代价√2（不偏爱斜走）/ 对角可用；'
+    + ' 等距方向：按键映射到视觉方向 + 朝保持世界 4 邻');
+}, 'iso.move.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

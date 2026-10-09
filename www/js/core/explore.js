@@ -370,7 +370,13 @@
         if (!this.moving) {
           var next = null;
           if (d) {
-            this.dir = d; next = this._front(save.pos, d);
+            /* ⚠️ v1.9.4：**按键位移走 `_keyVec`**（等距下映射成世界对角），
+               但 `this.dir` 仍记**朝向名**（给角色朝向图 / `_front` 交互判定用）。
+               ⚠️ 别用 `_front(save.pos, d)` —— 那是**朝向语义**（世界 4 邻），
+                  等距下会让按键走成"世界的正上方"（屏幕上却是斜的）。 */
+            this.dir = d;
+            var kv = this._keyVec(d);
+            next = { x: save.pos.x + kv[0], y: save.pos.y + kv[1] };
             this.path = []; this.pendingAct = null;
           } else if (this.path.length) {
             next = this.path.shift();
@@ -405,14 +411,56 @@
       },
 
       _front: function (p, d) {
-        var v = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[d];
+        var v = this._dirVec(d);
         return { x: p.x + v[0], y: p.y + v[1] };
       },
+
+      /* ===== 方向向量：**两套语义必须分开**（v1.9.4 踩坑）=====
+         ⚠️ 这里有个容易搞混的点：`up/down/left/right` 在两个语境里含义**不同**：
+
+           · **按键语境**（`_heldDir` → 移动）：要按"**视觉方向**" —
+             等距下按 ↑ 应走世界 `(-1,-1)`（屏幕正上），否则"按上却斜着走"。
+           · **朝向语境**（`this.dir` → `_front` 取"面前那格"）：
+             仍应是**世界的 4 邻**（`up` = `(0,-1)`）——
+             因为 NPC / 交互物 / 门的**站位数据是按世界格写的**，
+             把朝向也改成对角会让"面向正上方的 NPC"判定失效
+             （实测：25 条交互契约全红）。
+
+         ⇒ **`_dirVec(d)` 保持世界 4 邻**（朝向用）；
+           **按键映射单独做**（见 `_keyVec`），两者别混。 */
+      _dirVec: function (d) {
+        return { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[d] || [0, 0];
+      },
+
+      /* 按键 → 位移（v1.9.4）。
+         **等距下按键必须映射成世界对角**：
+           世界 (-1,-1) → 屏幕**正上**   世界 (+1,+1) → 屏幕**正下**
+           世界 (-1,+1) → 屏幕**正左**   世界 (+1,-1) → 屏幕**正右**
+         ⇒ 按 ↑ 走 `(-1,-1)`，玩家看到的是"往上走"（视觉正确）。
+         ⚠️ 这是"**输入语义跟着视角走**"的典型：画面转了，操作也得转，
+            否则按上往左上跑、按右往右上跑 —— 手感完全错。
+         ⚠️ 非等距时退回 4 邻（逐像素不变，零回归）。 */
+      _keyVec: function (d) {
+        if (!ISO_ON) return this._dirVec(d);
+        return {
+          up: [-1, -1], down: [1, 1], left: [-1, 1], right: [1, -1]
+        }[d] || [0, 0];
+      },
+
+      /* 由位移求朝向名（用于 `this.dir` → 角色朝向图）。
+         ⚠️ 保持**世界 4 邻口径**（与 `_dirVec` 一致）：
+            对角位移时取"主导轴"（|dx| 与 |dy| 谁大用谁；相等时优先竖直），
+            —— 角色素材只有 4 向，对角必须降级到最近的一个轴，
+              否则会出现"没有对应朝向图 → 用错图"（表现为人物朝向乱跳）。 */
       _dirTo: function (a, b) {
-        if (b.x > a.x) return 'right';
-        if (b.x < a.x) return 'left';
-        if (b.y > a.y) return 'down';
-        return 'up';
+        var dx = b.x - a.x, dy = b.y - a.y;
+        if (dx && dy) {
+          /* 对角：降级到主导轴（相等时优先竖直，与 `_keyVec` 的"屏幕上下"感一致） */
+          return Math.abs(dy) >= Math.abs(dx) ? (dy < 0 ? 'up' : 'down')
+            : (dx < 0 ? 'left' : 'right');
+        }
+        if (dx) return dx > 0 ? 'right' : 'left';
+        return dy > 0 ? 'down' : 'up';
       },
 
       /* 键盘辅助（无 UI）：鼠标点击是主操作，这里只作为调试/无障碍兜底 */
@@ -848,11 +896,40 @@
         this.mark = { x: tx, y: ty, t: 0.55 };
       },
 
+      /* 8 向 A*（v1.9.4）。
+         **为什么加对角**（用户口径：「地图参考《烟雨江湖》」）：
+         等距下"屏幕正上/正下"对应世界的**对角**方向（-1,-1)/(+1,+1) ——
+         只有 4 向时玩家没法"往屏幕上方走直线"，走位会很别扭。
+         ⚠️ **对角代价 = √2（不是 1）**：否则寻路会偏爱斜走（同样距离省步数），
+            路径会变成"之字形"而不是"先横后竖"。
+         ⚠️ **斜向许可**（关键）：对角移动要求**两个正交邻格都可通行** ——
+            否则会"从两堵墙的缝里钻过去"（经典穿墙 bug）。
+            判据：`solid[y][x±1]` 与 `solid[y±1][x]` **都不能是实心**。
+         ⚠️ 对角线**通向目标格本身**时仍允许（与 4 向的 `<>(nx===tx&&ny===ty)`
+            同一豁免），否则"目标贴着墙"时永远走不到。
+         ⚠️ 启发式用**八向距离**（`max + (√2−1)·min`），不能用曼哈顿 ——
+            曼哈顿会高估对角距离，导致 A* 退化成 Dijkstra（慢、且可能不最优）。 */
       _astar: function (sx, sy, tx, ty) {
         var solid = this.map.solid;
+        var SQ2 = 1.4142135623730951;
         var open = [{ x: sx, y: sy, g: 0, f: 0, p: null }];
         var seen = {}; seen[sx + ',' + sy] = open[0];
-        var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        /* 4 正交 + 4 对角（对角在后面 4 个，代价 √2） */
+        var dirs = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+          [1, 1, SQ2], [1, -1, SQ2], [-1, 1, SQ2], [-1, -1, SQ2]];
+        var self = this;
+        /* 八向距离启发式：对角走 √2、轴向走 1 */
+        function h(nx, ny) {
+          var dx = Math.abs(nx - tx), dy = Math.abs(ny - ty);
+          var mn = Math.min(dx, dy), mx = Math.max(dx, dy);
+          return (mx - mn) + mn * SQ2;
+        }
+        /* 该格是否能站（目标格豁免实心） */
+        function passable(nx, ny, allowSolid) {
+          if (nx < 0 || ny < 0 || nx >= self.map.w || ny >= self.map.h) return false;
+          if (solid[ny][nx] && !allowSolid) return false;
+          return true;
+        }
         while (open.length) {
           var bi = 0;
           for (var i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
@@ -864,15 +941,22 @@
             return path;
           }
           if (cur.g >= MAX_PATH) continue;
-          for (var d2 = 0; d2 < 4; d2++) {
-            var nx = cur.x + dirs[d2][0], ny = cur.y + dirs[d2][1];
-            if (nx < 0 || ny < 0 || nx >= this.map.w || ny >= this.map.h) continue;
-            if (solid[ny][nx] && !(nx === tx && ny === ty)) continue;
+          for (var d2 = 0; d2 < 8; d2++) {
+            var dv = dirs[d2];
+            var nx = cur.x + dv[0], ny = cur.y + dv[1];
+            var isTarget = (nx === tx && ny === ty);
+            if (!passable(nx, ny, isTarget)) continue;
+            /* ⚠️ 斜向许可：两个正交邻格都要能走（防穿墙角）。
+               目标格豁免 —— 与 `passable` 的豁免一致，否则贴墙目标走不到。 */
+            if (dv[0] && dv[1]) {
+              var o1 = passable(cur.x + dv[0], cur.y, false);
+              var o2 = passable(cur.x, cur.y + dv[1], false);
+              if (!o1 || !o2) continue;
+            }
             var k = nx + ',' + ny;
-            var g = cur.g + 1;
+            var g = cur.g + dv[2];
             if (seen[k] && seen[k].g <= g) continue;
-            var node = { x: nx, y: ny, g: g,
-              f: g + Math.abs(nx - tx) + Math.abs(ny - ty), p: cur };
+            var node = { x: nx, y: ny, g: g, f: g + h(nx, ny), p: cur };
             seen[k] = node; open.push(node);
           }
         }
