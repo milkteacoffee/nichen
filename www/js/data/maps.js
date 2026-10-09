@@ -82,7 +82,13 @@
           而且 `regiongen.targetSpawn` 对"有 map 的区域"直接取 `md.spawn`，所以**入口落点就是 spawn**。
        ⚠️ NPC 站位必须避开道路 —— 主街只有 1 格宽，站上去就把路堵死了（青溪镇踩过）。 */
     yunzhou: {
-      id: 'yunzhou', w: 62, h: 42, safe: true, ground: 'town', tex: 'fan4',
+      /* v2.1.0：`tex` 从 'fan4' 改为 'fan10' —— 云州城是**凡界大城**
+         （`TINT.fan10 = 'city_grand'`，青砖 + 排水沟纹），
+         而 fan4 是"土黄集市地面"（小镇赶集）。原先借用 fan4 会让这座 M2 主线
+         大城看起来跟集市一样。现在有专属底图 `ground.fan10`。
+         ⚠️ `fan10` 这个区域 id 本身也是复用型（map: 'yunzhou'），
+            所以这里改 tex 不会与"区域 fan10 的底图"冲突 —— 两者本就是同一张。 */
+      id: 'yunzhou', w: 62, h: 42, safe: true, ground: 'town', tex: 'fan10',
       /* ⚠️ `label` 是场景名牌的**唯一来源**（`explore._sceneName` 只对 town/field/cave 有硬编码兜底，
          其余一律返回 mapId）—— 不写它，左上角会显示裸 id「yunzhou」。 */
       label: '云州城',

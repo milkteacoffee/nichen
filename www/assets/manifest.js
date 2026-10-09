@@ -111,6 +111,7 @@
     "ground.dao4": "assets/img/ground.dao4.png",
     "ground.dao5": "assets/img/ground.dao5.png",
     "ground.fan1": "assets/img/ground.fan1.png",
+    "ground.fan10": "assets/img/ground.fan10.png",
     "ground.fan2": "assets/img/ground.fan2.png",
     "ground.fan3": "assets/img/ground.fan3.png",
     "ground.fan4": "assets/img/ground.fan4.png",

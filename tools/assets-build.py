@@ -173,6 +173,11 @@ SIZES = {
     'ground.dao3': (448, 448),
     'ground.dao4': (448, 448),
     'ground.dao5': (448, 448),
+    # 云州城专属地面（v2.1.0）：`fan10` 是**复用型区域**（map: 'yunzhou'），
+    #   理论上会走手写图 `yunzhou` 的 `tex: 'fan4'`。但它是有独立主题
+    #   （`TINT.fan10 = 'city_grand'`，凡界大城）的重要主线城，给它一张专属的
+    #   "大城青砖"底图；接入方式见 `maps.js: yunzhou.tex`（改成 'fan10'）。
+    'ground.fan10': (448, 448),
     # ===== 功法属性图标（v0.26.0 文生图，10 个：9 属性 + 无）=====
     #   逻辑名 `skill.<拼音>`，取图见 art.js: A.itemIcon（asset-first）。
     # ===== 灵根图标（v0.40.0 文生图，9 个）=====
@@ -352,6 +357,27 @@ SIZES = {
 #   ⚠️ ground.* 同理：地面纹理是**整幅平铺**的材质，走 fit 会把四边裁出透明带，
 #      铺到地图上就是一条条黑缝（实测踩过：alpha min=0 → 场景里出现黑色十字带）。
 BG_KEYS = set(k for k in SIZES if k.startswith('bg.') or k.startswith('ground.'))
+
+# ===== 像素画类别：缩放必须用 NEAREST（v2.1.0，本批最重要的一条修正）=====
+# ⚠️ 为什么必须分两类：默认 `LANCZOS` 是**抗锯齿**重采样，会把像素画的
+#    **硬边块插值成渐变** —— 而"硬边 + 不产生新颜色"正是像素画的立身之本。
+#    实测：同一张 16px 颗粒的地面原图，LANCZOS 缩到 448 后横向同色段平均长度
+#    只有 ~1.5px（读起来就是"高清小图"），改 NEAREST 后升到 ~7px（真的块）。
+#    **不修这条，出多少张像素原图都是白出** —— 画风在切图这一步就被磨掉了。
+# ⚠️ 只列**本版起改为像素风**的类别；图标/道具等仍是高清素材，继续走 LANCZOS
+#    （它们本来就是小尺寸平滑图，用 NEAREST 会产生锯齿反而更丑）。
+# ⚠️ 每重出一类像素素材，就把它的前缀加进这里。
+# ⚠️ 只列**已经真的重出为像素风**的类别。**不要提前把未来的类别加进来**：
+#    这份名单同时决定"重建时用哪种重采样"，而**重建会重采样全部已登记素材** ——
+#    把还是高清的类别（battle.* / char.* / struct.* / prop.* …）提前列进来，
+#    会让它们被 NEAREST 重采样一次（无意义的劣化，且 diff 里看不出原因）。
+#    实测踩过：加进来重建一次，67 个 battle/char/struct 文件的二进制全变了。
+#    ⇒ **每重出一类，才加一类**（并在同一次提交里完成）。
+PIXEL_PREFIXES = ('ground.',)
+
+
+def is_pixel_key(key):
+    return bool(key) and key.startswith(PIXEL_PREFIXES)
 # 地图角色的三帧：同一张图登记三次，动感由引擎的上下浮动提供
 HERO_DIRS = ['down', 'up', 'left', 'right']
 PAD = 0.04          # 外接框四周留白比例（防止描边贴边被切）
@@ -382,7 +408,12 @@ OPAQUE_KEYS = set([
 ])
 
 
-def fit(im, tw, th):
+def _resampler(key):
+    """选重采样方式。**像素画类别必须用 NEAREST**（见 PIXEL_PREFIXES 的说明）。"""
+    return Image.NEAREST if is_pixel_key(key) else Image.LANCZOS
+
+
+def fit(im, tw, th, key=''):
     """裁到 alpha 外接框 → 等比缩放 → 贴进 (tw, th) 的透明画布（居中、底边对齐）。"""
     im = im.convert('RGBA')
     bbox = im.getbbox()
@@ -395,14 +426,14 @@ def fit(im, tw, th):
     k = min(avail_w / im.width, avail_h / im.height)
     nw = max(1, int(round(im.width * k)))
     nh = max(1, int(round(im.height * k)))
-    im = im.resize((nw, nh), Image.LANCZOS)
+    im = im.resize((nw, nh), _resampler(key))
     canvas = Image.new('RGBA', (tw, th), (0, 0, 0, 0))
     # 底边对齐：角色脚底贴住画布下沿，和程序化精灵的锚点一致
     canvas.paste(im, ((tw - nw) // 2, th - nh - int(th * PAD)), im)
     return canvas, None
 
 
-def cover(im, tw, th):
+def cover(im, tw, th, key=''):
     """等比放大到**铺满** (tw, th)，居中裁切多余部分。背景 / 地面纹理专用。
 
     为什么背景不能用 fit：fit 会先裁到 alpha 外接框、再按 PAD 留白，
@@ -416,7 +447,7 @@ def cover(im, tw, th):
     k = max(tw / im.width, th / im.height)
     nw = max(1, int(round(im.width * k)))
     nh = max(1, int(round(im.height * k)))
-    im = im.resize((nw, nh), Image.LANCZOS)
+    im = im.resize((nw, nh), _resampler(key))
     left = (nw - tw) // 2
     top = (nh - th) // 2
     out = im.crop((left, top, left + tw, top + th))
@@ -492,7 +523,8 @@ def main():
                     continue
                 err = None
             else:
-                out, err = (cover if key in BG_KEYS else fit)(im, tw, th)
+                # 传 key 进去：fit / cover 要按它选 NEAREST（像素类）还是 LANCZOS
+                out, err = (cover if key in BG_KEYS else fit)(im, tw, th, key)
         if err:
             problems.append('%s：%s' % (key, err))
             continue
