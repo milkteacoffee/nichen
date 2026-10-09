@@ -367,17 +367,33 @@ BG_KEYS = set(k for k in SIZES if k.startswith('bg.') or k.startswith('ground.')
 # ⚠️ 只列**本版起改为像素风**的类别；图标/道具等仍是高清素材，继续走 LANCZOS
 #    （它们本来就是小尺寸平滑图，用 NEAREST 会产生锯齿反而更丑）。
 # ⚠️ 每重出一类像素素材，就把它的前缀加进这里。
-# ⚠️ 只列**已经真的重出为像素风**的类别。**不要提前把未来的类别加进来**：
-#    这份名单同时决定"重建时用哪种重采样"，而**重建会重采样全部已登记素材** ——
-#    把还是高清的类别（battle.* / char.* / struct.* / prop.* …）提前列进来，
-#    会让它们被 NEAREST 重采样一次（无意义的劣化，且 diff 里看不出原因）。
-#    实测踩过：加进来重建一次，67 个 battle/char/struct 文件的二进制全变了。
-#    ⇒ **每重出一类，才加一类**（并在同一次提交里完成）。
-PIXEL_PREFIXES = ('ground.',)
+# ⚠️⚠️ 只列**已经真的重出为像素风**的键。**不要按前缀图省事**。
+#
+# 为什么用**显式键表**而不是前缀（v2.6.0 踩出来的）：
+#   前缀匹配（`struct.`）会**连带**把同类别里**还没重出**的素材（struct.gate /
+#   hall / inn / ruin / temple / tower）也按 NEAREST 重采样一次 ——
+#   它们本来是高清明细图，被硬降采样后**悄悄变差**，而 diff 里只有一行 "Bin ... changed"，
+#   完全看不出原因。实测：一次重建误伤 6 张。
+#   ⇒ 显式键表 + "改素材的同时改这张表"，两者**同一次提交**。
+#
+# 判定：像素类走 `Image.NEAREST`（保硬边），其余走 `Image.LANCZOS`（抗锯齿）。
+#   LANCZOS 会把像素画的硬色块插值成渐变 → 像素感在**切图这一步**就被磨平。
+PIXEL_KEYS = set([
+    # 地面（v2.2.0~v2.5.0 全部重出）：29 区域 + 4 兜底
+    'ground.fan1', 'ground.fan2', 'ground.fan3', 'ground.fan4', 'ground.fan5',
+    'ground.fan6', 'ground.fan7', 'ground.fan8', 'ground.fan9', 'ground.fan10',
+    'ground.ling1', 'ground.ling2', 'ground.ling3', 'ground.ling4', 'ground.ling5',
+    'ground.xian1', 'ground.xian2', 'ground.xian3', 'ground.xian4', 'ground.xian5',
+    'ground.xian6', 'ground.xian7', 'ground.xian8', 'ground.xian9',
+    'ground.dao1', 'ground.dao2', 'ground.dao3', 'ground.dao4', 'ground.dao5',
+    'ground.town', 'ground.grass', 'ground.cave', 'ground.bloodcave',
+    # 建筑（v2.6.0 起逐张重出；**换一张就加一行**）
+    'struct.house', 'struct.apothecary', 'struct.shop', 'struct.smithy', 'struct.alchemy',
+])
 
 
 def is_pixel_key(key):
-    return bool(key) and key.startswith(PIXEL_PREFIXES)
+    return bool(key) and key in PIXEL_KEYS
 # 地图角色的三帧：同一张图登记三次，动感由引擎的上下浮动提供
 HERO_DIRS = ['down', 'up', 'left', 'right']
 PAD = 0.04          # 外接框四周留白比例（防止描边贴边被切）

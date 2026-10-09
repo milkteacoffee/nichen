@@ -13086,17 +13086,34 @@ step(function () {
     }
   }
 
-  /* ③ 建筑侧面：源码闸（必须有等距侧面 + 用世界坐标 _proj） */
+  /* ③ 建筑侧面：源码闸（必须有等距侧面 + 用世界坐标 _proj）
+     ⚠️ v2.6.0：判据从"某句注释文字"改成**行为的存在**（G55 的教训：
+        查字面量会因改注释而假红/假绿）。现在要断三件事：
+          ① 侧面那段代码仍在（`_proj` 投 4 个角 + 四边形填充）
+          ② 它**受 `isIsoNative` 分流控制**（像素等距建筑跳过，避免双份侧面）
+          ③ 分流用的取图键计算存在（否则分流永远拿到 null） */
   {
     const src = fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8');
-    if (src.indexOf('等距侧面（v1.9.3）') < 0) {
+    if (src.indexOf('_proj') < 0 || src.indexOf('closePath') < 0) {
       errors.push('等距美术：`_drawStructure` 缺"等距侧面"（建筑只有正面，读不出立方体）');
-    } else {
-      /* ⚠️ 段末模式不能写 `\n        \}`（缩进在实际文件里是 8 空格，且后面还有代码）——
-         取"注释起点 + 1400 字"即可，判据是**里面有没有世界坐标与四边形**。 */
-      const gi2 = src.indexOf('等距侧面（v1.9.3）');
-      const body = gi2 < 0 ? '' : src.slice(gi2, gi2 + 1400);
-      if (!body) errors.push('等距美术：找不到等距侧面代码段');
+    } else if (!/if\s*\(\s*ISO_ON\s*&&\s*!_isoNative\s*\)/.test(src)) {
+      /* ⚠️ 判据必须是**那个条件表达式本身**，不能只查 `isIsoNative` 出现过
+         （G43 的教训：只查符号名 → 同符号在别处出现就恒真 → 假绿）。
+         实测：把条件改回 `if (ISO_ON)` 而只保留 `_isoNative` 的定义，
+         "查符号"版闸门**不报**。 */
+      errors.push('等距美术：建筑侧面未按 `!isoNative` 分流（或条件被改）——'
+        + '像素等距建筑会与代码补的侧面**叠加成双份**');
+    } else if (src.indexOf('_artKey') < 0) {
+      errors.push('等距美术：`_drawStructure` 未算出取图键（`_artKey`）—— `isIsoNative` 会永远拿到 undefined');
+    }
+    {
+      /* ⚠️ **锚点用代码不用注释文字**（老坑：注释一改，闸门就找不到左界 → 静默通过）。
+         左界 = `_drawStructure` 的函数定义；右界 = 下一个方法 `_drawPlaque`。
+         取整段函数体，判据是"里面有没有世界坐标与四边形"。 */
+      const gi2 = src.indexOf('_drawStructure: function');
+      const gj2 = src.indexOf('_drawPlaque');
+      const body = (gi2 >= 0 && gj2 > gi2) ? src.slice(gi2, gj2) : '';
+      if (!body) errors.push('等距美术：切不出 `_drawStructure` 函数体（锚点失效）');
       else {
         /* 侧面 4 角必须用建筑的世界坐标（`s.x * TILE`），不许写 `_proj(0, 0)` */
         if (body.indexOf('s.x * TILE') < 0) {

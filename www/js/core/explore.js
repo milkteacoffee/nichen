@@ -2124,16 +2124,28 @@
         var bx0 = px + (art.ox || 0), by0 = py + (art.oy || 0);
         var bw0 = art.w, bh0 = art.h;
 
-        /* ===== 等距侧面（v1.9.3）：给建筑补"第二个可见面" =====
-           **为什么需要**：现有 art（`A.house`）画的是"正视前视图"，
-           等距下仍是一张平面图 —— 没有"两个可见面"，就读不出"立方体"。
+        /* ===== 等距侧面（v1.9.3；v2.6.0 起按素材分流）=====
+           **为什么需要**：**正视**素材（`A.house` 程序化 / 旧 `struct.*`）在等距下
+           仍是一张平面图 —— 没有"两个可见面"，读不出"立方体"。
            **做法**：在 art **之前**先画一个"右后侧面"的平行四边形（屏幕系，
            用 `_proj` 投 4 个角），art 再盖在上面 →
            观感变成"正面（art）+ 右后侧面（新增）+ 屋顶（art 自带）"。
            ⚠️ 必须在 art **之前**画，否则侧面会盖住正面。
            ⚠️ 坐标一律用**绝对世界像素**（`_proj` 收的是绝度坐标）——
-              写 `_proj(0, 0)` 是"世界的原点"，不是"建筑的左下角"（踩过）。 */
-        if (ISO_ON) {
+              写 `_proj(0, 0)` 是"世界的原点"，不是"建筑的左下角"（踩过）。
+
+           ⚠️⚠️ **v2.6.0：像素等距建筑必须跳过这一段**。
+             新出的像素建筑素材**自带两个可见面**，再补一个代码侧面会变成
+             **两份侧面**（位置还错开，一眼就假）。
+             分流判据 = `G.Art.isIsoNative(取图键)`（显式登记，见 art.js: A.ISO_NATIVE）
+             —— **不要按"底边宽/最大宽"自动猜**：实测该比值受图上装饰
+             （石狮/树/灯笼）影响，不可靠。 */
+        var _artKey = null;
+        if (s.kind === 'house') _artKey = 'struct.' + (s.bk || s.kind || 'house');
+        else if (s.kind === 'gate') _artKey = 'struct.' + (s.bk || 'gate');
+        else if (s.kind === 'ruin') _artKey = 'struct.ruin';
+        var _isoNative = !!(G.Art.isIsoNative && G.Art.isIsoNative(_artKey));
+        if (ISO_ON && !_isoNative) {
           var wallG = (pal && pal.dark) || '#3a2f22';
           var wx0 = s.x * TILE;                 /* 建筑左下角（世界像素，绝对值） */
           var wy0 = s.y * TILE;
