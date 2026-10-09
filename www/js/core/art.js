@@ -1256,7 +1256,9 @@
     'struct.shop': 1,
     'struct.smithy': 1,
     'struct.alchemy': 1,
-    /* ⏳ 仍是旧正视素材（未重出）：gate / inn / hall / ruin / temple / tower
+    'struct.gate': 1,
+    'struct.inn': 1,
+    /* ⏳ 仍是旧正视素材（未重出）：hall / ruin / temple / tower
        —— 它们**不在**表里，`_drawStructure` 仍会给它们补代码侧面。 */
   };
   A.isIsoNative = function (key) { return !!A.ISO_NATIVE[key]; };
