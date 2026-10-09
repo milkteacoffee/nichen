@@ -389,7 +389,7 @@ PIXEL_KEYS = set([
     'ground.town', 'ground.grass', 'ground.cave', 'ground.bloodcave',
     # 建筑（v2.6.0 起逐张重出；**换一张就加一行**）
     'struct.house', 'struct.apothecary', 'struct.shop', 'struct.smithy', 'struct.alchemy',
-    'struct.gate', 'struct.inn',
+    'struct.gate', 'struct.inn', 'struct.hall', 'struct.ruin', 'struct.temple', 'struct.tower',
 ])
 
 

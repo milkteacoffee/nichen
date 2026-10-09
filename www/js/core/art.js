@@ -1258,8 +1258,13 @@
     'struct.alchemy': 1,
     'struct.gate': 1,
     'struct.inn': 1,
-    /* ⏳ 仍是旧正视素材（未重出）：hall / ruin / temple / tower
-       —— 它们**不在**表里，`_drawStructure` 仍会给它们补代码侧面。 */
+    'struct.hall': 1,
+    'struct.ruin': 1,
+    'struct.temple': 1,
+    'struct.tower': 1,
+    /* ✅ v2.6.2 起：**全部 11 个 struct 键都已是像素等距素材** ——
+       所以下面不再有"未重出"的例外。新增建筑键时记得**同时**加进这里
+       （否则会多一份代码侧面）。 */
   };
   A.isIsoNative = function (key) { return !!A.ISO_NATIVE[key]; };
 
