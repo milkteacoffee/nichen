@@ -1888,7 +1888,22 @@ step(function () {
   back.onClick();
   if (b.pTarget !== b.es[1].key) errors.push('点后排后目标不是后排：' + b.pTarget);
 }, 'battle.multi.pick');
-pump(200, 'battle.multi.hit');
+
+/* ⚠️ v2.1.0 修**偶发红**：本段原来直接 `pump(200)` 然后断言"后排掉血"，
+   但 `battle.js` 的命中判定是 `Math.random() * 100 > hit`（最低 5% 落空），
+   `pump(200)` 会跑过好几个回合 —— 撞上任何一次落空，断言就假红。
+   实测：连跑 5 次会红 1~2 次，且**只在机器负载高时**复现（更隐蔽）。
+   这是项目记忆里"契约赌随机"的又一例：**概率分支必须把随机钉死**。
+   做法与 `beasts.capture.roll` 一致：这一段临时把 `Math.random` 换成常量 `0`
+   （`0*100 > hit` 恒假 → 必定命中），跑完立刻还原，避免污染后续契约。
+   ⚠️ 钉死范围只包住这一次攻击：`pump` 一结束就还原，
+      后面的伤害浮动/暴击仍走真随机（它们不影响本段断言）。 */
+{
+  const realR = sandbox.Math.random;
+  sandbox.Math.random = () => 0;
+  pump(200, 'battle.multi.hit');
+  sandbox.Math.random = realR;
+}
 
 step(function () {
   const b = G.game.scene;

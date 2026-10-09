@@ -93,7 +93,15 @@ async function preloadAssets() {
     save.pos = null;
     G.game.changeScene(s, { toSpawn: true });
     const sc = G.game.scene;
-    const ctx = gameCanvas.getContext('2d');
+    /* ⚠️ 必须用 `G.game.ctx`，**不能**再 `gameCanvas.getContext('2d')` 取一次。
+       `@napi-rs/canvas` 的 `getContext` 每次调用返回**不同的**上下文对象
+       （浏览器里是同一个，所以这个坑只在无头基准里显形）。
+       拿第二个 ctx 去画 = 在一块**没被引擎配置过**的 1920×1088 表面上重画：
+       实测各场景凭空多出 7~13ms/帧（field 15.4ms、town_home 8.5ms），
+       而真实值只有 1.2~2.4ms —— **bench 一度把"400+ fps"报成"65 fps"**，
+       会让「帧率非常高」这条需求被误判成没达标。
+       ⚠️ 2026-10-09 修正。改动前请先跑一次确认量级（应全部 <3ms）。 */
+    const ctx = G.game.ctx;
     /* 预热：首次进图要烘地面纹理/精灵，不算进成绩 */
     for (let i = 0; i < 30; i++) { if (sc.update) sc.update(1 / 60); sc.render(ctx); }
     /* 单次测量噪声极大（同一场景能差 2 倍），取多轮中位数才可信 */
