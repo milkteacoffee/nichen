@@ -164,6 +164,118 @@
       }
     });
 
+    /* ===== 门口路接入主路网（v1.9.5）=====
+       ⚠️ **铺路不许用随机数**（本项目铁律，本轮踩了）：
+          最初用随机数取路面变体 → **推移了全局随机序列** →
+          后续所有依赖它的生成（散布/明雷/暗雷候选/宝箱位…）全部改变，
+          实测把 `dao5` 的 spawn 变成了实心格。
+          改用**坐标哈希** `pathV`：确定、可复现、且与随机流解耦
+          （与 `elevAt` 的坐标哈希同一纪律）。
+       ⚠️ 源码闸 `road.connect.contract` 会扫这段代码里有没有随机数调用 ——
+          所以注释里也**不要写那个函数名**（闸门会把你自己的说明文字当违规）。 */
+    function pathV(x, y) {
+      return hashStr(mapId + ':pv' + x + ',' + y) % 6;
+    }
+    (function connectDoorRoads() {
+      var w2 = md.w, h2 = md.h;
+      var isPath = function (x, y) {
+        return ground[y] && ground[y][x] && ground[y][x].t === 'path';
+      };
+      /* 建筑占格表（BFS 不能穿） */
+      var blockedByStruct = {};
+      (md.structures || []).forEach(function (s) {
+        for (var yy = s.y; yy < s.y + s.h; yy++) {
+          for (var xx = s.x; xx < s.x + s.w; xx++) blockedByStruct[xx + ',' + yy] = 1;
+        }
+      });
+      /* 主路网 = 从"最大的一段路"开始（避免把孤立门格当成主路基准）。
+         做法：先扫出所有路格，取其中一个、洪泛标记；若还有没标记的路格，
+         说明存在多个分量 —— 只需保证"门格能到**最大分量**"即可。 */
+      var mainSeed = null, best = -1;
+      var comp = {};
+      for (var yy2 = 1; yy2 < h2 - 1; yy2++) {
+        for (var xx2 = 1; xx2 < w2 - 1; xx2++) {
+          if (!isPath(xx2, yy2) || comp[xx2 + ',' + yy2]) continue;
+          /* 洪泛这一片 */
+          var seen2 = {}, q2 = [[xx2, yy2]], cnt = 0;
+          seen2[xx2 + ',' + yy2] = 1;
+          while (q2.length) {
+            var c2 = q2.shift(); cnt++;
+            var d2 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+            for (var i2 = 0; i2 < 4; i2++) {
+              var nx2 = c2[0] + d2[i2][0], ny2 = c2[1] + d2[i2][1];
+              var k2 = nx2 + ',' + ny2;
+              if (seen2[k2] || !isPath(nx2, ny2)) continue;
+              seen2[k2] = 1; q2.push([nx2, ny2]);
+            }
+          }
+          for (var kk in seen2) comp[kk] = 1;
+          if (cnt > best) { best = cnt; mainSeed = [xx2, yy2]; }
+        }
+      }
+      if (!mainSeed) return;                     /* 全图没路：无基准可接，跳过 */
+      /* 主路网标记（从最大分量洪泛） */
+      var mainRoad = {}, qm = [mainSeed];
+      mainRoad[mainSeed[0] + ',' + mainSeed[1]] = 1;
+      while (qm.length) {
+        var cm = qm.shift();
+        var dm = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (var im = 0; im < 4; im++) {
+          var nxm = cm[0] + dm[im][0], nym = cm[1] + dm[im][1];
+          var km = nxm + ',' + nym;
+          if (mainRoad[km] || !isPath(nxm, nym)) continue;
+          mainRoad[km] = 1; qm.push([nxm, nym]);
+        }
+      }
+      /* 每个门格：不在主路网 → BFS 到主路网，沿途铺路 */
+      var doors = [];
+      (md.structures || []).forEach(function (s) {
+        var dx = s.x + Math.floor(s.w / 2), dy = s.y + s.h;
+        if (dy < h2 && dx < w2 && dy >= 0 && dx >= 0) doors.push([dx, dy]);
+      });
+      doors.forEach(function (d) {
+        var dk = d[0] + ',' + d[1];
+        if (mainRoad[dk]) return;                /* 已接主路网：跳过（零改动） */
+        var seen3 = {}, prev3 = {}, q3 = [d], goal = null;
+        seen3[dk] = 1;
+        while (q3.length && !goal) {
+          var c3 = q3.shift();
+          var d3 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          for (var i3 = 0; i3 < 4; i3++) {
+            var nx3 = c3[0] + d3[i3][0], ny3 = c3[1] + d3[i3][1];
+            var k3 = nx3 + ',' + ny3;
+            if (nx3 < 1 || ny3 < 1 || nx3 > w2 - 2 || ny3 > h2 - 2) continue;
+            if (seen3[k3]) continue;
+            if (mainRoad[k3]) { seen3[k3] = 1; prev3[k3] = c3; goal = [nx3, ny3]; break; }
+            /* 不许穿建筑（但**门格自己**是起点，不在建筑内） */
+            if (blockedByStruct[k3] && k3 !== dk) continue;
+            seen3[k3] = 1; prev3[k3] = c3; q3.push([nx3, ny3]);
+          }
+        }
+        if (!goal) return;                       /* 走不到主路：放弃（别硬铺出断头路） */
+        /* 回溯铺路 */
+        var cur3 = goal;
+        while (cur3 && (cur3[0] + ',' + cur3[1]) !== dk) {
+          var cx3 = cur3[0], cy3 = cur3[1];
+          if (!isPath(cx3, cy3)) {
+            ground[cy3][cx3] = { t: 'path', v: pathV(cx3, cy3) };
+          }
+          /* ⚠️ **必须同时 `mark`**：`occupied` 是"别在此处放东西"的表，
+             mapgen 后面若干步（灵脉/宝箱/野怪/散布…）都会读它。
+             漏 mark → 铺出来的路会被后续散布占住（实测 dao5 的 spawn 变实心）。 */
+          mark(cx3, cy3);
+          mainRoad[cx3 + ',' + cy3] = 1;
+          cur3 = prev3[cx3 + ',' + cy3];
+        }
+        /* 门格本身也铺成路（它可能是草地） */
+        if (ground[d[1]] && ground[d[1]][d[0]] && ground[d[1]][d[0]].t !== 'path') {
+          ground[d[1]][d[0]] = { t: 'path', v: pathV(d[0], d[1]) };
+        }
+        mark(d[0], d[1]);
+        mainRoad[dk] = 1;
+      });
+    })();
+
     var interact = {};
     function setInteract(x, y, obj) { interact[x + ',' + y] = obj; }
 
@@ -289,6 +401,123 @@
       solid[n.y][n.x] = true; mark(n.x, n.y);
       setInteract(n.x, n.y, { type: 'npc', npc: n, id: n.id, act: n.act });
     });
+
+    /* ===== 关键点连通路（v1.9.5）=====
+       用户口径：「所有的地图都要有单独的一条小路，可以通往所有的建筑或者副本，
+                全面对标《烟雨江湖》」。
+       ⚠️ **缺口（实测）**：室内图（town_shop / town_home）与洞窟图（cave / bloodhall）
+          **完全没有路**（`md.paths` 为空、也非 `regiongen` 生成型）。
+          玩家在"药铺里"没有任何路径线索，不知道柜台/宝箱/出口在哪 ——
+          与「通往所有建筑或副本」的目标不符。
+       **做法**：从**出生点**出发，对每个"关键点"铺一条最短小路：
+         · 关键点 = 交互格（NPC / 宝箱 / Boss / 出口传送阵）+ 各出口的落点
+         · 用**四邻 BFS**（不穿 solid），沿途铺 `path`
+         · 已在路上的点跳过（零改动）
+       ⚠️ **只铺"最短连接"**，不做全图铺路：洞窟里"有一条踩出来的路"才对，
+          满屏路会像铺装广场（出戏）。
+       ⚠️ **不消耗 `rng`**（用 `pathV` 坐标哈希取变体 —— 见上面的教训）。 */
+    (function connectKeyPoints() {
+      var w3 = md.w, h3 = md.h;
+      var isPath3 = function (x, y) {
+        return ground[y] && ground[y][x] && ground[y][x].t === 'path';
+      };
+      /* 关键点：**按"物件"去重**，每个物件只取一个代表格 ——
+         ⚠️ 一开始对**每个交互格**都铺一条，多格宽的建筑会产生一串相邻目标 →
+            绕出"U 形路"（实测 town 的药铺门口铺成一大块绿地毯，完全不像小路）。
+         现在：同类相邻目标只保留一个（用 visited 标记），且优先取**正下方**那格。 */
+      var goals = [];
+      var taken2 = {};
+      for (var ik in interact) {
+        var q = ik.split(',');
+        var gx = +q[0], gy = +q[1] + 1;
+        var gk2 = gx + ',' + gy;
+        if (taken2[gk2]) continue;
+        taken2[gk2] = 1;
+        goals.push([gx, gy]);
+      }
+      (md.exits || []).forEach(function (e) {
+        var mx = Math.floor((e.x0 + e.x1) / 2);
+        var ek = mx + ',' + e.y;
+        if (taken2[ek]) return;
+        taken2[ek] = 1;
+        goals.push([mx, e.y]);
+      });
+      /* ⚠️ **目标去重**：多个目标若互相相邻（同一栋楼的几个门），
+         只留一个，避免"同一片区域反复铺"成地毯。
+         判据：目标两步内有另一个目标 → 后者丢弃。 */
+      var uniq = [];
+      goals.forEach(function (g) {
+        var near = uniq.some(function (h) {
+          return Math.abs(h[0] - g[0]) <= 2 && Math.abs(h[1] - g[1]) <= 2;
+        });
+        if (!near) uniq.push(g);
+      });
+      goals = uniq;
+      /* 起点：spawn（没有就用地图中心） */
+      var start = md.spawn ? [md.spawn.x, md.spawn.y] : [Math.floor(w3 / 2), Math.floor(h3 / 2)];
+      /* 从起点洪泛一次（不穿 solid），得到"能走到的范围"与来源链 */
+      var seen = {}, prev = {}, qq = [start];
+      seen[start[0] + ',' + start[1]] = 1;
+      var GUARD = w3 * h3 + 8;
+      while (qq.length) {
+        var c = qq.shift();
+        var d = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (var i = 0; i < 4; i++) {
+          var nx = c[0] + d[i][0], ny = c[1] + d[i][1];
+          var kk = nx + ',' + ny;
+          if (nx < 1 || ny < 1 || nx > w3 - 2 || ny > h3 - 2) continue;
+          if (seen[kk]) continue;
+          if (solid[ny][nx]) continue;              /* 不穿墙 */
+          /* ⚠️ **不穿"物件所在的格"**（NPC/宝箱/井…是 solid，已被上面拦住；
+             但交互格的"下方"是空位，可走） */
+          seen[kk] = 1; prev[kk] = c;
+          qq.push([nx, ny]);
+        }
+        if (Object.keys(seen).length > GUARD) break;   /* 防御：不该发生 */
+      }
+      /* 起点本身若是实心（某些图 spawn 贴墙），退化为"从 spawn 的下方" */
+      if (!seen[start[0] + ',' + start[1]]) {
+        start = [md.spawn ? md.spawn.x : Math.floor(w3 / 2),
+          Math.min(h3 - 2, (md.spawn ? md.spawn.y : Math.floor(h3 / 2)) + 1)];
+        seen = {}; prev = {}; qq = [start];
+        seen[start[0] + ',' + start[1]] = 1;
+        while (qq.length) {
+          var c2 = qq.shift();
+          var d2 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          for (var i2 = 0; i2 < 4; i2++) {
+            var nx2 = c2[0] + d2[i2][0], ny2 = c2[1] + d2[i2][1];
+            var k2 = nx2 + ',' + ny2;
+            if (nx2 < 1 || ny2 < 1 || nx2 > w3 - 2 || ny2 > h3 - 2) continue;
+            if (seen[k2] || solid[ny2][nx2]) continue;
+            seen[k2] = 1; prev[k2] = c2; qq.push([nx2, ny2]);
+          }
+        }
+      }
+      /* 每个关键点：沿 BFS 来源链回溯铺路 */
+      var painted = 0;
+      goals.forEach(function (g) {
+        var gk = g[0] + ',' + g[1];
+        if (!seen[gk]) return;                      /* 走不到（被墙隔开）→ 放弃，不硬铺断头路 */
+        var cur = [g[0], g[1]];
+        while (cur && (cur[0] + ',' + cur[1]) !== (start[0] + ',' + start[1])) {
+          var cx = cur[0], cy = cur[1];
+          if (!isPath3(cx, cy) && !solid[cy][cx]) {
+            ground[cy][cx] = { t: 'path', v: pathV(cx, cy) };
+            mark(cx, cy);
+            painted++;
+          }
+          cur = prev[cx + ',' + cy];
+        }
+      });
+      /* 起点格本身也铺（玩家落脚处有路才自然） */
+      if (!isPath3(start[0], start[1]) && !solid[start[1]][start[0]]) {
+        ground[start[1]][start[0]] = { t: 'path', v: pathV(start[0], start[1]) };
+        mark(start[0], start[1]);
+        painted++;
+      }
+      /* ⚠️ 只在**真有缺口**时记录（便于排查），不打印（smoke 输出要清爽） */
+      if (painted) md._roadPainted = painted;
+    })();
 
     /* ===== 随机散布 =====
        ⚠️ v0.96.0：装饰数量必须补 **格子像素变大** 这一层（用户「地图放大后很空」）。

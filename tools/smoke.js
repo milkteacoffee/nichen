@@ -13277,6 +13277,152 @@ step(function () {
     + ' 等距方向：按键映射到视觉方向 + 朝保持世界 4 邻');
 }, 'iso.move.contract');
 
+/* ---------- 道路连通：每条路都能走到建筑/关键点（v1.9.5）----------
+   用户口径：「我希望的是所有的地图都要有单独的一条小路，可以通往所有的建筑或者副本，
+             全面对标《烟雨江湖》」。 */
+step(function () {
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  G.game.save = s;
+  s.world = s.world || G.Data.generateWorld(s.worldSeed || 1, true);
+
+  const IDS = ['town', 'town_shop', 'town_home', 'field', 'cave', 'yunzhou', 'bloodhall'];
+  let checkedRoads = 0;
+  IDS.forEach(function (id) {
+    if (!G.Data.maps[id]) return;
+    try { if (G.RegionGen.ensure) G.RegionGen.ensure(s, id); } catch (e) { }
+    const mp = G.MapGen.buildMap(s, id);
+    const md = G.Data.maps[id];
+
+    /* ① 全图路必须是**单一连通分量**（0 孤立段）。
+       ⚠️ 用**八邻**洪泛（与行走一致：8 向移动下对角相邻的路是可走通的）。
+          ⚠️ 判据是"最大分量 == 全部路格" —— 只要有一格孤立就报。 */
+    let total = 0, firstX = -1, firstY = -1;
+    for (let y = 0; y < mp.h; y++) {
+      for (let x = 0; x < mp.w; x++) {
+        if (mp.ground[y][x].t !== 'path') continue;
+        total++;
+        if (firstX < 0) { firstX = x; firstY = y; }
+      }
+    }
+    if (total === 0) {
+      /* 允许"确实不需要路"的图（如纯剧情单格图）——但本清单里的图都应有路 */
+      errors.push('道路连通：' + id + ' 完全没有路（`md.paths` 空、关键点连通也没铺出来）');
+      return;
+    }
+    checkedRoads++;
+    const seen = {}, q = [[firstX, firstY]];
+    seen[firstX + ',' + firstY] = 1;
+    let reach = 0;
+    const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    while (q.length) {
+      const c = q.shift(); reach++;
+      for (let i = 0; i < 8; i++) {
+        const nx = c[0] + DIRS[i][0], ny = c[1] + DIRS[i][1];
+        if (nx < 0 || ny < 0 || nx >= mp.w || ny >= mp.h) continue;
+        if (mp.ground[ny][nx].t !== 'path') continue;
+        const k = nx + ',' + ny;
+        if (seen[k]) continue;
+        seen[k] = 1; q.push([nx, ny]);
+      }
+    }
+    if (reach !== total) {
+      errors.push('道路连通：' + id + ' 的路断成多段（' + reach + '/' + total
+        + '）—— 有玩家走不到的孤立路段');
+    }
+
+    /* ② 每个建筑的**门前格必须落在路上**（用户口径：小路要通往所有建筑） */
+    (md.structures || []).forEach(function (st) {
+      const dx = st.x + Math.floor(st.w / 2), dy = st.y + st.h;
+      if (dy >= mp.h || dx >= mp.w || dy < 0 || dx < 0) return;
+      if (mp.ground[dy][dx].t !== 'path') {
+        errors.push('道路连通：' + id + ' 的建筑(' + (st.bk || st.kind) + ') '
+          + '门前格(' + dx + ',' + dy + ') 不是路 —— 玩家没法"顺着路走到门口"');
+      }
+    });
+
+    /* ③ **路格不许被占成实心**（行为判据：铺路漏 `mark` 时，后续散布会把树种在路上）。
+       ⚠️ 这条比"源码里存在 `mark(`"强得多（后者漏一处照样通过 —— 实测验证过）。
+       ⚠️ 建筑自己压住的路格**不算**（设计如此，建筑就盖在路网之上）。
+       ⚠️ 用**建筑格表**（哈希）而不是"每格遍历建筑列表" —— 后者是 O(w·h·建筑数)，
+          实测直接把 smoke 拖到超时。 */
+    {
+      const stCell = {};
+      (md.structures || []).forEach(function (st) {
+        for (let yy = st.y; yy < st.y + st.h; yy++) {
+          for (let xx = st.x; xx < st.x + st.w; xx++) stCell[xx + ',' + yy] = 1;
+        }
+      });
+      let onRoad = 0;
+      for (let y = 0; y < mp.h; y++) {
+        for (let x = 0; x < mp.w; x++) {
+          if (mp.ground[y][x].t !== 'path' || !mp.solid[y][x]) continue;
+          if (stCell[x + ',' + y]) continue;
+          onRoad++;
+        }
+      }
+      if (onRoad > 0) {
+        errors.push('道路连通：' + id + ' 有 ' + onRoad + ' 个路格被占成实心'
+          + '（散布/物件压在路上）—— 铺路时漏了 `mark`');
+      }
+    }
+  });
+
+  if (checkedRoads < 5) {
+    errors.push('道路连通：只检查到 ' + checkedRoads + ' 张有路的图（应 ≥5）—— 用例覆盖不足');
+  }
+
+  /* ③ 源码闸：铺路**不许消耗 rng**（会推移全局随机序列、污染所有基线）。
+     ⚠️ 这条是实测踩出来的：用 `rng.int(0,5)` 取路面变体 → dao5 的 spawn 变实心。
+     ⚠️ **切片左界必须从 `pathV` 的"注释起点"开始，不能从 `connectDoorRoads`**
+        —— `pathV` 定义在 `connectDoorRoads` **之前**，从后者开始会把它漏掉
+        （实测：反例"pathV 改用 rng"完全没被闸门抓到）。
+        **这是"源码闸切片边界"的老坑（memory 有记）：左界函数在右界之前定义 → 漏检。** */
+  {
+    const src = fs.readFileSync(path.join(WWW, 'js/core/mapgen.js'), 'utf8');
+    /* 左界：铺路段落的注释起点（含 `pathV` 定义） */
+    /* ⚠️ **锚点用函数定义本身，不用注释文字**
+       （注释一改，闸门就找不到左界 → 静默通过；这是"拿注释当锚点"的固有脆弱）。
+       左界 = `function pathV`（铺路段的起点），右界 = `connectKeyPoints` 的函数结束。 */
+    const l0 = src.indexOf('function pathV');
+    const ckp = src.indexOf('(function connectKeyPoints');
+    const ckpEnd = ckp < 0 ? -1 : src.indexOf('})();', ckp);
+    /* ⚠️ **右界必须取 `connectKeyPoints` 的函数结束**，不能取 `ckp + N`：
+        两段铺路之间隔着**散布等代码**（含随机数调用）—— 取 `ckp + 3000` 会把
+        散布也算进"铺路代码"，闸门假红。
+        ⚠️ 且必须校验"切出来的段里**两个函数都在**"：
+        若 `indexOf` 命中注释里提到的名字，切片会截断 → 闸门静默通过。 */
+    const body = (l0 < 0 || ckpEnd < 0 || ckpEnd <= l0) ? '' : src.slice(l0, ckpEnd);
+    if (!body) errors.push('道路连通：找不到铺路代码段（`function pathV` → `connectKeyPoints` 结束）');
+    else {
+      /* ⚠️ **先剥注释**再判 —— 否则注释里那句"铺路不许消耗 rng"会被当成违规
+         （实测：闸门把自己的说明文字报了红）。 */
+      const code = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+      if (/rng\.(int|next|pick)/.test(code)) {
+        errors.push('道路连通：铺路代码里用了 `rng` —— 会推移全局随机序列，'
+          + '污染所有依赖 rng 的生成（实测会让 dao5 的 spawn 变实心）。'
+          + '应改用 `pathV` 坐标哈希');
+      }
+      if (code.indexOf('pathV') < 0) {
+        errors.push('道路连通：找不到 `pathV`（坐标哈希取路面变体）');
+      }
+      if (code.indexOf('mark(') < 0) {
+        errors.push('道路连通：铺路没有 `mark` —— 铺出的路会被后续散布/明雷占住');
+      }
+      /* ⚠️ 切片右界必须**真的包含** connectKeyPoints 的函数体 ——
+         若 `indexOf` 拿到的是"注释里提到的名字"，切片会截断 → 闸门静默通过。
+         判据：切片里必须**同时**出现两个函数定义。 */
+      if (code.indexOf('connectDoorRoads') < 0 || code.indexOf('connectKeyPoints') < 0) {
+        errors.push('道路连通：源码闸切片没覆盖两个铺路函数 —— 右界可能取到了注释里的名字');
+      }
+    }
+  }
+
+  G.game.changeScene('title');
+  console.log('  ✓ 道路连通：' + checkedRoads + ' 张图单一连通分量 + 建筑门前都有路 + '
+    + '铺路不用 rng 且带 mark');
+}, 'road.connect.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');
