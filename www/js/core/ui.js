@@ -912,6 +912,15 @@
     this.iconLeft = !!o.iconLeft;
     /* iconSize：左缘图标的尺寸（默认 15）。 */
     this.iconSize = o.iconSize || 15;
+    /* swatch（v2.0.0 装扮）：在标签**左缘**画一枚纯色小方块。
+       用途：装扮（服饰/鞋子/头饰）是**颜色驱动**的，一件衣服没有"图标素材" ——
+       画它的主色比硬凑一枚统一图标信息量大得多（也省掉 20 多张出图）。
+       ⚠️ 与 `icon` 互斥：`icon` 走 `A.itemIcon`（有素材的物件），
+          `swatch` 只是一个色值。两个都传时**只画 swatch 且不计 leftIconW**，
+          因为 swatch 不占位（叠在标签起点左边 11px 的空隙里）。
+       ⚠️ 与 `icon`/`sub` 同一条铁律：**必须在这里显式拷贝** —— 漏拷不报错，
+          只是静默不画色块（本项目 Btn 字段踩过多次）。 */
+    this.swatch = o.swatch || null;
     this._p = 0;
   }
   Btn.prototype.hit = function (p) {
@@ -1019,6 +1028,19 @@
     /* 只有"格子类按钮"（带 sub）才自动缩放 / 截断名称；普通按钮的 label 宽度是设计好的 */
     x.fillText(this.sub ? fitCell(x, this.label, this.fs || (this.small ? 12 : 14), w - 7)
       : this.label, tx0, cy);
+    /* 色块（v2.0.0 装扮）：标签左缘一枚 8×8 纯色方块。
+       画在**文字之后**没关系 —— 它不压字（起点在 tx0 左侧的空隙里）。
+       ⚠️ 只在 `lalign` 时画：居中标签没有"左缘"这个概念，硬画会压到字上。 */
+    if (this.swatch && this.lalign) {
+      x.save();
+      x.globalAlpha = (this.disabled && !this.passive) ? 0.45 : 1;
+      x.fillStyle = this.swatch;
+      x.fillRect(this.x + 5, Math.round(cy - 5), 6, 6);
+      x.strokeStyle = 'rgba(0,0,0,0.45)';
+      x.lineWidth = 0.5;
+      x.strokeRect(this.x + 4.75, Math.round(cy - 5) - 0.25, 6.5, 6.5);
+      x.restore();
+    }
     if (this.sub) {
       x.font = F(this.subFs || 9.5);
       x.fillStyle = (this.disabled && !this.passive) ? '#5c6072' : (this.subColor || C.textDim);

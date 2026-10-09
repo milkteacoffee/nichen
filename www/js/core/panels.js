@@ -540,6 +540,77 @@
     }
   }
 
+  /* ===== 装扮（v2.0.0）=====
+     两块按钮：
+       ① **左栏四槽**（竖排）：点一下 = 该槽换回默认件（与法宝页"点已佩即卸下"同构）
+       ② **右栏当前槽的可选项**：点一件即穿；同时顶部四个"看哪一槽"的**页签**
+     ⚠️ `scene.appearSlot` 是"正在浏览哪一槽"，**不是**"穿着什么" ——
+        穿着状态唯一真相源是 `save.appear`（经 `A.worn` 解析）。
+        两者混用会出现"点页签把衣服穿换了"（页签只该切换视图）。
+     ⚠️ 换完必须 `G.Overlays.openPanel(scene,'char',true)` 重建按钮 ——
+        否则按钮上的高亮/文案停在上一次状态（本项目多处踩过这个）。 */
+  function buildAppearSlots(btns, scene) {
+    var A = G.Data.appearance;
+    if (!A) return;
+    var save = G.game.save;
+    var P2 = G.Overlays.CHAR_BODY;
+    var LX2 = P2.x + 18, RX2 = P2.x + 206;
+    var LW2 = 168, RW2 = P2.x + P2.w - 18 - RX2;
+    var slot = scene.appearSlot || 'robe';
+    if (A.SLOTS.indexOf(slot) < 0) slot = 'robe';
+
+    /* ① 左栏：四个槽的"看这一槽"页签（不是穿戴状态，别画成 active=已穿）
+       ⚠️ 起点 y 与 overlays.charAppear 的"点下面一槽…"（P.y+116 附近）对齐 ——
+          改这里必须同步改那边，否则文字压在按钮上（`panels.bounds.contract` 抓）。
+       ⚠️ 行距 19 / 高 17：与右栏可选项同一节奏，左右两列读起来才是一张表。 */
+    A.SLOTS.forEach(function (sl, i) {
+      btns.push(new G.UI.Btn({
+        x: LX2, y: P2.y + 116 + i * 19, w: LW2, h: 17, small: true, fs: 9.5, lalign: true,
+        variant: slot === sl ? 'gold' : 'default',
+        label: A.SLOT_N[sl] + '　' + (A.worn(save, sl) ? A.worn(save, sl).n : '—'),
+        swatch: (A.worn(save, sl) || {}).c || null,
+        onClick: function () {
+          scene.appearSlot = sl;
+          G.Overlays.openPanel(scene, 'char', true);
+        }
+      }));
+    });
+
+    /* ② 右栏：当前槽的可选件（点一件即穿）
+       ⚠️ 行数由**面板底沿**决定，不是随便定的：
+          P2.y=6、CHAR_PANEL.h=232 → 内容底 ≈ 238。按钮从 P2.y+116=122 起，
+          每行 19px ⇒ 6 行到 236（贴底）。取 **5 行**给"另有 N 件"留一行。
+          改成 6 行会顶出外框 —— `panels.bounds.contract` 会报（按钮越界）。 */
+    var opts = A.list(slot);
+    var cur = A.worn(save, slot);
+    opts.slice(0, 5).forEach(function (e, i) {
+      var on = cur && cur.id === e.id;
+      btns.push(new G.UI.Btn({
+        x: RX2, y: P2.y + 116 + i * 19, w: RW2, h: 17, small: true, fs: 9.5, lalign: true,
+        variant: on ? 'gold' : 'default',
+        label: e.n + (on ? '（已穿）' : ''),
+        /* 色块预览：把装扮的主色当"图标"直接画出来 ——
+           服饰/鞋子/头饰都是颜色驱动，比画一枚统一图标信息量大得多。 */
+        swatch: e.c || null,
+        onClick: function () {
+          var r = A.set(save, slot, e.id);
+          G.game.toast(r.ok ? ('已换：' + e.n) : ('无法更换：' + r.reason));
+          /* 换完清一次精灵缓存：外观签名变了，但某些缓存（如 `heroFrames` 的懒加载表）
+             不带签名，不复用的话会残留旧外观。清空代价 = 重烘 ~12 张小图，可接受。 */
+          if (r.ok && G.Sprites && G.Sprites.clear) G.Sprites.clear();
+          G.Overlays.openPanel(scene, 'char', true);
+        }
+      }));
+    });
+    if (opts.length > 5) {
+      btns.push(new G.UI.Btn({
+        x: RX2, y: P2.y + 116 + 5 * 19, w: RW2, h: 17, small: true, fs: 9, lalign: true,
+        variant: 'ghost', label: '另有 ' + (opts.length - 5) + ' 件',
+        onClick: function () { G.game.toast('这一槽还有 ' + (opts.length - 5) + ' 件可选'); }
+      }));
+    }
+  }
+
   function openPanel(scene, id, keepTab) {
     /* 面板滑入（v0.32.0）：记下打开时刻，渲染时按 `G.game.time` 算进度。
        ⚠️ 用 `G.game.time` 而不是 performance.now —— 截图与契约才钉得住。 */
@@ -576,6 +647,10 @@
     /* 法宝只在**自己的子页**出现（v0.29.0）：总览只查看，不做法宝操作 */
     if (id === 'char' && (scene.charTab || 'overview') === 'equip') {
       buildEquipSlots(btns, scene);
+    }
+    /* 装扮（v2.0.0）：槽位页签 + 该槽的可选项列表 */
+    if (id === 'char' && (scene.charTab || 'overview') === 'appear') {
+      buildAppearSlots(btns, scene);
     }
     /* 底栏高亮：功法/秘术属角色组，高亮落在「角色」上（否则进了这两页底栏一个都不亮） */
     barBtns(scene, G.Overlays.isCharGroup(id) ? 'char' : id).forEach(function (b) { btns.push(b); });

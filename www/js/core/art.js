@@ -117,6 +117,63 @@
   A.blit = function (x, art, dx, dy) {
     x.drawImage(art.c, Math.round(dx + art.ox), Math.round(dy + art.oy), art.w, art.h);
   };
+
+  /* ===== 像素化烘焙（v2.0.0）=====
+     把一张已烘好的**高分辨率**画布变成"像素块"观感，**并保持画布物理尺寸不变**。
+
+     为什么保持尺寸不变（这是第一版踩过的坑）：
+       第一版把结果画布缩到 `w/pixel`。结果 `_drawGroundLayer` 仍按
+       `map.w*TILE*K` 取源矩形 —— 源矩形超出缩小的画布 → 取到空区 →
+       **整屏变黑**（实测中心亮度从 136 掉到 24）。所有下游调用点都按
+       "物理尺寸 = 逻辑尺寸 × K"写死了取源坐标，缩尺寸等于到处埋雷。
+       ⇒ 正确做法：**在同一个尺寸里做两趟**（降采样 → 最近邻升回来）。
+
+     两趟的做法：
+       ① 降到 `1/pixel` 的点采样缩略图（`imageSmoothingEnabled=false` → 硬取样）
+       ② 用**最近邻**把它撑回原尺寸 → 每 `pixel` 见方变成一块纯色
+
+     为什么必须**点采样**而不是均值：像素风 = 硬边 + **不产生新颜色**。
+       均值降采样会把 20 色调色板混成几百色，"像素感"当场消失
+       （实测：均值版看起来像"低分辨率模糊图"而不是像素画）。
+
+     ⚠️ **`pixel` 的单位是"逻辑像素"**（这是第二版修的 bug）：
+        传进来的画布是 **K 倍**的（`A.cv` 烘的都是物理像素），而用户看到的
+        "1.5 像素一格"是**逻辑**刻度。第一版直接按物理尺寸除 `pixel` →
+        块只有 1.5 **物理**像素（K=4 时 = 0.375 逻辑像素）→ 观感上什么都没发生
+        （实测：同色段长度全是 1~3 物理像素，肉眼就是"高清图"）。
+        ⇒ 必须按 `pixel * K` 除：1.5 逻辑像素 = 6 物理像素 = 看得见的块。
+
+     ⚠️ 全程 `imageSmoothingEnabled = false`（两趟都要）——
+        任一趟开了平滑，块边就被插值成渐变，白做。
+     ⚠️ 返回的是**新画布**（不改入参）。缓存由调用方负责（键里要带 `G.PIXEL`）。 */
+  A.pixelate = function (src, pixel) {
+    pixel = pixel || (window.G && G.PIXEL) || 1;
+    if (!(pixel > 1) || !src) return src;
+    try {
+      var W = src.width, H = src.height;
+      /* 物理→逻辑换算：块边长 = pixel × K（K 就是"1 逻辑像素 = 几物理像素"） */
+      var K = A.K || 1;
+      var phys = Math.max(2, Math.round(pixel * K));
+      var w = Math.max(1, Math.round(W / phys));
+      var h = Math.max(1, Math.round(H / phys));
+      /* ① 低分辨率缓冲（像素格） */
+      var small = document.createElement('canvas');
+      small.width = w; small.height = h;
+      var sx = small.getContext('2d');
+      sx.imageSmoothingEnabled = false;
+      if ('imageSmoothingQuality' in sx) sx.imageSmoothingQuality = 'low';
+      sx.drawImage(src, 0, 0, W, H, 0, 0, w, h);
+      /* ② 最近邻升回原尺寸 → 每格变成一块纯色 */
+      var out = document.createElement('canvas');
+      out.width = W; out.height = H;
+      var ox = out.getContext('2d');
+      ox.imageSmoothingEnabled = false;
+      if ('imageSmoothingQuality' in ox) ox.imageSmoothingQuality = 'low';
+      ox.drawImage(small, 0, 0, w, h, 0, 0, W, H);
+      return out;
+    } catch (e) { return src; }
+  };
+
   /* 单张画布按逻辑尺寸绘制（用于瓦片等定尺寸素材） */
   A.blitFixed = function (x, img, dx, dy, w, h) {
     x.drawImage(img, Math.round(dx), Math.round(dy), w, h);
@@ -1197,7 +1254,9 @@
       return { c: structTint(im, pal), ox: (W - dw) / 2, oy: H - dh, w: dw, h: dh };
     }
     var ox = -12, oy = -8;
-    var key = 'h|' + W + '|' + H + '|' + s.roof;
+    /* 像素化档位进缓存键：不带的话调 G.PIXEL 后旧图继续被复用（静默不生效）。 */
+    var pxl = (G.pixelOn && G.pixelOn()) ? G.PIXEL : 1;
+    var key = 'h|' + W + '|' + H + '|' + s.roof + '|' + pxl;
     var o = cached(key, W + 24, H + 16, function (x) {
       x.translate(12, 8);
       var roofCol = s.roof || '#6b5a4a';
@@ -1294,7 +1353,10 @@
         x.stroke();
       });
     });
-    return { c: o.c, ox: ox, oy: oy, w: W + 24, h: H + 16 };
+    /* 像素化：程序化建筑是矢量画的（边缘平滑），降一格才与像素地面同族。
+       ⚠️ 只降**程序化**路径；素材建筑（`struct.*`，AI 出的高分辨率图）上面
+          已经 `return` 走了另一条路，不参与降采样（与主角同一条取舍）。 */
+    return { c: (pxl > 1 ? A.pixelate(o.c, pxl) : o.c), ox: ox, oy: oy, w: W + 24, h: H + 16 };
   };
 
   A.ruin = function (s, pal) {
@@ -2642,10 +2704,40 @@
 
   /* 立绘：返回 {c, ox, oy, w, h}。素材走"内含"缩放居中，绝不裁切。
      立绘不吃调色板（程序化配色写在 PORTRAIT_P 里），所以缓存键只带 key。
-     注意：素材到货后必须让缓存失效 —— game.js 的素材回调会调 G.Art.clear()。 */
+     注意：素材到货后必须让缓存失效 —— game.js 的素材回调会调 G.Art.clear()。
+
+     v2.0.0 换装：`key === 'luchen'` 且**玩家穿过非默认装扮**时，改为
+     **由装扮现画**一个小人立绘（缓存键带上外观签名）。理由：
+       · 对话里的立绘是玩家最常看到"自己"的地方 —— 换了衣服这儿不变，
+         换装就只是"地图上的一个小色块变了"，说服力为零；
+       · `portrait.luchen` / `battle.hero` 都是成品图，颜色改不了。
+     ⚠️ 默认外观时**完全走原路**（缓存键不变、像素不变）—— 零回归。
+     ⚠️ 这里**不引 sprites.js 的 lookOf**：art.js 在 sprites.js **之前**加载，
+        直接调会拿到 undefined。改为读 `save.appear` 并只认 id（够用且无依赖）。 */
   A.portrait = function (key) {
     key = key || 'villager';
-    var o = cached('portrait|' + key, PORTRAIT_LW, PORTRAIT_LH, function (x) {
+    var lk = null;
+    if (key === 'luchen' && G.Data && G.Data.appearance && G.game && G.game.save) {
+      lk = G.Data.appearance.worn(G.game.save, 'robe');
+      var A2 = G.Data.appearance;
+      var isDef = !lk || lk.id === A2.DEFAULT.robe;
+      if (isDef) lk = null;
+    }
+    var ck = 'portrait|' + key + (lk ? '|' + A2Tag(lk) : '');
+    var o = cached(ck, PORTRAIT_LW, PORTRAIT_LH, function (x) {
+      /* 换装路径：程序化画一个"穿着该袍"的半身像（不必精细，能读出颜色即可） */
+      if (lk) {
+        var base = PORTRAIT_P[key] || PORTRAIT_P.villager;
+        var P2 = {};
+        for (var kk in base) P2[kk] = base[kk];
+        /* ⚠️ 立绘调色板的键名与地图角色**不同**：立绘用 `robe` / `robe2`（两层），
+           地图角色用 `robe` / `robeHi` / `robeDark`（三面）。写错键 = 静默不变色。 */
+        P2.robe = lk.c;
+        P2.robe2 = G.Art.shade(lk.c, -0.16);
+        P2.collar = lk.acc || G.Art.shade(lk.c, 0.55);
+        portraitDraw(x, P2);
+        return;
+      }
       var im = G.Assets && G.Assets.img ? G.Assets.img('portrait.' + key) : null;
       if (!im && PORTRAIT_ART[key] && G.Assets && G.Assets.img) {
         im = G.Assets.img(PORTRAIT_ART[key]);
@@ -2667,6 +2759,7 @@
     });
     return { c: o.c, ox: 0, oy: 0, w: PORTRAIT_LW, h: PORTRAIT_LH };
   };
+  function A2Tag(e) { return (e.id || '?') + (e.c || ''); }
   A.PORTRAIT_SIZE = [PORTRAIT_LW, PORTRAIT_LH];
   A.PORTRAIT_KEYS = Object.keys(PORTRAIT_P);
   A.PORTRAIT_ART = PORTRAIT_ART;

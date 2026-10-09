@@ -37,6 +37,11 @@
     /* 法宝独立子页（v0.29.0）：用户口径「总览只能查看，在角色界面新增法宝子界面，
        可以装备已有的法宝……总览不需要法宝操作」。 */
     { id: 'equip', n: '法宝', panel: 'char' },
+    /* 装扮独立子页（v2.0.0，用户口径「支持主角更换服饰、武器、头饰、鞋子」）。
+       ⚠️ 为什么和「法宝」分开：法宝是**数值**（进 computeStats），装扮是**外观**（不进）。
+          合成一页会让玩家以为"换件衣服也在换属性"，而两套规则完全不同。
+          并列摆放（法宝在前、装扮在后）刚好形成"强不强 / 像不像"的对照。 */
+    { id: 'appear', n: '装扮', panel: 'char' },
     { id: 'skills', n: '功法', panel: 'skills' },
     { id: 'secrets', n: '秘术', panel: 'secrets' }
   ];
@@ -473,6 +478,7 @@
       if (tab === 'attr') { this.charAttr(x, save); return; }
       if (tab === 'realm') { this.charRealm(x, save); return; }
       if (tab === 'equip') { this.charEquip(x, save); return; }
+      if (tab === 'appear') { this.charAppear(x, save); return; }
       this.charOverview(x, save);
     },
 
@@ -637,6 +643,78 @@
         G.UI.text(x, { x: RX, y: P.y + 60 }, '共 ' + owned.length + ' 件，点一件即佩。',
           10, G.UI.C.textDim);
       }
+    },
+
+    /* ---- ⑧ 装扮（v2.0.0，用户口径「支持主角更换服饰、武器、头饰、鞋子」）----
+       版式：**左栏 = 当前穿着四槽**（点一下卸下/换回默认），**右栏 = 可选项**（点一件即穿）。
+       与「法宝」页同构 —— 玩家在两个页签之间来回时，视觉模型不用重建。
+
+       这一页要回答的一个问题：**"我换了衣服，什么时候能看到？"**
+       → 所以底部必须明说"离开面板即生效"（地图、对话立绘、入世演出三处）。
+       本版：**服饰 / 鞋子走换色**（衣袍与鞋已经是色块），
+             **头饰 / 武器是叠加件**（独立画在肩上/头上）。
+       两套机制共用同一个面板，是因为对玩家而言都只是"穿上一件东西"。
+       ⚠️ 装扮**不给任何数值** —— 页面上明写这句，否则玩家会去找"哪件衣服最强"。 */
+    charAppear: function (x, save) {
+      var A = G.Data.appearance;
+      if (!A) { G.UI.text(x, { x: CHAR_BODY.x + 18, y: CHAR_BODY.y + 60 }, '装扮数据未加载。', 12, G.UI.C.textDim); return; }
+      var P = CHAR_BODY;
+      var LX = P.x + 18, RX = P.x + 206;
+      var LW = 168, RW = P.x + P.w - 18 - RX;
+
+      /* ---- 左栏：当前穿着 ---- */
+      G.UI.text(x, { x: LX, y: P.y + 38 }, '当 前 穿 着', 12, G.UI.C.gold);
+      G.UI.divider(x, LX + LW / 2, P.y + 50, LW, 'rgba(216,183,104,0.22)');
+      G.UI.text(x, { x: LX, y: P.y + 60 }, '纯外观 · 不加任何属性', 10, G.UI.C.jadeHi);
+
+      /* 立绘小样：把**当前外观**画成一个小人（不是成品立绘）——
+         玩家改一件就能在这儿立刻看到，不必退出面板去地图上找自己。
+         直接调 `heroSprite`（它读已登记的 look + pal）。
+         ⚠️ 尺寸/位置必须留出**右侧文字列**与**下方槽位按钮**两块空间：
+            下方按钮从 P.y+106 起，所以小样高度只能吃到 P.y+74..+102。 */
+      var lbx = { x: LX, y: P.y + 72, w: 42, h: 30 };
+      G.UI.panel(x, lbx, '#0d1120', 'rgba(216,183,104,0.22)', 4, { tex: false, shadow: false });
+      var sprPv = null;
+      try {
+        var lkPv = G.Sprites.lookOf(save);
+        G.Sprites.setLook(lkPv);
+        sprPv = G.Sprites.heroSprite('down', 0, A.palOf(save), lkPv);
+      } catch (e) { sprPv = null; }
+      if (sprPv) {
+        /* 逻辑 28×42 缩到框高 30 → 等比 0.63，宽 17.6，居中放 */
+        var pw = 30 * (G.Sprites.HERO_W / G.Sprites.HERO_H), ph = 30;
+        x.drawImage(sprPv, Math.round(lbx.x + (lbx.w - pw) / 2),
+          Math.round(lbx.y + lbx.h - ph), Math.round(pw), Math.round(ph));
+      }
+      /* 小样右侧：四槽的当前件名（贴在小样右边，不与下方按钮重叠） */
+      A.SLOTS.forEach(function (sl, i) {
+        var e = A.worn(save, sl);
+        G.UI.text(x, { x: lbx.x + lbx.w + 6, y: P.y + 76 + i * 8.5 },
+          A.SLOT_N[sl] + '　' + (e ? e.n : '—'), 8.5,
+          e ? G.UI.C.text : G.UI.C.textDim);
+      });
+      /* 提示放在小样**下方那一行**（P.y+108），比按钮起点（P.y+116）高 8px ——
+         9px 字下沿约到 +109.5，不会压到 +116 起的按钮。 */
+      G.UI.text(x, { x: LX, y: P.y + 108 }, '点下面一槽看该槽', 9, G.UI.C.textDim);
+
+      /* ---- 右栏：可选项 ---- */
+      G.UI.text(x, { x: RX, y: P.y + 38 }, '可 换 装 扮', 12, G.UI.C.gold);
+      G.UI.divider(x, RX + RW / 2, P.y + 50, RW, 'rgba(216,183,104,0.22)');
+      /* 当前正在浏览的槽（由 `scene.appearSlot` 决定；页签列在下方按钮区） */
+      var slot = (G.game.scene && G.game.scene.appearSlot) || 'robe';
+      if (A.SLOTS.indexOf(slot) < 0) slot = 'robe';
+      var opts = A.list(slot);
+      var cur = A.worn(save, slot);
+      G.UI.text(x, { x: RX, y: P.y + 62 },
+        '正在看：' + A.SLOT_N[slot] + '（共 ' + opts.length + ' 件）', 10.5, G.UI.C.goldHi);
+      if (cur) {
+        G.UI.text(x, { x: RX, y: P.y + 76 }, '当前：' + cur.n, 10.5, G.UI.C.jadeHi);
+        /* ⚠️ 描述栏宽度必须留够：可用宽只有 RW-4，按 10px 折下来约 20 字。
+           原先按 17 字截断，实测右沿到 453 顶出面板 436（`panels.bounds.contract` 抓到）。 */
+        var d = cur.d || '';
+        G.UI.text(x, { x: RX, y: P.y + 92 }, d.length > 19 ? d.slice(0, 18) + '…' : d, 10, G.UI.C.textDim);
+      }
+      G.UI.text(x, { x: RX, y: P.y + 108 }, '离开面板即生效', 9.5, G.UI.C.textDim);
     },
 
     /* ---- ② 灵根（v0.11.4 改成「九维方块图」）----

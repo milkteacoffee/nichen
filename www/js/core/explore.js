@@ -1658,7 +1658,8 @@
         var K = G.Art.K, pal = this._pal();
         /* key 里带上 K 与调色板：窗口缩放改了倍率、或轮回换了世界，
            旧层必须作废，否则会残留错误倍率/配色的地面。 */
-        var key = this.mapId + '|' + K + '|' + pal.ground + '|' + pal.rock;
+        var key = this.mapId + '|' + K + '|' + pal.ground + '|' + pal.rock
+          + '|' + (ISO_ON && G.pixelOn && G.pixelOn() ? G.PIXEL : 1);
         if (this._groundLayer && this._groundKey === key) return;
         var m = this.map;
         var w = m.w * TILE, h = m.h * TILE;
@@ -1710,6 +1711,20 @@
           }
         }
 
+        /* ===== 像素化（v2.0.0）=====
+           地面预烘层是**整张地图**的高清图（K 倍），像素化必须在这一层做 ——
+           不能靠渲染点关平滑：那样只是"不去插值地放大"，格边仍是 HD 抠出来的细边，
+           读不出"一块一块的像素"。
+           ⚠️ 缓存键必须**带上像素档位** —— 不带的话调 `G.PIXEL` 后旧层继续被复用
+              （表现：改了开关画面没反应，且完全静默）。
+           ⚠️ 道路蒙版（`_softRoads` 的 blur 羽化）**在像素化之前**已经混进 `c` ——
+              所以路缘的羽化也会被一起量化成硬边。这是**想要**的：
+              像素风里路缘本来就该是硬边台阶，而不是一段渐变。
+           ⚠️ 只在 `ISO_ON` 时像素化：非等距手写图（town/field/…）已经调得很稳，
+              本版不动它们（零回归）。 */
+        if (ISO_ON && G.pixelOn && G.pixelOn() && G.Art && G.Art.pixelate) {
+          c = G.Art.pixelate(c, G.PIXEL);
+        }
         this._groundLayer = c;
         this._groundKey = key;
       },
@@ -1787,6 +1802,13 @@
               0, 0, 480, 272);
           }
         }
+        /* ===== 世界层收口（v2.0.0）=====
+           地面之后就是**世界层**（高度块 / 崖壁 / 建筑 / 家具 / 角色 / 物件）。
+           ⚠️ 这里**不需要**按像素化改平滑开关 —— `A.pixelate` 是"两趟同尺寸"
+              做法（降采样 → 最近邻升回原尺寸），像素块**已经烘进画布本身**，
+              后续按什么方式放大都是块。第一版误以为要在这里关平滑，
+              同时又缩了画布尺寸 → 取源矩形越界 → 整屏变黑（实测亮度 136→24）。
+           ⚠️ 保持原逻辑（跟随 `this.smooth`）：探索场景是 true，与历史一致（零回归）。 */
         x.imageSmoothingEnabled = !!this.smooth;
       },
 
@@ -2635,7 +2657,15 @@
         }
         var view = this.dir === 'down' ? 'down' : this.dir === 'up' ? 'up' : 'side';
         var AW = G.Sprites.ANIM_W, AH = G.Sprites.ANIM_H;
-        var frames = G.Sprites.heroAnim(view, this.moving ? 'walk' : 'idle');
+        /* v2.0.0 换装：帧初把当前外观登记给精灵层（**唯一来源 = 存档**）。
+           为什么在**这里**登记而不是 `enter()`：玩家在面板里换完衣服**不切场景**，
+           `enter()` 不会再跑一次 → 外观就会停在上次进图时的样子。
+           挂在渲染点上每帧登记，代价是一次对象分配（不建位图），换装即刻生效。
+           ⚠️ 登记是**幂等**的：`setLook` 只存引用，缓存失效由 `lkTagOf` 的键负责。 */
+        var _look = G.Sprites.lookOf(this.save || (G.game && G.game.save));
+        G.Sprites.setLook(_look);
+        var _pal = (G.Data.appearance ? G.Data.appearance.palOf(this.save || (G.game && G.game.save)) : null);
+        var frames = G.Sprites.heroAnim(view, this.moving ? 'walk' : 'idle', _look);
         var fi = 0;
         if (frames) {
           if (this.moving) {
@@ -2687,7 +2717,16 @@
           x.drawImage(frames[fi], Math.round(-AW / 2), animY, AW, AH);
           x.restore();
         } else {
-          var spr0 = G.Sprites.heroFrames()[this.dir][this.frame];
+          /* ===== v2.0.0 换装兜底帧 =====
+             无手绘帧（素材缺 / 穿了非默认外观）时走程序化分层。
+             ⚠️ 旧实现写的是 `G.Sprites.heroFrames()[this.dir][this.frame]` —— 那是
+                **不带外观的**缓存表，换来换去永远画默认外观。
+                现在改为**按外观取帧**：`heroSprite(dir, step, pal, look)` 的缓存键
+                自带 `lkTag`，所以"换了衣服"必然烘出新位图。
+             ⚠️ 呼吸/反向补偿那段**照旧保留** —— 它与外观无关，是"人站着不浮"的判据。 */
+          var spr0 = G.Sprites.heroSprite
+            ? G.Sprites.heroSprite(this.dir, this.frame, _pal, _look)
+            : G.Sprites.heroFrames()[this.dir][this.frame];
           x.save();
           x.translate(px, py + 3);
           /* 兜底帧同样要做反向补偿（不然只有"有动画帧"的角色不变形） */

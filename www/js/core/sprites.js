@@ -94,11 +94,108 @@
     shoe: '#2c2a30', eye: '#201d28', sash: '#c2b48c'
   };
 
+  /* ===== 外观部件（v2.0.0 换装）=====
+     这两个函数生成**配饰叠加层**的矩形（与 `heroParts` 同形，可直接接在它后面
+     一起 `bake`）—— 所以配饰天然继承轮廓线 / 体积光 / 分档压缩，不需要单独一套管线。
+
+     ⚠️ 坐标系是 `heroParts` 的**逻辑 16×24 画布**（不是 28×42）。常见落点：
+        头顶发线 y≈1.0、颈部 y≈8.6、肩线 y≈9.4、脚底 y≈23.9。
+     ⚠️ **不要在这里读 save**。参数只有 `(def, dir, step, bob)` ——
+        本文件是渲染层，不该知道存档长什么样；调用方把 `def` 取好传进来。
+     ⚠️ 一律用**轴对齐矩形**拼斜向形状，不要 `rotate`：
+        旋转会引入小数坐标，降采样到像素格后边缘发毛（本版刚转像素风，尤其敏感）。 */
+
+  /* 头饰：一件 = 一组矩形。`kind` 决定画法。 */
+  function _headParts(def, dir, step, bob) {
+    var P = [];
+    if (!def || def.kind === 'none') return P;
+    var c = def.c || '#e8e4d8', hi = def.hi || c;
+    var back = dir === 'up';
+    /* 所有头饰都挂在"发顶"上：正面发线 y=1.0，背面整头在 1.2 起。
+       ⚠️ 必须带 bob（走路时的 0.35 上抬），否则帽子会"浮在头顶不跟着动"。 */
+    var ty = (back ? 1.2 : 1.0) + bob;
+    if (def.kind === 'guan') {
+      /* 玉冠/金冠：一枚小方冠骑在发髻上，前面一道横梁压住发线 */
+      P.push({ x: 6.2, y: ty - 2.0, w: 3.6, h: 2.4, c: c });
+      P.push({ x: 6.2, y: ty - 2.0, w: 3.6, h: 0.8, c: hi });
+      P.push({ x: 5.2, y: ty - 0.2, w: 5.6, h: 1.0, c: c });
+      P.push({ x: 5.0, y: ty + 0.4, w: 0.8, h: 1.2, c: hi });      /* 左侧簪孔 */
+      P.push({ x: 10.2, y: ty + 0.4, w: 0.8, h: 1.2, c: hi });     /* 右侧 */
+    } else if (def.kind === 'dou') {
+      /* 斗笠：宽檐 + 尖顶。**檐必须比头宽**（头是 3.2..12.8），否则读不出"笠" */
+      P.push({ x: 1.4, y: ty - 0.4, w: 13.2, h: 1.6, c: c });      /* 檐 */
+      P.push({ x: 1.4, y: ty - 0.4, w: 13.2, h: 0.5, c: hi });     /* 檐口高光 */
+      P.push({ x: 5.0, y: ty - 2.6, w: 6.0, h: 2.4, c: c });       /* 穹顶 */
+      P.push({ x: 5.0, y: ty - 2.6, w: 6.0, h: 0.8, c: hi });
+      P.push({ x: 7.0, y: ty - 3.6, w: 2.0, h: 1.2, c: c });       /* 顶尖 */
+    } else if (def.kind === 'zan') {
+      /* 玉簪：横插过发髻，右侧露出一截 */
+      P.push({ x: 4.6, y: ty + 0.6, w: 7.2, h: 0.7, c: c });
+      P.push({ x: 4.6, y: ty + 0.6, w: 7.2, h: 0.3, c: hi });
+      P.push({ x: 11.6, y: ty + 0.35, w: 0.9, h: 1.2, c: hi });    /* 簪头 */
+    }
+    return P;
+  }
+
+  /* 武器：背在身后（侧面最明显，正面只露一角 —— 这是像素 RPG 的常规取舍）。 */
+  function _weaponParts(def, dir, step, bob) {
+    var P = [];
+    if (!def || def.kind === 'none') return P;
+    var c = def.c || '#c9ccd4', hi = def.hi || c;
+    var back = dir === 'up';
+    var left = dir === 'left', right = dir === 'right';
+    /* 侧面：武器整体偏向**身后那一侧**；正面：贴右肩后，尽量少抢视线。 */
+    var ox = left ? -1.6 : right ? 1.6 : 0;
+    var oy = bob;
+    if (def.kind === 'sword' || def.kind === 'saber') {
+      /* 斜背的刀剑：3 段矩形拼出"斜"的读感（两端各错开一点，连起来就读作斜线） */
+      var w0 = def.kind === 'saber' ? 1.4 : 1.1;
+      var x0 = back ? 10.2 : 10.4;
+      P.push({ x: x0 + ox, y: 2.2 + oy, w: w0, h: 3.2, c: c });        /* 上段（肩外） */
+      P.push({ x: x0 - 0.7 + ox, y: 5.2 + oy, w: w0, h: 3.2, c: c });  /* 中段 */
+      P.push({ x: x0 - 1.4 + ox, y: 8.2 + oy, w: w0, h: 3.0, c: c });  /* 下段 */
+      P.push({ x: x0 + ox, y: 2.2 + oy, w: w0, h: 1.0, c: hi });       /* 刃口高光 */
+      P.push({ x: x0 - 0.5 + ox, y: 1.6 + oy, w: 2.1, h: 0.9, c: hi });/* 护手 */
+      P.push({ x: x0 + 0.1 + ox, y: 0.4 + oy, w: 0.9, h: 1.3, c: '#5a4636' }); /* 柄 */
+    } else if (def.kind === 'spear') {
+      /* 长枪：比人还高，一根杆从脚后斜穿到头顶外 */
+      P.push({ x: 11.0 + ox, y: -0.6 + oy, w: 1.0, h: 20.0, c: c });
+      P.push({ x: 11.0 + ox, y: -0.6 + oy, w: 0.4, h: 20.0, c: hi });  /* 受光边 */
+      P.push({ x: 10.5 + ox, y: -2.4 + oy, w: 2.0, h: 2.0, c: hi });   /* 枪尖 */
+      P.push({ x: 10.6 + ox, y: -3.0 + oy, w: 1.8, h: 0.9, c: '#b84040' }); /* 红缨 */
+    } else if (def.kind === 'fan') {
+      /* 折扇：别在腰带右侧 */
+      P.push({ x: 9.6 + ox, y: 14.2 + oy, w: 3.4, h: 2.6, c: c });
+      P.push({ x: 9.6 + ox, y: 14.2 + oy, w: 3.4, h: 0.7, c: hi });
+    } else if (def.kind === 'whisk') {
+      /* 拂尘：柄挂在左侧，马尾垂下来 */
+      P.push({ x: 1.0 + ox, y: 12.0 + oy, w: 0.9, h: 6.0, c: hi });    /* 柄 */
+      P.push({ x: 0.4 + ox, y: 17.6 + oy, w: 2.1, h: 3.0, c: c });     /* 尾 */
+      P.push({ x: 0.4 + ox, y: 17.6 + oy, w: 2.1, h: 0.8, c: hi });
+    } else if (def.kind === 'flute') {
+      /* 玉笛：横在腰后 */
+      P.push({ x: 2.4 + ox, y: 14.6 + oy, w: 7.4, h: 0.8, c: c });
+      P.push({ x: 2.4 + ox, y: 14.6 + oy, w: 7.4, h: 0.3, c: hi });
+    }
+    return P;
+  }
+
+  /* NOTE: 关于 `def.noBun` —— 斗笠/冠会盖住发髻，但 `heroParts` 里的发髻是**头部**
+     的一部分（不受配饰控制）。这里**不做头部重绘**，理由：重绘头部 = 让配饰函数
+     反过来改主体 → 两套逻辑互相依赖，是"部件化"最容易失控的地方。
+     实测斗笠的檐（13.2 宽）已经比发髻（6.2..9.8）宽得多，视觉上完全盖住了，
+     不需要真的删掉发髻。所以 `noBun` 只作为**语义标记**保留（面板可显示"覆盖发髻"），
+     渲染层不消费它 —— 这是刻意的，不是漏接。 */
+
   /* v0.71.0：`bodyRatio` —— 童年/少年形象用。
      颈部以下（含领、袍、腰、臂、腿）整体纵向压缩，**头不压** → 头身比变大、更幼态；
      压缩后脚底会离画布底沿，再整体下移把脚钉回原脚底线，保证三档"站在同一地面"。
-     默认 undefined → 完全不进入这段，十六岁形象与历史行为**逐像素一致**。 */
-  function heroParts(dir, step, pal, bodyRatio) {
+     默认 undefined → 完全不进入这段，十六岁形象与历史行为**逐像素一致**。
+
+     v2.0.0 换装：第 5 参 `look` = `{ head, weapon, feet }`，各为**装扮定义对象**
+     （`G.Data.appearance.byId` 的返回值）或 null。**不传 = 老行为逐像素不变**
+     （这是零回归闸的物理保证：不传 look 时下面两个 push 循环一次都不跑）。 */
+  function heroParts(dir, step, pal, bodyRatio, look) {
     var P = [];
     function add(x, y, w, h, c, extra) {
       var o = { x: x, y: y, w: w, h: h, c: c };
@@ -173,6 +270,23 @@
     add(4.4, ly, 3.1, 0.5, 'rgba(255,255,255,0.12)');
     add(8.6, ry, 3.1, 0.5, 'rgba(255,255,255,0.12)');
 
+    /* ---- v2.0.0 换装：配饰叠加层 ----
+       ① **接在"足"之后**（最后一个主体部件）→ 配饰在绘制序里压在最上层，
+          这是对的：斗笠要能盖住头发、背剑要能跨过肩臂。
+       ② **接在 `bodyRatio` 压缩之前** → 童年档的斗笠/背剑会跟着一起缩，
+          与"帽子随头走、剑随人缩"的直觉一致（放在压缩之后就成"小孩戴大人帽子"）。
+       ③ `look` 缺省/无该槽 → 对应函数立刻返回空数组，**零次 push**，
+          所以默认外观的 P 数组与历史**逐元素相同**（零回归）。
+       ④ 兜底用 `heroParts.__look` 那个模块级变量（见 `heroSprite` 的头注），
+          这样"渲染点上忘了传 look"不会静默退化成光头空手。 */
+    var _lk = look || heroParts.__look;
+    if (_lk) {
+      var _hp = _headParts(_lk.head, dir, step, bob);
+      for (var hi2 = 0; hi2 < _hp.length; hi2++) P.push(_hp[hi2]);
+      var _wp = _weaponParts(_lk.weapon, dir, step, bob);
+      for (var wi = 0; wi < _wp.length; wi++) P.push(_wp[wi]);
+    }
+
     /* 童年/少年（v0.71.0）：**以脚底为不动点**把颈部以下按 r 压缩，头部只随之下移
        而**不改尺寸** —— 头身比自然变大，读起来才像小孩（不是"缩小版大人"）。
        分界取颈顶（8.6）：映射在该点连续（左极限 = 右极限），且分界处没有跨越元素，
@@ -189,6 +303,29 @@
     }
 
     return P;
+  }
+
+  /* ===== v2.0.0 外观兜底（改渲染签名时的**防静默**装置）=====
+     `heroParts` / `heroAnim` 都新增了 `look` 参数。**渲染点上忘了传** →
+     新特征（服饰换色 / 配饰）**完全不出现，且不报任何错** —— 这正是本项目
+     历史上最贵的一类缺陷（"表现层缺失"型缺口：数值/资源都在，就是没人画）。
+
+     所以在这里存一份模块级"当前外观"，由 UI 层在帧初登记（`setLook`）：
+       · `heroParts(dir,step,pal,ratio,look)` 显式传了 → 用传进来的（可控、可测）
+       · 没传 → 用 `heroParts.__look`（默认路径 = 已登记外观）
+     契约 `appearance.contract` 会断言"登记后，不传 look 也能画出配饰"。
+     ⚠️ 只影响**程序化**路径；素材路径由调用方决定（素材不带部件信息）。 */
+  function setLook(lk) { heroParts.__look = lk || null; }
+  function currentLook() { return heroParts.__look || null; }
+  /* 从存档取"当前外观"四槽定义 —— **唯一入口**。
+     overlays / explore / 演出 都调它，不许各自 memberwise 拼一遍。 */
+  function lookOf(save) {
+    var A = G.Data && G.Data.appearance;
+    if (!A) return null;
+    return {
+      robe: A.worn(save, 'robe'), head: A.worn(save, 'head'),
+      weapon: A.worn(save, 'weapon'), feet: A.worn(save, 'feet')
+    };
   }
 
   /* 地图角色渲染倍率：16×24 逻辑稿 → 实际占位 28×42（约 1.75 格宽）。
@@ -239,12 +376,36 @@
   }
 
   var heroCache = {};
-  function heroSprite(dir, step, pal) {
+  /* v2.0.0：第 4 参 `look`。省略（undefined）时**读帧初登记的外观**（见 `setLook`），
+     显式传 `null` 则强制"无配饰"（契约用它做零回归反例）。 */
+  function heroSprite(dir, step, pal, look) {
     pal = pal || HERO;
-    var key = 'hero|' + dir + '|' + step + '|' + pal.robe;
+    var lk = look === undefined ? currentLook() : look;
+    /* ⚠️ 缓存键必须带 `lkTag` —— 不带就会"换了衣服但地图上角色不变"（命中旧缓存），
+       而且**完全静默**（不报错、契约也绿）。见 `appearanceData.keyOf` 的头注。 */
+    var lkTag = lkTagOf(lk);
+    /* ⚠️ 键里必须带 **K** —— 像素块边长 = PIXEL × K，K 变（窗口缩放/画质自适应）
+       块的大小就变，不带 K 会复用旧倍率的块（表现：改画质后块大小不对，且静默）。 */
+    var key = 'hero|' + dir + '|' + step + '|' + pal.robe + '|' + lkTag + '|' + (A.K || 1);
     if (heroCache[key]) return heroCache[key];
-    /* 素材层优先：manifest 里登记 char.hero.<dir>.<step> 就整张替换（建议出图 168×252） */
-    var im = G.Assets && G.Assets.img ? G.Assets.img('char.hero.' + dir + '.' + step) : null;
+    /* 素材层优先：manifest 里登记 char.hero.<dir>.<step> 就整张替换（建议出图 168×252）。
+       ⚠️ v2.0.0：素材是**成品图**（衣服已画死），换不了颜色。所以：
+         · 默认外观（含没穿任何装扮）→ 走素材
+         · 穿了非默认外观 → **强制走程序化**，由 `pal` + `look` 现画
+       不做这个分流的话，表现就是"面板里换了衣服、地图上纹丝不动" ——
+       正是本版要消灭的那类**静默不一致**。
+
+       ⚠️ **两条路都要像素化**（v2.0.0 的关键取舍，用户口径「转成像素风格，
+          但现在的素材不要丢弃，可以作为对话或者动画的原图」）：
+          · 地图上的角色 = 世界的一部分 → 必须与像素地面同族，**素材也降格**
+          · 素材原图**没有被丢弃** —— 它仍走同一条降格管线，只是多了一趟像素化；
+            而"对话立绘"用的是 `art.js: A.portrait`（另一条路，见那里的换装分支），
+            那里**保持高清**，正是用户说的"作为对话或者动画的原图"。
+          ⚠️ 第一版只降了程序化路径 → 默认外观（素材）是高清、换了衣服变像素格，
+            同一屏里两种画风来回跳，比全高清更糟。 */
+    var _defLook = _lookIsDefault(lk);
+    var im = _defLook && G.Assets && G.Assets.img
+      ? G.Assets.img('char.hero.' + dir + '.' + step) : null;
     var c;
     if (im) {
       var o = A.cv(HERO_LW, HERO_LH);
@@ -268,11 +429,45 @@
       }
       c = o.c;
     } else {
-      c = bake(heroParts(dir, step, pal), 16, 24, null, { scale: MAP_SCALE });
+      c = bake(heroParts(dir, step, pal, null, lk), 16, 24, null, { scale: MAP_SCALE });
       if (dir === 'right') c = mirror(c);
     }
+    /* 像素化（v2.0.0）：**两条路都降格**（含素材路，理由见上注）。
+       `A.pixelate` 是"两趟同尺寸"做法（点采样降到 1/PIXEL → 最近邻升回原尺寸），
+       所以 `c.width/height` 不变，渲染点按 HERO_W×HERO_H 画的逻辑尺寸也不用改。 */
+    if (G.Art && G.Art.pixelate && G.pixelOn && G.pixelOn()) c = G.Art.pixelate(c, G.PIXEL);
     heroCache[key] = c;
     return c;
+  }
+
+  /* 外观缓存键片段：把四槽压成短串。
+     ⚠️ 这里的 tag 与 `G.Data.appearance.keyOf(save)` **不是一回事** ——
+        那个吃 save，这个吃**已解析的 look 对象**。两者必须同形，
+        否则"面板算出来的键"与"渲染算出来的键"会不一致（→ 缓存该失效的不失效）。
+        契约 `appearance.contract` 会断言：`keyOf(save)` 与 `lkTagOf(lookOf(save))` 相等。 */
+  function lkTagOf(lk) {
+    if (!lk) return '-';
+    /* 凡**影响像素**的字段都要进键：id + kind + 颜色。
+       只放 id 的话，"两个 id 不同但颜色相同的件"会各烘一份（浪费但不错），
+       而"同一 id 改了颜色"会**拿着旧图不放**（错）。取 id+kind+c 兼顾两头。 */
+    return ['robe', 'head', 'weapon', 'feet'].map(function (s) {
+      var e = lk[s];
+      return e ? (e.id || '?') + (e.kind ? ':' + e.kind : '') + (e.c ? ':' + e.c : '') : '-';
+    }).join(',');
+  }
+  /* 当前 look 是否"等同默认外观"（决定能不能走素材路径）。
+     判据：四槽都等于 `G.Data.appearance.DEFAULT` 里的 id，或该槽为空/默认。 */
+  function _lookIsDefault(lk) {
+    var D = G.Data && G.Data.appearance && G.Data.appearance.DEFAULT;
+    if (!D) return true;                       /* 数据层没加载（老快照）→ 当默认，保零回归 */
+    if (!lk) return true;
+    var S4 = ['robe', 'head', 'weapon', 'feet'];
+    for (var i = 0; i < S4.length; i++) {
+      var e = lk[S4[i]];
+      var id = e && e.id;
+      if (id && id !== D[S4[i]]) return false;
+    }
+    return true;
   }
 
   function makeHero(pal) {
@@ -329,9 +524,19 @@
     var k = AGE_STAGE_KEY[age];
     return !!(k && G.Assets && G.Assets.img && G.Assets.img(k));
   }
-  function heroAgeStage(age, dir, step) {
+  /* v2.0.0：第 4 参 `look` = 当前外观定义（见 `lookOf`）。
+     ⚠️ **素材命中时不消费 look**（`char.hero.age*` 是成品立绘，里面已经画死了衣服）。
+        这是刻意的：入世演出是"出生"那一刻，本来就不该穿着后来换的衣服。
+        素材缺 / 非正面方向 → 走程序化，那时 look 才生效。 */
+  function heroAgeStage(age, dir, step, look) {
     dir = dir || 'down'; step = step || 0;
-    var key = age + '|' + dir + '|' + step;
+    var lk = look === undefined ? currentLook() : look;
+    /* ⚠️ 缓存键必须带**真实外观签名**（`lkTagOf(lk)`）。
+       初版这里写的是 `keyOf(null)` —— 恒等于"默认外观"，于是换了衣服之后
+       入世演出的 6/10/16 岁形象**永远停在旧外观**，且完全静默。
+       （素材路径不消费外观，所以签名只影响程序化兜底那几档 —— 但缓存是共用的，
+         必须一起带签名，否则"先播过默认档"会把非默认档也钉住。） */
+    var key = age + '|' + dir + '|' + step + '|' + lkTagOf(lk);
     if (childCache[key]) return childCache[key];
     var c = null;
     /* ① 素材优先：立绘只有**正面**一版，所以只对 'down' 生效；
@@ -355,11 +560,12 @@
         c = o.c;
       }
     }
-    /* ② 程序化兜底（素材缺 / 非正面方向）：保持 v0.71.0 的原始行为不变 */
+    /* ② 程序化兜底（素材缺 / 非正面方向）：保持 v0.71.0 的原始行为不变
+          （`lk` 为 null / 未登记时 `heroParts` 一次配饰都不 push → 逐像素同历史） */
     if (!c) {
       var r = AGE_STAGE_R[age];
       if (r == null) r = 1;
-      c = bake(heroParts(dir, step, HERO, r), 16, 24, null, { scale: MAP_SCALE });
+      c = bake(heroParts(dir, step, HERO, r, lk), 16, 24, null, { scale: MAP_SCALE });
       if (dir === 'right') c = mirror(c);
     }
     childCache[key] = c;
@@ -1942,10 +2148,21 @@ function bossGen(plan, elem, f) {
     idle: { n: 2, keys: { down: 'sheet.hero.idle.down', up: 'sheet.hero.idle.up', side: 'sheet.hero.idle.side' } }
   };
   var animCache = {};
-  function heroAnim(view, action) {
-    var ck = action + '.' + view;
+  /* v2.0.0：第 3 参 `look`。与 `heroSprite` 同一分流逻辑：
+       · 默认外观 → 走 `sheet.hero.*` 手绘帧（**零回归**，老玩家看到的是它）
+       · 穿了非默认外观 → 返回 null，让调用方**回落到 `heroFrames()` 的程序化帧**
+         （那条路会消费 pal + look，所以换装是**立即生效**的）。
+     返回 null ≠ "没有动画" —— 它是"这一路画不了换装，请走兜底"。
+     ⚠️ 调用方必须保留对 null 的兜底分支（explore.js 已有，不要删）。 */
+  function heroAnim(view, action, look) {
+    var lk = look === undefined ? currentLook() : look;
+    var ck = action + '.' + view + '|' + lkTagOf(lk) + '|' + (A.K || 1);
     if (Object.prototype.hasOwnProperty.call(animCache, ck)) return animCache[ck];
     var def = ANIM_DEF[action];
+    /* 非默认外观：手绘帧换不了衣服 → 明确返回 null 交给程序化兜底。
+       这一句是"换装立即生效"的关键，删掉它就会出现最难查的那种
+       "面板换了、地图没换"（因为动画帧优先，兜底永远轮不到）。 */
+    if (!_lookIsDefault(lk)) { animCache[ck] = null; return null; }
     var img = G.Assets && G.Assets.img ? G.Assets.img(def.keys[view]) : null;
     if (!img) { animCache[ck] = null; return null; }
     var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
@@ -1958,7 +2175,11 @@ function bossGen(plan, elem, f) {
       var dw = sw * (ANIM_H / ih);
       var dx = (ANIM_W - dw) / 2;
       o.x.drawImage(img, sx, 0, sw, ih, dx, 0, dw, ANIM_H);
-      arr.push(o.c);
+      /* 像素化（v2.0.0）：手绘帧也要与像素地面/程序化角色同族。
+         ⚠️ 不降的话，走路时（用 sheet 帧）是高清、停下时（用 heroSprite）是像素格 ——
+            同一角色两步之内换画风，比全高清更刺眼。 */
+      arr.push(G.Art && G.Art.pixelate && G.pixelOn && G.pixelOn()
+        ? G.Art.pixelate(o.c, G.PIXEL) : o.c);
     }
     animCache[ck] = arr;
     return arr;
@@ -2027,6 +2248,14 @@ function bossGen(plan, elem, f) {
     AGE_STAGE_BAKE_SCALE: AGE_STAGE_BAKE_SCALE,
     AGE_STAGE_SRC: AGE_STAGE_SRC,
     npcAnim: npcAnim,
+    /* ===== v2.0.0 换装（对外唯一口）=====
+       · `setLook` / `lookOf` / `lkTagOf` / `lookIsDefault` —— 外观登记与判据
+       · `heroParts` / `heroSprite` 导出是为了让契约能**直接喂参数**验证
+         部件数与换装效果（不必绕渲染点；渲染点说不清"忘了传 look"）
+       ⚠️ 渲染点取外观一律走 `lookOf(save)`，不要自己拼 —— 拼两份必漂。 */
+    setLook: setLook, currentLook: currentLook, lookOf: lookOf,
+    lkTagOf: lkTagOf, lookIsDefault: _lookIsDefault,
+    heroParts: heroParts, heroSprite: heroSprite,
     /* 超采样倍率变更后必须调用：清空全部精灵缓存并丢弃已建好的 hero 帧表，
        否则旧倍率的位图会被继续复用（放大后重新变糊）。 */
     clear: function () {

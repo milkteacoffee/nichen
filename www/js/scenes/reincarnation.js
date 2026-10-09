@@ -57,6 +57,12 @@
       this.arcChoice = null;
       this.linggen = null; this.talentCards = [];
       this.grow = 0; this.growT = 0; this._growSkip = false;
+      /* v2.0.0：清掉上一世登记的外观。
+         ⚠️ 演出用 `heroAgeStage`，它的 `look` 缺省取 `currentLook()` ——
+            而那是**帧初登记**的模块级变量，会残留上一世（甚至上一局）的穿着。
+            新生命必须是"素身"：`setLook(null)` 之后程序化兜底一次配饰都不 push。
+         ⚠️ 只清登记值，**不动 `save.appear`**（那是下一世的档，此时还没建）。 */
+      if (G.Sprites && G.Sprites.setLook) G.Sprites.setLook(null);
       this.rollLinggenOnce();
       this.drawTalents();
       this._buildButtons();
@@ -320,7 +326,12 @@
         entrances: { fan: [], ling: [], xian: [], dao: [] },
         visited: {}, indoor: {},
         /* 灵兽（《灵兽 v1.1》§12）：开局空兽栏、未学骑术 */
-        beasts: [], beastTeam: [], riding: null, rideSkill: { land: false, air: false }
+        beasts: [], beastTeam: [], riding: null, rideSkill: { land: false, air: false },
+        /* 装扮（v2.0.0）：**只存"玩家亲手换过的槽"**，没换的走 `G.Data.appearance.DEFAULT`。
+           ⚠️ 刻意的空对象 —— 写全四槽的话，"改一个默认件"就会让所有老档外观不一致，
+              且每次加/换默认件都得写一次迁移。空对象 = 无需迁移、无需兼容分支。
+           ⚠️ 别把这个字段和 `equip`（法宝三槽，**有数值**）混为一谈。 */
+        appear: {}
       };
       /* 锚世不抽随机副本池（走剧情锚定副本）；浮世为起始界 roll 一次落位 */
       if (!anchor) {

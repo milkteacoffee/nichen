@@ -1,6 +1,7 @@
 # 生成物（非源码，可重新生成）
 _gen/
 _shots/
+_shots_iso/
 
 # 依赖
 node_modules/

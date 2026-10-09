@@ -5259,10 +5259,18 @@ step(function () {
       errors.push('源码闸：演出仍以三参 drawImage 画精灵（物理像素当逻辑用，尺寸会错）');
     }
   }
-  /* ⑤ 16 岁档与历史程序化版尺寸一致（兜底路径不回归） */
-  const old16 = G.Art.heroSprite('down', 0, SP.HERO_PAL);
-  if (old16 && (old16.width !== c16.width || old16.height !== c16.height)) {
-    errors.push('16 岁档与历史 heroSprite 尺寸不一致');
+  /* ⑤ 16 岁档与地图角色**同一逻辑占位盒**（兜底路径不回归）。
+     ⚠️ v2.0.0 起比的是**逻辑尺寸**，不是位图像素尺寸：
+        像素化会把程序化路径的位图降采样到 1/1.5（这正是目的）——
+        位图变小是**预期行为**，不是回归。真正的判据是"画到画布上占多大地方"，
+        即 `AGE_STAGE_LOGICAL` 与 `HERO_W/HERO_H` 必须一致。
+        反例：把 MAP_SCALE 或 AGE_STAGE_W/H 改掉 → 这条会红（那才是真的尺寸回归）。 */
+  if (!SP.AGE_STAGE_LOGICAL) {
+    errors.push('缺失 AGE_STAGE_LOGICAL（童年档逻辑尺寸未导出）');
+  } else if (SP.AGE_STAGE_LOGICAL.w !== SP.HERO_W || SP.AGE_STAGE_LOGICAL.h !== SP.HERO_H) {
+    errors.push('16 岁档与地图角色的逻辑占位盒不一致（应同为 HERO_W×HERO_H）：'
+      + SP.AGE_STAGE_LOGICAL.w + '×' + SP.AGE_STAGE_LOGICAL.h
+      + ' vs ' + SP.HERO_W + '×' + SP.HERO_H);
   }
 }, 'birth.grow.contract');
 
@@ -8622,8 +8630,8 @@ step(function () {
      ③ 从别的面板切进来要回到「总览」（不能停在上一页）。 */
   {
     const tabs = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-    /* v0.75.0：新增「天赋」子页 → 8 个 */
-    if (tabs.length !== 8) errors.push('角色面板应有 8 个子页签（总览/灵根/天赋/属性/境界/法宝/功法/秘术），实际 ' + tabs.length);
+    /* v0.75.0：新增「天赋」子页 → 8 个；v2.0.0：新增「装扮」子页 → 9 个 */
+    if (tabs.length !== 9) errors.push('角色面板应有 9 个子页签（总览/灵根/天赋/属性/境界/法宝/装扮/功法/秘术），实际 ' + tabs.length);
     G.Overlays.openPanel(sc, 'char');
     const subs = sc.buttons.filter(function (b) { return b.variant === 'subtab'; });
     if (subs.length !== tabs.length) {
@@ -8814,8 +8822,8 @@ step(function () {
      ⚠️ 角色面板有四个子页签（v0.11.0），**每一页都要过同一套断言** ——
      只跑默认的「总览」会漏掉灵根/属性/境界三页的越界（越界是静默的）。 */
   const charTabIds = (G.Overlays.CHAR_TABS || []).map(function (t) { return t.id; });
-  if (charTabIds.length !== 8) {
-    errors.push('角色面板子页签应为 8 个（总览/灵根/天赋/属性/境界/法宝/功法/秘术），实际 ' + charTabIds.length);
+  if (charTabIds.length !== 9) {
+    errors.push('角色面板子页签应为 9 个（总览/灵根/天赋/属性/境界/法宝/装扮/功法/秘术），实际 ' + charTabIds.length);
   }
   [
     { id: 'skills', R: G.Overlays.CHAR_PANEL },
@@ -13422,6 +13430,209 @@ step(function () {
   console.log('  ✓ 道路连通：' + checkedRoads + ' 张图单一连通分量 + 建筑门前都有路 + '
     + '铺路不用 rng 且带 mark');
 }, 'road.connect.contract');
+
+/* ---------- 装扮（v2.0.0）----------
+   用户口径：「我希望能支持主角更换服饰、武器、头饰、鞋子等等装饰物」。
+
+   这一组契约要钉住四件事（每条都对应一个**真实踩过的坑族**）：
+     ① **默认外观零回归**：`palOf(null)` 必须逐字段等于 `HERO_PAL`，
+        且 `heroParts` 不传 look 时部件数与历史一致 —— 老档玩家的画面不能变。
+     ② **换装真的改变像素**：改了服饰 → pal.robe 变；加了头饰/武器 → 部件数变多。
+        （"数值改了但画面没变"是本项目最贵的一类缺陷。）
+     ③ **每条路径都接上**：`save.appear` → `lookOf` → `heroSprite` → 精灵缓存键。
+        用**源码闸**扫全仓，防止"新增了一条设置外观的路但忘了清缓存"。
+      ④ **装扮不给数值**：`G.Data.appearance` 里不许出现 `fx` 字段。
+        装扮与法宝是两套（法宝给属性、装扮只给长相），混了就是静默的数值泄漏。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    const A = G.Data.appearance;
+    const SP = G.Sprites;
+    if (!A) bail('G.Data.appearance 缺失（装扮数据层未加载）');
+    if (!SP.lookOf || !SP.setLook || !A.palOf || !A.worn) bail('装扮接口缺失');
+
+    /* ---- ① 默认外观零回归 ---- */
+    const P0 = A.palOf(null);
+    const KEY = ['hair', 'hairHi', 'skin', 'skinSh', 'skinHi', 'robe', 'robeDark',
+      'robeHi', 'collar', 'belt', 'beltHi', 'shoe', 'eye', 'sash'];
+    KEY.forEach((k) => {
+      if (P0[k] !== SP.HERO_PAL[k]) {
+        errors.push('默认调色板 ' + k + ' = ' + P0[k] + '，应恒等于 HERO_PAL.' + SP.HERO_PAL[k]);
+      }
+    });
+    /* 空 save / 空 appear / 不存在的外观 id 都必须回落到默认（**绝不抛**） */
+    [null, {}, { appear: {} }, { appear: { robe: '不存在的件' } }].forEach((sv, i) => {
+      const p = A.palOf(sv);
+      if (p.robe !== SP.HERO_PAL.robe) {
+        errors.push('默认回落失败（第 ' + (i + 1) + ' 种空/坏档）→ robe=' + p.robe);
+      }
+    });
+    /* 部件数：不传 look 与传默认 look 必须**逐元素等价** */
+    const nNoLook = SP.heroParts('down', 0, SP.HERO_PAL, null, null).length;
+    const nDefLook = SP.heroParts('down', 0, SP.HERO_PAL, null, SP.lookOf(null)).length;
+    const nHist = SP.heroParts('down', 0, SP.HERO_PAL).length;
+    if (nNoLook !== nHist) {
+      errors.push('不传 look 的部件数 ' + nNoLook + ' ≠ 历史值 ' + nHist + '（零回归被破坏）');
+    }
+    if (nDefLook !== nHist) {
+      errors.push('默认 look 的部件数 ' + nDefLook + ' ≠ 历史值 ' + nHist
+        + '（默认件不该产生任何配饰）');
+    }
+
+    /* ---- ② 换装真的生效 ---- */
+    const robeE = A.byId('rb_jiang');
+    const svRobe = { appear: { robe: 'rb_jiang' } };
+    if (A.palOf(svRobe).robe !== robeE.c) {
+      errors.push('换了服饰但 pal.robe 未改（应 = ' + robeE.c + '，实 = ' + A.palOf(svRobe).robe + '）');
+    }
+    /* 头饰与武器是**叠加件**：装上后部件数必须变多 */
+    const lkHead = SP.lookOf({ appear: { head: 'hd_dou' } });
+    const lkWeap = SP.lookOf({ appear: { weapon: 'wp_jian' } });
+    const nHead = SP.heroParts('down', 0, SP.HERO_PAL, null, lkHead).length;
+    const nWeap = SP.heroParts('down', 0, SP.HERO_PAL, null, lkWeap).length;
+    if (nHead <= nHist) errors.push('戴斗笠后部件数没变多（' + nHist + ' → ' + nHead + '）');
+    if (nWeap <= nHist) errors.push('背剑后部件数没变多（' + nHist + ' → ' + nWeap + '）');
+    /* 四向都要画得出（漏了某方向 = 走到那个朝向配饰消失）
+       ⚠️ 基线必须**按方向各取**：`up` 本来就不画脸/交领，部件数与 `down` 不同 ——
+          拿 `down` 的历史值当四向基线会得到一条假红（up 28 vs down 35）。 */
+    ['down', 'left', 'up', 'right'].forEach((d) => {
+      const base = SP.heroParts(d, 0, SP.HERO_PAL, null, null).length;
+      const n = SP.heroParts(d, 0, SP.HERO_PAL, null, lkHead).length;
+      if (n <= base) errors.push('斗笠在 ' + d + ' 方向没画出来（' + base + ' → ' + n + '）');
+    });
+    /* 精灵缓存键必须区分外观 —— 不区分就会"换了衣服但地图上没变"（且静默）
+       ⚠️ 只比 `lkTagOf` 的返回值**验不到**"heroSprite 有没有把 lkTag 拼进 key"：
+          key 里去掉 lkTag、只留 pal.robe，"换服饰"仍然会因 pal.robe 不同而变 key → 假绿。
+          所以这里**两件事一起断**：① 签名本身区分外观；② key 里确实拼了它（源码闸）。 */
+    const t1 = SP.lkTagOf(SP.lookOf(null));
+    const t2 = SP.lkTagOf(SP.lookOf(svRobe));
+    if (t1 === t2) errors.push('外观签名相同（换了服饰但 lkTagOf 不变 → 缓存命中旧图）');
+    /* 两个外观 id 不同但**颜色相同**的件：pal.robe 一样 → 只有 lkTag 能区分它们。
+       这条是"key 里到底有没有 lkTag"的**行为判据**（比源码闸更硬）。 */
+    const lkA = SP.lookOf({ appear: { head: 'hd_dou' } });     /* 同色同袍，只差头饰 */
+    const lkB = SP.lookOf({ appear: { head: 'hd_guan' } });
+    if (SP.lkTagOf(lkA) === SP.lkTagOf(lkB)) {
+      errors.push('不同头饰的签名相同（缓存键无法区分头饰 → 换帽子画面不变）');
+    }
+    const s1 = SP.heroSprite('down', 0, SP.HERO_PAL, SP.lookOf(null));
+    const s2 = SP.heroSprite('down', 0, SP.HERO_PAL, lkA);
+    if (s1 === s2) errors.push('heroSprite 返回同一对象（换了头饰仍复用缓存）');
+
+    /* ---- ③ 源码闸：四条设置路径都要接上"重建" ---- */
+    const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const appSrc = stripC(fs.readFileSync(path.join(WWW, 'js/data/appearance.js'), 'utf8'));
+    /* 装扮数据层不许出现 `fx`（那是法宝的属性字段） */
+    if (/\bfx\s*:/.test(appSrc)) {
+      errors.push('源码闸：appearance.js 里出现 fx 字段 —— 装扮不许带数值（那是法宝的事）');
+    }
+    /* `palOf` 必须显式覆盖默认件的色值（否则 HSL 往返舍入会让零回归失败） */
+    if (appSrc.indexOf('全档默认') < 0 && appSrc.indexOf('DEFAULT.robe) === DEFAULT.robe') < 0) {
+      errors.push('源码闸：palOf 缺少"默认件原样返回历史色值"的分支');
+    }
+    /* 面板换装后必须清精灵缓存（`G.Sprites.clear`）—— 不清就会残留旧外观 */
+    const panelSrc = stripC(fs.readFileSync(path.join(WWW, 'js/core/panels.js'), 'utf8'));
+    const bi = panelSrc.indexOf('function buildAppearSlots');
+    const bj = panelSrc.indexOf('function openPanel');
+    if (bi < 0) errors.push('源码闸：panels.js 缺 buildAppearSlots');
+    else if (bj > 0 && panelSrc.slice(bi, bj).indexOf('G.Sprites.clear') < 0) {
+      errors.push('源码闸：换装后未清精灵缓存（会残留旧外观）');
+    }
+    /* 探索渲染点必须登记外观（不登记 → 程序化兜底画不出配饰） */
+    const exSrc = stripC(fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8'));
+    if (exSrc.indexOf('G.Sprites.setLook') < 0) {
+      errors.push('源码闸：explore 渲染点未登记外观（setLook 缺失）');
+    }
+    /* 兜底帧必须按外观取（写死 heroFrames() 会永远画默认外观） */
+    if (exSrc.indexOf('G.Sprites.heroSprite') < 0) {
+      errors.push('源码闸：explore 兜底帧未按外观取图（仍用 heroFrames）');
+    }
+    /* ---- ④ 装扮与法宝互不干扰（`save.appear` ≠ `save.equip`）---- */
+    const eqSrc = stripC(fs.readFileSync(path.join(WWW, 'js/data/equips.js'), 'utf8'));
+    if (eqSrc.indexOf('appear') >= 0) {
+      errors.push('源码闸：equips.js 引用了 appear —— 两套槽位不该互相知道');
+    }
+
+    if (errors.length) throw new Error(errors.join(' / '));
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('装扮契约：' + errors.length + ' 条失败\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 装扮：默认零回归 + 换装改像素（4 向）+ 缓存键区分外观 + 装扮不带数值 + 四条路径接通');
+}, 'appearance.contract');
+
+/* ---------- 像素风（v2.0.0）----------
+   用户口径：「转成像素风格，但是现在的素材不要丢弃，可以作为对话或者动画的原图」。
+
+   契约要点：
+     ① `G.PIXEL` 是唯一开关，`1` = 关闭（零回归判据值）；
+     ② `A.pixelate` 必须**保持画布尺寸不变**（缩尺寸会让下游取源矩形越界 → 整屏变黑，
+        实测中心亮度 136→24 就是这么来的）；
+     ③ 块边长 = `PIXEL × K`（**逻辑刻度**，不是物理刻度 —— 第一版按物理除，
+        块只有 1.5 物理像素 = 0.375 逻辑像素，肉眼等于没做）；
+     ④ 世界层像素化、**界面层不像素化**（字号太小，像素化会糊成方块）。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    if (typeof G.PIXEL !== 'number') bail('G.PIXEL 未定义（像素风开关缺失）');
+    if (typeof G.pixelOn !== 'function') bail('G.pixelOn 未定义');
+    if (G.PIXEL !== 1 && !(G.PIXEL > 1)) bail('G.PIXEL 非法值：' + G.PIXEL);
+
+    /* ③ 块边长 = PIXEL × K：造一张已知图案的图，量"同色段长度"
+       ⚠️ 这里不能用 `document`（smoke 的沙箱只注入 `doc` 桩）。
+          用 `makeCanvas` 直接造一张桩画布 —— 桩 ctx 的 `getImageData` 恒返回空，
+          所以本契约**不读像素**，只验"尺寸不变 + 源码里的换算公式"（G35 纪律：
+          像素类验证一律去 browser-probe，见 `_gen/_dbg_pix.js`）。 */
+    const K = G.Art.K || 1;
+    const t = makeCanvas(40 * K, 8 * K);
+    if (G.pixelOn()) {
+      const px = G.Art.pixelate(t, G.PIXEL);
+      if (px.width !== t.width || px.height !== t.height) {
+        errors.push('A.pixelate 改变了画布尺寸（' + t.width + '×' + t.height
+          + ' → ' + px.width + '×' + px.height + '）—— 下游取源矩形会越界（实测会整屏变黑）');
+      }
+      /* 源码闸：块边长必须按 `pixel * K` 算（不是裸 pixel） */
+      const stripC2 = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+      const artSrc = stripC2(fs.readFileSync(path.join(WWW, 'js/core/art.js'), 'utf8'));
+      const ai = artSrc.indexOf('A.pixelate = function');
+      const aj = artSrc.indexOf('A.blitFixed');
+      const body = (ai >= 0 && aj > ai) ? artSrc.slice(ai, aj) : '';
+      if (!body) errors.push('源码闸：A.pixelate 函数体切不出来（右界取不到）');
+      else if (!/pixel\s*\*\s*K/.test(body)) {
+        errors.push('源码闸：A.pixelate 未按 "pixel × K" 换算（按物理尺寸除 → 块只有亚逻辑像素，肉眼无效果）');
+      }
+      /* 两趟都要关平滑：开任何一趟，块边就被插值掉 */
+      const cnt = (body.match(/imageSmoothingEnabled\s*=\s*false/g) || []).length;
+      if (cnt < 2) errors.push('源码闸：A.pixelate 关闭平滑次数 ' + cnt + ' < 2（降采样与升采样都要关）');
+      /* 尺寸不变这条要在源码上再钉一次（桩 canvas 只覆盖"调用没抛"） */
+      if (!/out\.width\s*=\s*W/.test(body) || !/small\.width\s*=\s*w/.test(body)) {
+        errors.push('源码闸：A.pixelate 未保持"输出与原图同尺寸"（应为 small=w/pixel、out=W）');
+      }
+    } else {
+      /* PIXEL===1：pixelate 必须是恒等（不产生新画布） */
+      const id = G.Art.pixelate(t, 1);
+      if (id !== t) errors.push('PIXEL=1 时 A.pixelate 应原样返回入参（零回归判据）');
+    }
+
+    /* ④ 界面层不像素化：面板场景必须 smooth=true */
+    ['title', 'difficulty', 'reincarnation', 'death'].forEach((sn) => {
+      const sc = G.scenes[sn];
+      if (sc && sc.smooth !== true) {
+        errors.push('场景 ' + sn + ' 的 smooth 应为 true（界面层不参与像素化）');
+      }
+    });
+
+    /* ① 世界层像素化：探索场景的地面层在像素化开启时必须带档位进缓存键 */
+    const stripC3 = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const exSrc2 = stripC3(fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8'));
+    if (exSrc2.indexOf('G.Art.pixelate') < 0) {
+      errors.push('源码闸：explore 地面层未像素化（世界层应参与）');
+    }
+
+    if (errors.length) throw new Error(errors.join(' / '));
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('像素风契约：' + errors.length + ' 条失败\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 像素风：开关唯一 + pixelate 尺寸不变 + 块= PIXEL×K + 世界层像素化/界面层平滑');
+}, 'pixel.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {
