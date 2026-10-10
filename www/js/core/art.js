@@ -2753,11 +2753,17 @@
   /* 立绘的"素材兜底链"：这些角色本来就有 AI 生成的战斗立绘，
      立绘优先用它 —— 否则角色面板里的脸跟地图上走着的人对不上（用户报过）。
      顺序：portrait.<key> 专属立绘 > 下表里的战斗立绘 > 程序化半身像。 */
-  /* ⚠️⚠️ v2.13.0：`luchen`（主角）的立绘素材改指 **`char.hero.down`**。
-     原来指 `battle.hero`（**写实七头身**）—— 与地图的 Q 版不是一个人，
-     对话里露脸时"换了个人"（与 `sprites.js: beastSprite` 的同类修复同步）。
-     ⚠️ `battle.hero` 仍留在盘上（供将来做"必杀特写"类演出），但**不再被任何路径取用**。
-     ⚠️ 保留同名键是为了不动调用方（`portrait.luchen` 的 `key` 仍是 `luchen`）。 */
+  /* ⚠️ v2.13.1：`luchen` 的**兜底素材**改指 `char.hero.down`（原来指 `battle.hero`）。
+     注意这是**兜底** —— 真实取图优先序是
+        `portrait.luchen`（512×512 写实立绘，**存在，优先命中**）
+        → `PORTRAIT_ART[key]`（本表的兜底）。
+     所以本轮把兜底改成 `char.hero.down`，是让**缺 `portrait.luchen` 时**（如换装路径之后）
+     仍与地图同源；而**有专属立绘时**保持"特写级写实立绘" —— 这是有意的分层：
+        · **游戏内形象**（地图/战斗/行走）：Q 版 `char.hero.*`（**与地图严格一致**）
+        · **特写立绘**（面板缩略/过场）：写实 `portrait.luchen`（更精细，行业惯例）
+     ⚠️ 不要把 `portrait.luchen` 也换成 Q 版 —— 那会让"特写"掉到和 28px 小人同精度。
+     `battle.hero`（写实七头身）**已不被任何路径取用**（战斗改 Q 版了），
+     但 `portrait.luchen` 仍是写实风 —— **两者不是同一张**，别混淆。 */
   var PORTRAIT_ART = {
     luchen: 'char.hero.down',
     killer: 'battle.enemy.killer',

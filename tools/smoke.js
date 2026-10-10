@@ -13980,21 +13980,25 @@ step(function () {
       errors.push('heroAnim 仍在读手绘帧素材但没开关守卫');
     }
 
-    /* ⑤ **对话立绘**也必须与地图同源（v2.13.0 的最后一处遗漏）。
-       `art.js: PORTRAIT_ART.luchen` 原指 `battle.hero`（写实七头身）
-       → 对话里露脸时"换了个人"。必须指 `char.hero.down`。
+    /* ⑤ **对话/面板立绘的兜底**也必须与地图同源（v2.13.1 补）。
+       `art.js: PORTRAIT_ART.luchen` 原指 `battle.hero`（写实七头身）——
+       那是**战斗**素材，拿来当主角兜底属错配。
+       ⚠️ 但注意**分层是有意的**：真实取图优先 `portrait.luchen`（512×512 写实特写），
+          `PORTRAIT_ART` 只是**兜底**（缺专属立绘时用）。
+          所以这里只断"兜底指向 char.hero.down"，**不断"实际显示必须是 Q 版"** ——
+          特写立绘用写实风是行业惯例，且与"游戏内形象统一"不冲突。
        ⚠️ 判据用**赋值表达式**（剥注释后），别只查符号名。 */
     const art = stripC(read('www/js/core/art.js'));
     const pa = art.slice(art.indexOf('var PORTRAIT_ART'), art.indexOf('var PORTRAIT_ART') + 300);
     if (/luchen:\s*'battle\.hero'/.test(pa)) {
-      errors.push('对话立绘 luchen 仍指 battle.hero（写实七头身）—— 与地图 Q 版不是一个人');
+      errors.push('立绘兜底 luchen 仍指 battle.hero（战斗素材）—— 应指 char.hero.down');
     }
     if (!/luchen:\s*'char\.hero\.down'/.test(pa)) {
-      errors.push('对话立绘 luchen 未指 char.hero.down（主角立绘素材必须与地图同源）');
+      errors.push('立绘兜底 luchen 未指 char.hero.down（兜底必须与地图同源）');
     }
   } catch (e) { if (e.message !== '__bail__') throw e; }
   if (errors.length) throw new Error('主角形象一致性契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
-  console.log('  ✓ 主角形象唯一源：地图/战斗/对话同取 char.hero（Q版）+ 两条素材路开关解耦');
+  console.log('  ✓ 主角形象统一：游戏内（地图/战斗）同取 char.hero + 立绘兜底同源 + 两条素材路开关解耦');
 }, 'hero.consistency.contract');
 
 /* ---------- 空间分层（v2.12.0 §一）：世界 640 / UI 480 ----------
