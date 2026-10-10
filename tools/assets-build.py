@@ -390,6 +390,10 @@ PIXEL_KEYS = set([
     # 建筑（v2.6.0 起逐张重出；**换一张就加一行**）
     'struct.house', 'struct.apothecary', 'struct.shop', 'struct.smithy', 'struct.alchemy',
     'struct.gate', 'struct.inn', 'struct.hall', 'struct.ruin', 'struct.temple', 'struct.tower',
+    # NPC 地图精灵（v2.7.0 重出为像素风）。
+    # ⚠️ 只列 `char.npc.*`，**不含 `char.hero.*`** —— 主角仍走"程序化换装"那条路
+    #    （换装依赖矩形分层，成品图把衣服画死了，两者互斥）。
+    'char.npc.villager', 'char.npc.elder', 'char.npc.keeper', 'char.npc.cultist',
 ])
 
 
