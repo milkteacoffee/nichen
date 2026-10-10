@@ -998,26 +998,61 @@
     return c;
   }
 
-  /* ---------- 战斗立绘（40×40 逻辑，敌方朝左） ---------- */
+  /* ---------- 战斗立绘（40×40 逻辑，敌方朝左） ----------
+     ⚠️⚠️ v2.12.2 **烘焙密度**：这些位图最终显示到
+        `s × UI_R(4/3) × S(≤4)` 物理像素（放大后 s 最大 104 → 约 555 物理px）。
+        若仍按 `A.cv(40,40)`（= 40×K=120 物理px）烘，会被放大到 4.6× —— 糊。
+        所以按密度烘，逻辑尺寸仍是 40×40（绘制方仍按 40 排布），只提**密度**。
+        ⚠️ **但密度必须 cap 到源素材分辨率**：`battle.*` 原图只有 192×192，
+           烘到 213 只是"把 192 放大再存"—— 多一道插值、零增益。
+           所以取 `min(需求密度, 源宽/40)`。这是 v0.90.1「素材分辨率是硬上限」的直接应用。
+        ⚠️ 缓存键必须带密度：倍率/素材变了要重烘（`clear()` 也会清）。 */
   var BEAST_LW = 40, BEAST_LH = 40;
+  /* 战斗立绘的**烘焙密度**（唯一真相源，契约按它算期望位图大小）。
+     · 需求 = `S上限(4) × UI_R`（覆盖最大显示物理像素）
+     · 再按**源素材宽度 cap**（`battle.*` 只有 192 → 上限 4.8）：
+       烘得比源还大属于纯浪费（多一道插值、细节不会变多）——
+       v0.90.1「素材分辨率是硬上限」的直接应用。
+     `srcW` 可选：给了就取 cap，不给就是"需求密度"（程序化无上限）。 */
+  function battleDensity(srcW) {
+    var ur = (G.game && G.game.UI_R) || 1;
+    var want = Math.max(2, Math.min(8, 4 * ur));
+    if (srcW) want = Math.min(want, Math.max(1, srcW / BEAST_LW));
+    return want;
+  }
   var beastCache = {};
   function beastSprite(kind) {
-    if (beastCache[kind]) return beastCache[kind];
+    var ck0 = kind + '|' + battleDensity();
+    if (beastCache[ck0]) return beastCache[ck0];
     /* 素材层优先：主角查 battle.hero，其余查 battle.enemy.<kind> */
     var key = kind === 'hero' ? 'battle.hero' : 'battle.enemy.' + kind;
     var im = G.Assets && G.Assets.img ? G.Assets.img(key) : null;
     var c;
     if (im) {
-      var o = A.cv(BEAST_LW, BEAST_LH);
+      /* 按"逻辑 40 × 源cap后的密度"烘 —— 避免"把源放大后再存"这道多余重采样 */
+      var dk = battleDensity(im.width || BEAST_LW);
+      var o = A.cv(BEAST_LW, BEAST_LH, dk);
       o.x.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
       o.x.drawImage(im, 0, 0, BEAST_LW, BEAST_LH);
       c = o.c;
     } else {
+      /* 程序化兜底：无源素材上限，按需求密度直接绘（矢量绘制，越高越清晰） */
       c = BAKE[kind] ? BAKE[kind]() : BAKE.snake();
+      c = upscaleTo(c, BEAST_LW, BEAST_LH, battleDensity());
     }
-    beastCache[kind] = c;
+    beastCache[ck0] = c;
     return c;
+  }
+  /* 把一张"逻辑 w×h、已按 K 烘"的位图重烘到密度 dk（逻辑尺寸不变）。
+     用于程序化精灵（BAKE.*）—— 它们内部各自调 A.cv，不好统一改密度，
+     所以在这里补一档：以高密度重画一次（源是矢量级绘制结果，放大损失可控）。 */
+  function upscaleTo(src, w, h, dk) {
+    var o = A.cv(w, h, dk);
+    o.x.imageSmoothingEnabled = true;
+    if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
+    o.x.drawImage(src, 0, 0, w, h);
+    return o.c;
   }
 
   /* 未来 Boss 素材解析：先查 manifest「battle.enemy.<artKey>」，缺图时退回程序化
@@ -2533,6 +2568,8 @@ function bossGen(plan, elem, f) {
     },
     beast: beastSprite,
     beastResolve: beastResolve,
+    /* 战斗立绘的**逻辑尺寸**与**烘焙密度**（唯一真相源，契约按它算期望位图大小） */
+    BEAST_LW: BEAST_LW, BEAST_LH: BEAST_LH, battleDensity: battleDensity,
     heroBattle: function () {
       var f = heroBattleFrames();
       /* 全局秒表驱动两帧待机循环；无头测试/无 DOM 时 time≈0，恒取第 0 帧，行为稳定 */

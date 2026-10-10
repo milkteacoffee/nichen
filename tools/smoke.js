@@ -397,8 +397,15 @@ step(function () {
   G.Sprites.clear();
 
   const hb = G.Sprites.heroBattle();
-  if (hb.width !== 40 * K || hb.height !== 40 * K) {
-    errors.push(`battle.hero 素材烘焙尺寸错：${hb.width}×${hb.height}（应为 ${40 * K}×${40 * K}）`);
+  /* ⚠️ v2.12.2：战斗立绘的烘焙密度 = `min(S上限 × UI_R, 源宽/逻辑宽)`（见 sprites.js: battleDensity）——
+     读**唯一真相源**，别写死 `40*K`（写死了每次改 UI_R/占位都会假红，且是"数字抄两份"）。
+     这里用的假素材是 64×64 → 源 cap = 64/40 = 1.6 → 位图 64。
+     这就是"素材分辨率是硬上限"（v0.90.1）在**烘焙**层的体现。 */
+  const bw = G.Sprites.BEAST_LW, bh = G.Sprites.BEAST_LH;
+  const bdk = G.Sprites.battleDensity(fake.width);
+  if (hb.width !== Math.round(bw * bdk) || hb.height !== Math.round(bh * bdk)) {
+    errors.push(`battle.hero 素材烘焙尺寸错：${hb.width}×${hb.height}`
+      + `（应为 ${Math.round(bw * bdk)}×${Math.round(bh * bdk)} = ${bw}×密度${bdk.toFixed(3)}）`);
   }
   const npc = G.Sprites.npc('elder');
   /* ⚠️ v2.9.1：NPC 有**自己的**占位常量（`NPC_W/H`）—— 不再跟 `HERO_W/H`。
@@ -1929,6 +1936,94 @@ step(function () {
   if (b.pTarget !== b.es[0].key) errors.push('前排功法应锁定前排，实为 ' + b.pTarget);
 }, 'battle.multi.row');
 pump(200, 'battle.multi.row.hit');
+
+/* ---------- 战斗布局几何（v2.12.2）----------
+   放大战斗立绘（对齐《烟雨江湖》角色展示比例）时，站位与名牌的**约束会变紧** ——
+   三条都是"静默"的（不报错、只看得出叠字/出框），所以必须钉住：
+     ① 名牌之间不重叠：相邻两槽的 `y - s` 差 ≥ 26（名牌高 24 + 2 余量）；
+     ② 每只的名牌顶 ≥ 32（顶栏 30 之下）；
+     ③ 精灵不切边：`x ± s/2` 落在 [0, UI_W] 内。
+   ⚠️ 判据必须**读场景真实槽位**（`_pos`），不能自己重算一份 ——
+      否则站位一改，契约还在验旧数字（"同一判据两处分写"）。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    const UI_W = G.game.UI_W;
+    const PLATE_H = 24, NEED_GAP = PLATE_H + 2, TOPBAR = 30, MIN_TOP = TOPBAR + 2;
+    const plateTop = (p, hasMp) => p.y - p.s - 26 - ((hasMp ? 34 : 24) - 24);
+    /* 名牌**矩形**（x 也要算！）——
+       ⚠️ 只比 y 会假红：主角在画面左侧（x≈118），敌人全在右侧（x≥246），
+          y 区间叠着但**横向根本不碰**。实测就是这个坑（首版 4 条假红）。
+       宽度取 `_drawUnit` 里的实际值：多敌时敌 84（Boss 96），否则 100。 */
+    const plateRect = (k, p, nEs) => {
+      const isP = k === 'P';
+      /* `_drawUnit` 里多敌时敌宽 84 / Boss 96，其余 100 —— 取 100 保守（宁可多报重叠） */
+      const bw = 100;
+      const top = plateTop(p, isP);
+      const h = isP ? 34 : PLATE_H;
+      const cx = Math.max(8, Math.min(UI_W - bw - 8, p.x - bw / 2));
+      return { k: k, x0: cx, x1: cx + bw, y0: top, y1: top + h };
+    };
+    /* 战斗场景需要一份可用存档（`changeScene('battle')` 会读 save.skills 等） */
+    G.game.save = JSON.parse(JSON.stringify(save));
+
+    /* 单敌 / Boss / 多敌 / 召唤：各起一场，读 `_pos` 验三约束 */
+    const cases = [
+      ['单敌', { enemy: G.Data.makeEnemy('青纹蛇', 3, '青纹蛇'), mapId: 'field' }],
+      ['Boss', { script: 'wolfKing', mapId: 'cave' }],
+      ['多敌3', { enemies: [
+        G.Data.makeEnemy('青纹蛇', 3, '青纹蛇'),
+        G.Data.makeEnemy('赤炎狼', 3, '赤炎狼'),
+        G.Data.makeEnemy('雷貂', 3, '雷貂')
+      ], mapId: 'field' }]
+    ];
+    cases.forEach(function (cc) {
+      G.game.changeScene('battle', cc[1]);
+      pump(6, 'layout.' + cc[0]);
+      const b = G.game.scene;
+      if (!b) bail('战斗布局：' + cc[0] + ' 没进战斗');
+      const keys = ['P'].concat(b.es.map(function (e, i) { return 'E' + i; }));
+      const ps = keys.map(function (k) { return { k: k, p: b._pos(k) }; });
+      ps.forEach(function (o) {
+        const top = plateTop(o.p, o.k === 'P');
+        if (top < MIN_TOP) {
+          errors.push(cc[0] + '：' + o.k + ' 名牌顶 ' + top.toFixed(0)
+            + ' 压住顶栏（应 ≥ ' + MIN_TOP + '）—— 站位 s 太大或 y 太小');
+        }
+        if (o.p.x - o.p.s / 2 < 0 || o.p.x + o.p.s / 2 > UI_W) {
+          errors.push(cc[0] + '：' + o.k + ' 精灵切边（x=' + o.p.x + ' s=' + o.p.s
+            + ' 右沿 ' + (o.p.x + o.p.s / 2).toFixed(0) + ' > ' + UI_W + '）');
+        }
+      });
+      /* 名牌不重叠：比**矩形**（x 与 y 都要叠才算）—— 只比 y 会假红（见 plateRect 注释） */
+      const iv = ps.map(function (o) { return plateRect(o.k, o.p, b.es.length); });
+      for (let i = 0; i < iv.length; i++)
+        for (let j = i + 1; j < iv.length; j++) {
+          const A = iv[i], B = iv[j];
+          const ox = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0);
+          const oy = Math.min(A.y1, B.y1) - Math.max(A.y0, B.y0);
+          if (ox > 2 && oy > 2) {
+            errors.push(cc[0] + '：名牌 ' + A.k + ' 与 ' + B.k
+              + ' 重叠（横向 ' + ox.toFixed(0) + 'px × 纵向 ' + oy.toFixed(0) + 'px）');
+          }
+        }
+      /* 多敌的纵向间距下限（斜线不能挤在一起） */
+      const es2 = keys.slice(1).map(function (k) { return b._pos(k); });
+      es2.sort(function (a, b2) { return (a.y - a.s) - (b2.y - b2.s); });
+      for (let i = 0; i + 1 < es2.length; i++) {
+        const d = (es2[i + 1].y - es2[i + 1].s) - (es2[i].y - es2[i].s);
+        if (d < NEED_GAP) {
+          errors.push(cc[0] + '：相邻敌间距 ' + d.toFixed(0) + ' < ' + NEED_GAP + '（名牌会叠）');
+        }
+      }
+    });
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('战斗布局契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 战斗布局：名牌不叠字/不压顶栏/精灵不切边（单敌·Boss·多敌3 三态）');
+}, 'battle.layout.contract');
+G.game.changeScene('title');
+pump(4, 'battle.layout.leave');
 
 /* 三敌：功法「前排」只列前排两只，后排不可选 */
 step(() => {
