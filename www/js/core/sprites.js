@@ -8,17 +8,39 @@
   function bake(P, w, h, outline, opt) {
     opt = opt || {};
     var sc = opt.scale || 1;
-    /* ⚠️ v2.9.1 `padTop`：把全部部件**下移 N 个画稿像素**后再画。
+    /* ⚠️ v2.9.1 `padTop`：把全部部件**下移 N 个画稿单位**后再画。
        用途：主角的画布比"身体"高出一段，留给斗笠/枪尖等**向上探出的配饰**
-       （见 sprites.js 的 `PAD_TOP`）。不加这个偏移，配饰会被 `h` 裁掉。
-       实现放在这里（而不是调用方改坐标）：调用方只需传一个数，
-       不必把 `heroParts` 的所有坐标再算一遍。 */
+       （见 `PAD_TOP`）。不加这个偏移，配饰会被 `h` 裁掉。
+       实现放在这里（而不是调用方改坐标）：调用方只需传一个数。 */
     var padTop = opt.padTop || 0;
     var o = A.cv(w * sc, (h + padTop) * sc);
     var x = o.x;
     x.scale(sc, sc);
     if (padTop) x.translate(0, padTop);
-    var e = opt.outlineW == null ? 0.8 : opt.outlineW;
+    /* ⚠️⚠️ v2.10.0 **轮廓宽度按"物理像素"给，不再写死画稿单位**
+       用户口径：「为什么不能和《烟雨江湖》一样的人物角色清晰，
+                是不是像素风格做不到这么精细的画质」。
+
+       **实测真因（找了很久）——不是像素风，是轮廓太粗**：
+         · 主角画稿 24 单位宽 → 屏幕 40 逻辑px → `1 单位 = 6.67 物理px`（K=4）
+         · 默认轮廓 `e = 0.8 单位` = **5.3 物理像素**（单边！）
+         · 于是**小特征被黑边吞掉**：嘴 3.2×0.7 单位 → 加轮廓后黑边占 **60~70%**；
+           眉、瞳同理 ⇒ 脸上一片黑块，当然"看不清五官"。
+         · 对照《烟雨江湖》：轮廓约 **1~2 物理px**。
+         · **实测验证**：把 0.8 改成 0.22 后，眉眼嘴立刻可辨
+           （见 `_shots_iso/OL022.png`）。
+
+       **修法**：轮廓改用**物理像素**口径 —— 传 `outlinePx`，
+       内部换算成画稿单位：`e = outlinePx / (scale × K)`。
+       好处：描边粗细与**画稿分辨率解耦** —— 以后再把画稿细化，
+       描边仍稳定在 1.5 物理px，不会跟着变粗。
+       ⚠️ 保留 `outlineW`（画稿单位口径）给需要"相对粗细"的调用方。 */
+    var e;
+    if (opt.outlinePx != null) {
+      e = opt.outlinePx / ((opt.scale || 1) * (A.K || 1));
+    } else {
+      e = opt.outlineW == null ? 0.8 : opt.outlineW;
+    }
 
     if (!opt.noOutline) {
       x.fillStyle = outline || 'rgba(16,14,22,0.92)';
@@ -458,6 +480,30 @@
      身体在屏幕上的尺寸**不变**，只是多接出一段头顶空间给配饰。 */
   var ART_W = 24, ART_H = 36;
   var PAD_TOP = 8;                       /* 头顶留白（画稿像素）：容斗笠穹顶 + 枪尖 */
+
+  /* ===== ⚠️⚠️ v2.10.0 `HERO_OUTLINE_PX`：主角轮廓宽度（**物理像素**）=====
+     用户口径：「为什么不能和《烟雨江湖》一样的人物角色清晰，
+              是不是像素风格做不到这么精细的画质」。
+
+     **这个常量就是答案 —— 不是像素风做不到，是轮廓太粗。**
+
+     实测（`_gen/_probe_hero_density.js`）：
+       · 主角画稿 24 单位宽 → 屏幕 40 逻辑px → **1 单位 = 6.67 物理px**（K=4）
+       · `bake` 原默认轮廓 `e = 0.8 画稿单位` = **5.3 物理像素（单边）**
+       · 小特征因此被黑边吞掉：
+           嘴 3.2×0.7 单位 → 加轮廓后 4.8×2.3 → **黑边占 ~70%**
+           眉 3.0×0.8、瞳 1.7×2.2 同理
+         ⇒ 脸上一片黑块 → "看不清五官"。
+       · 对照《烟雨江湖》：轮廓约 **1~2 物理px**。
+
+     **修法语义**：轮廓改用物理像素口径（`bake` 的 `opt.outlinePx`），
+     与画稿分辨率**解耦** —— 把画稿再细化时，描边仍稳定在 1.5 物理px。
+     **实测验证**：0.8 单位 → 0.22 单位（≈1.5 物理px）后，眉眼嘴立刻可辨
+     （对比图 `_shots_iso/OL022.png`）。
+
+     ⚠️ 取值区间：1.2~2.5 物理px。低于 1.2 会在降采样时消失；
+        高于 2.5 又开始糊小特征（本文件的历史教训）。 */
+  var HERO_OUTLINE_PX = 1.8;
   var CANVAS_H = PAD_TOP + ART_H;        /* 44 */
 
   /* 地图角色屏幕占位（逻辑像素）。一格格子 TILE=24，所以 40×73 ≈ 1.67×3 格。
@@ -596,7 +642,7 @@
       /* ⚠️ v2.9.0：画稿尺寸用 `ART_W/ART_H`（24×36），**不是** 16×24；
          `scale` 用 `ART_TO_SCR`（28/24）—— 两者配合才把 24×36 的画稿
          恰好铺满 28×42 的屏幕占位（旧版是 16×24 × 1.75 也是同一目的）。 */
-      c = bake(heroParts(dir, step, pal, null, lk), ART_W, ART_H, null, { scale: ART_TO_SCR, padTop: PAD_TOP });
+      c = bake(heroParts(dir, step, pal, null, lk), ART_W, ART_H, null, { scale: ART_TO_SCR, padTop: PAD_TOP, outlinePx: HERO_OUTLINE_PX });
       if (dir === 'right') c = mirror(c);
     }
     /* ===== ⚠️⚠️ v2.9.1 **主角不再参与 `A.pixelate`**（这是"糊"的真因）=====
@@ -756,7 +802,7 @@
     if (!c) {
       var r = AGE_STAGE_R[age];
       if (r == null) r = 1;
-      c = bake(heroParts(dir, step, HERO, r, lk), ART_W, ART_H, null, { scale: ART_TO_SCR, padTop: PAD_TOP });
+      c = bake(heroParts(dir, step, HERO, r, lk), ART_W, ART_H, null, { scale: ART_TO_SCR, padTop: PAD_TOP, outlinePx: HERO_OUTLINE_PX });
       if (dir === 'right') c = mirror(c);
     }
     childCache[key] = c;
