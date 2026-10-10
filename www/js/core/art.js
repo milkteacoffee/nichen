@@ -2753,8 +2753,13 @@
   /* 立绘的"素材兜底链"：这些角色本来就有 AI 生成的战斗立绘，
      立绘优先用它 —— 否则角色面板里的脸跟地图上走着的人对不上（用户报过）。
      顺序：portrait.<key> 专属立绘 > 下表里的战斗立绘 > 程序化半身像。 */
+  /* ⚠️⚠️ v2.13.0：`luchen`（主角）的立绘素材改指 **`char.hero.down`**。
+     原来指 `battle.hero`（**写实七头身**）—— 与地图的 Q 版不是一个人，
+     对话里露脸时"换了个人"（与 `sprites.js: beastSprite` 的同类修复同步）。
+     ⚠️ `battle.hero` 仍留在盘上（供将来做"必杀特写"类演出），但**不再被任何路径取用**。
+     ⚠️ 保留同名键是为了不动调用方（`portrait.luchen` 的 `key` 仍是 `luchen`）。 */
   var PORTRAIT_ART = {
-    luchen: 'battle.hero',
+    luchen: 'char.hero.down',
     killer: 'battle.enemy.killer',
     demon: 'battle.enemy.heartDemon'
   };

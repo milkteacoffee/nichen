@@ -13979,9 +13979,22 @@ step(function () {
     if (/def\.keys\[view\]/.test(an) && an.indexOf('HERO_ANIM_MATERIAL') < 0) {
       errors.push('heroAnim 仍在读手绘帧素材但没开关守卫');
     }
+
+    /* ⑤ **对话立绘**也必须与地图同源（v2.13.0 的最后一处遗漏）。
+       `art.js: PORTRAIT_ART.luchen` 原指 `battle.hero`（写实七头身）
+       → 对话里露脸时"换了个人"。必须指 `char.hero.down`。
+       ⚠️ 判据用**赋值表达式**（剥注释后），别只查符号名。 */
+    const art = stripC(read('www/js/core/art.js'));
+    const pa = art.slice(art.indexOf('var PORTRAIT_ART'), art.indexOf('var PORTRAIT_ART') + 300);
+    if (/luchen:\s*'battle\.hero'/.test(pa)) {
+      errors.push('对话立绘 luchen 仍指 battle.hero（写实七头身）—— 与地图 Q 版不是一个人');
+    }
+    if (!/luchen:\s*'char\.hero\.down'/.test(pa)) {
+      errors.push('对话立绘 luchen 未指 char.hero.down（主角立绘素材必须与地图同源）');
+    }
   } catch (e) { if (e.message !== '__bail__') throw e; }
   if (errors.length) throw new Error('主角形象一致性契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
-  console.log('  ✓ 主角形象唯一源：战斗与地图同取 char.hero（Q版）+ 两条素材路开关解耦');
+  console.log('  ✓ 主角形象唯一源：地图/战斗/对话同取 char.hero（Q版）+ 两条素材路开关解耦');
 }, 'hero.consistency.contract');
 
 /* ---------- 空间分层（v2.12.0 §一）：世界 640 / UI 480 ----------
