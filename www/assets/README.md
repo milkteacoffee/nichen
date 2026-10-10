@@ -673,6 +673,16 @@ NPC 与人物立绘目前全部走程序化画面 —— 键已接线，随时�
   第一个参数只有**指向已存在的目录**时才当输出目录，其余参数是名字过滤
   （`node tools/shot.js 24_char` 只落盘这一张）。过滤时**所有帧照常推进** ——
   后面的截图依赖前面的场景状态，跳过 pump 会拍到错的画面。
+  > ⚠️ **v2.12.1：时钟必须同源**（这是本节最易踩的坑，详见 HANDOVER §5.1b）。
+  > harness 把 `loop(now)` 的 `now` 喂**虚拟时钟** `vclock`（每次 +16.7ms），
+  > 所以 `performance.now()` 也**必须**返回同一个 `vclock` —— 否则
+  > `game.js` 的 `_pauseUntil = performance.now() + ms`（顿帧）与 `now` 分叉 →
+  > `now < _pauseUntil` 恒真 → **主循环永久停摆**，画布冻结在上一帧
+  > （表现：面板段拍到 battle 帧，而 scene/overlay 状态其实全对）。
+  > 另外两件配套：① `vclock` 初值取**固定常量**（几处动画读 `performance.now()` 的
+  > **绝对值**算相位，基准漂 → 同图两次跑不一样）；② **加载脚本之前**钉死宿主 `Date.now`
+  > （`rng.js` 用它在模块初始化时播种），加载完再还原。
+  > 修后**全量 181 张逐字节可复现**（`md5sum` 两轮一致）。
   其中 `21e_npc_mark` / `21f_npc_dialog` / `21g_npc_chat` 三张专门盯 NPC：
   头顶标记、对话立绘、镇内闲聊；
   `04_hud` / `04b_hud_lowhp` / **`29_hud_bar`** 三张专门盯主界面 HUD（满血 / 濒死 / 底栏六功能）——

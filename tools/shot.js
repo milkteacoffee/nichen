@@ -88,6 +88,16 @@ sandbox.window.removeEventListener = () => {};
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
+/* ⚠️⚠️ v2.12.1：**在加载脚本之前**把时钟钉死（顺序关键！）。
+   `rng.js` 在模块初始化时执行 `G.rng = new RNG((Date.now() & 0xffffffff) ^ 0x9e3779b9)`
+   —— 真实 `Date.now()` 播种 → 全量跑（181 张、累积大量 `G.rng` 消费）每轮序列不同
+   → 面板/流程里那点残余差异（实测 0.05% 像素）。钉死基准后整轮**逐字节可复现**。
+   ⚠️ `sandbox` 没有自己的 `Date`（脚本用的是宿主全局），所以要改**宿主** `Date.now`
+   ——这正是 HANDOVER §5.9 记的 `rebirth.js` 做法（`vm.runInContext('Date.now = ...')`）。 */
+const FIXED_NOW = 1774512000000;            /* 固定基准（与 rebirth.js 的 FIXED_NOW 同源） */
+const _realDateNow = Date.now;
+Date.now = () => FIXED_NOW;
+
 /* ---------- 加载脚本（顺序与 index.html 一致） ---------- */
 const html = fs.readFileSync(path.join(WWW, 'index.html'), 'utf8');
 const srcs = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
@@ -96,13 +106,31 @@ for (const rel of srcs) {
   if (!fs.existsSync(p)) { console.error('缺失脚本：' + rel); process.exit(1); }
   vm.runInContext(fs.readFileSync(p, 'utf8'), sandbox, { filename: rel });
 }
+/* 脚本已载入（`G.rng` 的种子已用固定时间取过）→ 还原宿主时钟，
+   否则后面所有 `Date.now()`（存档时间戳、设备指纹等）都会被钉成同一个值。 */
+Date.now = _realDateNow;
 
 /* ---------- 驱动 ---------- */
 const errors = [];
 /* 虚拟时钟跨 pump 调用单调递增（与 tools/smoke.js 同理）：
    每次从 performance.now() 重新起算会让第一帧 now - game._last 变成负数，
-   dt 为负时所有 `-= dt` 的计时器倒着走，截图就会拍到"动画没播完/播反了"的中间态。 */
-let vclock = sandbox.performance.now();
+   dt 为负时所有 `-= dt` 的计时器倒着走，截图就会拍到"动画没播完/播反了"的中间态。
+
+   ⚠️⚠️ v2.12.1：`performance.now` **必须与 rAF 的 `now` 同源**（都返回虚拟时钟）。
+   真因（本轮定位）：`game.js: _pauseUntil = performance.now() + ms` 是**墙上时间**，
+   而 `loop(now)` 收到的是这里的 `vclock`（虚拟时钟，每次 +16.7ms）。
+   两者一旦分叉，`if (this._pauseUntil > 0 && now < this._pauseUntil) { rAF; return; }`
+   会**恒真** → 主循环**永远不再渲染**，画布停在"最后一次真正渲染的那帧"。
+   表现极具迷惑性：截图看起来"场景没切过去"（实测：面板段停在 battle 帧），
+   而场景/overlay 状态其实全对。**真实浏览器里两者是同一个时钟，游戏本身没问题** ——
+   这是纯 harness 假象。历史同类坑见 HANDOVER §5.9（rebirth 的 `Date.now` 时间源）。
+
+   ⚠️ 初值取**固定常量**而不是 `Date.now()`：几处动画直接读 `performance.now()`
+   的**绝对值**算相位（传送阵辉光 `t=now/1000`、可交互提示 `sin(now/240)`）——
+   基准随墙上时间变 → 同一张图两次跑出来相位不同（实测差 0.04% 像素、maxΔ 51）。
+   钉死后截图**逐字节可复现**（与"随机相位让截图钉不住"是同一条纪律）。 */
+let vclock = 1774512000000;                 /* 固定基准（与 rebirth.js 的 FIXED_NOW 同源） */
+sandbox.performance.now = () => vclock;
 function pump(frames) {
   for (let i = 0; i < frames; i++) {
     const q = rafQueue; rafQueue = [];

@@ -13824,6 +13824,49 @@ step(function () {
   console.log('  ✓ 空间分层：世界 640 / UI 480(×4/3) + 输入×UI_R + 浮层走 UI 口径 + 无裸整屏 480×272');
 }, 'space.split.contract');
 
+/* ---------- 无头 harness 的时钟纪律（v2.12.1）----------
+   真因（v2.12.0 定位，详见 HANDOVER §5.1b）：`game.js` 的顿帧用
+   `_pauseUntil = performance.now() + ms`，而 `loop(now)` 收到的是 harness 的**虚拟时钟**。
+   若 harness 的 `performance.now` 桩成真实墙上时间，两者分叉 →
+   `now < _pauseUntil` 恒真 → **主循环永久停摆**，截图冻结在上一帧
+   （表现极迷惑：面板段拍到 battle 帧，而 scene/overlay 状态全对）。
+
+   这条契约是**源码闸**（行为在无头里测不到"停摆"本身，只能钉住 harness 的写法）：
+     ① `shot.js` 必须把 `performance.now` 指向虚拟时钟 `vclock`（同源）；
+     ② `vclock` 初值取固定常量（相位类动画读绝对值）；
+     ③ 加载脚本之前钉死宿主 `Date.now`（`rng.js` 用它播种）+ 加载后还原。
+
+   ⚠️ 这是"harness 与游戏共用的时钟口径"，属于**跨文件不变量** ——
+      只改 `shot.js` 一行就可能让全部截图静默失真，所以必须有闸。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    const src = fs.readFileSync(path.join(__dirname, 'shot.js'), 'utf8');
+    const s = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    /* ① performance.now 必须同源到 vclock（不许再是 Date.now 直读） */
+    if (!/sandbox\.performance\.now\s*=\s*\(\)\s*=>\s*vclock/.test(s)) {
+      bail('shot.js 的 performance.now 未同源到虚拟时钟 vclock —— 顿帧会让主循环永久停摆（§5.1b）');
+    }
+    /* ② vclock 初值必须是固定常量，不许是 Date.now()/performance.now() */
+    const vm2 = s.match(/let vclock = ([^;]+);/);
+    if (!vm2) bail('shot.js 找不到 vclock 初始化');
+    else if (/Date\.now|performance\.now/.test(vm2[1])) {
+      bail('shot.js 的 vclock 初值读了真实时钟（' + vm2[1].trim() + '）—— 相位类动画会使截图不可复现');
+    }
+    /* ③ 宿主 Date.now 要在加载前钉死、加载后还原 */
+    const iFix = s.indexOf('Date.now = () => FIXED_NOW');
+    const iLoad = s.indexOf('vm.runInContext');
+    const iRestore = s.indexOf('Date.now = _realDateNow');
+    if (iFix < 0) bail('shot.js 未在加载脚本前钉死宿主 Date.now（G.rng 播种会漂 → 全量截图不可复现）');
+    if (!(iFix < iLoad)) bail('shot.js 的 Date.now 钉死必须在 vm.runInContext **之前**');
+    if (iRestore < 0) bail('shot.js 未在加载后还原宿主 Date.now（会把存档时间戳/设备指纹钉成同值）');
+    if (!(iRestore > iLoad)) bail('shot.js 的 Date.now 还原必须在加载**之后**');
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('harness 时钟契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 无头时钟纪律：shot.js 的 performance.now 同源 vclock + 固定初值 + Date.now 前后配对');
+}, 'harness.clock.contract');
+
 /* ---------- 报告 ---------- */
 if (notes.length) {
   console.log('\n—— 已知待办 (' + notes.length + ') ——');
