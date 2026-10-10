@@ -887,10 +887,10 @@
 
     /* ================= 渲染 ================= */
     render: function (x) {
-      var g = x.createLinearGradient(0, 0, 0, 272);
+      var g = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, '#080c18');
       g.addColorStop(1, '#141a2c');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       if (this.view === 'hub') this._renderHub(x);
       else if (this.view === 'daohub') this._renderDaoHub(x);

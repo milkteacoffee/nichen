@@ -90,9 +90,9 @@
     render: function (x) {
       var info = this._info();
       /* 暗空底 */
-      var g = x.createLinearGradient(0, 0, 0, 272);
+      var g = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, '#070a14'); g.addColorStop(0.5, '#0d1424'); g.addColorStop(1, '#070a14');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 中央冷眼虚影（随阶段睁开）*/
       var openP = this.stage / 5;

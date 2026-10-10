@@ -439,9 +439,9 @@
 
     /* ===== 渲染 ===== */
     render: function (x) {
-      var bg = x.createLinearGradient(0, 0, 0, 272);
+      var bg = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       bg.addColorStop(0, '#0c1020'); bg.addColorStop(1, '#141a2e');
-      x.fillStyle = bg; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = bg; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       if (this.step === 'linggen') this.renderLinggen(x);
       else if (this.step === 'grow') this.renderGrow(x);
@@ -515,10 +515,10 @@
 
       /* 背景：随年龄由暮色转晨曦（越长大越亮），三拍连起来像"天亮了" */
       var k = idx + ph;
-      var bg = x.createLinearGradient(0, 0, 0, 272);
+      var bg = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       bg.addColorStop(0, this._mix('#0a0d18', '#16243c', k / 3));
       bg.addColorStop(1, this._mix('#141a2e', '#2a3a52', k / 3));
-      x.fillStyle = bg; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = bg; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 人物：脚底钉在 y=214 的地面线上（三档一致 → 视觉上是"长高"）。 */
       var GY = 214, CX = 240;
@@ -555,7 +555,7 @@
       var reveal = Math.min(1, ph / 0.45);
       if (reveal < 1) {
         x.beginPath();
-        x.rect(0, GY - SH * reveal, 480, SH * reveal + 4);
+        x.rect(0, GY - SH * reveal, G.game.UI_W, SH * reveal + 4);
         x.clip();
       }
       x.drawImage(spr, dx, dy, SW, SH);

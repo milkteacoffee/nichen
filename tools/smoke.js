@@ -1035,7 +1035,7 @@ step(function () {
     if (ISO) {
       const w = sc2._isoWorld(gx * TG + TG / 2, gy * TG + TG / 2);
       const c = sc2._isoWorld(PWP0.x, PWP0.y);
-      return { x: w.x - c.x + 240, y: w.y - c.y + 136 };
+      return { x: w.x - c.x + G.game.CX, y: w.y - c.y + G.game.CY };
     }
     return { x: gx * TG + TG / 2 - sc2._camX(), y: gy * TG + TG / 2 - sc2._camY() };
   };
@@ -1047,7 +1047,9 @@ step(function () {
       if (!dx && !dy) continue;
       const txy = toScr(s.pos.x + dx, s.pos.y + dy);
       const sx = Math.round(txy.x), sy = Math.round(txy.y);
-      if (sx < 8 || sy < 8 || sx >= 480 - 8 || sy >= 272 - 8) continue;
+      /* ⚠️ v2.12.0：`toScr` 给的是**世界空间（640×360）**坐标 → 边界用 `VW/VH`。
+         写死 480/272 会把右/下 1/3 的合法落点全判成"越界"，可选项骤减、甚至找不到落点。 */
+      if (sx < 8 || sy < 8 || sx >= G.game.VW - 8 || sy >= G.game.VH - 8) continue;
       const tx = s.pos.x + dx, ty = s.pos.y + dy;
       if (tx < 1 || ty < 1 || tx >= sc2.map.w - 1 || ty >= sc2.map.h - 1) continue;
       if (sc2.map.solid[ty][tx]) continue;
@@ -1061,7 +1063,8 @@ step(function () {
   if (!target) {
     errors.push('寻路契约：玩家附近找不到屏幕内可走的落点（地图被装饰填满了？）');
   } else {
-    sc2.onTap(tapPt);
+    /* ⚠️ v2.12.0：`tapPt` 是世界空间 → `onTap` 收 UI 空间指针 → ÷UI_R。 */
+    sc2.onTap({ x: tapPt.x / G.game.UI_R, y: tapPt.y / G.game.UI_R });
     if (!sc2.path.length) {
       errors.push('返回后点击不能寻路 —— 玩家仍被锁着（点格 ' + target.x + ',' + target.y
         + '，屏幕 ' + tapPt.x + ',' + tapPt.y + '）');
@@ -4030,8 +4033,9 @@ step(function () {
   /* 粒子走 fillRect（不是 drawImage），所以改用位置公式直接验：同一粒子两个时刻的 x 必须不同 */
   if (sc._pt && sc._pt.length) {
     const p = sc._pt[0];
-    const x1 = (p.x + 1 * p.vx + Math.sin(1 * 1.1 + p.ph) * 9) % 480;
-    const x2 = (p.x + 3 * p.vx + Math.sin(3 * 1.1 + p.ph) * 9) % 480;
+    /* ⚠️ v2.12.0：粒子的回卷模数 = **世界宽**（`G.game.VW`），不再写死 480。 */
+    const x1 = (p.x + 1 * p.vx + Math.sin(1 * 1.1 + p.ph) * 9) % G.game.VW;
+    const x2 = (p.x + 3 * p.vx + Math.sin(3 * 1.1 + p.ph) * 9) % G.game.VW;
     if (Math.abs(x1 - x2) < 0.01) errors.push('环境粒子的位置不随时间变化');
   }
 
@@ -7300,10 +7304,15 @@ step(function () {
       const pwp = sc._px();
       const w = sc._isoWorld(pe.x0 * TG + TG / 2, pe.y * TG + TG / 2);
       const c = sc._isoWorld(pwp.x, pwp.y);
-      p = { x: w.x - c.x + 240, y: w.y - c.y + 136 };
+      p = { x: w.x - c.x + G.game.CX, y: w.y - c.y + G.game.CY };
     } else {
       p = { x: pe.x0 * TG + TG / 2 - sc._camX(), y: (pe.y * TG + TG / 2 - sc._camY()) / VY };
     }
+    /* ⚠️ v2.12.0：上面算出的是**世界空间（640×360）**坐标，而 `sc.onTap` 收的是
+       **UI 空间（480×272）**指针（`input.js` 把指针归一化到 UI 空间，`onTap` 内部再
+       ×UI_R 回到世界）。所以喂进 onTap 之前必须 ÷UI_R ——
+       漏了这一步的表现是"点出口没反应"（点在正确位置的 0.75 倍处）。 */
+    p = { x: p.x / G.game.UI_R, y: p.y / G.game.UI_R };
     sc.onTap(p);
     if (G.game.sceneName !== 'field') {
       errors.push('点出口传送阵没有切到下一张图，实为 ' + G.game.sceneName);
@@ -7314,8 +7323,8 @@ step(function () {
   {
     const sz = art.match(/wall:\s*\[(\d+),\s*(\d+)\]/);
     if (!sz) errors.push('DECOR_SIZE 里找不到 wall');
-    else if (parseInt(sz[2], 10) > 24) {
-      errors.push('室内墙高 ' + sz[2] + ' 过大（锚点 oy = 16 − h，会长到上一行盖住角色）');
+    else if (parseInt(sz[2], 10) > G.Art.TILE) {
+      errors.push('室内墙高 ' + sz[2] + ' 超过一格 TILE(' + G.Art.TILE + ') —— 会长到上一行盖住角色');
     }
     const wh = art.match(/decorCanvas\('d\|wall\|' \+ v, 32, (\d+)/);
     if (!wh) errors.push('找不到 wall 的程序化画布尺寸');
@@ -10498,12 +10507,14 @@ step(function () {
     return capYs.slice();
   };
 
-  /* 无覆盖层：toast y0 必须等于历史公式（= H - h - 14 - BOT） */
+  /* 无覆盖层：toast y0 必须等于历史公式（= UI_H - h - 14 - BOT）
+     ⚠️ v2.12.0：toast 属 **UI 空间**（480×272）→ 基线用 `g.UI_H`，
+        不再是 `g.H`（世界口径 360）。写 `g.H` 会假红。 */
   sc.overlay = null;
   const nRect = toastRect();
   if (!nRect) errors.push('_renderToasts 没画面板（capture 失败）');
   else {
-    const wantY = g.H - nRect.h - 14 - BOT;
+    const wantY = g.UI_H - nRect.h - 14 - BOT;
     if (nRect.y !== wantY) {
       errors.push('无覆盖层时 toast y 应与历史一致（' + wantY + '），实为 ' + nRect.y);
     }
@@ -12438,6 +12449,9 @@ step(function () {
     errors.push('地形起伏：fan5 没有高度（前置：terrain.elev.contract 应先保证数据）');
     return;
   }
+  /* ⚠️ v2.12.0：ELEV_STEP 必须与 explore.js **同式派生**（它随 TILE 缩放）。
+     写死 8 会在改分辨率/TILE 时假红。 */
+  const ELEV_STEP = 8 * (G.Art.TILE / 24);
   if (typeof sc._pxDraw !== 'function') {
     errors.push('地形起伏：缺 _pxDraw（绘制口）—— 玩家不会随地形起伏');
     return;
@@ -12461,11 +12475,14 @@ step(function () {
       return sc._pxDraw().y;
     };
     const yHi = yOf(hi), yLo = yOf(lo);
-    /* 同一行时两格逻辑 y 相同 → 差值应恰为 (elevHi)*ELEV_STEP = 16 */
+    /* 同一行时两格逻辑 y 相同 → 差值应恰为 `(elevHi)*ELEV_STEP`。
+       ⚠️ v2.12.0：判据从写死 [15,17] 改为**按 ELEV_STEP 派生** ——
+          否则分辨率/TILE 一变就假红（实测 TILE 24→32 时差值与期望都变）。 */
     if (hi.y === lo.y) {
       const d = yLo - yHi;
-      if (!(d >= 15 && d <= 17)) {
-        errors.push('地形起伏：elev=2 与 elev=0 的绘制 y 差应为 16px（2×8），实为 ' + d.toFixed(1));
+      const exp = 2 * ELEV_STEP;
+      if (!(Math.abs(d - exp) <= exp * 0.08)) {
+        errors.push('地形起伏：elev=2 与 elev=0 的绘制 y 差应为 2×ELEV_STEP(' + exp.toFixed(1) + ')，实为 ' + d.toFixed(1));
       }
     } else if (!(yHi < yLo)) {
       errors.push('地形起伏：高地绘制 y 没有比低地更靠上');
@@ -12545,8 +12562,8 @@ step(function () {
 step(function () {
   /* ⚠️ `TILE` 是 explore.js 的**模块私有量**，smoke 作用域里没有 ——
      不在此处自己定义会抛 ReferenceError，把后面两段（零回归 / 源码闸）**静默跳过**。 */
-  const TILE = 24;
-  const ELEV_STEP = 8;
+  const TILE = G.Art.TILE;
+  const ELEV_STEP = 8 * (TILE / 24);
   /* ⚠️ v1.9.0：等距模式下排序键是 (x+y)。契约必须按**当前模式**算期望值，
      否则会拿方形口径去比等距结果 → 假红。
      ⚠️ 读 `G.ISO_ON`（explore 暴露的唯一口径），**不要**自己推断
@@ -12587,9 +12604,12 @@ step(function () {
       /* 差值 = 一格(24) **+** 高度差(2*8=16) = 40 —— 高台同时"更靠上一格"且"更高两档"，
          两个方向**同向叠加**（不是相减）。⚠️ 这里一开始写成 8（误按相减），
          跑出来 40 才发现：depth 就是"绘制脚底 y"，格差与高度差当然同号。 */
-      if (dB - dA !== TILE + 2 * ELEV_STEP) {
-        errors.push('排序深度：2/0 相邻格的 depth 差应为 ' + (TILE + 2 * ELEV_STEP)
-          + '（一格 24 + 高度差 16），实为 ' + (dB - dA));
+      /* ⚠️ v2.12.0：必须用**容差**比（ELEV_STEP 现在是非整数 10.667，
+         浮点累加会差 1e-14 —— 直接 `!==` 会假红）。 */
+      const expD = TILE + 2 * ELEV_STEP;
+      if (Math.abs((dB - dA) - expD) > 0.01) {
+        errors.push('排序深度：2/0 相邻格的 depth 差应为 ' + expD
+          + '（一格 ' + TILE + ' + 高度差 ' + (2 * ELEV_STEP).toFixed(1) + '），实为 ' + (dB - dA));
       }
       /* 玩家：入列时已按 _pxDraw 含高度 → `_depthOf` 不许再减 */
       /* ⚠️ v1.9.0：等距下排序键是 (x+y)（屏幕 y ∝ x+y）——不是裸 y。 */
@@ -12669,7 +12689,7 @@ step(function () {
      ② **只画南向落差** —— 东向落差**完全没有视觉表达**（实测 94 条被漏掉）。
    两者叠加起来，玩家看到的地形其实是"一列列色块"而不是"有高差的地面"。 */
 step(function () {
-  const TILE = 24, ELEV_STEP = 8;
+  const TILE = G.Art.TILE, ELEV_STEP = 8 * (TILE / 24);
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
   G.game.save = s;
@@ -12764,7 +12784,9 @@ step(function () {
              ② 斜俯角模拟（远景轻微 Y 压缩，补最后一条"无纵深"）」。
    两项共享同一底层（格坐标 → 屏幕纵向投影），所以一起做、一起验。 */
 step(function () {
-  const TILE = 24, VY = 1.06;
+  const TILE = G.Art.TILE, VY = 1.06;
+  /* ⚠️ v2.12.0：坡道高度随 TILE 缩放（原来是写死的 16 = 2×ELEV_STEP(8)）。 */
+  const HSLP = 16 * (TILE / 24);
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
   G.game.save = s;
@@ -12789,7 +12811,7 @@ step(function () {
       };
     };
     /* 南向：上边（远）窄、下边（近）宽 */
-    const a = mk(); sc._drawSlope(a, 100, 50, TILE, 16, sc._pal(), 'S');
+    const a = mk(); sc._drawSlope(a, 100, 50, TILE, HSLP, sc._pal(), 'S');
     if (a.pts.length < 4) errors.push('坡道几何：南向坡没有画出 4 个顶点（不是梯形路径）');
     else {
       const topW = a.pts[1][0] - a.pts[0][0];
@@ -12801,7 +12823,7 @@ step(function () {
       if (topW <= 0) errors.push('坡道几何：南向坡上边宽 ' + topW + ' —— 收窄过度（成了三角形）');
     }
     /* 东向：左边（远）矮、右边（近）高 */
-    const b = mk(); sc._drawSlope(b, 100, 50, TILE, 16, sc._pal(), 'E');
+    const b = mk(); sc._drawSlope(b, 100, 50, TILE, HSLP, sc._pal(), 'E');
     if (b.pts.length < 4) errors.push('坡道几何：东向坡没有画出 4 个顶点');
     else {
       const lh = Math.abs(b.pts[3][1] - b.pts[0][1]);   /* 左边（远）高 */
@@ -12813,7 +12835,7 @@ step(function () {
       /* ⚠️ 收窄量要**对称**：两个方向各自按"被收窄的方向"取基准。
          曾用同一个 `hgt*0.42` → 东向把 16px 高收成 2px（几乎成三角形）。 */
       const southTop = (function () {
-        const c = mk(); sc._drawSlope(c, 100, 50, TILE, 16, sc._pal(), 'S');
+        const c = mk(); sc._drawSlope(c, 100, 50, TILE, HSLP, sc._pal(), 'S');
         return c.pts[1][0] - c.pts[0][0];
       })();
       if (lh < southTop * 0.35) {
@@ -12831,13 +12853,16 @@ step(function () {
 
   /* ===== ② 斜俯角：可见范围 / 相机居中 / 反投影可逆 ===== */
   {
-    if (Math.abs(sc._viewH() - 272 * VY) > 0.01) {
-      errors.push('斜俯角：_viewH() 应为 272*VIEW_Y=' + (272 * VY) + '，实为 ' + sc._viewH());
+    /* ⚠️ v2.12.0：可见高度 = `VH * VIEW_Y`（世界口径 360），不再是 272。
+       写死 272 会假红。 */
+    const VH = G.game.VH;
+    if (Math.abs(sc._viewH() - VH * VY) > 0.01) {
+      errors.push('斜俯角：_viewH() 应为 VH*VIEW_Y=' + (VH * VY) + '，实为 ' + sc._viewH());
     }
     /* 相机居中：主角应处于可见范围**正中**（受边界夹取时除外） */
     s.pos = { x: Math.floor(sc.map.w / 2), y: Math.floor(sc.map.h / 2) };
     sc.moving = false;
-    const py = sc._px().y, cy = sc._camY(), vis = 272 * VY;
+    const py = sc._px().y, cy = sc._camY(), vis = VH * VY;
     const maxCam = sc.map.h * TILE - vis;
     if (cy > 0.01 && cy < maxCam - 0.01) {
       const off = (py - cy) - vis / 2;
@@ -12852,7 +12877,8 @@ step(function () {
     for (let ty = 2; ty < Math.min(sc.map.h - 2, 20); ty += 3) {
       for (let tx = 2; tx < Math.min(sc.map.w - 2, 30); tx += 5) {
         const scr = { x: tx * TILE + 12 - camX, y: (ty * TILE + 12 - camY) / VY };
-        if (scr.x < 4 || scr.x > 476 || scr.y < 4 || scr.y > 268) continue;
+        /* ⚠️ v2.12.0：`scr` 是**世界空间**坐标 → 视口边界用 VW/VH。 */
+        if (scr.x < 4 || scr.x > G.game.VW - 4 || scr.y < 4 || scr.y > G.game.VH - 4) continue;
         /* 与 onTap 同一公式 */
         const btx = Math.floor(sc._camX() / TILE + scr.x / TILE);
         const bty = Math.floor(sc._camY() / TILE + scr.y * VY / TILE);
@@ -12930,7 +12956,9 @@ step(function () {
      ④ **立牌必须退出等距矩阵** —— 否则角色/建筑"躺在地上"；
      ⑤ 所有立牌绘制点都走 `_proj`（防漏接）。 */
 step(function () {
-  const TILE = 24;
+  const TILE = G.Art.TILE;
+  const HSLP = 16 * (TILE / 24);   /* 坡道高度随 TILE 缩放（v2.12.0）*/
+  const VW = G.game.VW, VH = G.game.VH, CX = G.game.CX, CY = G.game.CY;
   /* ⚠️ 本契约只在**等距模式**下有意义（非等距时 `_proj` 恒等、排序键是 y）——
      关掉 ISO_ON 后应整体跳过，否则会拿方形口径去比等距期望值 → 假红。 */
   if (!G.ISO_ON) {
@@ -12953,7 +12981,7 @@ step(function () {
       const p = sc._proj(wx, wy);
       const iso = sc._isoScreen(p.x, p.y);
       const pp = sc._px();
-      const bx = iso.x - 240 + pp.x, by = iso.y - 136 + pp.y;
+      const bx = iso.x - CX + pp.x, by = iso.y - CY + pp.y;
       if (Math.abs(bx - wx) > 0.01 || Math.abs(by - wy) > 0.01) bad++;
     }
     if (bad) errors.push('等距：投影往返不可逆（' + bad + ' 点失配）—— 画面与点击会分叉');
@@ -12965,11 +12993,11 @@ step(function () {
     for (let ty = 5; ty < 25; ty += 4) {
       for (let tx = 5; tx < 35; tx += 4) {
         const p = sc._proj(tx * TILE + 12, ty * TILE + 12);
-        if (p.x < 4 || p.x > 476 || p.y < 4 || p.y > 268) continue;
+        if (p.x < 4 || p.x > VW - 4 || p.y < 4 || p.y > VH - 4) continue;
         const iso = sc._isoScreen(p.x, p.y);
         const pp = sc._px();
-        const btx = Math.floor((iso.x - 240 + pp.x) / TILE);
-        const bty = Math.floor((iso.y - 136 + pp.y) / TILE);
+        const btx = Math.floor((iso.x - CX + pp.x) / TILE);
+        const bty = Math.floor((iso.y - CY + pp.y) / TILE);
         if (btx === tx && bty === ty) hit++; else miss++;
       }
     }
@@ -13047,7 +13075,7 @@ step(function () {
    用户口径（承「全部转向俯视角 45°」）：「素材重出：地面改斜向平铺纹理、
    建筑改 2:1 等距（两个可见侧面）」。 */
 step(function () {
-  const TILE = 24;
+  const TILE = G.Art.TILE;
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
   G.game.save = s;
@@ -13214,7 +13242,7 @@ step(function () {
    用户口径（承「全部转向俯视角 45°」）：「继续开发」——等距下 4 向移动手感别扭
    （"屏幕正上"其实是世界对角），本轮做真 8 向 + 输入按视觉方向映射。 */
 step(function () {
-  const TILE = 24;
+  const TILE = G.Art.TILE;
   const s = JSON.parse(JSON.stringify(save));
   s.quest = { step: 'free', flags: {} };
   G.game.save = s;
@@ -13680,6 +13708,121 @@ step(function () {
   if (errors.length) throw new Error('像素风契约：' + errors.length + ' 条失败\n  - ' + errors.join('\n  - '));
   console.log('  ✓ 像素风：开关唯一 + pixelate 尺寸不变 + 块= PIXEL×K + 世界层像素化/界面层平滑');
 }, 'pixel.contract');
+
+/* ---------- 空间分层（v2.12.0 §一）：世界 640 / UI 480 ----------
+   v2.12.0 把逻辑分辨率提到 640×360（对齐《烟雨江湖》的角色展示比例）。
+   架构：**世界层原生 640**（地图/角色/相机/拾取），**UI 层保持 480×272 设计基准**
+   （`G.game.UI_W/UI_H`），渲染时由 `game.js` 统一 `scale(UI_R=4/3)` 铺满。
+
+   为什么用"缩放"而不是逐个改坐标：UI 是版式（坐标/字号/行高彼此咬合），
+   逐处乘必然漏 → 静默错位。缩放交给 canvas，`fillText` 仍按最终尺寸重栅格化 → 不糊。
+
+   本契约钉住四件事（每一条都对应一类**静默**错误）：
+     ① `UI_R` 必须 = VW/UI_W（两处不许分写）；
+     ② 场景渲染必须被 `scale(UI_R)` 包裹（漏了 → 场景只占左上 3/4）；
+     ③ explore 必须 `scale(1/UI_R)` **抵消**（漏了 → 地图被放大 1.33、角色溢出）；
+     ④ 尾部浮层（toast/loot/danger/breakthrough/story/cutscene/hover）也必须在 UI 空间。
+   并附一条**源码闸**：世界代码里不许再出现裸 480/272（除了 UI 空间段）。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+  const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  try {
+    const g = G.game;
+    /* ① UI_R 单一来源 */
+    if (Math.abs(g.UI_R - g.VW / g.UI_W) > 1e-9) {
+      bail('UI_R 与 VW/UI_W 不一致（' + g.UI_R + ' vs ' + (g.VW / g.UI_W) + '）—— 不许两处分写');
+    }
+    if (!(g.UI_W > 0 && g.UI_H > 0)) bail('UI_W/UI_H 未定义');
+    if (Math.abs(g.CX - g.VW / 2) > 0.5 || Math.abs(g.CY - g.VH / 2) > 0.5) {
+      bail('CX/CY 应 = 视口中心（' + g.VW / 2 + ',' + g.VH / 2 + '），实为 ' + g.CX + ',' + g.CY);
+    }
+
+    /* ② / ③ 渲染包裹（源码闸 —— 缩放在 `loop` 里，行为判据测不到"包没包"，
+       只能断源码。剥注释后断**那个表达式本身**，不查符号名）。 */
+    const gsrc = stripC(read('www/js/core/game.js'));
+    const loopBody = gsrc.slice(gsrc.indexOf('loop: function'), gsrc.indexOf('_renderWhisper: function'));
+    if (loopBody.indexOf('x.scale(this.UI_R, this.UI_R)') < 0) {
+      bail('game.js loop 未把场景/浮层包在 scale(UI_R) 里 —— 画面只会占左上 3/4');
+    }
+    /* 两处包裹：场景体 + 尾部浮层（过场/hover 也在同一段 save 里） */
+    const sceneWrapped = /x\.scale\(this\.UI_R, this\.UI_R\);\s*if \(this\.scene\.render\) this\.scene\.render\(x\);/.test(loopBody);
+    if (!sceneWrapped) {
+      bail('game.js loop 的场景渲染未被 scale(UI_R) 紧邻包裹 —— 画面只会占左上 3/4');
+    }
+    /* ⚠️ 计数要**给准数**（留余量会让"摘掉一处"漏网）：实测 3 处 ——
+       ① 场景体 ② 过场+hover ③ 尾部浮层（toast/loot/danger/突破/剧情）。 */
+    const uiScales = (loopBody.match(/x\.scale\(this\.UI_R, this\.UI_R\)/g) || []).length;
+    if (uiScales !== 3) {
+      bail('game.js loop 的 UI 包裹应为 3 处（场景/过场+hover/尾部浮层），实为 ' + uiScales);
+    }
+    const exsrc = stripC(read('www/js/core/explore.js'));
+    if (!/x\.scale\(1 \/ G\.game\.UI_R, 1 \/ G\.game\.UI_R\)/.test(exsrc)) {
+      bail('explore.render 未 scale(1/UI_R) 抵消 —— 地图会被放大 1.33、角色溢出屏幕');
+    }
+    /* explore 的世界↔UI 分界：两个探针函数必须在 UI 段（restore 之后）之前画 */
+    const rrend = exsrc.slice(exsrc.indexOf('render: function'), exsrc.indexOf('_drawBloodVeil: function'));
+    const iRestore = rrend.indexOf('x.restore();\n        var _uiSpace = true;');
+    const iHint = rrend.indexOf('this._drawInteractHint');
+    const iHud = rrend.indexOf('this._drawHUD(x)');
+    if (iRestore < 0) bail('explore.render 找不到"世界→UI"的收口 restore（结构变了就更新锚点）');
+    if (!(iHint > 0 && iHint < iRestore)) {
+      bail('_drawInteractHint 应在世界段内（它走 _proj）—— 否则位置会被二次缩放');
+    }
+    if (!(iHud > iRestore)) bail('_drawHUD 应在 UI 段内（restore 之后）');
+
+    /* ③b 输入空间：世界拾取必须 ×UI_R */
+    const tap = exsrc.slice(exsrc.indexOf('onTap: function'), exsrc.indexOf('onTap: function') + 2600);
+    if (tap.indexOf('p.x * G.game.UI_R') < 0 || tap.indexOf('p.y * G.game.UI_R') < 0) {
+      bail('explore.onTap 未把 UI 空间指针 ×UI_R —— 点击会整体偏左上（看着对但点不准）');
+    }
+    /* 输入层归一到 UI 空间 */
+    const insrc = stripC(read('www/js/core/input.js'));
+    if (insrc.indexOf('G.game.UI_W') < 0 || insrc.indexOf('G.game.UI_H') < 0) {
+      bail('input.js 未按 UI_W/UI_H 归一化指针 —— 与按钮空间不一致，命中会错');
+    }
+
+    /* ④ 尾部浮层函数一律读 UI 口径，不许读世界口径 this.W/this.H */
+    ['_renderDanger', '_renderToasts', '_renderBreakthroughEffect'].forEach(function (fn) {
+      const from = gsrc.indexOf(fn + ': function');
+      if (from < 0) { errors.push('game.js 找不到 ' + fn); return; }
+      /* 右界：下一个顶层方法（找它后面第一个 `    , ` 开头的方法名） */
+      const rest = gsrc.slice(from + 10);
+      const m = rest.match(/\n    \w+[A-Za-z_]*: function/);
+      const body = m ? gsrc.slice(from, from + 10 + m.index) : rest;
+      if (/this\.W\b|this\.H\b/.test(body)) {
+        errors.push(fn + ' 仍读世界口径 this.W/H —— 会被再乘一次 UI_R（溢出屏幕），应用 this.UI_W/UI_H');
+      }
+    });
+
+    /* ⑤ 源码闸：世界代码里不许再出现裸 480/272。
+       ⚠️ 这是个**趋势闸**（给准数会随版式漂），所以只钉"两个确定的 UI 段之外不许有"：
+           · explore.js 的世界段（render 开头 → restore）
+           · 任意 `.js` 里 `fillRect(0, 0, 480, 272)` 这类整屏填充
+       用 `!== 0` 的确定判据，避免"留余量"被半改漏网。 */
+    const rawFullScreen = [];
+    ['js/core/explore.js', 'js/scenes/battle.js', 'js/scenes/title.js', 'js/scenes/death.js',
+      'js/scenes/heaven.js', 'js/scenes/ending.js', 'js/scenes/reincarnation.js',
+      'js/scenes/reincarnation-hall.js', 'js/scenes/dungeon.js', 'js/scenes/tiandaowar.js',
+      'js/scenes/difficulty.js', 'js/core/overlays.js', 'js/core/panels.js', 'js/data/story.js',
+      'js/core/cutscene.js'].forEach(function (rel) {
+      const src = stripC(read(rel));
+      const hits = src.match(/fillRect\(0, 0, 480, 272\)|drawImage\([^,]+,\s*0,\s*0,\s*480,\s*272\)/g);
+      if (hits && hits.length) rawFullScreen.push(rel + '×' + hits.length);
+    });
+    if (rawFullScreen.length) {
+      errors.push('源码闸：仍有整屏填充写死 480×272（应用 UI_W/UI_H）：' + rawFullScreen.join(' '));
+    }
+
+    /* ⑥ 房间判据：室内模板 30×17 是按"一屏"设计的 —— 记录现状（不强制改），
+       但必须能在 UI 口径下被读到，便于后续复核。 */
+    const VWOK = g.VW === 640 && g.VH === 360;
+    if (!VWOK) errors.push('主分辨率应为 640×360，实为 ' + g.VW + '×' + g.VH);
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('空间分层契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 空间分层：世界 640 / UI 480(×4/3) + 输入×UI_R + 浮层走 UI 口径 + 无裸整屏 480×272');
+}, 'space.split.contract');
 
 /* ---------- 报告 ---------- */
 if (notes.length) {

@@ -12,11 +12,18 @@
      ⚠️ 改这个常量意味着**所有"格 ↔ 像素"换算都必须走它**，不许再写裸 16：
         一旦有地方漏改，表现是"只有那一样东西位置错"（静默、难查）。
         `TILE.contract` 会扫源码闸拦裸 16。 */
-  var TILE = 24;
+  /* ⚠️ v2.12.0：`TILE` 随逻辑分辨率一起放大（480×272 → 640×360，1.33×）。
+     为什么必须放大：分辨率提高只让"屏幕装更多格"，格本身不变 →
+     格内物件（角色/建筑）占屏比**变小**（角色 27% → 18%），
+     观感是"角色变小了"，与"要更清晰"的初衷相反。
+     一齐放大后，**每格的物理像素更多**（24×4=96 → 32×4=128），
+     格内细节的可表达量也随之提升。
+     ⚠️ 地图/存档/寻路全是**格坐标**，与 TILE 无关 → 数据层不用改。 */
+  var TILE = 32;
   /* 地形高度：每档抬升多少像素（v1.4.0）。
      1/3 格（8px）是"看得出坡、又不至于把格子错得认不出网格"的实测甜点 ——
      取半格（12px）会让相邻格看起来"断开"，取太小（4px）则读不出层级。 */
-  var ELEV_STEP = 8;
+  var ELEV_STEP = 8 * (TILE / 24);
   /* 斜俯角模拟：**世界层纵向压缩系数**（v1.8.0）。
      用户口径：「② 斜俯角模拟（远景轻微 Y 压缩，补最后一条"无纵深"）」。
      原理：把世界层纵向 scale(1, 1/VIEW_Y)，格块高度与格间距**同时**被压 →
@@ -51,7 +58,7 @@
      而契约常在切场景**之前**取 `G.game.scene` → 拿到上一个场景 → 判错）。 */
   G.ISO_ON = ISO_ON;
   var ISO_RATIO = 0.5;                    /* 纵向压扁比（2:1 = 0.5） */
-  var ISO_CX = 240, ISO_CY = 136;         /* 屏幕中心（等距原点落在屏幕正中） */
+  var ISO_CX = 320, ISO_CY = 180;         /* ⚠️ v2.12.0：必须 = `G.game.CX/CY`（视口中心，同源） */
   var MAX_PATH = 64;                      /* 寻路上限（格）：够走完 36×24 镇子的对角 */
 
   /* 逐格确定性哈希（v1.9.0）：给"等距瓦片微明暗"用。
@@ -800,25 +807,34 @@
            这里保留 4px 边缘死区防止系统手势误触，但玩家点得到贴着 HUD 的入口与物件。
            （v0.11.2 修：之前 HUD_H=48 / BOT_H=28 整段挡掉，会让贴边的副本入口点不到。） */
         if (p.y < 4) return;
-        if (p.y >= 272 - 4) return;
+        if (p.y >= G.game.UI_H - 4) return;
+        /* ===== ⚠️⚠️ v2.12.0 输入空间换算 =====
+           `G.Input` 的指针坐标是 **UI 空间（480×272）**（按钮/面板都在那个空间，见
+           `input.js` 与 `game.js` 的 UI 层包裹）。而**世界**是 640×360 原生。
+           所以世界点击拾取之前，必须把指针 ×UI_R 换算到世界坐标。
+           ⚠️ 漏了这一步的表现是：**点击位置整体偏向左上**（越靠右下偏得越多），
+              而画面完全正常 —— 属"看着对但点不准"的静默错。
+           ⚠️ 反例：上面 `p.y < 4` 的死区判据用的是 UI 空间（UI_H=272）——
+              那一层属于"界面边缘"，本来就该用 UI 口径。 */
+        var wpx = p.x * G.game.UI_R, wpy = p.y * G.game.UI_R;
         var tx, ty;
         if (ISO_ON) {
           /* ⚠️ v1.9.0 等距反投影：屏幕点先经逆矩阵回到"世界像素（相对玩家）"，
              再加上玩家的世界像素。**必须走 `_isoScreen`** ——
              自己在这写 `(sx-sy)/2` 之类的三角公式，是"两处分写同一判据"的老坑。 */
-          var pw = this._isoScreen(p.x, p.y);           /* 相对 ISO 中心的世界像素 */
+          var pw = this._isoScreen(wpx, wpy);           /* 相对 ISO 中心的世界像素 */
           var pp = this._px();
           var wx = pw.x - ISO_CX + pp.x;                /* 世界像素 */
           var wy = pw.y - ISO_CY + pp.y;
           tx = Math.floor(wx / TILE);
           ty = Math.floor(wy / TILE);
         } else {
-          tx = Math.floor(this._camX() / TILE + p.x / TILE);
+          tx = Math.floor(this._camX() / TILE + wpx / TILE);
           /* ⚠️ v1.8.0 **反投影必须乘 VIEW_Y**：世界层纵向被压了 `1/VIEW_Y`，
              所以"屏幕上的 1px"对应"世界里的 VIEW_Y px"。
              漏了这一步的表现是：**点击位置总是比实际点到的格子偏上**（越靠下偏得越多），
              而画面完全正常 —— 属"看着对但点不准"的静默错。 */
-          ty = Math.floor(this._camY() / TILE + p.y * VIEW_Y / TILE);
+          ty = Math.floor(this._camY() / TILE + wpy * VIEW_Y / TILE);
         }
         if (tx < 0 || ty < 0 || tx >= this.map.w || ty >= this.map.h) return;
 
@@ -1031,7 +1047,7 @@
            非等距时保持原语义（视口左上角的世界坐标 + 边界夹取）。 */
         if (ISO_ON) return 0;
         var cx = this._px().x;
-        return Math.max(0, Math.min(this.map.w * TILE - 480, cx - 240));
+        return Math.max(0, Math.min(this.map.w * TILE - G.game.VW, cx - G.game.VW / 2));
       },
       /* 相机 Y 上限：可见世界高度 = 272 * VIEW_Y（屏幕被纵向压缩后能装更多世界内容）。
          ⚠️ v1.8.0：**必须乘 VIEW_Y**，否则相机以为只看得见 272px 世界，
@@ -1042,12 +1058,12 @@
       _camY: function () {
         if (ISO_ON) return 0;
         var cy = this._px().y;
-        var vis = 272 * VIEW_Y;
+        var vis = G.game.VH * VIEW_Y;
         return Math.max(0, Math.min(this.map.h * TILE - vis, cy - vis / 2));
       },
-      /* 当前可见的世界高度（像素）：纵向压缩后是 272*VIEW_Y。
-         视口裁剪、视口范围计算都该走它 —— 别各写一份 272。 */
-      _viewH: function () { return 272 * VIEW_Y; },
+      /* 当前可见的世界高度（像素）：纵向压缩后是 VH*VIEW_Y。
+         视口裁剪、视口范围计算都该走它 —— 别各写一份 VH。 */
+      _viewH: function () { return G.game.VH * VIEW_Y; },
 
       /* ===== 等距投影（v1.9.0）=====
          **唯一口**：世界像素 ↔ 屏幕。所有手动换算（反投影、视口裁剪）
@@ -1076,12 +1092,12 @@
       _viewBounds: function () {
         var camX = this._camX(), camY = this._camY();
         if (!ISO_ON) {
-          return { x0: camX, y0: camY, x1: camX + 480, y1: camY + this._viewH() };
+          return { x0: camX, y0: camY, x1: camX + G.game.VW, y1: camY + this._viewH() };
         }
         /* 等距：以屏幕四角求世界 AABB（相对中心） */
         var px = this._px().x, py = this._px().y;
         var R = 0, RY = 0;
-        var cs = [[0, 0], [480, 0], [0, 272], [480, 272]];
+        var cs = [[0, 0], [G.game.VW, 0], [0, G.game.VH], [G.game.VW, G.game.VH]];
         var minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
         for (var i = 0; i < 4; i++) {
           var w = this._isoScreen(cs[i][0], cs[i][1]);
@@ -1186,6 +1202,19 @@
         var camX = this._camX(), camY = this._camY();
         var self = this;
 
+        /* ===== ⚠️⚠️ v2.12.0 世界空间入口 =====
+           `game.js` 把 `scene.render` 包在 `scale(UI_R)`（480→640）里 ——
+           那是给**界面层**用的。探索场景**主体是世界**（地图/角色/建筑/相机），
+           所以这里先把那层**抵消掉**，让世界各绘制点拿到 640×360 的原生口径
+           （`_px/_proj/_camX/_camY/TILE` 全部不用改）。
+           世界段结束处（`_drawMark` 之后）再 `restore()` 回到 UI 空间，
+           之后的 HUD / 追踪栏 / 面板 / 按钮都是 480 口径。
+           ⚠️ 这两处 save/restore **必须成对**：只存不取会让界面层带着 1/UI_R
+              缩小（所有面板缩到左上角）；只取不存会吃掉 game.js 的变换（同一症状）。
+              故两头都写在函数首尾可视范围内，并在此互相注明。 */
+        x.save();
+        x.scale(1 / G.game.UI_R, 1 / G.game.UI_R);
+
         /* ===== 遇敌转场：闪白 + **镜头缩放脉冲**（v0.23.0）=====
            用户口径："现在的游戏质感没有动画，还是很像 PPT"。
            只有闪白的话，观感像"画面闪了一下"（甚至像 bug）；加一次整体轻微放大再回落，
@@ -1270,7 +1299,7 @@
             ? '#241d16'                       /* 室内：暗木外壳 */
             : G.Art.shade((palF && palF.dark) || '#2a2419', -0.25);
           x.fillStyle = outer;
-          x.fillRect(0, 0, 480, 272);
+          x.fillRect(0, 0, G.game.VW, G.game.VH);
         }
         this._drawGroundLayer(x, camX, camY);
 
@@ -1481,14 +1510,24 @@
            ⚠️ 只有天气恶化了视野才画；晴天 `vision === 1` → 直接返回（零回归基线）。 */
         this._drawWeatherVeil(x);
 
-        this._drawHUD(x);
-        this._drawTracker(x);
+        /* ⚠️ 这两个仍属**世界层**：它们的位置来自 `_proj`（世界像素→屏幕），
+           必须在 `restore()` 之前画，否则会被 UI 缩放再缩一次、位置全错。 */
         this._drawInteractHint(x, camX, camY);
         this._drawMark(x, camX, camY);
+
+        /* ===== ⚠️⚠️ v2.12.0 世界空间出口 =====
+           与函数开头的 `save()+scale(1/UI_R)` **成对**。此后一切回到 UI 空间（480×272）：
+           HUD / 追踪栏 / 提示 / 闪白 / 面板滑入 / 覆盖层 / 按钮 / 血夜红雾。
+           ⚠️ 这些绘制**一律按 480 写**（用 `G.game.UI_W/UI_H`），不许再读 `VW/VH`。 */
+        x.restore();
+        var _uiSpace = true;
+
+        this._drawHUD(x);
+        this._drawTracker(x);
         if (!this.overlay) this._drawHint(x);
         if (this.flash > 0) {
           x.fillStyle = 'rgba(255,255,255,' + Math.min(1, this.flash) * .9 + ')';
-          x.fillRect(0, 0, 480, 272);
+          x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
         }
 
         /* ===== 面板滑入（v0.32.0）=====
@@ -1527,12 +1566,14 @@
       _drawBloodVeil: function (x) {
         var k = 1 - Math.max(0, Math.min(1, this.night / NIGHT_T));   /* 0 → 1 */
         var a = 0.25 + 0.55 * k;
+        /* ⚠️ v2.12.0：本函数在 **UI 空间**（render 已 `restore()` 回 480）→ 圆心/半径是
+           480×272 下的值（240,150,40..300），填充范围必须用 `UI_W/UI_H`。 */
         var g = x.createRadialGradient(240, 150, 40, 240, 150, 300);
         g.addColorStop(0, 'rgba(74,6,12,' + (a * 0.74).toFixed(3) + ')');
         g.addColorStop(0.6, 'rgba(54,4,9,' + (a * 0.94).toFixed(3) + ')');
         g.addColorStop(1, 'rgba(24,2,5,' + Math.min(1, a * 1.35).toFixed(3) + ')');
         x.fillStyle = g;
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       },
 
       /* ===== 出口传送阵（v0.11.4）=====
@@ -1547,16 +1588,17 @@
          所以 bottom 出口整体上抬 LIFT，靠**向上飘的雾柱**把存在感做到栏以上。
          北/东/西出口不抬（它们本来就在可视区里）。 */
       _drawPortal: function (x, e, camX, camY) {
+        var ES = TILE / 24;              /* ⚠️ v2.12.0：随 TILE 缩放（见下） */
         var bottom = (e.y >= this.map.h - 1);
-        var LIFT = bottom ? 14 : 0;
+        var LIFT = bottom ? 14 * ES : 0;
         /* ⚠️ v1.9.0：传送阵画在**立牌层**（已退出等距），所以走 `_proj`
            —— 它虽然贴地，但因为画在退出之后，用屏幕投影才不会歪。
            （让它当"立牌"是有意的：阵的辉光是**屏幕对齐的径向渐变**，
              跟着等距转会被压成椭圆，读起来不像"光晕"。） */
-        var _q = this._proj((e.x0 + e.x1 + 1) / 2 * TILE, e.y * TILE + 10 - LIFT);
+        var _q = this._proj((e.x0 + e.x1 + 1) / 2 * TILE, e.y * TILE + 10 * ES - LIFT);
         var cx = _q.x, cy = _q.y;
-        var rx = ((e.x1 - e.x0 + 1) * TILE) / 2 + 3;
-        if (cx + rx < -10 || cx - rx > 490) return;
+        var rx = ((e.x1 - e.x0 + 1) * TILE) / 2 + 3 * ES;
+        if (cx + rx < -10 || cx - rx > G.game.VW + 10) return;
         var t = performance.now() / 1000;
 
         x.save();
@@ -1566,10 +1608,12 @@
         g.addColorStop(0.55, 'rgba(110,170,235,0.22)');
         g.addColorStop(1, 'rgba(90,140,220,0)');
         x.fillStyle = g;
-        x.beginPath(); x.ellipse(cx, cy, rx, 12, 0, 0, 6.2832); x.fill();
+        x.beginPath(); x.ellipse(cx, cy, rx, 12 * ES, 0, 0, 6.2832); x.fill();
 
-        /* 上升雾柱：底边出口靠它把存在感顶到底栏以上（plume 高 28） */
-        var plume = 28;
+        /* 上升雾柱：底边出口靠它把存在感顶到底栏以上（plume 高 28）。
+           ⚠️ v2.12.0：底栏（BOT_H=28，UI 口径）叠加在世界层上时按 UI_R 放大到
+              37 世界px；雾柱不跟着长就会**被底栏盖住**（底边出口又看不见了）。 */
+        var plume = 28 * ES;
         var pg = x.createLinearGradient(0, cy - plume, 0, cy + 6);
         pg.addColorStop(0, 'rgba(170,225,255,0)');
         pg.addColorStop(0.45, 'rgba(170,225,255,0.16)');
@@ -1606,8 +1650,12 @@
         /* 目的地名牌：**只在鼠标悬浮时显示**。
            用户口径：「这个下一个地图的名称信息是鼠标放到传送门上面悬浮提示，不需要固定展示」。
            固定挂着会长期占屏，多个传送门的名牌还会互相挤。 */
+        /* ⚠️ v2.12.0：本函数在**世界空间**（cx/cy 是世界像素 → 屏幕），
+           而 `G.Input.mouse` 是 UI 空间（480）→ 比较前必须 ×UI_R，
+           否则"悬浮名牌只在左上方一小块区域出现"（静默、只有鼠标划过才看得出）。 */
         var mm = G.Input && G.Input.mouse;
-        var hov = mm && mm.x >= cx - 22 && mm.x <= cx + 22 && mm.y >= cy - 40 && mm.y <= cy + 12;
+        var mmx = mm ? mm.x * G.game.UI_R : 0, mmy = mm ? mm.y * G.game.UI_R : 0;
+        var hov = mm && mmx >= cx - 22 && mmx <= cx + 22 && mmy >= cy - 40 && mmy <= cy + 12;
         if (e.label && hov) {
           x.font = G.UI.F(10);
           var tw = x.measureText(e.label).width + 16;
@@ -1822,8 +1870,8 @@
           } else {
             x.drawImage(this._groundLayer,
               Math.round(camX * gk), Math.round(camY * gk),
-              Math.round(480 * gk), Math.round(272 * gk),
-              0, 0, 480, 272);
+              Math.round(G.game.VW * gk), Math.round(G.game.VH * gk),
+              0, 0, G.game.VW, G.game.VH);
           }
         }
         /* ===== 世界层收口（v2.0.0）=====
@@ -1855,7 +1903,7 @@
         var TS = G.Art.GROUND_TS;
         /* 视口范围（多留 2 格余量：高度会把格块往上推，边缘那几格仍要画） */
         var x0 = Math.max(0, Math.floor(camX / TILE) - 1);
-        var x1 = Math.min(m.w - 1, Math.ceil((camX + 480) / TILE) + 1);
+        var x1 = Math.min(m.w - 1, Math.ceil((camX + G.game.VW) / TILE) + 1);
         var y0 = Math.max(0, Math.floor(camY / TILE) - 1);
         var y1 = Math.min(m.h - 1, Math.ceil((camY + this._viewH()) / TILE) + 4);
         /* 按 elev 分层画：低 → 高 */
@@ -2113,8 +2161,8 @@
           return;
         }
         var ox = -(((camX % SP) + SP) % SP), oy = -(((camY % SP) + SP) % SP);
-        for (var yy = oy; yy < 272; yy += SP)
-          for (var xx = ox; xx < 480; xx += SP)
+        for (var yy = oy; yy < G.game.VH; yy += SP)
+          for (var xx = ox; xx < G.game.VW; xx += SP)
             x.drawImage(sc, Math.round(xx), Math.round(yy), SP, SP);
       },
 
@@ -2481,7 +2529,7 @@
         this._pt = [];
         for (var i = 0; i < 26; i++) {
           this._pt.push({
-            x: rnd() * 480, y: rnd() * 272,
+            x: rnd() * G.game.VW, y: rnd() * G.game.VH,
             vx: 6 + rnd() * 14, vy: 9 + rnd() * 16,
             s: 2 + Math.floor(rnd() * 2), ph: rnd() * 6.2832
           });
@@ -2495,9 +2543,9 @@
         x.fillStyle = this._ptCol;
         for (var i = 0; i < this._pt.length; i++) {
           var p = this._pt[i];
-          var px = (p.x + t * p.vx + Math.sin(t * 1.1 + p.ph) * 9) % 480;
-          var py = (p.y + t * p.vy) % 272;
-          if (px < 0) px += 480;
+          var px = (p.x + t * p.vx + Math.sin(t * 1.1 + p.ph) * 9) % G.game.VW;
+          var py = (p.y + t * p.vy) % G.game.VH;
+          if (px < 0) px += G.game.VW;
           x.globalAlpha = 0.45 + 0.45 * Math.abs(Math.sin(t * 0.9 + p.ph));
           x.fillRect(px | 0, py | 0, p.s, p.s);
         }
@@ -2575,19 +2623,23 @@
            （症状：整屏全黑或光圈错位）。 */
         var _vq = this._proj(pp.x, pp.y);
         var sx = _vq.x, sy = _vq.y;
-        var rg = x.createRadialGradient(sx, sy, 30, sx, sy, 160);
+        /* ⚠️ v2.12.0：暗幕/火把半径是"屏幕系、以玩家为中心"的**世界内容尺度**，
+           随 `TILE` 一起放大（原来写死 30/160/76 是按 TILE=24 定的）——
+           不放大则分辨率提高后"光照圈"相对地图变小（火把照不到原来那几格）。 */
+        var ES = TILE / 24;
+        var rg = x.createRadialGradient(sx, sy, 30 * ES, sx, sy, 160 * ES);
         rg.addColorStop(0, 'rgba(4,5,10,0)');
         rg.addColorStop(0.48, 'rgba(4,5,10,0.34)');
         rg.addColorStop(1, 'rgba(4,5,10,0.86)');
         x.fillStyle = rg;
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.VW, G.game.VH);
         /* 火把暖光 */
-        var wg = x.createRadialGradient(sx, sy - 4, 4, sx, sy - 4, 76);
+        var wg = x.createRadialGradient(sx, sy - 4 * ES, 4 * ES, sx, sy - 4 * ES, 76 * ES);
         wg.addColorStop(0, 'rgba(255,192,112,0.16)');
         wg.addColorStop(0.55, 'rgba(255,170,90,0.06)');
         wg.addColorStop(1, 'rgba(255,170,90,0)');
         x.fillStyle = wg;
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.VW, G.game.VH);
       },
 
       /* 天气视野压制（v1.1.0，用户口径「雨雪降低视野」）：
@@ -2606,8 +2658,10 @@
            ⚠️ v1.9.0：等距下更错（camX/camY 恒 0）→ 光圈会跑到画面外。 */
         var _wq = this._proj(pp.x, pp.y);
         var sx = _wq.x, sy = _wq.y;
-        /* 基准可视半径 190 → 按天气倍率收缩（瘴气 0.58 → 110） */
-        var R = 190 * vs;
+        /* 基准可视半径 190 → 按天气倍率收缩（瘴气 0.58 → 110）。
+           ⚠️ v2.12.0：随 `TILE` 缩放（190 是按 TILE=24 定的；一屏格数没变、
+              可视半径必须跟着格宽走，否则天气压制圈相对地图变小）。 */
+        var R = 190 * (TILE / 24) * vs;
         /* 雾色按天气取（雨=冷灰蓝、雪=亮白、瘴气=黄绿）—— 与粒子同源，读起来一致 */
         var wx = G.game._weatherFor ? G.game._weatherFor(this.mapId) : null;
         var col = '150,168,196';                       /* 默认冷灰 */
@@ -2620,7 +2674,7 @@
         rg.addColorStop(0.55, 'rgba(' + col + ',0.30)');
         rg.addColorStop(1, 'rgba(' + col + ',0.62)');
         x.fillStyle = rg;
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.VW, G.game.VH);
         x.restore();
       },
 
@@ -2634,18 +2688,21 @@
         var key = 'indoor|' + K;
         if (this._indoorLayer && this._indoorKey === key) return;
         var c = document.createElement('canvas');
-        c.width = Math.round(480 * K); c.height = Math.round(272 * K);
+        var VW = G.game.VW, VH = G.game.VH;
+        c.width = Math.round(VW * K); c.height = Math.round(VH * K);
         var g = c.getContext('2d');
         g.setTransform(K, 0, 0, K, 0, 0);
-        var wg = g.createRadialGradient(240, 120, 60, 240, 136, 320);
+        /* ⚠️ v2.12.0：径向光晕的圆心/半径都按视口尺寸**现算**（原 240/120/136/320 是 480×272 下的值）。
+           写成 `VW*0.5` / `VH*0.441` 等 —— 否则分辨率一变，光晕就偏到画面一角。 */
+        var wg = g.createRadialGradient(VW * 0.5, VH * 0.441, VH * 0.221, VW * 0.5, VH * 0.5, VH * 1.176);
         wg.addColorStop(0, 'rgba(255,206,140,0.09)');
         wg.addColorStop(0.55, 'rgba(255,190,120,0.03)');
         wg.addColorStop(1, 'rgba(255,170,90,0)');
-        g.fillStyle = wg; g.fillRect(0, 0, 480, 272);
-        var vg = g.createRadialGradient(240, 130, 110, 240, 136, 310);
+        g.fillStyle = wg; g.fillRect(0, 0, VW, VH);
+        var vg = g.createRadialGradient(VW * 0.5, VH * 0.478, VH * 0.404, VW * 0.5, VH * 0.5, VH * 1.140);
         vg.addColorStop(0, 'rgba(0,0,0,0)');
         vg.addColorStop(1, 'rgba(18,9,4,0.46)');
-        g.fillStyle = vg; g.fillRect(0, 0, 480, 272);
+        g.fillStyle = vg; g.fillRect(0, 0, VW, VH);
         this._indoorLayer = c;
         this._indoorKey = key;
       },
@@ -2654,8 +2711,8 @@
         this._ensureIndoor();
         if (!this._indoorLayer) return;
         var K = G.Art.K;
-        x.drawImage(this._indoorLayer, 0, 0, Math.round(480 * K), Math.round(272 * K),
-          0, 0, 480, 272);
+        x.drawImage(this._indoorLayer, 0, 0, Math.round(G.game.VW * K), Math.round(G.game.VH * K),
+          0, 0, G.game.VW, G.game.VH);
       },
 
       /* ===== 御剑飞行（v0.22.0）=====
@@ -3090,9 +3147,9 @@
         g.addColorStop(0, 'rgba(6,8,14,0.90)');
         g.addColorStop(0.62, 'rgba(6,8,14,0.62)');
         g.addColorStop(1, 'rgba(6,8,14,0)');
-        x.fillStyle = g; x.fillRect(0, 0, 480, HUD_H);
+        x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, HUD_H);
         x.fillStyle = 'rgba(216,183,104,0.26)';
-        x.fillRect(0, HUD_H - 1.6, 480, 0.8);
+        x.fillRect(0, HUD_H - 1.6, G.game.UI_W, 0.8);
 
         /* --- 左：境界 · 第N世 ---
            v0.75.0（用户口径「这里不要展示头像了，我们不支持替换头像，
@@ -3557,7 +3614,7 @@
         if (life <= 0) return;
         x.save();
         x.globalAlpha = 0.74 * life;
-        G.UI.textOut(x, { x: 12, y: 272 - BOT_H - 18 }, '点击地面移动　·　点击门与物件交互', 10.5,
+        G.UI.textOut(x, { x: 12, y: G.game.UI_H - BOT_H - 18 }, '点击地面移动　·　点击门与物件交互', 10.5,
           'rgba(226,216,192,0.95)', 'left', 'rgba(0,0,0,0.7)', 2.4);
         x.restore();
       },

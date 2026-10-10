@@ -452,10 +452,13 @@
         opt = opt || {};
         this.el.type = opt.secret ? 'password' : 'text';
         var cv = G.game.canvas, r = cv.getBoundingClientRect();
-        var sx = r.left + rect.x / 480 * r.width;
-        var sy = r.top + rect.y / 272 * r.height;
-        var sw = rect.w / 480 * r.width;
-        var sh = Math.max(18, rect.h / 272 * r.height);
+        /* ⚠️ v2.12.0：DOM 输入框要贴合画布上的**UI 空间（480×272）**矩形。
+           UI 空间经 `scale(UI_R)` 铺满整块画布 → 归一化分母用 `UI_W/UI_H`
+           （写 480/272 恰好相同，但**必须显式写出来**：将来 UI 基准一变就静默错位）。 */
+        var sx = r.left + rect.x / G.game.UI_W * r.width;
+        var sy = r.top + rect.y / G.game.UI_H * r.height;
+        var sw = rect.w / G.game.UI_W * r.width;
+        var sh = Math.max(18, rect.h / G.game.UI_H * r.height);
         this.el.style.left = sx + 'px';
         this.el.style.top = sy + 'px';
         this.el.style.width = sw + 'px';

@@ -550,11 +550,12 @@
   var HERO_OUTLINE_PX = 1.8;
   var CANVAS_H = PAD_TOP + ART_H;        /* 44 */
 
-  /* 地图角色屏幕占位（逻辑像素）。一格格子 TILE=24，所以 40×73 ≈ 1.67×3 格。
-     ⚠️ 身体在屏幕上的高度 = ART_H × MAP_SCALE（=60），与"只有身体"时一致。 */
-  var MAP_SCALE = 40 / 24;               /* ≈1.6667：画稿宽 24 → 屏幕 40 */
-  var HERO_LW = 40;                      /* 屏幕占位宽 */
-  var HERO_LH = CANVAS_H * MAP_SCALE;    /* 含留白后的屏幕占位高（≈73） */
+  /* 地图角色屏幕占位（逻辑像素）。一格 = `TILE`，当前 32px（v2.12.0 起）。
+     ⚠️ v2.12.0：随逻辑分辨率一起放大 1.33×（40→53、73→97），
+        否则分辨率提高后角色**占屏比反而变小**（27% → 18%，看起来"变小了"）。 */
+  var HERO_LW = 53;                          /* 屏幕占位宽（≈1.66 格） */
+  var MAP_SCALE = HERO_LW / ART_W;           /* 画稿 → 屏幕 的缩放 = 53/24 ≈ 2.208 */
+  var HERO_LH = CANVAS_H * MAP_SCALE;        /* 含留白后的屏幕占位高（≈97） */
   /* 画稿 → 屏幕 的缩放（把 ART_W×CANVAS_H 的画稿铺满 HERO_LW×HERO_LH）。 */
   var ART_TO_SCR = MAP_SCALE;
 

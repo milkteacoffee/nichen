@@ -40,7 +40,47 @@
   };
 
   var Game = {
-    W: 480, H: 272,
+    /* ===== ⚠️⚠️ v2.12.0 逻辑分辨率 = **唯一真相源** =====
+       用户口径（给了两张对比图）：「我们的人物角色 vs 烟雨江湖的人物角色」
+       → 选定路线 **提高全局逻辑分辨率**，档位 **640×360（1.33×）**。
+
+       **为什么提**（量化结论，见 `_gen/_res_plan.md`）：
+         · 烟雨江湖角色占屏高 **~50%**；我们地图 27% / 战斗仅 **15%**
+         · 换算到我们画布，要达到同等展示需要 ~136 逻辑px，而战斗立绘只有 40（差 3.4×）
+         · "再调轮廓/加曲线"已到头 —— 差距在**画布物理像素总量**
+
+       **⚠️ 关键：单纯提分辨率会让角色变小、不是变清晰。**
+         逻辑分辨率 = 画布坐标空间。提高它 → 屏幕装更多格子，而 `TILE` 与
+         角色占位不变 → 占屏比从 27% 掉到 18%。
+         ⇒ **必须同时把 TILE 与角色/物件占位按同比例放大**（本次 1.33×）。
+
+       **⚠️ 另外两个必须一起改的派生量**（否则等距原点与居中会错位）：
+         · `CX/CY` = 视口中心（等距原点、UI 居中、相机都以它为准）
+         · `ISO_CX/ISO_CY`（explore.js）= 同一个中心，必须与 `CX/CY` 同源
+
+       ⚠️ **改这两个数 = 全套 UI 版式要复核**（223 处硬编码分三阶段收敛）。
+       ⚠️ `W/H` 保留为别名（老代码仍在读），新代码一律用 `VW/VH`。 */
+    VW: 640, VH: 360,
+    CX: 320, CY: 180,                    /* 视口中心（= VW/2, VH/2） */
+    W: 640, H: 360,   /* 别名（老代码读 this.W）*/
+
+    /* ===== v2.12.0 空间分层（**架构决策，改之前先读**）=====
+       世界层 = `VW×VH`（640×360）：地图/角色/建筑/相机/点击拾取。
+       UI 层 = `UI_W×UI_H`（**480×272，历史设计基准**）：HUD/面板/按钮/文字/浮层。
+       UI 层在渲染时**统一 `scale(UI_R)` 放大铺满**（`loop` 里两处包裹）。
+
+       为什么这么做（而不是把上千个 UI 坐标逐个 ×1.33）：
+         · UI 是"版式"——坐标、字号、行高彼此咬合，逐处乘必然漏改 → **静默错位**；
+         · 缩放由 canvas 承担，`fillText` 仍按**最终尺寸重新栅格化** → 文字不糊；
+         · 指针坐标也留在 UI 空间（input.js）→ 按钮命中与绘制**天然一致**，零换算。
+
+       ⚠️ 世界层里的 explore 会自己再 `scale(1/UI_R)` **抵消**这层，
+          所以世界各绘制点拿到的仍是 640 口径（`_camX/_proj` 全不用改）。
+       ⚠️ 新增 UI 代码一律按 **480×272** 写（用 `UI_W/UI_H`）；新增世界代码用 `VW/VH`。
+       ⚠️ 别名 `W/H` **= 世界口径**（画布尺寸/resize 用它），**不是 UI 口径**。 */
+    UI_W: 480, UI_H: 272,
+    UI_R: 640 / 480,                     /* UI 空间 → 世界/屏幕 的放大比（= 4/3） */
+
     canvas: null, ctx: null,
     scene: null, sceneName: '',
     toasts: [],
@@ -212,9 +252,9 @@
       x.save(); x.font = G.UI.F(9);
       var w = x.measureText(s).width + 10;
       x.fillStyle = 'rgba(8,10,18,0.62)';
-      G.UI.rr(x, this.W - w - 6, this.H - 18, w, 14, 3); x.fill();
+      G.UI.rr(x, this.UI_W - w - 6, this.UI_H - 18, w, 14, 3); x.fill();
       var col = this.fps >= 100 ? '#8fd878' : (this.fps >= 50 ? '#ffd870' : '#ff8a5a');
-      G.UI.text(x, { x: this.W - 11, y: this.H - 16 }, s, 9, col, 'right');
+      G.UI.text(x, { x: this.UI_W - 11, y: this.UI_H - 16 }, s, 9, col, 'right');
       x.restore();
     },
 
@@ -357,8 +397,17 @@
       var _tDraw = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
       x.fillStyle = '#0b0d14';
       x.fillRect(0, 0, this.W, this.H);
+      /* ===== ⚠️ v2.12.0 UI 空间包裹 ①：场景体 =====
+         场景绘制**一律按 480×272（UI 空间）写**，这里统一放大到 640×360 铺满屏幕。
+         ⚠️ explore 是世界场景：它在自己的 render 开头 `scale(1/UI_R)` **抵消**这一层，
+            所以地图/角色/相机仍是 640 口径（各绘制点不用改）。
+         ⚠️ 不在变换里测绘制耗时（`_tDraw` 在缩放外，量到的仍是真实负担）。 */
+      x.save();
+      x.scale(this.UI_R, this.UI_R);
       if (this.scene.render) this.scene.render(x);
-      /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过） */
+      x.restore();
+      /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过）。
+         ⚠️ 它按 `this.W/H`（世界口径）散布 → 也走世界空间，故不套 UI 缩放。 */
       this._renderAmbient(x);
       /* 昼夜色温 + 体积雾**不在这里挂载** ——
          它们在 `explore.render` 的"世界层收口处"（`_zoom` 恢复之后、`_drawHUD` 之前）调用。
@@ -372,13 +421,18 @@
             ? this._drawMsEma * 0.9 + dms * 0.1 : dms;
         }
       }
-      /* 影像过场：覆盖场景（视频路径仅真实浏览器可见，无头走静帧） */
+      /* 影像过场：覆盖场景（视频路径仅真实浏览器可见，无头走静帧）。
+         ⚠️ 它也按 480×272 写（`cutscene.js` 的 W/H）→ 走 UI 空间。 */
+      x.save();
+      x.scale(this.UI_R, this.UI_R);
       if (G.Cutscene && G.Cutscene.isOpen()) G.Cutscene.render(x);
 
       /* 悬浮说明：**必须在所有东西画完之后**才画（它是"覆盖层之上的覆盖层"），
          候选区由场景/面板在 render 期间用 G.UI.hover() 登记。
-         reset 放在下一帧 render 之前，所以这里画完就清。 */
+         reset 放在下一帧 render 之前，所以这里画完就清。
+         ⚠️ hoverList 里的矩形是 UI 空间（面板登记时按 480 写）→ 同在 UI 空间比较。 */
       G.UI.drawHover(x);
+      x.restore();
       G.UI.hoverReset();
 
       /* 按钮计时 */
@@ -406,6 +460,14 @@
       }
 
       this.time += dt;
+      /* ===== ⚠️ v2.12.0 UI 空间包裹 ②：全部浮层 =====
+         濒死红屏 / 天道低语 / 战利品 / toast / FPS / 突破特效 / 剧情模态
+         **都是界面元素**（按 480×272 版式设计）→ 统一放大。
+         ⚠️ 这些函数内部**不许再读 `this.W/this.H`（世界口径）**，
+            要用 `this.UI_W/this.UI_H` —— 否则会又乘一次 UI_R（溢出屏幕）。 */
+      x.save();
+      x.scale(this.UI_R, this.UI_R);
+
       /* 濒死红屏画在**场景之后、一切浮层之前** —— 它是背景级的警示，
          压在战利品/ toast 下面（那些是信息，不能被红雾糊掉）。 */
       this._renderDanger(x);
@@ -429,6 +491,7 @@
       /* 突破特效：画在最上层 */
       this._renderBreakthroughEffect(x);
       if (G.Story) G.Story.render(x);
+      x.restore();
 
       inp.endFrame();
       requestAnimationFrame(this.loop.bind(this));
@@ -1025,16 +1088,18 @@
       var k = 1 - pct / 0.25;                       /* 越接近 0 越红 */
       var pulse = 0.55 + 0.45 * Math.sin(this.time * 5.5);
       var a = (0.10 + 0.26 * k) * pulse;
-      var g = x.createRadialGradient(this.W / 2, this.H / 2, this.H * 0.20,
-        this.W / 2, this.H / 2, this.H * 0.80);
+      /* ⚠️ v2.12.0：本函数在 **UI 空间**（`loop` 里包了 `scale(UI_R)`）→ 用 `UI_W/UI_H`。
+         写成 `this.W/H`（640×360）会又乘一次 1.33 —— 红雾只盖住画面左上 3/4。 */
+      var g = x.createRadialGradient(this.UI_W / 2, this.UI_H / 2, this.UI_H * 0.20,
+        this.UI_W / 2, this.UI_H / 2, this.UI_H * 0.80);
       g.addColorStop(0, 'rgba(180,20,20,0)');
       g.addColorStop(1, 'rgba(196,18,18,' + a.toFixed(3) + ')');
       x.fillStyle = g;
-      x.fillRect(0, 0, this.W, this.H);
+      x.fillRect(0, 0, this.UI_W, this.UI_H);
       /* 真·濒死（≤15%）才出字 —— 平时只泛红，别一直吵玩家 */
       if (pct <= 0.15) {
         x.globalAlpha = 0.62 + 0.38 * pulse;
-        G.UI.textOut(x, { x: this.W / 2, y: 54 }, '气 血 垂 危', 15, '#ff6a58',
+        G.UI.textOut(x, { x: this.UI_W / 2, y: 54 }, '气 血 垂 危', 15, '#ff6a58',
           'center', 'rgba(24,0,0,0.9)', 3);
         x.globalAlpha = 1;
       }
@@ -1132,7 +1197,7 @@
          "对话框……UI 设计"打磨时抓到，一眼可见）。
          现在：① 框宽按**最长那条**的实际文字宽度自适应（夹在 200 ~ W-24）；
               ② 超出时按框宽**折行**，总高随折行数变。 */
-      var maxW = this.W - 24, minW = 200;
+      var maxW = this.UI_W - 24, minW = 200;
       x.font = G.UI.F(13);
       /* 用"最宽那条"定框（夹在 minW ~ maxW），再让每条按此宽折行 */
       var needW = minW;
@@ -1153,7 +1218,7 @@
       var h = blocksTotal * lineH + pad;
       /* 底部要让开探索场景的功能栏（28px），否则提示被压在底栏底下看不见 */
       var bot = (G.Explore && G.Explore.BOT_H) || 0;
-      var y0 = this.H - h - 14 - bot;
+      var y0 = this.UI_H - h - 14 - bot;
       /* G32（v0.74.0）：覆盖层打开时整体上移到"安全带" —— 否则正好压住
          面板那排「参悟/精进/激发」（实测重叠 18px），点了看不见反馈。
          上移量固定，不随 toast 条数变；未打开覆盖层时 y0 与历史完全一致。 */
@@ -1161,12 +1226,13 @@
         var wantY = this.FLOAT_CLEAR_Y - h;     /* 末行贴住让位线 */
         y0 = Math.max(this.FLOAT_TOP_MIN, Math.min(y0, wantY));
       }
-      G.UI.panel(x, { x: this.W / 2 - w / 2, y: y0, w: w, h: h },
+      /* ⚠️ v2.12.0：本函数在 **UI 空间**（`loop` 的包裹②）→ 用 `UI_W/UI_H`。 */
+      G.UI.panel(x, { x: this.UI_W / 2 - w / 2, y: y0, w: w, h: h },
         '#161b28', 'rgba(216,183,104,0.65)', 5);
       var ty = y0 + pad / 2 + 4;
       for (var n = 0; n < rowsPer.length; n++) {
         for (var r2 = 0; r2 < rowsPer[n].length; r2++) {
-          G.UI.textOut(x, { x: this.W / 2, y: ty }, rowsPer[n][r2], 13, G.UI.C.text, 'center');
+          G.UI.textOut(x, { x: this.UI_W / 2, y: ty }, rowsPer[n][r2], 13, G.UI.C.text, 'center');
           ty += lineH;
         }
       }
@@ -1201,9 +1267,10 @@
       for (var i = 0; i < 50; i++) {
         var angle = Math.random() * Math.PI * 2;
         var speed = 20 + Math.random() * 80;
+        /* ⚠️ v2.12.0：粒子坐标在 **UI 空间**（`_renderBreakthroughEffect` 走包裹②）→ `UI_W/UI_H`。 */
         this._breakthroughEffect.particles.push({
-          x: this.W / 2,
-          y: this.H / 2,
+          x: this.UI_W / 2,
+          y: this.UI_H / 2,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           life: 0.8 + Math.random() * 0.4,
@@ -1229,14 +1296,14 @@
       x.save();
       x.globalAlpha = alpha;
 
-      // 全屏金色渐变
-      var grad = x.createRadialGradient(this.W / 2, this.H / 2, 0,
-        this.W / 2, this.H / 2, this.W * 0.8);
+      // 全屏金色渐变（UI 空间）
+      var grad = x.createRadialGradient(this.UI_W / 2, this.UI_H / 2, 0,
+        this.UI_W / 2, this.UI_H / 2, this.UI_W * 0.8);
       grad.addColorStop(0, 'rgba(255,240,180,' + (0.4 * alpha).toFixed(3) + ')');
       grad.addColorStop(0.5, 'rgba(255,220,140,' + (0.2 * alpha).toFixed(3) + ')');
       grad.addColorStop(1, 'rgba(255,200,100,0)');
       x.fillStyle = grad;
-      x.fillRect(0, 0, this.W, this.H);
+      x.fillRect(0, 0, this.UI_W, this.UI_H);
 
       // 绘制粒子
       x.globalCompositeOperation = 'lighter';
@@ -1258,7 +1325,7 @@
         var textAlpha = Math.min(1, t * 2) * Math.min(1, (2.5 - t) / 0.5) * alpha;
         x.globalAlpha = textAlpha;
         var text = '突破 ' + fx.realm + ' 境！';
-        G.UI.textOut(x, { x: this.W / 2, y: this.H / 2 - 20 }, text,
+        G.UI.textOut(x, { x: this.UI_W / 2, y: this.UI_H / 2 - 20 }, text,
           22, '#ffe8a0', 'center', 'rgba(40,20,0,0.9)', 4);
       }
 

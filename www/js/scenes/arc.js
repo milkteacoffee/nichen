@@ -7,7 +7,9 @@
    立绘走 Sprites（npc/beast/hero），皆可后期替换。
    ============================================================ */
 (function () {
-  var VW = 480, VH = 272;
+  /* ⚠️ v2.12.0：arc 属 **UI 空间**（480×272），`game.js` 已把 `scene.render` 包在
+     `scale(UI_R)` 里。这里必须用 `UI_W/UI_H`，别写世界口径（会又乘一次 1.33）。 */
+  var VW = G.game.UI_W, VH = G.game.UI_H;
   var DLG = { x: 20, y: 180, w: 440, h: 78 };
 
   var scene = {

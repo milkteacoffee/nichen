@@ -7,7 +7,10 @@
  * 由 game.js 主循环驱动（输入拦截 / update / render）。
  * ============================================================ */
 (function () {
-  var W = 480, H = 272;
+  /* ⚠️ v2.12.0：过场属 **UI 空间**（480×272），`game.js` 的 loop 已把它包在
+     `scale(UI_R)` 里 → 这里必须用 `G.game.UI_W/UI_H`，别写世界口径 `VW/VH`
+     （写了会又乘一次 1.33 → 黑边与字幕跑到画面外）。 */
+  var W = G.game.UI_W, H = G.game.UI_H;
   var BAR = 30;                 // 上下黑边高度（静帧）
   var FADE = 0.7;               // 交叉淡化时长
   var CAP_BOTTOM = 46;          // 字幕距底

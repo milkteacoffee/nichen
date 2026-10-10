@@ -182,7 +182,7 @@
       var a = Math.min(aIn, aOut);
       x.save();
       x.fillStyle = 'rgba(6,8,14,' + (0.72 * a).toFixed(3) + ')';
-      x.fillRect(0, 0, 480, 272);
+      x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       var PW = 360, PH = 128, bx0 = 60, by0 = 72;
       x.globalAlpha = a;
       G.UI.panel(x, { x: bx0, y: by0, w: PW, h: PH },
@@ -219,7 +219,7 @@
       var meta = G.game.meta; if (!meta) { this.closeCodex(); return; }
       x.save();
       x.fillStyle = 'rgba(6,8,14,0.82)';
-      x.fillRect(0, 0, 480, 272);
+      x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       var P = { x: 16, y: 12, w: 448, h: 248 };
       G.UI.panel(x, P, 'rgba(14,17,26,0.97)', 'rgba(216,183,104,0.6)', 4, { tex: true });
       G.UI.text(x, { x: 240, y: 16 }, '轮 回 图 鉴', 13, G.UI.C.goldHi, 'center');

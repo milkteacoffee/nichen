@@ -81,7 +81,7 @@
       this.embers = [];
       for (var i = 0; i < 28; i++) {
         this.embers.push({
-          x: G.rng.range(0, 480), y: G.rng.range(-40, 272),
+          x: G.rng.range(0, G.game.UI_W), y: G.rng.range(-40, G.game.UI_H),
           v: G.rng.range(9, 28), r: G.rng.range(0.7, 2.0),
           ph: G.rng.range(0, 6.283), a: G.rng.range(0.25, 0.75)
         });
@@ -105,7 +105,7 @@
         var e = this.embers[i];
         e.y -= e.v * dt;
         e.x += Math.sin(this.t * 1.4 + e.ph) * 9 * dt;
-        if (e.y < -10) { e.y = 282; e.x = G.rng.range(0, 480); }
+        if (e.y < -10) { e.y = G.game.UI_H + 10; e.x = G.rng.range(0, G.game.UI_W); }
       }
     },
 
@@ -114,16 +114,16 @@
       var im = G.Assets.img('bg.death');
       if (im) return im;
       if (this._bgc) return this._bgc;
-      var o = G.Art.cv(480, 272), bx = o.x;
-      var g = bx.createLinearGradient(0, 0, 0, 272);
+      var o = G.Art.cv(G.game.UI_W, G.game.UI_H), bx = o.x;
+      var g = bx.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, '#06070d');
       g.addColorStop(0.62, '#0d0a12');
       g.addColorStop(1, '#1a0d12');
-      bx.fillStyle = g; bx.fillRect(0, 0, 480, 272);
+      bx.fillStyle = g; bx.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       var glow = bx.createRadialGradient(240, 250, 20, 240, 250, 220);
       glow.addColorStop(0, 'rgba(180,60,50,0.22)');
       glow.addColorStop(1, 'rgba(180,60,50,0)');
-      bx.fillStyle = glow; bx.fillRect(0, 0, 480, 272);
+      bx.fillStyle = glow; bx.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       this._bgc = o.c;
       return o.c;
     },
@@ -132,7 +132,7 @@
       var rec = this.rec;
       if (!rec) return;
 
-      x.drawImage(this._bg(), 0, 0, 480, 272);
+      x.drawImage(this._bg(), 0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 余烬 */
       for (var i = 0; i < this.embers.length; i++) {
@@ -241,7 +241,7 @@
       var vg = x.createRadialGradient(240, 136, 110, 240, 136, 320);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
       vg.addColorStop(1, 'rgba(0,0,0,0.62)');
-      x.fillStyle = vg; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = vg; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
     }

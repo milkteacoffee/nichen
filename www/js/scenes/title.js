@@ -21,13 +21,13 @@
          所以改视觉只调参数范围/颜色，**不要加删 for 的循环次数**。 */
       this.mist = [];
       for (var m = 0; m < 6; m++) {
-        this.mist.push({ x: G.rng.range(-120, 480), y: G.rng.range(146, 226),
+        this.mist.push({ x: G.rng.range(-120, G.game.UI_W), y: G.rng.range(146, 226),
           w: G.rng.range(200, 340), h: G.rng.range(9, 17),
           a: G.rng.range(.07, .14), sp: G.rng.range(5, 13) });
       }
       this.petals = [];
       for (var p2 = 0; p2 < 12; p2++) {
-        this.petals.push({ x: G.rng.range(0, 480), y: G.rng.range(-30, 272),
+        this.petals.push({ x: G.rng.range(0, G.game.UI_W), y: G.rng.range(-30, G.game.UI_H),
           ph: G.rng.range(0, 6.28), sp: G.rng.range(7, 17),
           size: G.rng.range(1.5, 2.7), rot: G.rng.range(0, 6.28),
           rs: G.rng.range(-1.4, 1.4) });
@@ -200,23 +200,23 @@
          ⚠️ 噪声一律用 `G.Art.rnd(固定种子)`，**不要用 `G.rng`** ——
          全局 rng 是时间播种的，在它上面多取几个随机数会推移序列，
          把靠它跑出来的回归基线一起带歪。 */
-      var K = 2, W = 480 * K, H = 272 * K;
+      var K = 2, W = G.game.UI_W * K, H = G.game.UI_H * K;
       var c = G.Assets.makeCanvas(W, H), x = c.getContext('2d');
       x.scale(K, K);
       var r = G.Art.rnd(20260926);
 
       /* ① 仙穹：深青紫渐变（顶近墨，中靛蓝，下转青灰 —— 云海反射的天光） */
-      var sky = x.createLinearGradient(0, 0, 0, 272);
+      var sky = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       sky.addColorStop(0, '#060a17');
       sky.addColorStop(0.34, '#101a38');
       sky.addColorStop(0.62, '#1a2750');
       sky.addColorStop(0.84, '#243357');
       sky.addColorStop(1, '#2d3a58');
-      x.fillStyle = sky; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = sky; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       /* ② 星：稀疏细星。仙穹不是凡间夜空，不要满天 */
       for (var i = 0; i < 90; i++) {
-        var sx2 = r() * 480, sy2 = r() * 148;
+        var sx2 = r() * G.game.UI_W, sy2 = r() * (148 / 272) * G.game.UI_H;
         x.globalAlpha = 0.20 + r() * 0.60;
         x.fillStyle = r() < 0.22 ? '#cfe6ff' : '#e8f0ff';
         var big = r() < 0.10;
@@ -255,12 +255,12 @@
         }
         x.save();
         x.globalAlpha = alpha;
-        var g = x.createLinearGradient(0, baseY - amp * 2.4, 0, 272);
+        var g = x.createLinearGradient(0, baseY - amp * 2.4, 0, G.game.UI_H);
         g.addColorStop(0, top);
         g.addColorStop(1, bot);
         x.fillStyle = g;
         x.beginPath();
-        x.moveTo(-24, 272);
+        x.moveTo(-24, G.game.UI_H);
         x.lineTo(pts[0].x, pts[0].y);
         for (var i2 = 0; i2 < pts.length - 1; i2++) {
           var qx = (pts[i2].x + pts[i2 + 1].x) / 2, qy = (pts[i2].y + pts[i2 + 1].y) / 2;
@@ -268,7 +268,7 @@
         }
         var last = pts[pts.length - 1];
         x.quadraticCurveTo(last.x, last.y, 504, last.y);
-        x.lineTo(504, 272); x.closePath(); x.fill();
+        x.lineTo(G.game.UI_W + 24, G.game.UI_H); x.closePath(); x.fill();
         x.restore();
       }
       ridge(150, 17, 34, 'rgba(96,132,190,0.34)', 'rgba(96,132,190,0.05)', 0.85, 0.7);
@@ -291,11 +291,11 @@
         x.ellipse(cx0 + cw / 2, cy, cw / 2, 5 + r() * 11, 0, 0, 6.2832);
         x.fill();
       }
-      var sea = x.createLinearGradient(0, 196, 0, 272);
+      var sea = x.createLinearGradient(0, (196 / 272) * G.game.UI_H, 0, G.game.UI_H);
       sea.addColorStop(0, 'rgba(150,190,240,0.04)');
       sea.addColorStop(0.55, 'rgba(168,204,246,0.13)');
       sea.addColorStop(1, 'rgba(120,158,208,0.07)');
-      x.fillStyle = sea; x.fillRect(0, 196, 480, 76);
+      x.fillStyle = sea; x.fillRect(0, 196, G.game.UI_W, 76);
 
       /* ⑥ 前景云气：左下角一团浓云，压住画面重心（标题在右、菜单在左，都不挡） */
       for (var f = 0; f < 5; f++) {
@@ -315,19 +315,19 @@
       for (var i = 0; i < this.mist.length; i++) {
         var m = this.mist[i];
         m.x += m.sp * dt;
-        if (m.x - m.w > 480) m.x = -m.w;
+        if (m.x - m.w > G.game.UI_W) m.x = -m.w;
       }
       for (var p = 0; p < this.petals.length; p++) {
         var pe = this.petals[p];
         pe.y += pe.sp * dt;
         pe.x += Math.sin(this.t * 1.3 + pe.ph) * 11 * dt + 5 * dt;
         pe.rot += pe.rs * dt;
-        if (pe.y > 284) { pe.y = -12; pe.x = G.rng.range(0, 480); }
+        if (pe.y > G.game.UI_H + 12) { pe.y = -12; pe.x = G.rng.range(0, G.game.UI_W); }
       }
     },
 
     render: function (x) {
-      x.drawImage(this.bg, 0, 0, 480, 272);
+      x.drawImage(this.bg, 0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 流云：横过云海的**冷白**晕染。
          深色云海上只有亮色才读得出"在动" —— 与旧版（浅底宣纸用墨色）正好相反，
@@ -416,7 +416,7 @@
       vg.addColorStop(0, 'rgba(4,8,20,0)');
       vg.addColorStop(1, 'rgba(4,8,20,0.46)');
       x.fillStyle = vg;
-      x.fillRect(0, 0, 480, 272);
+      x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       if (this.ach) this._renderAch(x);
       if (this.about) this._renderAbout(x);
@@ -435,7 +435,7 @@
 
     _renderAbout: function (x) {
       x.fillStyle = 'rgba(4,6,12,0.76)';
-      x.fillRect(0, 0, 480, 272);
+      x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       var r = { x: 84, y: 28, w: 312, h: 206 };
       G.UI.frame(x, r, '关 于', { tex: true });
       var lines = [

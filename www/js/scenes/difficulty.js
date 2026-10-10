@@ -57,10 +57,10 @@
 
     render: function (x) {
       /* 背景：暗夜深空（复用标题底的简化版） */
-      var g = x.createLinearGradient(0, 0, 0, 272);
+      var g = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, '#070b16');
       g.addColorStop(1, '#141a2c');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 先画按钮（卡片填充），再在其上叠文字，否则填充会盖住文字 */
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);

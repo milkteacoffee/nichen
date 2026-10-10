@@ -288,16 +288,16 @@
       var im = G.Assets.img('bg.hall');
       if (im) return im;
       if (this._bgc) return this._bgc;
-      var o = G.Art.cv(480, 272), bx = o.x;
-      var g = bx.createLinearGradient(0, 0, 0, 272);
+      var o = G.Art.cv(G.game.UI_W, G.game.UI_H), bx = o.x;
+      var g = bx.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, '#080c18');
       g.addColorStop(0.6, '#0d1326');
       g.addColorStop(1, '#141a2e');
-      bx.fillStyle = g; bx.fillRect(0, 0, 480, 272);
+      bx.fillStyle = g; bx.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       var halo = bx.createRadialGradient(240, 20, 10, 240, 20, 220);
       halo.addColorStop(0, 'rgba(120,160,220,0.14)');
       halo.addColorStop(1, 'rgba(120,160,220,0)');
-      bx.fillStyle = halo; bx.fillRect(0, 0, 480, 272);
+      bx.fillStyle = halo; bx.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       this._bgc = o.c;
       return o.c;
     },
@@ -305,12 +305,12 @@
     render: function (x) {
       var m = G.game.meta;
 
-      x.drawImage(this._bg(), 0, 0, 480, 272);
+      x.drawImage(this._bg(), 0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 缓慢流动的光尘 */
       for (var i = 0; i < 22; i++) {
-        var px = (i * 97 % 480) + Math.sin(this.t * 0.5 + i) * 12;
-        var py = (i * 53 % 272 + this.t * 9) % 272;
+        var px = (i * 97 % G.game.UI_W) + Math.sin(this.t * 0.5 + i) * 12;
+        var py = (i * 53 % G.game.UI_H + this.t * 9) % G.game.UI_H;
         x.fillStyle = 'rgba(180,205,245,' + (0.06 + 0.05 * Math.sin(this.t + i)).toFixed(3) + ')';
         x.fillRect(px, py, 1.4, 1.4);
       }
@@ -364,7 +364,7 @@
       var vg = x.createRadialGradient(240, 136, 130, 240, 136, 330);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
       vg.addColorStop(1, 'rgba(0,0,0,0.50)');
-      x.fillStyle = vg; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = vg; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
     },

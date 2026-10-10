@@ -1,4 +1,4 @@
-/* 输入：触屏/鼠标 + 键盘，统一换算到 480×272 内坐标 */
+/* 输入：触屏/鼠标 + 键盘，统一换算到逻辑坐标（`G.game.VW×VH`，v2.12.0 起 640×360） */
 (function () {
   var Input = {
     canvas: null,
@@ -14,8 +14,13 @@
 
       function toInternal(e) {
         var rect = canvas.getBoundingClientRect();
-        var cx = (e.clientX - rect.left) / rect.width * 480;
-        var cy = (e.clientY - rect.top) / rect.height * 272;
+        /* ⚠️ v2.12.0：指针坐标统一落在 **UI 空间（480×272）**。
+           为什么不是逻辑分辨率 640×360：**按钮/面板/文字全部按 480×272 设计**，
+           渲染时再整体放大 `G.game.UI_R` 铺满屏幕（见 game.js）。
+           把指针也留在同一空间 → 命中判定与绘制**天然一致**，不需要两套换算。
+           探索场景的世界点击（格子拾取）在 `explore.onTap` 里自行 ×UI_R。 */
+        var cx = (e.clientX - rect.left) / rect.width * G.game.UI_W;
+        var cy = (e.clientY - rect.top) / rect.height * G.game.UI_H;
         return { x: cx, y: cy };
       }
       canvas.addEventListener('pointerdown', function (e) {

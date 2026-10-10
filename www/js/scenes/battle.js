@@ -130,7 +130,7 @@
     /* 星点 */
     stars: function (x, T, rnd) {
       for (var i = 0; i < 90; i++) {
-        var sx = rnd() * 480, sy = rnd() * 170;
+        var sx = rnd() * G.game.UI_W, sy = rnd() * (170 / 272) * G.game.UI_H;
         var big = rnd() < 0.14;
         x.globalAlpha = 0.18 + rnd() * 0.68;
         x.fillStyle = '#dfe6fa';
@@ -160,9 +160,9 @@
         var rr = G.Art.rnd(Math.round(baseY * 31 + phase * 977));
         x.fillStyle = col;
         x.beginPath();
-        x.moveTo(0, 272);
+        x.moveTo(0, G.game.UI_H);
         var pts = [];
-        for (var px = 0; px <= 480; px += 24) {
+        for (var px = 0; px <= G.game.UI_W; px += 24) {
           pts.push({
             x: px,
             y: baseY + Math.sin(px * 0.014 + phase) * amp + (rr() - 0.5) * amp * 1.2
@@ -173,7 +173,7 @@
           var mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
           x.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
         }
-        x.lineTo(480, 272); x.closePath(); x.fill();
+        x.lineTo(G.game.UI_W, G.game.UI_H); x.closePath(); x.fill();
       }
       layer(150, 16, T.ridge[0], 0.6);
       layer(172, 20, T.ridge[1], 2.4);
@@ -208,14 +208,14 @@
         hx += w + 2 + rnd() * 5;
       }
       x.fillStyle = T.ridge[1];
-      x.fillRect(0, 168, 480, 10);
+      x.fillRect(0, 168, G.game.UI_W, 10);
     },
 
     /* 洞窟：顶部垂石 + 两侧岩柱 */
     stalactite: function (x, T, rnd) {
       x.fillStyle = T.ridge[0];
       for (var i = 0; i < 26; i++) {
-        var sx = rnd() * 480, w = 8 + rnd() * 20, h = 16 + rnd() * 46;
+        var sx = rnd() * G.game.UI_W, w = 8 + rnd() * 20, h = 16 + rnd() * 46;
         x.beginPath();
         x.moveTo(sx - w / 2, 0);
         x.lineTo(sx + w / 2, 0);
@@ -224,7 +224,7 @@
       }
       /* 两侧岩壁 */
       [0, 1].forEach(function (side) {
-        var bx = side ? 480 : 0;
+        var bx = side ? G.game.UI_W : 0;
         x.fillStyle = T.ridge[1];
         x.beginPath();
         x.moveTo(bx, 0);
@@ -282,7 +282,7 @@
       }
       /* 地面反光 */
       x.fillStyle = 'rgba(216,183,104,0.05)';
-      x.fillRect(0, 150, 480, 28);
+      x.fillRect(0, 150, G.game.UI_W, 28);
     },
 
     /* 云带（灵/仙/道） */
@@ -290,7 +290,7 @@
       for (var i = 0; i < 5; i++) {
         var cy = 120 + i * 14 + rnd() * 8;
         var cw = 140 + rnd() * 180, ch = 8 + rnd() * 10;
-        var cx0 = rnd() * 480;
+        var cx0 = rnd() * G.game.UI_W;
         var g = x.createRadialGradient(cx0, cy, 1, cx0, cy, cw / 2);
         g.addColorStop(0, 'rgba(255,255,255,0.09)');
         g.addColorStop(1, 'rgba(255,255,255,0)');
@@ -2355,7 +2355,7 @@
       if (this.shake > 0.2) {
         x.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
       }
-      x.drawImage(this._bg(), 0, 0, 480, 272);
+      x.drawImage(this._bg(), 0, 0, G.game.UI_W, G.game.UI_H);
       x.restore();
 
       /* 后排先画，前排后画；主角最后（始终在最上层） */
@@ -2373,7 +2373,7 @@
       /* 选择目标（target）仍是全屏面板；功法/物品现在是按钮上方的下拉框，不需要全屏暗罩。 */
       if (this.phase === 'target') {
         x.fillStyle = 'rgba(4,6,12,0.52)';
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
         var title = '选择目标';
         G.UI.frame(x, { x: 12, y: 34, w: 456, h: 176 }, title, { tex: true });
         var hint = '选择攻击对象（前排更近、后排更远）';
@@ -2392,7 +2392,7 @@
 
       if (this.phase === 'result') {
         x.fillStyle = 'rgba(4,6,12,0.55)';
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
         G.UI.textOut(x, { x: 240, y: 116 }, this.resultWin ? '战 斗 胜 利' : '力 竭 倒 下',
           30, this.resultWin ? '#f5e3a8' : '#c75450', 'center', 'rgba(0,0,0,0.8)', 4);
       }
@@ -2451,7 +2451,7 @@
       if (this.bg && this._bgFor === key) return this.bg;
 
       var T = BG_THEME[key] || BG_THEME.night;
-      var K = 2, W = 480 * K, H = 272 * K;
+      var K = 2, W = G.game.UI_W * K, H = G.game.UI_H * K;
       var c = G.Assets.makeCanvas(W, H), x = c.getContext('2d');
       x.scale(K, K);
 
@@ -2462,25 +2462,25 @@
       var rnd = G.Art.rnd(key.charCodeAt(0) * 7919 + key.length * 131);
 
       if (im) {
-        x.drawImage(im, 0, 0, 480, 272);
+        x.drawImage(im, 0, 0, G.game.UI_W, G.game.UI_H);
       } else {
         /* 天幕：把主题的色标均分到 0..210 */
         var sky = x.createLinearGradient(0, 0, 0, 210);
         T.sky.forEach(function (col, i) {
           sky.addColorStop(i / Math.max(1, T.sky.length - 1), col);
         });
-        x.fillStyle = sky; x.fillRect(0, 0, 480, 272);
+        x.fillStyle = sky; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
         T.feat.forEach(function (f) { BG_FEAT[f](x, T, rnd); });
 
         /* 地面：所有主题共用同一套"地平线在 178"的版式，
            保证立绘脚底 / 台座 / 日志面板的位置在任何战场都一致。 */
-        var gg = x.createLinearGradient(0, 178, 0, 272);
+        var gg = x.createLinearGradient(0, 178, 0, G.game.UI_H);
         gg.addColorStop(0, T.ground[0]);
         gg.addColorStop(1, T.ground[1]);
-        x.fillStyle = gg; x.fillRect(0, 178, 480, 94);
+        x.fillStyle = gg; x.fillRect(0, 178, G.game.UI_W, 94);
         x.fillStyle = T.edge;
-        x.fillRect(0, 177.4, 480, 0.8);
+        x.fillRect(0, 177.4, G.game.UI_W, 0.8);
       }
 
       /* 台座：主角 1 个，敌方按槽位各 1 个 */
@@ -2584,7 +2584,7 @@
       /* 蓄力预告：贴在名牌面板下沿，避免与血条重叠 */
       var chg = this.chargeMark[key];
       if (chg) {
-        var cw = 96, cx0 = Math.max(8, Math.min(480 - cw - 8, cx - cw / 2));
+        var cw = 96, cx0 = Math.max(8, Math.min(G.game.UI_W - cw - 8, cx - cw / 2));
         var pulse = 0.55 + 0.45 * Math.sin(this.t * 7);
         x.fillStyle = 'rgba(60,12,16,0.86)';
         x.fillRect(cx0, by - s - 4, cw, 15);
@@ -2601,7 +2601,7 @@
       /* 名牌 + 血条（+ 主角多一条法力条）：多敌时收窄，避免互相压住；Boss 留宽一点放得下全名。
          主角名牌**加高 10px** 放法力条（v0.14.0）—— 面板向上长，不往下压（下方是台座与地面）。 */
       var bw = this.es.length > 1 && !isP ? (u.boss ? 96 : 84) : 100;
-      var bx = Math.max(8, Math.min(480 - bw - 8, cx - bw / 2));
+      var bx = Math.max(8, Math.min(G.game.UI_W - bw - 8, cx - bw / 2));
       var hasMp = !!(isP && u.mpMax);
       var ph = hasMp ? 34 : 24;
       var byy = by - s - 26 - (ph - 24);
@@ -2655,7 +2655,7 @@
       var g = x.createLinearGradient(0, 0, 0, 30);
       g.addColorStop(0, 'rgba(6,8,14,0.86)');
       g.addColorStop(1, 'rgba(6,8,14,0)');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 30);
+      x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, 30);
 
       G.UI.textOut(x, { x: 12, y: 6 }, '第 ' + this.round + ' 回合', 13, '#eae6da');
 

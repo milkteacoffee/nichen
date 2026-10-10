@@ -405,8 +405,8 @@
   function barBtns(scene, active) {
     /* 页签宽按数量现算：v0.15.0 从 6 项变 5 项，写死 75 会挤在中间一小撮 */
     var gap = 3;
-    var w = Math.min(92, Math.floor((480 - 16 - (PANELS.length - 1) * gap) / PANELS.length));
-    var x0 = (480 - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
+    var w = Math.min(92, Math.floor((G.game.UI_W - 16 - (PANELS.length - 1) * gap) / PANELS.length));
+    var x0 = (G.game.UI_W - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
     return PANELS.map(function (p, i) {
       var on = (p.id === active);
       return new G.UI.Btn({
@@ -423,13 +423,13 @@
 
   function renderBar(x, active) {
     x.fillStyle = 'rgba(7,9,15,0.94)';
-    x.fillRect(0, BAR_Y, 480, 272 - BAR_Y);
+    x.fillRect(0, BAR_Y, G.game.UI_W, G.game.UI_H - BAR_Y);
     x.fillStyle = 'rgba(216,183,104,0.20)';
-    x.fillRect(0, BAR_Y, 480, 0.8);
+    x.fillRect(0, BAR_Y, G.game.UI_W, 0.8);
     /* 页签宽按数量现算：v0.15.0 从 6 项变 5 项，写死 75 会挤在中间一小撮 */
     var gap = 3;
-    var w = Math.min(92, Math.floor((480 - 16 - (PANELS.length - 1) * gap) / PANELS.length));
-    var x0 = (480 - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
+    var w = Math.min(92, Math.floor((G.game.UI_W - 16 - (PANELS.length - 1) * gap) / PANELS.length));
+    var x0 = (G.game.UI_W - (PANELS.length * w + (PANELS.length - 1) * gap)) / 2;
     PANELS.forEach(function (p, i) {
       if (p.id !== active) return;
       x.fillStyle = 'rgba(216,183,104,0.75)';

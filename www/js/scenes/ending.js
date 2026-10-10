@@ -83,7 +83,7 @@
       this.motes = [];
       for (var i = 0; i < 46; i++) {
         this.motes.push({
-          x: (i * 137.5) % 480, y: (i * 83.7) % 272,
+          x: (i * 137.5) % G.game.UI_W, y: (i * 83.7) % G.game.UI_H,
           r: 0.6 + (i % 5) * 0.28, sp: 3 + (i % 7) * 1.6
         });
       }
@@ -184,7 +184,7 @@
       for (var i = 0; i < this.motes.length; i++) {
         var m = this.motes[i];
         m.y -= m.sp * dt;
-        if (m.y < -3) { m.y = 275; m.x = (m.x + 97) % 480; }
+        if (m.y < -3) { m.y = G.game.UI_H + 3; m.x = (m.x + 97) % G.game.UI_W; }
       }
     },
 
@@ -196,11 +196,11 @@
         ? Math.min(1, this.idx / rec.lines.length) : 0;
       var top = warm ? this._mix('#0a0d16', '#1c1a14', p) : '#05070d';
       var mid = warm ? this._mix('#0a0d16', '#242018', p) : '#0a0d16';
-      var g = x.createLinearGradient(0, 0, 0, 272);
+      var g = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, top);
       g.addColorStop(0.55, mid);
       g.addColorStop(1, top);
-      x.fillStyle = g; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       for (var i = 0; i < this.motes.length; i++) {
         var m = this.motes[i];
@@ -230,7 +230,7 @@
       var vg = x.createRadialGradient(240, 136, 110, 240, 136, 320);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
       vg.addColorStop(1, 'rgba(0,0,0,0.6)');
-      x.fillStyle = vg; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = vg; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
     },

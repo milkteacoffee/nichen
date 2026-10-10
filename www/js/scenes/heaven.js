@@ -26,7 +26,7 @@
       this.stars = [];
       for (var i = 0; i < 90; i++) {
         this.stars.push({
-          x: G.rng.range(0, 480), y: G.rng.range(0, 272),
+          x: G.rng.range(0, G.game.UI_W), y: G.rng.range(0, G.game.UI_H),
           r: G.rng.range(0.5, 1.6), ph: G.rng.range(0, 6.283),
           sp: G.rng.range(1, 5)
         });
@@ -147,17 +147,17 @@
       for (var i = 0; i < this.stars.length; i++) {
         var s = this.stars[i];
         s.y -= s.sp * dt;
-        if (s.y < -2) { s.y = 274; s.x = G.rng.range(0, 480); }
+        if (s.y < -2) { s.y = G.game.UI_H + 2; s.x = G.rng.range(0, G.game.UI_W); }
       }
     },
 
     render: function (x) {
       /* 背景：深靛星河 */
-      var g = x.createLinearGradient(0, 0, 0, 272);
+      var g = x.createLinearGradient(0, 0, 0, G.game.UI_H);
       g.addColorStop(0, '#05060f');
       g.addColorStop(0.6, '#0a0c1c');
       g.addColorStop(1, '#120f22');
-      x.fillStyle = g; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = g; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       /* 星子 */
       for (var i = 0; i < this.stars.length; i++) {
@@ -206,7 +206,7 @@
       var vg = x.createRadialGradient(240, 136, 110, 240, 136, 320);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
       vg.addColorStop(1, 'rgba(0,0,0,0.6)');
-      x.fillStyle = vg; x.fillRect(0, 0, 480, 272);
+      x.fillStyle = vg; x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
 
       for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
     },

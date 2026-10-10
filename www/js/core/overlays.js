@@ -110,7 +110,7 @@
 
     dim: function (x) {
       x.fillStyle = 'rgba(5,7,12,0.70)';
-      x.fillRect(0, 0, 480, 272);
+      x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
     },
 
     frame: function (x, title, rect) {
@@ -399,9 +399,9 @@
       x.save();
       /* ① 天变色 + ② 雷云翻涌 */
       x.fillStyle = 'rgba(28,10,44,' + (0.30 * k).toFixed(3) + ')';
-      x.fillRect(0, 0, 480, 272);
+      x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       x.fillStyle = 'rgba(46,18,66,' + (0.45 * k).toFixed(3) + ')';
-      x.fillRect(0, 0, 480, 40 + 30 * k);
+      x.fillRect(0, 0, G.game.UI_W, 40 + 30 * k);
       /* ③ 落雷：折线（已落下的保持残影，正在落的更亮） */
       if (t >= S.hold && t < S.hold + S.strike) {
         for (var i = 0; i <= T.boltIdx; i++) {
@@ -412,7 +412,7 @@
           x.strokeStyle = 'rgba(150,120,240,' + (0.5 * al).toFixed(3) + ')';
           x.lineWidth = 7;
           x.beginPath(); x.moveTo(bx, 0);
-          x.lineTo(bx + 14, 70); x.lineTo(bx - 10, 130); x.lineTo(bx + 8, 200); x.lineTo(bx, 272);
+          x.lineTo(bx + 14, 70); x.lineTo(bx - 10, 130); x.lineTo(bx + 8, 200); x.lineTo(bx, G.game.UI_H);
           x.stroke();
           x.strokeStyle = 'rgba(226,236,255,' + (0.9 * al).toFixed(3) + ')';
           x.lineWidth = 3;
@@ -422,7 +422,7 @@
       /* ④ 白闪 */
       if (T.flash > 0) {
         x.fillStyle = 'rgba(255,255,255,' + (0.55 * T.flash).toFixed(3) + ')';
-        x.fillRect(0, 0, 480, 272);
+        x.fillRect(0, 0, G.game.UI_W, G.game.UI_H);
       }
       /* ⑤ 天道问话 */
       if (T.asked) {

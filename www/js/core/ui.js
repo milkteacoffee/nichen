@@ -195,7 +195,15 @@
   var cache = {};
   function cachedCanvas(key, w, h, fn) {
     if (cache[key]) return cache[key];
-    var o = A.cv(w, h);
+    /* ⚠️ v2.12.0：UI 层在渲染时被 `scale(UI_R=4/3)` 放大铺满屏幕（见 game.js）。
+       预烘的 UI 位图（面板/按钮/图标）若只按 `A.K` 烘，再被放大 1.33× →
+       **边缘发软**（面板描边、按钮金线最明显）。
+       所以这里按 `K × UI_R` 烘：目标尺寸与最终物理尺寸一致，回到 1:1 像素搬运。
+       ⚠️ 必须 `|| 1` 兜底：`G.game` 在 ui.js 载入时可能还没建好（脚本顺序
+          game.js 在 ui.js **之后**）—— 但本函数只会在渲染期被调，那时 G.game 一定在。
+       ⚠️ 倍率只管密度、**不改逻辑尺寸**：调用方仍按 `w/h` 布局（`A.cv` 内部已 scale）。 */
+    var uk = (G.game && G.game.UI_R) || 1;
+    var o = A.cv(w, h, (A.K || 1) * uk);
     fn(o.x);
     cache[key] = o.c;
     return o.c;
@@ -1143,9 +1151,9 @@
 
     /* 默认贴在被指物件的**下方**；越出下沿就翻到上方；左右再夹进画布 */
     var r = hoverList[hoverList.length - 1].rect;
-    var bx = Math.max(4, Math.min(480 - w - 4, r.x));
+    var bx = Math.max(4, Math.min(G.game.UI_W - w - 4, r.x));
     var by = r.y + r.h + 4;
-    if (by + h > 272 - 4) by = Math.max(4, r.y - h - 4);
+    if (by + h > G.game.UI_H - 4) by = Math.max(4, r.y - h - 4);
 
     x.save();
     x.shadowColor = 'rgba(0,0,0,0.55)'; x.shadowBlur = 6; x.shadowOffsetY = 2;
