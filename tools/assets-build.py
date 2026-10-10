@@ -79,6 +79,32 @@ SIZES = {
     'battle.enemy.s8': (192, 192),
     'battle.enemy.s9': (192, 192),
     'battle.enemy.s10': (192, 192),
+    # v2.7.1：**补齐"引用了但没有立绘"的键**。
+    # ⚠️ 这批键原先**不在 SIZES 里** → 即使出了图也会被"未登记尺寸，跳过"静默丢弃。
+    #    它们是 `dungeons.js` 里 12 个副本首领的 `artKey`，
+    #    缺图时会静默回退程序化立绘（不报错、契约也绿）。
+    #    排查手段：`node _gen/_probe_artkey.js`（对比"代码引用"与"实际有图"）。
+    'battle.enemy.s11': (192, 192),   # 雷霆泰坦（雷鸣峡谷）
+    'battle.enemy.s12': (192, 192),   # 暗影魔王（暗影深渊）
+    'battle.enemy.s13': (192, 192),   # 圣光天使（圣光神殿）
+    'battle.enemy.s14': (192, 192),   # 混沌使者（混沌虚空）
+    'battle.enemy.s15': (192, 192),   # 血教护法（血色禁地）
+    'battle.enemy.s16': (192, 192),   # 天机师（天机阁）
+    'battle.enemy.s17': (192, 192),
+    'battle.enemy.s18': (192, 192),
+    'battle.enemy.s19': (192, 192),
+    'battle.enemy.s26': (192, 192),
+    'battle.enemy.s27': (192, 192),
+    'battle.enemy.s28': (192, 192),
+    'battle.enemy.s29': (192, 192),
+    'battle.enemy.s30': (192, 192),
+    'battle.enemy.s31': (192, 192),
+    # b1..b5：副本中 Boss 的程序化兜底键（`artKey: 'b1'` 之类）。
+    # ⚠️ 它们**故意不出图** —— 中 Boss 由 `b<n>mid` 素材承担，
+    #    这里的 b1..b5 只是回退链的兜底名，留给程序化画。
+    'battle.enemy.bloodbat': (192, 192),
+    'battle.enemy.xuemian': (192, 192),
+    'battle.enemy.heartDemon2': (192, 192),
     'char.hero.down': (168, 252),    'char.hero.up': (168, 252),
     'char.hero.left': (168, 252),
     'char.hero.right': (168, 252),
