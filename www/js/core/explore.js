@@ -1260,7 +1260,16 @@
               用 `pal.dark` 再压暗一档 → 读作"远处的地面"（大气透视）。 */
         if (ISO_ON && this._groundLayer) {
           var palF = this._pal();
-          x.fillStyle = G.Art.shade((palF && palF.dark) || '#2a2419', -0.25);
+          /* ⚠️ v2.8.0 **室内不能用 `pal.dark`**：室内 `md` 不带 `pal`，
+             会退回**世界调色板** —— 凡界的 `dark` 是**绿色**（`#3a5735`），
+             于是室内地图边界外露出一片**绿楔子**（实测截图确认），
+             读起来像"房间浮在草地上"。
+             室内地图外应当是**建筑的暗色外壳**，与室内木地板同色系、压暗。
+             判据用 `md.indoor`（interiorgen 写入），与洞窟暗幕那条同一口径。 */
+          var outer = this.map.md.indoor
+            ? '#241d16'                       /* 室内：暗木外壳 */
+            : G.Art.shade((palF && palF.dark) || '#2a2419', -0.25);
+          x.fillStyle = outer;
           x.fillRect(0, 0, 480, 272);
         }
         this._drawGroundLayer(x, camX, camY);
@@ -1277,7 +1286,11 @@
         if (ISO_ON) {
           var FADE = TILE * 3;
           var palE = this._pal();
-          var fogCol = G.Art.shade((palE && palE.dark) || '#2a2419', -0.25);
+          /* 与上面"地图外底色"同一口径（室内用暗木外壳，不用地形 dark）——
+             两处若不一致，边界会出现"渐隐色 ≠ 底色"的色带。 */
+          var fogCol = this.map.md.indoor
+            ? '#241d16'
+            : G.Art.shade((palE && palE.dark) || '#2a2419', -0.25);
           var wl = this.map.w * TILE, hl = this.map.h * TILE;
           var _fade = function (x0, y0, x1, y1, gx0, gy0, gx1, gy1) {
             var gr = x.createLinearGradient(gx0, gy0, gx1, gy1);
@@ -1414,8 +1427,19 @@
         });
 
         /* 洞窟暗幕（火把可视范围）。bloodcave 是 cave 的换色变体（M1 §5.1），
-           共用同一套暗幕 —— 判据收敛在 _isCaveGround() 一处，别在别处再写 'cave'。 */
-        if (this._isCaveGround()) this._drawVeil(x, camX, camY);
+           共用同一套暗幕 —— 判据收敛在 _isCaveGround() 一处，别在别处再写 'cave'。
+
+           ⚠️⚠️ v2.8.0 **室内必须排除**（这是一处实测到的真 bug）：
+              室内图的地面类型也是 `cave`（interiorgen 统一用 cave 地板），
+              所以 `_isCaveGround()` 对**所有室内**都返回 true →
+              室内被套上了**洞窟火把暗幕**（半径 160 外压到 0.86 黑）。
+              后果：进药铺/洞府看到的是一大片黑 + 中间一小圈。
+              实测截图里"室内像没做完"就是这个原因，**不是家具缺失**。
+              室内自己有 `_drawIndoor`（暖色环境光 + 轻暗角），
+              **两者不能叠加**（叠加 = 全屏黑）。
+              判据用 `md.indoor`（interiorgen 写入）而不是"地面类型"，
+              因为"是室内"与"地面像洞穴"是两件事。 */
+        if (this._isCaveGround() && !this.map.md.indoor) this._drawVeil(x, camX, camY);
         /* 室内：暖色环境光 + 暗角，做出"封闭空间"的收束感 */
         if (this.map.md.indoor) this._drawIndoor(x);
 
@@ -2241,7 +2265,138 @@
         x.restore();
       },
 
+      /* ===== 等距墙体（v2.8.0）=====
+         用户口径：「建筑内部的物品全部要支持俯视角下看起来很自然」。
+
+         **为什么必须单独实现**：原先墙走通用 `_drawDecor` → `A.decor('wall')`，
+         那是一张 **32×22 的【正视】贴图**。等距下有三个致命问题：
+           ① 它按格子左上角画，而等距的"一格"在屏幕上是**菱形**（宽 24√2≈34px）→
+              32 宽的贴图**接不上**，相邻墙之间露出缝（实测截图里就是"断开的砖块"）；
+           ② 正视贴图没有**等距侧面** → 读不出墙的厚度与转折；
+           ③ 每格按坐标哈希随机变体 → 一排墙的砖缝彻底不连续，像散落的砖块堆。
+
+         **做法**：墙 = 「顶面菱形 + 朝向观察者的两个立面」，与 `_drawStructure`
+         的"建筑侧面"同一套语言（都用 `_proj` 投世界坐标）。
+         立面深度 `WH` 取一格高的 0.62 —— 与 2:1 等距的建筑高度观感一致。
+
+         **转角/接缝**：不再按坐标随机变体，而是**按四邻是否也是墙**决定画哪几个面
+         （"内圈"只朝房间内部画）→ 相邻墙自然连成一体，砖缝也连续。
+
+         ⚠️ 必须在**立牌层**（等距矩阵已 `restore`）里调用 —— 它用 `_proj` 投屏幕坐标。
+         ⚠️ 非等距（手写图方形模式）**完全不走这里**，仍走原 `_drawDecor`（零回归）。 */
+      _drawWallIso: function (x, o, camX, camY) {
+        var T = TILE;
+        var wx = o.x * T, wy = o.y * T;
+        var el = this._elevPx(o.x, o.y);
+        /* 四邻是否也是墙（决定画哪个立面）：房间在"内侧"，外侧贴地图外 */
+        var map = this.map;
+        function isWall(tx, ty) {
+          if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) return true;  /* 图外当墙 → 不画那一侧 */
+          var d = map.decor;
+          for (var i = 0; i < d.length; i++) {
+            if (d[i].t === 'wall' && d[i].x === tx && d[i].y === ty) return true;
+          }
+          return false;
+        }
+        var up = isWall(o.x, o.y - 1), down = isWall(o.x, o.y + 1);
+        var left = isWall(o.x - 1, o.y), right = isWall(o.x + 1, o.y);
+        /* 完全被包住 → 内部墙，不画（省绘制；视觉上也看不见） */
+        if (up && down && left && right) return;
+
+        var pal = this._pal();
+        /* ⚠️ 墙的**材质色必须自带**，不能用 `pal.dark` ——
+           那是「地面暗色」（凡界 `#3a5735` 是**绿色**），拿来画墙会得到一堵绿墙
+           （实测截图确认）。墙是**室内构件**，与地形调色板无关。
+           取木构 + 砖石的低饱和仙侠色，并让受光/背光两面有明确明度差。 */
+        var D = T * 1.05;                      /* 墙高（屏幕像素）：一格 TILE 的 1.05 倍，
+                                                  足以读出"墙"的高度感；不改引擎常量 */
+        var base = '#6b5f52';                  /* 砖石基色 */
+        var top = G.Art.shade(base, 0.16);     /* 顶面（受天光）*/
+        var faceA = G.Art.shade(base, -0.10);  /* 南面（斜受光）*/
+        var faceB = G.Art.shade(base, -0.30);  /* 东面（背光）*/
+        var line = 'rgba(0,0,0,0.34)';
+
+        /* 四角（世界像素 → 屏幕）。
+           ⚠️ **墙是"向上长"的**：地脚四角在格子的菱形上，顶面四角 = 地脚 **上移 D**。
+              第一版写成"顶面在格子上、立面往下沉" → 墙沉进地里、只剩一条绿带
+              （实测截图确认：看上去像一块地板而不是墙）。 */
+        var pA = this._proj(wx, wy - el);                  /* 地脚·上 */
+        var pB = this._proj(wx + T, wy - el);              /* 地脚·右 */
+        var pC = this._proj(wx + T, wy + T - el);          /* 地脚·下（离观察者最近） */
+        var pD = this._proj(wx, wy + T - el);              /* 地脚·左 */
+        /* 顶面四角 = 地脚上移 D */
+        var tA = { x: pA.x, y: pA.y - D }, tB = { x: pB.x, y: pB.y - D },
+            tC = { x: pC.x, y: pC.y - D }, tD = { x: pD.x, y: pD.y - D };
+
+        x.save();
+        /* ① 立面（先画；顶面后画压住上沿接缝）
+              - **南面**（地脚 pD→pC 那条边，朝观察者下方）：下方邻格不是墙时画
+              - **东面**（地脚 pC→pB 那条边）：右侧邻格不是墙时画
+            ⚠️ 立面从「地脚边」往上连到「顶面边」—— 这才是"墙有高度"的来源。 */
+        if (!down) {
+          x.fillStyle = faceA;
+          x.beginPath();
+          x.moveTo(pD.x, pD.y); x.lineTo(pC.x, pC.y);
+          x.lineTo(tC.x, tC.y); x.lineTo(tD.x, tD.y);
+          x.closePath(); x.fill();
+        }
+        if (!right) {
+          x.fillStyle = faceB;
+          x.beginPath();
+          x.moveTo(pC.x, pC.y); x.lineTo(pB.x, pB.y);
+          x.lineTo(tB.x, tB.y); x.lineTo(tC.x, tC.y);
+          x.closePath(); x.fill();
+        }
+        /* ② 顶面菱形（砖缝跨格连续：用**沿墙方向的一维**条纹，不用二维哈希） */
+        x.fillStyle = top;
+        x.beginPath();
+        x.moveTo(tA.x, tA.y); x.lineTo(tB.x, tB.y);
+        x.lineTo(tC.x, tC.y); x.lineTo(tD.x, tD.y);
+        x.closePath(); x.fill();
+        x.strokeStyle = 'rgba(0,0,0,0.20)';
+        x.lineWidth = 1;
+        for (var k = 1; k <= 2; k++) {
+          var tt = k / 3;
+          x.beginPath();
+          x.moveTo(tA.x + (tD.x - tA.x) * tt, tA.y + (tD.y - tA.y) * tt);
+          x.lineTo(tB.x + (tC.x - tB.x) * tt, tB.y + (tC.y - tB.y) * tt);
+          x.stroke();
+        }
+        /* ③ 立面砖缝（横两道，让墙面不是一块纯色）*/
+        x.strokeStyle = 'rgba(0,0,0,0.18)';
+        for (var r = 1; r <= 2; r++) {
+          var rt = r / 3;
+          if (!down) {
+            x.beginPath();
+            x.moveTo(pD.x + (tD.x - pD.x) * rt, pD.y + (tD.y - pD.y) * rt);
+            x.lineTo(pC.x + (tC.x - pC.x) * rt, pC.y + (tC.y - pC.y) * rt);
+            x.stroke();
+          }
+          if (!right) {
+            x.beginPath();
+            x.moveTo(pC.x + (tC.x - pC.x) * rt, pC.y + (tC.y - pC.y) * rt);
+            x.lineTo(pB.x + (tB.x - pB.x) * rt, pB.y + (tB.y - pB.y) * rt);
+            x.stroke();
+          }
+        }
+        /* ④ 轮廓：顶面外缘 + 立面下沿（收边，强化"转折"） */
+        x.strokeStyle = line;
+        x.beginPath();
+        if (!down) { x.moveTo(tD.x, tD.y); x.lineTo(tC.x, tC.y); }
+        if (!right) { x.moveTo(tC.x, tC.y); x.lineTo(tB.x, tB.y); }
+        x.stroke();
+        x.beginPath();
+        if (!down) { x.moveTo(pD.x, pD.y); x.lineTo(pC.x, pC.y); }
+        if (!right) { x.moveTo(pC.x, pC.y); x.lineTo(pB.x, pB.y); }
+        x.stroke();
+        x.restore();
+      },
+
       _drawDecor: function (x, o, camX, camY) {
+        /* ⚠️ v2.8.0：等距下的**墙**走专用渲染（见 `_drawWallIso`）——
+           通用 `A.decor('wall')` 是正视贴图（32 宽 ≠ 等距菱形宽 34），
+           会把一排墙画成"断开的砖块"。非等距仍走原路（零回归）。 */
+        if (ISO_ON && o.t === 'wall') { this._drawWallIso(x, o, camX, camY); return; }
         var _q = this._proj(o.x * TILE, o.y * TILE - this._elevPx(o.x, o.y)); var px = _q.x, py = _q.y;
         var h1 = (((o.x * 73856093) ^ (o.y * 19349663)) >>> 0);
         var v = (h1 % 3 + 3) % 3;
