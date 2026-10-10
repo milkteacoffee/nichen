@@ -8,9 +8,16 @@
   function bake(P, w, h, outline, opt) {
     opt = opt || {};
     var sc = opt.scale || 1;
-    var o = A.cv(w * sc, h * sc);
+    /* ⚠️ v2.9.1 `padTop`：把全部部件**下移 N 个画稿像素**后再画。
+       用途：主角的画布比"身体"高出一段，留给斗笠/枪尖等**向上探出的配饰**
+       （见 sprites.js 的 `PAD_TOP`）。不加这个偏移，配饰会被 `h` 裁掉。
+       实现放在这里（而不是调用方改坐标）：调用方只需传一个数，
+       不必把 `heroParts` 的所有坐标再算一遍。 */
+    var padTop = opt.padTop || 0;
+    var o = A.cv(w * sc, (h + padTop) * sc);
     var x = o.x;
     x.scale(sc, sc);
+    if (padTop) x.translate(0, padTop);
     var e = opt.outlineW == null ? 0.8 : opt.outlineW;
 
     if (!opt.noOutline) {
@@ -110,29 +117,44 @@
     var P = [];
     if (!def || def.kind === 'none') return P;
     var c = def.c || '#e8e4d8', hi = def.hi || c;
+    var deep = G.Art.shade(c, -0.26);
     var back = dir === 'up';
-    /* 所有头饰都挂在"发顶"上：正面发线 y=1.0，背面整头在 1.2 起。
-       ⚠️ 必须带 bob（走路时的 0.35 上抬），否则帽子会"浮在头顶不跟着动"。 */
-    var ty = (back ? 1.2 : 1.0) + bob;
+    /* 所有头饰都挂在"发顶"上。
+       ⚠️ v2.9.0：坐标随画稿放大到 **24×36**（旧 16×24 的值 × 1.5）。
+          新坐标系里：发线 y≈1.5、发髻顶 y≈0.6、头宽 4.8..19.2。
+       ⚠️ 必须带 bob（走路时的上抬），否则帽子会"浮在头顶不跟着动"。 */
+    var ty = (back ? 1.8 : 1.5) + bob;
     if (def.kind === 'guan') {
-      /* 玉冠/金冠：一枚小方冠骑在发髻上，前面一道横梁压住发线 */
-      P.push({ x: 6.2, y: ty - 2.0, w: 3.6, h: 2.4, c: c });
-      P.push({ x: 6.2, y: ty - 2.0, w: 3.6, h: 0.8, c: hi });
-      P.push({ x: 5.2, y: ty - 0.2, w: 5.6, h: 1.0, c: c });
-      P.push({ x: 5.0, y: ty + 0.4, w: 0.8, h: 1.2, c: hi });      /* 左侧簪孔 */
-      P.push({ x: 10.2, y: ty + 0.4, w: 0.8, h: 1.2, c: hi });     /* 右侧 */
+      /* 玉冠/金冠：方冠骑在发髻上 + 横梁压发线 + 前后双梁 */
+      P.push({ x: 9.2, y: ty - 2.6, w: 5.6, h: 3.2, c: c });       /* 冠体 */
+      P.push({ x: 9.2, y: ty - 2.6, w: 5.6, h: 1.1, c: hi });      /* 冠顶高光 */
+      P.push({ x: 9.2, y: ty + 0.2, w: 5.6, h: 0.9, c: deep });    /* 冠底压暗 */
+      P.push({ x: 7.8, y: ty - 0.3, w: 8.4, h: 1.4, c: c });       /* 横梁 */
+      P.push({ x: 7.8, y: ty - 0.3, w: 8.4, h: 0.5, c: hi });
+      P.push({ x: 7.4, y: ty + 0.6, w: 1.2, h: 1.6, c: hi });      /* 左簪孔 */
+      P.push({ x: 15.0, y: ty + 0.6, w: 1.2, h: 1.6, c: hi });     /* 右簪孔 */
     } else if (def.kind === 'dou') {
-      /* 斗笠：宽檐 + 尖顶。**檐必须比头宽**（头是 3.2..12.8），否则读不出"笠" */
-      P.push({ x: 1.4, y: ty - 0.4, w: 13.2, h: 1.6, c: c });      /* 檐 */
-      P.push({ x: 1.4, y: ty - 0.4, w: 13.2, h: 0.5, c: hi });     /* 檐口高光 */
-      P.push({ x: 5.0, y: ty - 2.6, w: 6.0, h: 2.4, c: c });       /* 穹顶 */
-      P.push({ x: 5.0, y: ty - 2.6, w: 6.0, h: 0.8, c: hi });
-      P.push({ x: 7.0, y: ty - 3.6, w: 2.0, h: 1.2, c: c });       /* 顶尖 */
+      /* 斗笠：**三层收窄**的锥形（檐最宽 → 中段 → 顶尖），比"一根横杠"像笠得多。
+         ⚠️ 三个坑（都是实测踩出来的）：
+           ① **檐不能横贯画稿**：给 20 宽时在 40px 占位上读作一根横杠；
+              ⇒ 收到 **17.2**（比头 18.8 略窄一点点 —— 视觉上"盖在头上"）。
+           ② **檐必须在发线之上**：第一版 `ty-0.4` 正好压在额头上 → 把脸切两半。
+              ⇒ 抬到 `ty-1.2` 起，整个脸露在檐下。
+           ③ **锥形必须有层次**：单层檐 + 单层顶 = 一块板；
+              三层（檐 / 中段 / 顶尖）才有"笠"的轮廓。 */
+      P.push({ x: 3.4, y: ty - 1.4, w: 17.2, h: 1.8, c: c });      /* 檐（最宽） */
+      P.push({ x: 3.4, y: ty - 1.4, w: 17.2, h: 0.6, c: hi });     /* 檐口高光 */
+      P.push({ x: 3.4, y: ty + 0.4, w: 17.2, h: 0.7, c: deep });   /* 檐下阴影 */
+      P.push({ x: 6.4, y: ty - 3.4, w: 11.2, h: 2.2, c: c });      /* 中段 */
+      P.push({ x: 6.4, y: ty - 3.4, w: 11.2, h: 0.8, c: hi });
+      P.push({ x: 9.4, y: ty - 5.0, w: 5.2, h: 1.8, c: c });       /* 顶尖 */
+      P.push({ x: 11.0, y: ty - 6.0, w: 2.0, h: 1.2, c: deep });   /* 顶珠 */
     } else if (def.kind === 'zan') {
-      /* 玉簪：横插过发髻，右侧露出一截 */
-      P.push({ x: 4.6, y: ty + 0.6, w: 7.2, h: 0.7, c: c });
-      P.push({ x: 4.6, y: ty + 0.6, w: 7.2, h: 0.3, c: hi });
-      P.push({ x: 11.6, y: ty + 0.35, w: 0.9, h: 1.2, c: hi });    /* 簪头 */
+      /* 玉簪：横插过发髻，右侧露出一截（带簪头珠） */
+      P.push({ x: 6.9, y: ty + 0.9, w: 10.8, h: 1.0, c: c });
+      P.push({ x: 6.9, y: ty + 0.9, w: 10.8, h: 0.4, c: hi });
+      P.push({ x: 17.4, y: ty + 0.5, w: 1.4, h: 1.8, c: hi });     /* 簪头 */
+      P.push({ x: 17.7, y: ty + 0.8, w: 0.8, h: 1.2, c: '#ffffff' });
     }
     return P;
   }
@@ -142,40 +164,60 @@
     var P = [];
     if (!def || def.kind === 'none') return P;
     var c = def.c || '#c9ccd4', hi = def.hi || c;
+    var deep = G.Art.shade(c, -0.28);
+    var wood = '#5a4636';
     var back = dir === 'up';
     var left = dir === 'left', right = dir === 'right';
-    /* 侧面：武器整体偏向**身后那一侧**；正面：贴右肩后，尽量少抢视线。 */
-    var ox = left ? -1.6 : right ? 1.6 : 0;
+    /* 侧面：武器整体偏向**身后那一侧**；正面：贴右肩后，尽量少抢视线。
+       ⚠️ v2.9.0：坐标随画稿放大到 **24×36**（旧 16×24 的值 × 1.5）。
+          新坐标系：肩线 y≈14.1、腰线 y≈21.5、脚底 y≈35.8、躯干宽 5.6..18.4。 */
+    var ox = left ? -2.4 : right ? 2.4 : 0;
     var oy = bob;
     if (def.kind === 'sword' || def.kind === 'saber') {
-      /* 斜背的刀剑：3 段矩形拼出"斜"的读感（两端各错开一点，连起来就读作斜线） */
-      var w0 = def.kind === 'saber' ? 1.4 : 1.1;
-      var x0 = back ? 10.2 : 10.4;
-      P.push({ x: x0 + ox, y: 2.2 + oy, w: w0, h: 3.2, c: c });        /* 上段（肩外） */
-      P.push({ x: x0 - 0.7 + ox, y: 5.2 + oy, w: w0, h: 3.2, c: c });  /* 中段 */
-      P.push({ x: x0 - 1.4 + ox, y: 8.2 + oy, w: w0, h: 3.0, c: c });  /* 下段 */
-      P.push({ x: x0 + ox, y: 2.2 + oy, w: w0, h: 1.0, c: hi });       /* 刃口高光 */
-      P.push({ x: x0 - 0.5 + ox, y: 1.6 + oy, w: 2.1, h: 0.9, c: hi });/* 护手 */
-      P.push({ x: x0 + 0.1 + ox, y: 0.4 + oy, w: 0.9, h: 1.3, c: '#5a4636' }); /* 柄 */
+      /* 斜背的刀剑：4 段矩形拼出"斜"的读感（每段错开一点，连起来读作斜线）
+         ⚠️ 段数越多越像直线；3 段在 1.5 倍画稿下显得生硬，故用 4 段。 */
+      var w0 = def.kind === 'saber' ? 2.0 : 1.6;
+      var x0 = back ? 15.2 : 15.6;
+      P.push({ x: x0 + ox, y: 2.6 + oy, w: w0, h: 4.0, c: c });
+      P.push({ x: x0 - 1.0 + ox, y: 6.2 + oy, w: w0, h: 4.0, c: c });
+      P.push({ x: x0 - 2.0 + ox, y: 9.8 + oy, w: w0, h: 4.0, c: c });
+      P.push({ x: x0 - 3.0 + ox, y: 13.4 + oy, w: w0, h: 3.6, c: c });
+      /* 刃口高光（沿最上段） */
+      P.push({ x: x0 + ox, y: 2.6 + oy, w: w0 * 0.45, h: 4.0, c: hi });
+      P.push({ x: x0 - 1.0 + ox, y: 6.2 + oy, w: w0 * 0.45, h: 4.0, c: hi });
+      /* 护手 + 柄 + 柄头 */
+      P.push({ x: x0 - 0.9 + ox, y: 1.6 + oy, w: 3.4, h: 1.4, c: hi });
+      P.push({ x: x0 - 0.2 + ox, y: -0.2 + oy, w: 1.5, h: 2.2, c: wood });
+      P.push({ x: x0 - 0.2 + ox, y: -0.2 + oy, w: 1.5, h: 0.7, c: G.Art.shade(wood, 0.2) });
     } else if (def.kind === 'spear') {
-      /* 长枪：比人还高，一根杆从脚后斜穿到头顶外 */
-      P.push({ x: 11.0 + ox, y: -0.6 + oy, w: 1.0, h: 20.0, c: c });
-      P.push({ x: 11.0 + ox, y: -0.6 + oy, w: 0.4, h: 20.0, c: hi });  /* 受光边 */
-      P.push({ x: 10.5 + ox, y: -2.4 + oy, w: 2.0, h: 2.0, c: hi });   /* 枪尖 */
-      P.push({ x: 10.6 + ox, y: -3.0 + oy, w: 1.8, h: 0.9, c: '#b84040' }); /* 红缨 */
+      /* 长枪：比人高，但**不要插到天上**。
+         ⚠️ 第一版给了 29 高（从 y=−1.2 到 27.8）→ 枪尖探出头顶近 5 个画稿像素，
+            在屏幕上读作"一根天线"（实测截图确认）。
+            ⇒ 收到 **22.4**（从 y=+2 到 24.4）：枪尖刚好在头顶之上一点点，
+              这正是"斜倚肩后的长枪"该有的体量。 */
+      P.push({ x: 16.0 + ox, y: 2.0 + oy, w: 1.6, h: 22.4, c: c });     /* 杆 */
+      P.push({ x: 16.0 + ox, y: 2.0 + oy, w: 0.6, h: 22.4, c: hi });    /* 受光边 */
+      P.push({ x: 15.2 + ox, y: -0.4 + oy, w: 3.2, h: 2.6, c: hi });    /* 枪尖 */
+      P.push({ x: 15.5 + ox, y: -1.3 + oy, w: 2.6, h: 1.2, c: '#b84040' }); /* 红缨 */
+      P.push({ x: 16.0 + ox, y: 12.0 + oy, w: 1.6, h: 0.8, c: deep });  /* 缠绳 */
     } else if (def.kind === 'fan') {
-      /* 折扇：别在腰带右侧 */
-      P.push({ x: 9.6 + ox, y: 14.2 + oy, w: 3.4, h: 2.6, c: c });
-      P.push({ x: 9.6 + ox, y: 14.2 + oy, w: 3.4, h: 0.7, c: hi });
+      /* 折扇：别在腰带右侧（扇骨 + 扇面） */
+      P.push({ x: 14.6 + ox, y: 21.0 + oy, w: 5.0, h: 3.6, c: c });
+      P.push({ x: 14.6 + ox, y: 21.0 + oy, w: 5.0, h: 0.9, c: hi });
+      P.push({ x: 14.6 + ox, y: 24.0 + oy, w: 5.0, h: 0.6, c: deep });
     } else if (def.kind === 'whisk') {
-      /* 拂尘：柄挂在左侧，马尾垂下来 */
-      P.push({ x: 1.0 + ox, y: 12.0 + oy, w: 0.9, h: 6.0, c: hi });    /* 柄 */
-      P.push({ x: 0.4 + ox, y: 17.6 + oy, w: 2.1, h: 3.0, c: c });     /* 尾 */
-      P.push({ x: 0.4 + ox, y: 17.6 + oy, w: 2.1, h: 0.8, c: hi });
+      /* 拂尘：柄挂在左侧，马尾垂下来（柄 + 束箍 + 尾须） */
+      P.push({ x: 1.4 + ox, y: 18.0 + oy, w: 1.4, h: 9.0, c: hi });      /* 柄 */
+      P.push({ x: 1.0 + ox, y: 26.0 + oy, w: 2.2, h: 1.2, c: deep });    /* 束箍 */
+      P.push({ x: 0.4 + ox, y: 27.0 + oy, w: 3.4, h: 5.0, c: c });       /* 尾须 */
+      P.push({ x: 0.4 + ox, y: 27.0 + oy, w: 3.4, h: 1.2, c: hi });
+      P.push({ x: 2.2 + ox, y: 28.0 + oy, w: 0.7, h: 3.6, c: deep });
     } else if (def.kind === 'flute') {
-      /* 玉笛：横在腰后 */
-      P.push({ x: 2.4 + ox, y: 14.6 + oy, w: 7.4, h: 0.8, c: c });
-      P.push({ x: 2.4 + ox, y: 14.6 + oy, w: 7.4, h: 0.3, c: hi });
+      /* 玉笛：横在腰后（带吹孔与穗） */
+      P.push({ x: 3.6 + ox, y: 21.8 + oy, w: 11.2, h: 1.2, c: c });
+      P.push({ x: 3.6 + ox, y: 21.8 + oy, w: 11.2, h: 0.5, c: hi });
+      P.push({ x: 8.4 + ox, y: 22.6 + oy, w: 1.0, h: 0.9, c: deep });    /* 吹孔 */
+      P.push({ x: 3.6 + ox, y: 23.0 + oy, w: 0.6, h: 2.4, c: '#a84040' }); /* 穗 */
     }
     return P;
   }
@@ -202,97 +244,173 @@
       if (extra) for (var k in extra) o[k] = extra[k];
       P.push(o);
     }
-    var bob = step === 0 ? 0 : -0.35;
-    var armSwing = step === 1 ? -0.7 : step === 2 ? 0.7 : 0;
+    /* ===== v2.9.1 画稿 = 24×36，**Q 版头身比 1:2.4**（参考《烟雨江湖》）=====
+       用户口径：「想想《烟雨江湖》是怎么实现的？…细节能推敲的」。
+
+       ⚠️ **头必须够大**。第一版头高 11.7 / 全身 35 → 头身比 **1:3.0**，
+          在 40×73 的占位上读作"细长的火柴人"（实测截图确认）。
+          《烟雨江湖》是 Q 版：头高约占全身 **1/2.2 ~ 1/2.5**。
+          ⇒ 本版把头放大到 **14.6**（≈1.25 倍），躯干相应缩短 → 1:2.4。
+
+       新落点（画稿坐标）：
+         发顶 y≈0.8   发线 y≈3.0   眼线 y≈9.4   下颌 y≈14.6
+         颈根 y≈15.2  肩线 y≈16.4  腰带 y≈24.0  衣摆 y≈31.0  脚底 y≈35.6 */
     var back = dir === 'up';
+    var side = (dir === 'left' || dir === 'right');
+    /* 步态相位：把 0..5 折算成 [-1, 1] 的摆幅（0=并拢，正负=左右脚交替前） */
+    var PH = [0, 1, 0.4, -1, -0.4, 0.6];
+    var ph = PH[step % 6] || 0;
+    var bob = (step === 0) ? 0 : (step === 5 ? -0.4 : -1.0);   /* 走路时整体上抬（画稿 px） */
+    var swing = ph * 2.0;                                       /* 手臂前后摆（画稿 px） */
+    var legF = ph * 2.2;                                        /* 腿前后错开（画稿 px） */
 
-    /* ---- 头 ---- */
-    if (back) {
-      add(3.2, 1.2, 9.6, 7.6, pal.hair);
-      add(3.8, 1.2, 8.4, 2.2, pal.hairHi);
-      add(6.6, 7.2, 2.8, 2.4, pal.hair);
-    } else {
-      add(4.0, 2.6 + bob, 8.0, 6.4, pal.skin);
-      add(4.0, 2.6 + bob, 8.0, 1.4, pal.skinHi);
-      add(3.2, 1.0 + bob, 9.6, 3.4, pal.hair);
-      add(4.0, 1.0 + bob, 8.0, 1.3, pal.hairHi);
-      add(3.2, 3.4 + bob, 1.7, 3.6, pal.hair);
-      add(11.1, 3.4 + bob, 1.7, 3.6, pal.hair);
-      add(4.4, 3.6 + bob, 7.2, 1.2, pal.hair);      /* 刘海 */
-      add(4.0, 7.4 + bob, 8.0, 1.6, pal.skinSh);    /* 下颌阴影 */
-      if (dir === 'down') {
-        add(5.9, 5.6 + bob, 1.2, 1.4, pal.eye);
-        add(9.0, 5.6 + bob, 1.2, 1.4, pal.eye);
-        add(5.9, 5.5 + bob, 1.2, 0.5, 'rgba(255,255,255,0.5)');
-        add(9.0, 5.5 + bob, 1.2, 0.5, 'rgba(255,255,255,0.5)');
-      } else {
-        add(4.3, 5.5 + bob, 1.2, 1.4, pal.eye);
-        add(6.2, 5.9 + bob, 1.0, 0.9, pal.skinSh);  /* 鼻影 */
-      }
-    }
-
-    /* ---- 身 ---- */
-    var y0 = 9.4 + bob;
-    add(7.0, y0 - 0.8, 2.2, 1.4, pal.skinSh);                 /* 颈 */
-    add(4.6, y0, 6.8, 1.9, pal.collar);                       /* 领 */
-    add(3.1, y0 + 0.9, 9.8, 6.2, pal.robe);                   /* 袍身 */
-    add(3.5, y0 + 0.9, 1.2, 6.0, pal.robeHi);                 /* 左高光 */
-    add(11.3, y0 + 0.9, 1.5, 6.0, pal.robeDark);              /* 右暗面 */
-    if (!back) {
-      add(6.4, y0 + 0.4, 1.7, 2.6, pal.robeHi);               /* 交领右片 */
-      add(8.3, y0 + 0.4, 1.7, 2.6, pal.robe);
-      add(6.4, y0 + 2.6, 3.6, 0.5, 'rgba(0,0,0,0.20)');
-    }
-    /* 腰带 */
-    add(3.1, y0 + 5.0, 9.8, 1.9, pal.belt);
-    add(3.1, y0 + 5.0, 9.8, 0.6, pal.beltHi);
-    add(7.2, y0 + 5.1, 1.5, 1.6, '#d8b768');
-    /* 袍摆 */
-    add(3.6, y0 + 6.9, 8.8, 3.4, pal.robeDark);
-    add(3.6, y0 + 6.9, 8.8, 0.8, pal.robe);
-    /* 飘带 */
-    add(3.1, y0 + 7.4, 1.1, 3.4, pal.sash, { alpha: 0.9 });
-    add(11.8, y0 + 7.4, 1.1, 3.4, pal.sash, { alpha: 0.9 });
-
-    /* ---- 臂 ---- */
-    var ax = 2.0, bx = 12.4;
-    add(ax, y0 + 1.0 + armSwing, 1.9, 5.0, pal.robe);
-    add(ax, y0 + 5.8 + armSwing, 1.6, 1.7, pal.skin);
-    add(bx - 0.1, y0 + 1.0 - armSwing, 1.9, 5.0, pal.robeDark);
-    add(bx, y0 + 5.8 - armSwing, 1.6, 1.7, pal.skin);
-
-    /* ---- 足 ---- */
-    var ly = 21.2 + bob, ry = 21.2 + bob;
-    if (step === 1) { ly = 21.9 + bob; ry = 20.8 + bob; }
-    else if (step === 2) { ly = 20.8 + bob; ry = 21.9 + bob; }
-    add(4.4, ly, 3.1, 2.0, pal.shoe);
-    add(8.6, ry, 3.1, 2.0, pal.shoe);
-    add(4.4, ly, 3.1, 0.5, 'rgba(255,255,255,0.12)');
-    add(8.6, ry, 3.1, 0.5, 'rgba(255,255,255,0.12)');
-
-    /* ---- v2.0.0 换装：配饰叠加层 ----
-       ① **接在"足"之后**（最后一个主体部件）→ 配饰在绘制序里压在最上层，
-          这是对的：斗笠要能盖住头发、背剑要能跨过肩臂。
-       ② **接在 `bodyRatio` 压缩之前** → 童年档的斗笠/背剑会跟着一起缩，
-          与"帽子随头走、剑随人缩"的直觉一致（放在压缩之后就成"小孩戴大人帽子"）。
-       ③ `look` 缺省/无该槽 → 对应函数立刻返回空数组，**零次 push**，
-          所以默认外观的 P 数组与历史**逐元素相同**（零回归）。
-       ④ 兜底用 `heroParts.__look` 那个模块级变量（见 `heroSprite` 的头注），
-          这样"渲染点上忘了传 look"不会静默退化成光头空手。 */
+    /* ---- 换装·武器层（**必须在身体之前**，理由见文末注释）---- */
     var _lk = look || heroParts.__look;
-    if (_lk) {
-      var _hp = _headParts(_lk.head, dir, step, bob);
-      for (var hi2 = 0; hi2 < _hp.length; hi2++) P.push(_hp[hi2]);
+    if (_lk && _lk.weapon) {
       var _wp = _weaponParts(_lk.weapon, dir, step, bob);
       for (var wi = 0; wi < _wp.length; wi++) P.push(_wp[wi]);
     }
 
-    /* 童年/少年（v0.71.0）：**以脚底为不动点**把颈部以下按 r 压缩，头部只随之下移
-       而**不改尺寸** —— 头身比自然变大，读起来才像小孩（不是"缩小版大人"）。
-       分界取颈顶（8.6）：映射在该点连续（左极限 = 右极限），且分界处没有跨越元素，
-       脖子不会裂开。16 岁（未传 bodyRatio）整段跳过，行为与历史逐像素一致。 */
+    /* ---- 头（Q 版大头的核心：占全身 ~0.42） ---- */
+    if (back) {
+      /* 背面：整头发 + 后颈，不给五官 */
+      add(3.0, 1.2, 18.0, 13.6, pal.hair);           /* 后脑 */
+      add(4.4, 1.2, 15.2, 4.0, pal.hairHi);          /* 头顶高光 */
+      add(3.0, 9.6, 18.0, 3.2, pal.hair);            /* 后脑下半（压深） */
+      add(9.4, 13.0, 5.2, 3.4, pal.hair);            /* 后颈碎发 */
+      add(9.0, 14.8, 6.0, 2.4, pal.skinSh);          /* 颈 */
+    } else {
+      var hy = 4.6 + bob;                             /* 头部基准（脸顶） */
+      /* 脸：宽 14.4 高 10.0（比第一版大一圈，Q 版脸要"鼓"） */
+      add(4.8, hy, 14.4, 10.0, pal.skin);
+      add(4.0, hy + 2.0, 1.2, 6.4, pal.skin);         /* 左颊外缘 */
+      add(18.8, hy + 2.0, 1.2, 6.4, pal.skin);        /* 右颊外缘 */
+      add(4.8, hy, 14.4, 2.6, pal.skinHi);            /* 额头受光 */
+      add(4.8, hy + 8.4, 14.4, 1.6, pal.skinSh);      /* 下颌阴影 */
+      /* 头发：顶盖 + 两侧鬓 + 刘海（分束，读出"发丝"） */
+      add(3.2, 1.8 + bob, 17.6, 5.0, pal.hair);       /* 顶盖 */
+      add(4.6, 1.8 + bob, 14.8, 2.0, pal.hairHi);     /* 头顶高光 */
+      add(3.2, 5.6 + bob, 2.6, 8.0, pal.hair);        /* 左鬓 */
+      add(18.2, 5.6 + bob, 2.6, 8.0, pal.hair);       /* 右鬓 */
+      add(5.2, 6.0 + bob, 13.6, 2.0, pal.hair);       /* 刘海底 */
+      add(6.2, 5.2 + bob, 4.6, 3.0, pal.hair);        /* 刘海·左束 */
+      add(13.2, 5.2 + bob, 4.8, 3.2, pal.hair);       /* 刘海·右束 */
+      add(11.4, 6.2 + bob, 1.4, 2.8, pal.hairHi);     /* 刘海分缝高光 */
+      /* 发髻（无头饰时可见；有头饰会被盖住） */
+      add(10.2, 0.4 + bob, 3.6, 2.4, pal.hair);
+      add(10.2, 0.4 + bob, 3.6, 0.9, pal.hairHi);
+      /* 耳（侧面只露一只） */
+      if (side) add(dir === 'left' ? 4.0 : 18.6, hy + 4.4, 1.6, 3.0, pal.skinSh);
+      /* 五官（Q 版：眼大、位置略低、间距宽） */
+      if (dir === 'down') {
+        /* 眉（略弯：外端低一点，比一条直线有神） */
+        add(7.6, hy + 3.8, 3.0, 0.8, pal.hair);
+        add(13.4, hy + 3.8, 3.0, 0.8, pal.hair);
+        add(7.6, hy + 4.6, 1.0, 0.6, pal.hair);
+        add(15.4, hy + 4.6, 1.0, 0.6, pal.hair);
+        /* 眼（Q 版大眼：眼白 + 瞳 + 双高光） */
+        add(7.8, hy + 5.2, 3.2, 2.2, '#f4efe4');
+        add(13.4, hy + 5.2, 3.2, 2.2, '#f4efe4');
+        add(8.6, hy + 5.2, 1.7, 2.2, pal.eye);
+        add(14.2, hy + 5.2, 1.7, 2.2, pal.eye);
+        add(8.6, hy + 5.1, 0.9, 0.8, 'rgba(255,255,255,0.9)');
+        add(14.2, hy + 5.1, 0.9, 0.8, 'rgba(255,255,255,0.9)');
+        add(9.6, hy + 6.8, 0.6, 0.5, 'rgba(255,255,255,0.5)');   /* 眼下反光 */
+        add(15.2, hy + 6.8, 0.6, 0.5, 'rgba(255,255,255,0.5)');
+        /* 鼻 + 嘴（嘴用一点红：Q 版常用） */
+        add(11.5, hy + 7.6, 1.4, 0.9, pal.skinSh);
+        add(10.4, hy + 8.8, 3.2, 0.7, G.Art.shade(pal.skinSh, -0.20));
+      } else {
+        /* 侧面：一只眼 + 鼻梁 + 嘴 */
+        var lft = (dir === 'left');
+        var ex = lft ? 6.8 : 13.6;
+        add(ex, hy + 3.8, 3.0, 0.8, pal.hair);
+        add(lft ? 6.6 : 13.4, hy + 5.2, 3.0, 2.2, '#f4efe4');
+        add(lft ? 7.2 : 14.0, hy + 5.2, 1.6, 2.2, pal.eye);
+        add(lft ? 7.2 : 14.0, hy + 5.1, 0.8, 0.8, 'rgba(255,255,255,0.9)');
+        add(lft ? 10.6 : 13.4, hy + 6.4, 1.6, 1.4, pal.skinSh);   /* 鼻 */
+        add(lft ? 8.4 : 12.2, hy + 8.8, 2.8, 0.7, G.Art.shade(pal.skinSh, -0.20));
+      }
+    }
+
+    /* ---- 身（颈 / 肩 / 交领 / 袍身 / 束腰 / 衣摆） ----
+       ⚠️ Q 版头部变大 ⇒ 躯干**必须相应缩短**（肩线 14.1→16.4，脚底不变），
+          否则头身比没变、只是画被撑长。 */
+    var y0 = 16.4 + bob;                                    /* 肩线 */
+    if (!back) {
+      add(9.4, y0 - 1.8, 5.2, 2.4, pal.skinSh);             /* 颈 */
+    }
+    /* 肩（比躯干宽一点，做出"有肩膀"的轮廓） */
+    add(5.4, y0, 13.2, 2.4, pal.robe);
+    add(5.4, y0, 13.2, 0.9, pal.robeHi);
+    /* 躯干 */
+    add(6.0, y0 + 1.9, 12.0, 5.2, pal.robe);
+    add(6.6, y0 + 1.9, 1.9, 4.8, pal.robeHi);               /* 左高光带 */
+    add(16.2, y0 + 1.9, 1.9, 4.8, pal.robeDark);            /* 右暗面 */
+    if (!back) {
+      /* 交领（右衽：两片斜搭）+ 领口内衬 */
+      add(8.4, y0 - 0.4, 7.2, 2.0, pal.collar);
+      add(9.0, y0 + 1.2, 3.2, 4.2, pal.robeHi);             /* 左襟 */
+      add(12.6, y0 + 1.2, 3.2, 4.2, pal.robe);              /* 右襟压左襟 */
+      add(12.2, y0 + 1.2, 0.6, 4.2, 'rgba(0,0,0,0.22)');    /* 襟缝 */
+      /* 衣褶（3 道细竖线 → 衣服有"布料"感） */
+      add(8.0, y0 + 3.6, 0.5, 4.0, 'rgba(0,0,0,0.13)');
+      add(11.2, y0 + 3.8, 0.5, 3.8, 'rgba(0,0,0,0.10)');
+      add(15.4, y0 + 3.6, 0.5, 4.0, 'rgba(0,0,0,0.13)');
+    }
+    /* 束腰（腰带 + 玉扣 + 垂带） */
+    add(6.0, y0 + 6.2, 12.0, 2.2, pal.belt);
+    add(6.0, y0 + 6.2, 12.0, 0.7, pal.beltHi);
+    add(6.0, y0 + 8.0, 12.0, 0.5, 'rgba(0,0,0,0.22)');      /* 腰带下缘 */
+    add(11.0, y0 + 6.3, 2.0, 2.0, pal.beltHi);              /* 玉扣 */
+    add(11.2, y0 + 6.5, 1.6, 1.0, '#f6e8b8');
+    /* 衣摆（下摆外张 + 内衬暗色） */
+    add(5.6, y0 + 8.5, 12.8, 4.6, pal.robe);
+    add(5.6, y0 + 8.5, 12.8, 1.0, pal.robeHi);
+    add(5.0, y0 + 12.1, 14.0, 2.4, pal.robeDark);           /* 摆缘 */
+    add(5.0, y0 + 12.1, 14.0, 0.7, pal.robe);
+    /* 飘带（两侧，随走动摆） */
+    add(5.2, y0 + 7.2, 1.4, 5.0 + Math.abs(ph), pal.sash, { alpha: 0.92 });
+    add(17.4, y0 + 7.2, 1.4, 5.0 + Math.abs(ph), pal.sash, { alpha: 0.92 });
+
+    /* ---- 臂（上臂 + 小臂 + 手，带摆动） ---- */
+    var aL = 3.6, aR = 18.0;
+    add(aL, y0 + 0.9 + swing, 2.6, 4.8, pal.robe);                    /* 左上臂 */
+    add(aL + 0.3, y0 + 5.1 + swing, 2.2, 3.2, pal.robeHi);            /* 左小臂 */
+    add(aL + 0.4, y0 + 7.9 + swing, 2.0, 2.0, pal.skin);              /* 左手 */
+    add(aR, y0 + 0.9 - swing, 2.6, 4.8, pal.robeDark);                /* 右上臂 */
+    add(aR + 0.1, y0 + 5.1 - swing, 2.2, 3.2, pal.robeDark);          /* 右小臂 */
+    add(aR + 0.2, y0 + 7.9 - swing, 2.0, 2.0, pal.skin);              /* 右手 */
+
+    /* ---- 腿足（裤 + 鞋 + 走路时前后错开） ---- */
+    var legY = 31.4 + bob, legH = 2.8;
+    add(8.0 - legF * 0.5, legY, 3.0, legH, pal.robeDark);
+    add(13.0 + legF * 0.5, legY, 3.0, legH, pal.robeDark);
+    /* 鞋（比腿略宽，有鞋头） */
+    add(7.2 - legF, legY + legH - 0.4, 4.4, 1.8, pal.shoe);
+    add(12.4 + legF, legY + legH - 0.4, 4.4, 1.8, pal.shoe);
+    add(7.2 - legF, legY + legH - 0.4, 4.4, 0.5, 'rgba(255,255,255,0.14)');
+    add(12.4 + legF, legY + legH - 0.4, 4.4, 0.5, 'rgba(255,255,255,0.14)');
+
+    /* ---- 换装·头饰层（**必须在最后** = 压在所有部件之上）----
+       ⚠️⚠️ 头饰与武器**分层不同**（v2.9.1 实测踩出来的）：
+          第一版把武器和头饰一起 push 在最后 → 剑的刃口高光**横穿脸和躯干**
+          （截图里那条白色斜线），像人物被划了一道。
+          · 武器"背在身后" → 在**身体之前**（见函数开头）
+          · 头饰"戴在头上" → 在**头发之上**（这里，最后 push）
+       ⚠️ `look` 缺省/该槽为空 → 返回空数组、**零次 push**（零回归的物理保证）。 */
+    if (_lk && _lk.head) {
+      var _hp = _headParts(_lk.head, dir, step, bob);
+      for (var hi2 = 0; hi2 < _hp.length; hi2++) P.push(_hp[hi2]);
+    }
+
+    /* 童年/少年（v0.71.0，v2.9.0 坐标随画稿放大）：**以脚底为不动点**把颈部以下
+       按 r 压缩，头部只随之下移而**不改尺寸** —— 头身比自然变大，读起来才像小孩
+       （不是"缩小版大人"）。
+       ⚠️ 分界与脚底都乘了 1.5（旧 8.6/23.9 → 新 12.9/35.85），与 `heroParts` 的
+          新坐标系一致；**不改这两个数会让压缩把脖子切开**。 */
     if (bodyRatio && bodyRatio !== 1) {
-      var NECK = 8.6, FOOT = 23.9;
+      var NECK = 12.9, FOOT = 35.85;
       var r2 = Math.max(0.5, Math.min(1, bodyRatio));
       var headShift = (FOOT - (FOOT - NECK) * r2) - NECK;   /* 头整体下移量 = 身高缩掉的那截 */
       for (var q = 0; q < P.length; q++) {
@@ -328,11 +446,37 @@
     };
   }
 
-  /* 地图角色渲染倍率：16×24 逻辑稿 → 实际占位 28×42（约 1.75 格宽）。
-     太小会"看不清人物形状"，太大又挡住格子；1.75 是能认清五官又不挤压走位的平衡点。 */
-  var MAP_SCALE = 1.75;
-  var HERO_LW = 16 * MAP_SCALE;      /* 28 */
-  var HERO_LH = 24 * MAP_SCALE;      /* 42 */
+  /* ⚠️⚠️ 画稿必须**留出配饰余量**（v2.9.1 修的一个真 bug）：
+     实测（`_gen/_probe_hero_bbox.js`）—— 戴斗笠/持长枪时部件向上越界 3.9~4.6 画稿像素，
+     而 `bake` 按 `ART_W×ART_H` 建画布 → **超出的部分被直接裁掉**
+     （截图症状：换装后"只剩帽子+半个头"，脚和枪身全没了）。
+     ⇒ 拆成两个概念：
+       · `ART_H` = **身体画稿高**（`heroParts` 里身体部分的坐标上限，36）
+       · `PAD_TOP` = **头顶额外留白**（给斗笠/枪尖，8 画稿像素）
+       · `CANVAS_H = PAD_TOP + ART_H` = **实际烘焙画布高**（44）
+     烘焙时整体**下移 PAD_TOP**，屏幕占位也按 `CANVAS_H` 等比放大 →
+     身体在屏幕上的尺寸**不变**，只是多接出一段头顶空间给配饰。 */
+  var ART_W = 24, ART_H = 36;
+  var PAD_TOP = 8;                       /* 头顶留白（画稿像素）：容斗笠穹顶 + 枪尖 */
+  var CANVAS_H = PAD_TOP + ART_H;        /* 44 */
+
+  /* 地图角色屏幕占位（逻辑像素）。一格格子 TILE=24，所以 40×73 ≈ 1.67×3 格。
+     ⚠️ 身体在屏幕上的高度 = ART_H × MAP_SCALE（=60），与"只有身体"时一致。 */
+  var MAP_SCALE = 40 / 24;               /* ≈1.6667：画稿宽 24 → 屏幕 40 */
+  var HERO_LW = 40;                      /* 屏幕占位宽 */
+  var HERO_LH = CANVAS_H * MAP_SCALE;    /* 含留白后的屏幕占位高（≈73） */
+  /* 画稿 → 屏幕 的缩放（把 ART_W×CANVAS_H 的画稿铺满 HERO_LW×HERO_LH）。 */
+  var ART_TO_SCR = MAP_SCALE;
+
+  /* ⚠️⚠️ **主角是否使用成品素材**（默认 false，v2.9.1 起）。
+     见 `heroSprite` 里的三条理由：换装一致性 / 比例畸变 / 新程序化画质更好。
+     `char.hero.*` 素材**仍在用**（对话立绘 + 入世演出），只是地图角色不再取它。 */
+  var HERO_USE_MATERIAL = false;
+
+  /* ⚠️⚠️ **主角是否参与 `A.pixelate`**（默认 false，v2.9.1 起）。
+     见 `heroSprite` 里的长注释：像素化格(1.5) > 画稿像素(1.17) 会把细节全抹平。
+     留这个开关是为了 A/B 与将来的风格实验，**不要随手打开**。 */
+  var HERO_PIXELATE = false;
   var HERO_SRC_H = 252;              /* 地图角色素材规格（tools/assets-build.py: SIZES 写死 168×252） */
 
   /* ====== 四向对齐（v0.11.2）======
@@ -403,11 +547,31 @@
             那里**保持高清**，正是用户说的"作为对话或者动画的原图"。
           ⚠️ 第一版只降了程序化路径 → 默认外观（素材）是高清、换了衣服变像素格，
             同一屏里两种画风来回跳，比全高清更糟。 */
+    /* ===== ⚠️⚠️ v2.9.1：**主角素材退役，程序化成为唯一路径** =====
+       用户口径：「这么模糊的像素，人脸都看不清楚…想想《烟雨江湖》是怎么实现的？」
+       「主角要支持各种服饰换装，我们只需要做主角，做的精细一点」。
+
+       **为什么必须退役**（三条，任一条都足以定案）：
+       ① **换装要求**：玩家换了衣服就必须整体换，而成品图把衣服画死了 →
+          素材只能在"默认外观"时用（`_defLook`）→ 换一次衣服画风就跳一次。
+       ② **畸变**：素材是 **168×252**（比例 0.667，为旧的 28×42 设计），
+          而新占位是 **40×73**（比例 0.545）→ 硬拉伸 **1.222 倍纵向畸变**，
+          头被压扁（实测截图里那个"青头红脸"的小人）。
+       ③ **画质**：新的程序化分层在 24×36 画稿 + 40×73 占位上，
+          细节（眉眼/发丝/衣褶/手/鞋）已明显优于旧素材。
+
+       **素材没有丢弃**：`char.hero.*` 仍用于
+         · 对话立绘（`art.js: A.portrait`，那里保持高清，正是用户要的"动画原图"）
+         · 入世演出（`heroAgeStage` 的 6/10/16 岁三档）
+       ⚠️ 所以**不要删素材**，只是地图上的角色不再取它。
+       ⚠️ 保留 `HERO_USE_MATERIAL` 开关（默认 false）以便 A/B 与回退。 */
     var _defLook = _lookIsDefault(lk);
-    var im = _defLook && G.Assets && G.Assets.img
+    var im = (HERO_USE_MATERIAL && _defLook && G.Assets && G.Assets.img)
       ? G.Assets.img('char.hero.' + dir + '.' + step) : null;
     var c;
     if (im) {
+      /* ⚠️ 素材路径用 **HERO_LW/HERO_LH**（主角的占位盒），不是 NPC 的。
+         （v2.9.1 用 split/join 批量替换时误伤过这一处 —— 改常量时务必逐处核对。） */
       var o = A.cv(HERO_LW, HERO_LH);
       o.x.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
@@ -429,13 +593,36 @@
       }
       c = o.c;
     } else {
-      c = bake(heroParts(dir, step, pal, null, lk), 16, 24, null, { scale: MAP_SCALE });
+      /* ⚠️ v2.9.0：画稿尺寸用 `ART_W/ART_H`（24×36），**不是** 16×24；
+         `scale` 用 `ART_TO_SCR`（28/24）—— 两者配合才把 24×36 的画稿
+         恰好铺满 28×42 的屏幕占位（旧版是 16×24 × 1.75 也是同一目的）。 */
+      c = bake(heroParts(dir, step, pal, null, lk), ART_W, ART_H, null, { scale: ART_TO_SCR, padTop: PAD_TOP });
       if (dir === 'right') c = mirror(c);
     }
-    /* 像素化（v2.0.0）：**两条路都降格**（含素材路，理由见上注）。
-       `A.pixelate` 是"两趟同尺寸"做法（点采样降到 1/PIXEL → 最近邻升回原尺寸），
-       所以 `c.width/height` 不变，渲染点按 HERO_W×HERO_H 画的逻辑尺寸也不用改。 */
-    if (G.Art && G.Art.pixelate && G.pixelOn && G.pixelOn()) c = G.Art.pixelate(c, G.PIXEL);
+    /* ===== ⚠️⚠️ v2.9.1 **主角不再参与 `A.pixelate`**（这是"糊"的真因）=====
+       用户口径：「这么模糊的像素，人脸都看不清楚…想想《烟雨江湖》是怎么实现的？」
+
+       **根因（实测量化）**：`A.pixelate` 把角色重分块成 `G.PIXEL`(=1.5) 逻辑像素一格，
+       而画稿放大到屏幕后 **1 个画稿像素只有 1.17 逻辑像素** → 相当于
+       **0.78 格**。也就是：**我画的所有细节都比像素格还小 → 被整块抹平**。
+       越"加细节"越糊，因为细节全在格内被平均掉了。
+
+       **《烟雨江湖》的做法**：角色是**按目标尺寸直接绘制**（1:1 或轻放大），
+       像素感来自**画风**（硬边、有限色板、明确明暗），**不是来自低分辨率画布**。
+       ⇒ 正确做法 = **role 走"高清立牌"**（与建筑/公会同一条路）：
+         画稿按屏幕占位的 **K 倍**烘焙，**不做像素化降采样**，
+         由渲染点 1:1 画上去。这样 24×36 画稿的每个像素都是锐的。
+
+       ⚠️ 为什么建筑本来就是锐的：`A.house` 的**素材分支直接 `return`**，
+          根本不经过 `A.pixelate`（只有**程序化**分支才降格）。主角原先
+          "两条路都降格"是 v2.0.0 的过度设计 —— 当时为了"与像素地面同族"，
+          但地面已经用 `pixelate` 保证像素感了，角色跟着降只会**两头不讨好**。
+
+       ⚠️ 保留 `A.pixelate` 的**入口**（`PIXEL` 仍可通过 `heroPixelate` 开关启用），
+          便于将来做 A/B；但默认关闭。 */
+    if (HERO_PIXELATE && G.Art && G.Art.pixelate && G.pixelOn && G.pixelOn()) {
+      c = G.Art.pixelate(c, G.PIXEL);
+    }
     heroCache[key] = c;
     return c;
   }
@@ -504,8 +691,12 @@
   var AGE_STAGE_R = { 6: 0.52, 10: 0.74, 16: 1 };
   /* 各档素材键（16 岁复用成年正面立绘）。 */
   var AGE_STAGE_KEY = { 6: 'char.hero.age6', 10: 'char.hero.age10', 16: 'char.hero.age16' };
-  /* 逻辑画布 = 16×24 × MAP_SCALE = 28×42 */
-  var AGE_STAGE_W = 16 * MAP_SCALE, AGE_STAGE_H = 24 * MAP_SCALE;
+  /* 逻辑画布 = 与地图角色**同一占位盒**（v2.9.1：`HERO_LW × HERO_LH`）。
+     ⚠️ 旧版写死 `16 * MAP_SCALE, 24 * MAP_SCALE` —— 那是画稿尺寸，
+        画稿提到 24×36 后就与 `HERO_W/H` 分叉了（契约 `birth.grow` 会报
+        "16 岁档与地图角色的逻辑占位盒不一致"）。**必须与 HERO 同源**，
+        因为入世演出要"三档脚底对齐、与地图角色等高"。 */
+  var AGE_STAGE_W = HERO_LW, AGE_STAGE_H = HERO_LH;
   /* 素材像素（13 倍密度，见 _gen/_hero_age_stage.py）。
      ⚠️ 16 岁档用 char.hero.down（168×252），比例与之**不同**（它按 168×252 设计）——
         所以每档各存自己的源尺寸，不能共用一个常量。 */
@@ -565,7 +756,7 @@
     if (!c) {
       var r = AGE_STAGE_R[age];
       if (r == null) r = 1;
-      c = bake(heroParts(dir, step, HERO, r, lk), 16, 24, null, { scale: MAP_SCALE });
+      c = bake(heroParts(dir, step, HERO, r, lk), ART_W, ART_H, null, { scale: ART_TO_SCR, padTop: PAD_TOP });
       if (dir === 'right') c = mirror(c);
     }
     childCache[key] = c;
@@ -667,6 +858,16 @@
   }
 
   var npcCache = {};
+  /* ===== NPC 屏幕占位（v2.9.1 独立出来）=====
+     ⚠️ NPC 曾直接复用 `HERO_LW/LH`。主角画稿提到 24×36 / 占位提到 40×73 后，
+        NPC 仍按 `16×24 × MAP_SCALE` 烘焙 → **位图尺寸与画布尺寸对不上**
+        （实测 120×220，契约 `npc` 直接报"素材烘焙尺寸错"）。
+     ⇒ NPC 有**自己的**画稿（16×24）与占位，不再跟着主角变。
+        理由：NPC 用**素材立绘**（`char.npc.*`，出图是 168×252 规格），
+        它的槽位是历史定死的，不该被主角的画稿调整牵连。 */
+  var NPC_ART_W = 16, NPC_ART_H = 24;
+  var NPC_LW = 28, NPC_LH = 42;
+
   function npcSprite(kind) {
     if (npcCache[kind]) return npcCache[kind];
     /* cultist = 血煞教探子（M1 §4）。他化名"行脚商"，但袍色压暗红 ——
@@ -694,13 +895,13 @@
     var im = G.Assets && G.Assets.img ? G.Assets.img('char.npc.' + kind) : null;
     var c;
     if (im) {
-      var o = A.cv(HERO_LW, HERO_LH);
+      var o = A.cv(NPC_LW, NPC_LH);
       o.x.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
-      o.x.drawImage(im, 0, 0, HERO_LW, HERO_LH);
+      o.x.drawImage(im, 0, 0, NPC_LW, NPC_LH);
       c = o.c;
     } else {
-      c = bake(npcParts(kind, pal), 16, 24, null, { scale: MAP_SCALE });
+      c = bake(npcParts(kind, pal), NPC_ART_W, NPC_ART_H, null, { scale: NPC_LW / NPC_ART_W });
     }
     npcCache[kind] = c;
     return c;
@@ -2159,9 +2360,25 @@ function bossGen(plan, elem, f) {
     var ck = action + '.' + view + '|' + lkTagOf(lk) + '|' + (A.K || 1);
     if (Object.prototype.hasOwnProperty.call(animCache, ck)) return animCache[ck];
     var def = ANIM_DEF[action];
-    /* 非默认外观：手绘帧换不了衣服 → 明确返回 null 交给程序化兜底。
-       这一句是"换装立即生效"的关键，删掉它就会出现最难查的那种
-       "面板换了、地图没换"（因为动画帧优先，兜底永远轮不到）。 */
+    /* ===== ⚠️⚠️ v2.9.1：主角手绘帧**整体退役**，一律走程序化 =====
+       用户口径：「这么模糊的像素…想想《烟雨江湖》是怎么实现的？」
+       「主角要支持各种服饰换装，我们只需要做主角，做的精细一点」。
+
+       **为什么必须退役**（与 `heroSprite` 的 `HERO_USE_MATERIAL` 是同一决定）：
+       ① **换装一致性**：手绘帧的衣服是画死的 → 只有"默认外观"能用，
+          换一次衣服画风就跳一次（这是本条最早的存在理由：`!_lookIsDefault` 返回 null）。
+       ② **画质**：手绘帧是旧的"细长"比例（168×252 一套），
+          而新程序化是 **Q 版 1:2.4 大头**（《烟雨江湖》观感）——
+          两者同屏切换会像"换了个人"（实测截图里那个细长小人就是手绘帧）。
+       ③ **尺寸**：手绘帧按 `ANIM_W×ANIM_H`(28×46) 烘焙，而程序化现在
+          是 `HERO_W×HERO_H`(40×73) → 两套尺寸并存必然对不齐锚点。
+
+       ⇒ 直接返回 `null`，让调用方回落到 `heroSprite`（程序化）。
+          **素材没有删**（`sheet.hero.*` 仍在盘上），只是地图角色不再取它。
+       ⚠️ 保留 `HERO_USE_MATERIAL` 作为总开关：打开时两条素材路一起恢复，
+          便于 A/B 与回退。**不要只改一处**（那会造成"站立用新、走路用旧"）。 */
+    if (!HERO_USE_MATERIAL) { animCache[ck] = null; return null; }
+    /* 非默认外观：手绘帧换不了衣服 → 明确返回 null 交给程序化兜底。 */
     if (!_lookIsDefault(lk)) { animCache[ck] = null; return null; }
     var img = G.Assets && G.Assets.img ? G.Assets.img(def.keys[view]) : null;
     if (!img) { animCache[ck] = null; return null; }
@@ -2237,6 +2454,15 @@ function bossGen(plan, elem, f) {
     HERO_PAL: HERO,
     /* 地图角色的逻辑占位尺寸：渲染点必须用它，改 MAP_SCALE 时不会漏改一边 */
     HERO_W: HERO_LW, HERO_H: HERO_LH, MAP_SCALE: MAP_SCALE,
+    /* 画稿坐标尺寸（v2.9.0）：`heroParts` 里 `add(x,y,w,h)` 用的单位。
+       ⚠️ 与 `HERO_W/H`（**屏幕占位**）是两件事 —— 前者是画稿，后者是画多大。
+          探针 `_gen/_probe_hero_bbox.js` 用它判"部件有没有超出画布被裁"。 */
+    ART_W: ART_W, ART_H: ART_H,
+    /* NPC 的屏幕占位（v2.9.1 独立于主角：NPC 用 168×252 素材，尺寸历史定死）。 */
+    NPC_W: NPC_LW, NPC_H: NPC_LH,
+    /* 主角是否用成品素材 / 是否参与像素化（v2.9.1 起都为 false，见 heroSprite 注释）。 */
+    HERO_USE_MATERIAL: HERO_USE_MATERIAL,
+    HERO_PIXELATE: HERO_PIXELATE,
     heroAnim: heroAnim, ANIM_W: ANIM_W, ANIM_H: ANIM_H,
     heroAgeStage: heroAgeStage, AGE_STAGE_R: AGE_STAGE_R,
     /* 童年档素材是否命中（供契约/探针查；素材缺时 heroAgeStage 会自动走程序化兜底） */

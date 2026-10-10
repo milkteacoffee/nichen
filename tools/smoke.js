@@ -401,12 +401,22 @@ step(function () {
     errors.push(`battle.hero 素材烘焙尺寸错：${hb.width}×${hb.height}（应为 ${40 * K}×${40 * K}）`);
   }
   const npc = G.Sprites.npc('elder');
-  if (npc.width !== G.Sprites.HERO_W * K || npc.height !== G.Sprites.HERO_H * K) {
-    errors.push(`char.npc.elder 素材烘焙尺寸错：${npc.width}×${npc.height}`);
+  /* ⚠️ v2.9.1：NPC 有**自己的**占位常量（`NPC_W/H`）—— 不再跟 `HERO_W/H`。
+     理由：主角画稿提到 24×36 / 占位 40×73，而 NPC 仍用 16×24 画稿 + 168×252 素材，
+     两者尺寸本就不同。拿 `HERO_W` 判 NPC 会假红。 */
+  const npcW = G.Sprites.NPC_W, npcH = G.Sprites.NPC_H;
+  if (npc.width !== npcW * K || npc.height !== npcH * K) {
+    errors.push(`char.npc.elder 素材烘焙尺寸错：${npc.width}×${npc.height}（应为 ${npcW * K}×${npcH * K}）`);
   }
   const hf = G.Sprites.heroFrames();
-  if (hf.down[0].width !== G.Sprites.HERO_W * K || hf.down[0].height !== G.Sprites.HERO_H * K) {
-    errors.push(`char.hero.down.0 素材烘焙尺寸错：${hf.down[0].width}×${hf.down[0].height}`);
+  /* ⚠️ v2.9.1：必须**取整后**比。
+     `HERO_H` 现在是 `CANVAS_H(44) × MAP_SCALE(40/24)` = **73.333…**，
+     而 `A.cv` 建画布时是 `Math.round(h * k)` = **220**。
+     直接写 `HERO_H * K` 得到 `219.9999…` ≠ 220 → **假红**（浮点相等性）。
+     ⇒ 两边都 `Math.round`。 */
+  const expW = Math.round(G.Sprites.HERO_W * K), expH = Math.round(G.Sprites.HERO_H * K);
+  if (hf.down[0].width !== expW || hf.down[0].height !== expH) {
+    errors.push(`char.hero.down.0 素材烘焙尺寸错：${hf.down[0].width}×${hf.down[0].height}（应为 ${expW}×${expH}）`);
   }
   /* 走路动感：素材路径下第 1 帧要整体上抬，三帧不能完全相同 */
   if (hf.down[0].height && hf.down[1] === hf.down[0]) {
@@ -8076,7 +8086,12 @@ step(function () {
       errors.push('源码闸：只有 ' + hits + '/3 处建筑素材分支乘了 STRUCT_SCALE（house/ruin/gate）');
     }
   }
-  const heroH = SP.AGE_STAGE_LOGICAL ? SP.AGE_STAGE_LOGICAL.h : 42;
+  /* ⚠️ v2.9.1：比的是**身体高**，不是占位盒高。
+     `AGE_STAGE_LOGICAL.h` 现在含**头顶留白**（`PAD_TOP`，给斗笠/枪尖）——
+     拿它当"人物高"会把比例算小（73 vs 身体 60），得到假红。
+     ⇒ 用 `ART_H × MAP_SCALE`（身体部分的屏幕高），这才是"人有多高"。 */
+  const bodyScale = SP.HERO_W / SP.ART_W;                 /* 画稿→屏幕 */
+  const heroH = SP.ART_H * bodyScale;
   /* 素材 256×192、框 6×5 格：k = min(6T/256, 5T/192) × SC；高 = 192k */
   const ref = { imW: 256, imH: 192, w: 6, h: 5 };
   const kk = Math.min(ref.w * TILE / ref.imW, ref.h * TILE / ref.imH) * SC;
