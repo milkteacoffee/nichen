@@ -88,7 +88,7 @@
   function sayBtn(scene, key) {
     scene.setOverlay(key, [
       new G.UI.Btn({
-        x: 190, y: 214, w: 100, h: 24, small: true,
+        x: 246, y: 214, w: 100, h: 24, small: true,
         label: '知道了', onClick: function () { scene.clearOverlay(); }
       })
     ]);

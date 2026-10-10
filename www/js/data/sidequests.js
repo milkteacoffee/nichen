@@ -843,7 +843,11 @@
     },
 
     /* 「接 / 交 / 知道了」三个按钮的**唯一**构建处。
-       `talk`（按 NPC）与 `talkById`（按支线 id）都走这里 —— 同源，不会分叉。 */
+       `talk`（按 NPC）与 `talkById`（按支线 id）都走这里 —— 同源，不会分叉。
+       ⚠️ v2.13.0：对话框立绘放大到 150 宽（占 x 70..220），
+          按钮**必须整体右移到台词列**（`246` / `350`）——
+          原先 `190` / `70` 会与立绘重叠（实测"再说"正压在人物身上）。
+          双按钮时左 246、右 350（各 100 宽，间距 4），都在台词列内。 */
     _openTalk: function (scene, q, step, save) {
       var self = this;
       var mk = function (x, lb, variant, fn) {
@@ -853,20 +857,20 @@
       var close = function () { scene.clearOverlay(); };
       var btns = [];
       if (step === 0) {
-        btns.push(mk(190, '接下', 'gold', function () {
+        btns.push(mk(246, '接下', 'gold', function () {
           self.accept(save, q); G.game.toast('接下支线：' + q.n); close();
         }));
-        btns.push(mk(70, '再说', 'ghost', close));
+        btns.push(mk(350, '再说', 'ghost', close));
       } else if (step === 2 && this.canTurnIn(save, q)) {
-        btns.push(mk(190, '交付', 'gold', function () {
+        btns.push(mk(246, '交付', 'gold', function () {
           var r = self.turnIn(save, q);
           if (r.ok) { G.game.toast('了却一桩：' + q.n); G.game.toast(r.text); }
           else G.game.toast('无法交付：' + r.reason);
           close();
         }));
-        btns.push(mk(70, '再说', 'ghost', close));
+        btns.push(mk(350, '再说', 'ghost', close));
       } else {
-        btns.push(mk(190, '知道了', null, close));
+        btns.push(mk(246, '知道了', null, close));
       }
       scene.setOverlay('sideq', btns);
       return true;

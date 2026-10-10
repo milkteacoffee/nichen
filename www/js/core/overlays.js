@@ -161,7 +161,11 @@
       return G.UI.mist(function () {
         G.UI.frame(x, P, opt.title, { tex: true });
 
-        var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
+        /* ⚠️ v2.13.0：立绘盒 74×74 → 150×190（大半身竖框，对标《烟雨江湖》）。
+           尺寸**读 `G.Art.PORTRAIT_SIZE`**（唯一真相源）—— 写死会与 `art.js`
+           的 `PORTRAIT_W/H` 分叉，表现是"框比画大/小"（静默露底或切边）。 */
+        var _PS = G.Art.PORTRAIT_SIZE;
+        var box = { x: P.x + 14, y: P.y + 30, w: _PS[0], h: _PS[1] };
         /* 立绘底板**刻意用字面暗色**，不走语义色 —— 立绘本身是深色半身像，
            底板必须比面板更暗才读得成"框里嵌了一张像"。语义色会被云海作用域翻转，所以写死。 */
         G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4,
@@ -180,12 +184,25 @@
           G.UI.textOut(x, { x: tx + 10, y: box.y - 0.5 }, opt.name, 13, G.UI.C.goldHi);
         }
         var ly = box.y + (opt.name ? 25 : 0);
+        /* ⚠️ v2.13.0：**台词必须夹行**（与 reward 同一套保险）。
+           立绘放大到 150 宽后台词列从 248 收到 **172**（窄 30%），
+           同样文案折行数变多 → 末尾几行会**顶到/压住底部按钮**
+           （实测：血夜告别台词"…好好活。"被「合上他的眼」按钮盖住）。
+           `opt.btnTop` 允许调用方给按钮上沿（默认 `P.y + 190` = 214，
+           与 `town.js` / `bloodhall.js` 的对话按钮 `y: 214~216` 对齐）。 */
+        var _btnTop = opt.btnTop || (P.y + 190);
+        var lmax = Math.max(2, Math.floor((_btnTop - ly - (opt.reward ? 30 : 6)) / 21));
+        var allRows = [];
         (opt.lines || []).forEach(function (l) {
-          G.UI.wrap(x, l, 13, tw).forEach(function (row) {
-            G.UI.text(x, { x: tx, y: ly }, row, 13, G.UI.C.text);
-            ly += 21;
-          });
-          ly += 4;
+          G.UI.wrap(x, l, 13, tw).forEach(function (row) { allRows.push(row); });
+        });
+        if (allRows.length > lmax) {
+          allRows = allRows.slice(0, lmax);
+          allRows[lmax - 1] = allRows[lmax - 1].slice(0, -1) + '…';
+        }
+        allRows.forEach(function (row) {
+          G.UI.text(x, { x: tx, y: ly }, row, 13, G.UI.C.text);
+          ly += 21;
         });
         if (opt.reward) {
           /* ⚠️ v0.98.0 **必须折行**：原先用 `textOut`（单行不折）——
@@ -223,7 +240,10 @@
       return G.UI.mist(function () {
         G.UI.frame(x, P, opt.title, { tex: true });
 
-        var box = { x: P.x + 14, y: P.y + 32, w: 74, h: 74 };
+        /* ⚠️ v2.13.0：立绘盒与对话框**同源**（`G.Art.PORTRAIT_SIZE`）—— 两处必须一致，
+           否则"先看台词再选"的抉择卡会读成另一个界面。 */
+        var _PS2 = G.Art.PORTRAIT_SIZE;
+        var box = { x: P.x + 14, y: P.y + 30, w: _PS2[0], h: _PS2[1] };
         /* 立绘底板用 `C.panelDark`（随材质翻转）：立绘是深色半身像，
            底板必须比面板更暗才读得成"框里嵌了一张像"。 */
         G.UI.panel(x, box, G.UI.C.panelDark, G.UI.C.frameBorder, 4,
@@ -251,8 +271,15 @@
           G.UI.wrap(x, l, fs, tw).forEach(function (row) { rows.push(row); });
         });
         var btnTop = opt.btnTop || (P.y + 146);
-        var ly = box.y + (opt.name ? 25 : 0);
-        var avail = btnTop - ly - 3;
+        var ly0 = box.y + (opt.name ? 25 : 0);
+        /* ⚠️ v2.13.0：**note 的高度要参与排版预算**。
+           原先 note 只在画的时候做 `min(ly+5, btnTop-14)` 避让 ——
+           台词行距被下限 13 夹住后总高会超预算，note 就**叠在最后一行台词上**
+           （实测截图：抉择卡"此选择记入因果簿…"压在"放我走，我欠你一条命。"上）。
+           做法：先扣掉 note 占位（文字高 + 间距）再算行距。 */
+        var noteH = opt.note ? 14 : 0;
+        var ly = ly0;
+        var avail = btnTop - ly - 3 - noteH;
         if (rows.length * 20 > avail) fs = 11.5;
         var lead = Math.min(20, Math.floor(avail / Math.max(1, rows.length)));
         if (lead < 13) lead = 13;                   /* 下限：再挤就不成行了 */
@@ -260,10 +287,14 @@
           G.UI.text(x, { x: tx, y: ly }, row, fs, G.UI.C.text);
           ly += lead;
         });
-        /* note 挂在台词之后，同样让位给底部按钮 */
+        /* note 挂在台词之后（已预留高度），同样让位给底部按钮。
+           ⚠️ v2.13.0：**必须从台词列起点 `tx` 起画**（原为 `P.x + 14`）——
+              立绘盒放大到 150 宽后，`P.x+14` 落在立绘内部 →
+              这行说明文字会**横穿立绘**（实测截图确认："此选择记入因果簿…"压在人物身上）。
+              与台词同一列既避开立绘、视觉上也更整齐。 */
         if (opt.note) {
-          var ny = Math.min(ly + 5, btnTop - 14);
-          G.UI.text(x, { x: P.x + 14, y: ny }, opt.note, 10.5, G.UI.C.textDim);
+          G.UI.text(x, { x: tx, y: Math.min(ly + 4, btnTop - 13) },
+            opt.note, 10.5, G.UI.C.textDim);
         }
         return P;
       });
@@ -366,7 +397,7 @@
         scene.trib.asked = true;
         scene.setOverlay('tribulation', [
           new G.UI.Btn({
-            x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
+            x: 246, y: 214, w: 100, h: 24, small: true, variant: 'gold',
             label: '承　受',
             onClick: function () {
               scene.clearOverlay();
@@ -497,12 +528,13 @@
       var box = { x: LX, y: P.y + 36, w: LW, h: 84 };   /* 44..128 */
       G.UI.panel(x, box, '#101423', 'rgba(216,183,104,0.35)', 4, { tex: false, shadow: false });
 
-      /* 立绘框：74×74，与 G.Art.portrait 的逻辑尺寸一致 —— 1:1 绘制。
-         一律走 portrait：装了 portrait.luchen 用素材，否则程序化半身像；
-         素材路径是等比"内含"缩放、整图居中、绝不裁切（曾把 40×40 战斗立绘按
-         102×102 硬塞进来再 clip，框里只剩脸和领口，读不出"这是谁"）。 */
-      var ib = { x: box.x + 5, y: box.y + 5, w: 74, h: 74 };
-      var art = G.Art.portrait('luchen');
+      /* 立绘框：角色面板左栏窄（168），用**面板专用小尺寸** `PORTRAIT_PANEL` ——
+         不能跟着对话框的大立绘走（会溢出左栏、压住境界文字）。
+         ⚠️ 尺寸必须**从 `A.portrait` 返回值读**（`art.w/art.h`），不写死 ——
+            唯一真相源在 `art.js`，写死是"数字抄两份"（改尺寸时必分叉）。 */
+      var art = G.Art.portrait('luchen', G.Art.PORTRAIT_PANEL);
+      var ib = { x: box.x + 5, y: box.y + 5,
+        w: art ? art.w : G.Art.PORTRAIT_PANEL[0], h: art ? art.h : G.Art.PORTRAIT_PANEL[1] };
       if (art) {
         /* v0.60.0 立绘不再是钉死的纸片：裁进框内，做"呼吸微缩放 + 上下轻浮"。 */
         var pbt = (G.game && G.game.time) || 0;

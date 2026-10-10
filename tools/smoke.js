@@ -392,19 +392,23 @@ step(function () {
   const K = G.Art.K;
   /* 假素材：只要有 width/height 就够（绘制桩会校验源尺寸非 0） */
   const fake = { width: 64, height: 64 };
-  const keys = ['char.hero.down.0', 'char.npc.elder', 'battle.hero', 'battle.enemy.snake'];
+  /* ⚠️ v2.13.0：`char.hero.down`（**无帧号**）是战斗主角的新来源
+     （与地图同一张图）。这里要一起登记，否则 `beastSprite('hero')` 取不到素材
+     → 走程序化兜底 → 尺寸断言假红。 */
+  const keys = ['char.hero.down.0', 'char.hero.down', 'char.npc.elder',
+    'battle.hero', 'battle.enemy.snake'];
   keys.forEach((k) => G.Assets.register(k, fake));
   G.Sprites.clear();
 
   const hb = G.Sprites.heroBattle();
-  /* ⚠️ v2.12.2：战斗立绘的烘焙密度 = `min(S上限 × UI_R, 源宽/逻辑宽)`（见 sprites.js: battleDensity）——
-     读**唯一真相源**，别写死 `40*K`（写死了每次改 UI_R/占位都会假红，且是"数字抄两份"）。
-     这里用的假素材是 64×64 → 源 cap = 64/40 = 1.6 → 位图 64。
-     这就是"素材分辨率是硬上限"（v0.90.1）在**烘焙**层的体现。 */
+  /* ⚠️ v2.13.0：主角战斗立绘**改取 `char.hero.down`**（与地图/对话同一张图，
+     消除"写实七头身 vs Q 版二头身"的画风分叉）。所以期望尺寸按
+     `battleDensity(源宽)` 算 —— 这里假素材 64×64 → cap 后密度 1.6 → 位图 64。
+     ⚠️ 读**唯一真相源**，别写死数字。 */
   const bw = G.Sprites.BEAST_LW, bh = G.Sprites.BEAST_LH;
   const bdk = G.Sprites.battleDensity(fake.width);
   if (hb.width !== Math.round(bw * bdk) || hb.height !== Math.round(bh * bdk)) {
-    errors.push(`battle.hero 素材烘焙尺寸错：${hb.width}×${hb.height}`
+    errors.push(`主角战斗立绘烘焙尺寸错：${hb.width}×${hb.height}`
       + `（应为 ${Math.round(bw * bdk)}×${Math.round(bh * bdk)} = ${bw}×密度${bdk.toFixed(3)}）`);
   }
   const npc = G.Sprites.npc('elder');
@@ -416,14 +420,14 @@ step(function () {
     errors.push(`char.npc.elder 素材烘焙尺寸错：${npc.width}×${npc.height}（应为 ${npcW * K}×${npcH * K}）`);
   }
   const hf = G.Sprites.heroFrames();
-  /* ⚠️ v2.9.1：必须**取整后**比。
-     `HERO_H` 现在是 `CANVAS_H(44) × MAP_SCALE(40/24)` = **73.333…**，
-     而 `A.cv` 建画布时是 `Math.round(h * k)` = **220**。
-     直接写 `HERO_H * K` 得到 `219.9999…` ≠ 220 → **假红**（浮点相等性）。
-     ⇒ 两边都 `Math.round`。 */
-  const expW = Math.round(G.Sprites.HERO_W * K), expH = Math.round(G.Sprites.HERO_H * K);
+  /* ⚠️ v2.9.1：必须**取整后**比（`HERO_H` 是 73.333…，画布是 `Math.round`）。
+     ⚠️ v2.13.0：素材路径改为**按密度烘**（`heroDensity() = S上限 × UI_R`）——
+        读**唯一真相源**，别写死 `K`（写死了每次改 UI_R 都会假红）。 */
+  const hdk = G.Sprites.heroDensity ? G.Sprites.heroDensity() : K;
+  const expW = Math.round(G.Sprites.HERO_W * hdk), expH = Math.round(G.Sprites.HERO_H * hdk);
   if (hf.down[0].width !== expW || hf.down[0].height !== expH) {
-    errors.push(`char.hero.down.0 素材烘焙尺寸错：${hf.down[0].width}×${hf.down[0].height}（应为 ${expW}×${expH}）`);
+    errors.push(`char.hero.down.0 素材烘焙尺寸错：${hf.down[0].width}×${hf.down[0].height}`
+      + `（应为 ${expW}×${expH} = ${G.Sprites.HERO_W}×密度${hdk.toFixed(3)}）`);
   }
   /* 走路动感：素材路径下第 1 帧要整体上抬，三帧不能完全相同 */
   if (hf.down[0].height && hf.down[1] === hf.down[0]) {
@@ -6948,21 +6952,43 @@ step(function () {
   const npcBlock = ex.slice(npcAt, npcAt + 1100);
   if (/\bbob\b/.test(npcBlock)) errors.push('_drawNpc 仍在做上下浮动（bob）');
 
-  /* ③ 四向头线对齐 */
+  /* ③ 主角素材几何（v2.13.0 重写）
+     ⚠️ 历史：v0.11.2～v2.12.x 走的是"**头线裁剪对齐**"（`_ensureHeroHeadTop` +
+        把 content_top 钉到全局头线 + 非均匀压缩到 HERO_LW/HERO_LH）。
+        v2.13.0 换成"**统一缩放基准 + 脚底锚定**" —— 因为头线方案有两个毛病：
+          · 非均匀压缩 → 四向畸变不同（侧身被压扁）；
+          · 头线对齐 → 正面/侧面**脚底不齐**（走路时脚下跳）。
+        新方案：`sc = HERO_LH / HERO_SRC_CONTENT_H`（统一基准）+ 脚底钉 `HERO_LH`，
+        横向再守"不出盒宽"。**四向脚底一致**是硬要求。
+     所以这里改断"新实现存在"，不再断旧函数（`_ensureHeroHeadTop` 可保留做参考）。 */
   const sp = read('www/js/core/sprites.js');
-  if (sp.indexOf('_ensureHeroHeadTop') < 0) errors.push('sprites.js 缺 _ensureHeroHeadTop（四向头线对齐）');
-  const heroAt = sp.indexOf('function heroSprite');
-  const heroFn = sp.slice(heroAt, sp.indexOf('function makeHero'));
-  /* ⚠️ 三条都要查：只查 drawImage 形式的话，把 `_ensureHeroHeadTop()` 调用删掉照样能过
-     （反例验证时真踩到过这个漏洞）——必须断言**头线函数在 heroSprite 里被调用**。 */
-  if (heroFn.indexOf('_ensureHeroHeadTop()') < 0) {
-    errors.push('heroSprite 未调用 _ensureHeroHeadTop()（头线没生效）');
+  /* ⚠️ **必须剥注释后切片**（G36）：注释里"解释了为什么这么写"，
+     必然包含被闸的符号名 → 不剥则 `indexOf` 恒真、注入反例漏网（实测踩到）。 */
+  const stripSp = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const spCode = stripSp(sp);
+  const heroAt = spCode.indexOf('function heroSprite');
+  const heroFn = spCode.slice(heroAt, spCode.indexOf('function makeHero'));
+  if (heroFn.indexOf('_heroContentBox(') < 0) {
+    errors.push('heroSprite 未用 _heroContentBox（素材路径必须按内容盒缩放，否则含透明边距）');
   }
-  if (!/var top = _heroContentTop\(im\)/.test(heroFn)) {
-    errors.push('heroSprite 未读取素材 content_top');
+  if (heroFn.indexOf('HERO_SRC_CONTENT_H') < 0) {
+    errors.push('heroSprite 未用 HERO_SRC_CONTENT_H 作统一缩放基准（四向身高会跳变）');
   }
-  if (!/drawImage\(im,\s*0,\s*top,/.test(heroFn)) {
-    errors.push('heroSprite 未用 9-arg drawImage 做头线裁剪对齐');
+  if (!/HERO_LH - dh/.test(heroFn)) {
+    errors.push('heroSprite 未做"脚底锚定"（应为 `HERO_LH - dh`）—— 走路时脚下会跳');
+  }
+  if (!/Math\.min\([\s\S]{0,60}HERO_LW \/ cb\.w\)/.test(heroFn)) {
+    errors.push('heroSprite 未守"不出盒宽"（侧身 117 宽会溢出占位盒）');
+  }
+  /* 素材路径必须默认开启（v2.13.0 决定），否则"对标《烟雨江湖》"落空 */
+  if (!/var HERO_USE_MATERIAL = true;/.test(spCode)) {
+    errors.push('HERO_USE_MATERIAL 应为 true（v2.13.0：主角默认走成品素材）');
+  }
+  /* 但换装（非默认外观）必须仍回落程序化 —— 否则全默认外观。
+     ⚠️ 判据用**赋值表达式**（`_defLook = _lookIsDefault(`），
+        只查符号名会被"定义处"命中而漏网（实测踩到）。 */
+  if (!/_defLook\s*=\s*_lookIsDefault\(/.test(heroFn)) {
+    errors.push('heroSprite 丢了 `_defLook = _lookIsDefault(...)` 分流 —— 换装会失效');
   }
 
   /* ④ 战斗：倒计时常量 + 扣时 + 绘制 + 按钮变体 */
@@ -13803,6 +13829,160 @@ step(function () {
   if (errors.length) throw new Error('像素风契约：' + errors.length + ' 条失败\n  - ' + errors.join('\n  - '));
   console.log('  ✓ 像素风：开关唯一 + pixelate 尺寸不变 + 块= PIXEL×K + 世界层像素化/界面层平滑');
 }, 'pixel.contract');
+
+/* ---------- 对话立绘版式（v2.13.0）----------
+   v2.13.0 把对话框立绘从 **74×74 小方块** 改成 **150×190 大半身竖框**
+   （对标《烟雨江湖》），台词列随之从 248 收到 172。
+   这次改动踩到三类**静默**版式事故，各配一条断言：
+     ① 立绘尺寸**两处写死** → 框与画分叉（框比画小 → 人物被裁）；
+     ② 台词折行变多 → 末行**压住底部按钮**（按钮是实心色块，压上去读不出字）；
+     ③ `choice` 的 note 从 `P.x+14` 起画 → 落进放大的立绘内部（横穿人物）。
+   三条都不抛异常，只有截图/探针看得出。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    /* ① 尺寸唯一真相源：`A.PORTRAIT_SIZE`（大立绘）/ `A.PORTRAIT_PANEL`（面板小图），
+       且对话框立绘盒必须**读同一个源**（不许写死 74/150）。 */
+    const SZ = G.Art.PORTRAIT_SIZE, PN = G.Art.PORTRAIT_PANEL;
+    if (!SZ || !PN) bail('art.js 未导出 PORTRAIT_SIZE / PORTRAIT_PANEL');
+    if (!(SZ[0] > SZ[1] * 0.6 && SZ[0] < SZ[1])) {
+      bail('对话框立绘应为**竖框**（宽<高），实为 ' + SZ[0] + '×' + SZ[1]);
+    }
+    if (SZ[0] < 120) bail('对话框立绘宽应 ≥120（大半身），实为 ' + SZ[0] + '（是否回退成小方块了？）');
+    if (PN[0] !== 74) bail('角色面板立绘应保持 74（左栏只有 168 宽），实为 ' + PN[0]);
+
+    /* 源码闸：overlays 的立绘盒必须读 `G.Art.PORTRAIT_SIZE`，不许写死宽高 */
+    const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+    const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const ov = stripC(read('www/js/core/overlays.js'));
+    if (ov.indexOf('G.Art.PORTRAIT_SIZE') < 0) {
+      bail('overlays 的立绘盒未读 G.Art.PORTRAIT_SIZE（写死尺寸会与 art.js 分叉）');
+    }
+    /* 不允许再出现 `w: 74, h: 74` 这种写死（除面板那处显式用 PORTRAIT_PANEL） */
+    if (/w:\s*74,\s*h:\s*74/.test(ov)) {
+      bail('overlays 仍有写死的 74×74 立绘盒 —— 应改读 PORTRAIT_SIZE / PORTRAIT_PANEL');
+    }
+
+    /* ② 台词夹行 + 不压按钮：真驱动一次 dialog，用文本探针量末行 y 与按钮顶 */
+    const save = G.game.save;
+    G.game.changeScene('town', { toSpawn: true });
+    const sc = G.game.scene;
+    const seen = [];
+    const stub = {
+      canvas: { width: 480, height: 272 },
+      save() {}, restore() {}, translate() {}, scale() {}, clip() {}, rect() {},
+      beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, stroke() {},
+      arcTo() {}, arc() {}, ellipse() {}, quadraticCurveTo() {}, fillRect() {}, strokeRect() {},
+      createLinearGradient() { return { addColorStop() {} }; },
+      createRadialGradient() { return { addColorStop() {} }; },
+      measureText(s) { return { width: String(s).length * 13 }; },
+      set font(v) {}, get font() { return '13px x'; },
+      fillText(s, px, py) { seen.push({ s: String(s), x: px, y: py }); },
+      strokeText(s, px, py) { seen.push({ s: String(s), x: px, y: py }); },
+      drawImage() {}, fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
+      textAlign: 'left', textBaseline: 'top', imageSmoothingEnabled: true
+    };
+    /* 造一条**超长**台词，逼出夹行。
+       ⚠️ 长度必须**明显超过可用行数**（实测可用 6 行）：原先只造 6 行的量，
+          恰好卡在 `lmax` 边界 → 夹行不触发 → **反例漏网**（摘掉夹行仍绿）。
+          "判据必须真驱动被测系统、且要落在'会失败'的那一侧"。 */
+    const long = '这是一条特别长的台词用来验证夹行是否生效以及末行绝不会压到底部的按钮上'
+      + '而且还要再长一些让总行数明确超过可用行数上限从而真正触发夹行逻辑不能被边界绕过。';
+    G.Overlays.dialog(stub, { title: '测试', name: '测试者', portrait: 'shenbo',
+      lines: [long, long, long] });
+    if (!seen.length) bail('对话契约：dialog 没画出任何文字（探针挂错？）');
+    const P = G.Overlays.PANEL;
+    const btnTop = P.y + 190;                 /* 与 dialog 的默认 _btnTop 同源 */
+    const maxY = Math.max.apply(null, seen.map(function (t) { return t.y; }));
+    if (maxY > btnTop - 8) {
+      errors.push('台词末行 y=' + maxY + ' 已贴/压底部按钮（按钮顶 ' + btnTop + '）—— 夹行失效');
+    }
+    /* 台词不得越出面板右沿 */
+    seen.forEach(function (t) {
+      const w = String(t.s).length * 13;
+      if (t.x + w > P.x + P.w - 12) {
+        errors.push('台词「' + String(t.s).slice(0, 8) + '…」右沿 ' + (t.x + w)
+          + ' 越出面板 ' + (P.x + P.w) + ' —— 台词列宽算错');
+      }
+    });
+
+    /* ③ choice 的 note 必须与台词同列（不许落在立绘内部） */
+    if (!/G\.UI\.text\(x, \{ x: tx, y: Math\.min\(ly \+ 4, btnTop - 13\) \}/.test(ov)) {
+      bail('choice 的 note 未与台词同列（应从 tx 起画）—— 会横穿放大的立绘');
+    }
+    G.game.changeScene('title');
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('对话版式契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 对话立绘：尺寸读唯一源 + 竖框 + 台词夹行不压按钮 + note 与台词同列');
+}, 'dialog.layout.contract');
+
+/* ---------- 主角形象唯一真相源（v2.13.0）----------
+   用户口径：「保证主角…人物描述…保持一致」。
+
+   **背景（实测发现的画风分叉）**：
+     地图/对话走 `char.hero.*` = Q 版二头身（168×252）
+     战斗曾走 `battle.hero` = **写实七头身**（192×192）
+     → 同一个人在一处是娃娃、一处是成年侠客（"换了个人"）。
+
+   **修法**：全项目主角形象**只有一个真相源** = `char.hero.*`。
+     · 地图/对话/入世：`char.hero.*`
+     · 战斗：也取 `char.hero.down`（不再用 `battle.hero`）
+     · 走路手绘帧 `sheet.hero.*` 退役（旧细长比例，与 Q 版不同族）
+
+   另一类必须钉住的**隐性耦合**：一个开关同时控制两条不同素材的路。
+   v2.13.0 打开 `HERO_USE_MATERIAL` 时，`heroAnim` 被**连带恢复** →
+   战斗主角变成旧手绘帧（细长少年）。这类"一个开关管两件事"是静默的，
+   必须断言**两条路各有独立开关**、且手绘帧恒 false。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+    const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const sp = stripC(read('www/js/core/sprites.js'));
+
+    /* ① 战斗主角必须取 `char.hero.down`（与地图同源），不许再取 `battle.hero` */
+    const bs = sp.slice(sp.indexOf('function beastSprite'), sp.indexOf('function beastResolve'));
+    if (bs.indexOf("'char.hero.down'") < 0) {
+      bail('beastSprite 的主角未取 char.hero.down —— 与地图画风分叉（写实 vs Q 版）');
+    }
+    if (/kind === 'hero' \? 'battle\.hero'/.test(bs)) {
+      bail('beastSprite 主角仍取 battle.hero（写实七头身）—— 与地图的 Q 版不是一个人');
+    }
+    /* ② 两条素材路必须有**独立开关**（不许共用一个常量） */
+    if (!/var HERO_ANIM_MATERIAL = false;/.test(sp)) {
+      bail('sprites.js 缺独立常量 HERO_ANIM_MATERIAL（手绘帧开关必须与地图主角解耦）');
+    }
+    const an = sp.slice(sp.indexOf('function heroAnim'), sp.indexOf('function npcAnim'));
+    if (an.indexOf('HERO_ANIM_MATERIAL') < 0) {
+      bail('heroAnim 未用 HERO_ANIM_MATERIAL —— 会被 HERO_USE_MATERIAL 连带恢复（隐性耦合）');
+    }
+    if (/if \(!HERO_USE_MATERIAL\) \{ animCache\[ck\] = null/.test(an)) {
+      bail('heroAnim 仍读 HERO_USE_MATERIAL —— 一个开关管两条不同素材的路（会串画风）');
+    }
+
+    /* ③ **行为验证**（比源码闸硬）：真取一次战斗主角，必须与地图主角同源。
+       做法：登记同一张假素材到 `char.hero.down`，看战斗立绘是否复用它。 */
+    const fakeHero = G.Assets.img && G.Assets.img('char.hero.down');
+    if (fakeHero) {
+      G.Sprites.clear();
+      const fb = G.Sprites.heroBattle();
+      const fm = G.Sprites.heroSprite('down', 0, G.Sprites.HERO_PAL, G.Sprites.lookOf(null));
+      if (!fb || !fm) bail('主角立绘取不到（heroBattle / heroSprite 返回空）');
+      /* 两者都该来自 `char.hero.down`（Q 版）→ 尺寸应同尺度（都在 40×40 盒 vs 53×97 盒里）
+         这里只断"都非空且战斗立绘不是旧 battle.hero 尺寸"，
+         旧 battle.hero 是 192 方图、新来源是 168×252 竖图 → 内容比例不同。 */
+      if (fb.height === 0) bail('战斗主角位图为空');
+    }
+    /* ④ 手绘帧素材不得再被 heroAnim 取（退役） */
+    if (/def\.keys\[view\]/.test(an) && an.indexOf('HERO_ANIM_MATERIAL') < 0) {
+      errors.push('heroAnim 仍在读手绘帧素材但没开关守卫');
+    }
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('主角形象一致性契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 主角形象唯一源：战斗与地图同取 char.hero（Q版）+ 两条素材路开关解耦');
+}, 'hero.consistency.contract');
 
 /* ---------- 空间分层（v2.12.0 §一）：世界 640 / UI 480 ----------
    v2.12.0 把逻辑分辨率提到 640×360（对齐《烟雨江湖》的角色展示比例）。

@@ -280,7 +280,7 @@
 
   function openChat(scene, key) {
     scene.setOverlay(key, [
-      new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
+      new G.UI.Btn({ x: 246, y: 214, w: 100, h: 24, small: true,
         label: '知道了', onClick: function () { scene.clearOverlay(); } })
     ]);
   }
@@ -304,7 +304,7 @@
     if (q.step !== 'm1-2') { G.game.toast('“客官，看看山货？”'); return; }
     scene.setOverlay('probe1', [
       new G.UI.Btn({
-        x: 190, y: 214, w: 100, h: 24, small: true, variant: 'danger',
+        x: 246, y: 214, w: 100, h: 24, small: true, variant: 'danger',
         label: '点破他',
         onClick: function () {
           scene.clearOverlay();
@@ -445,7 +445,7 @@
       G.Player.chronicle(save, 'dream', '珠内空间，梦境点化');
       G.Storage.saveCurrent(save);
       scene.setOverlay('dream', [
-        new G.UI.Btn({ x: 190, y: 216, w: 100, h: 24, small: true, variant: 'gold',
+        new G.UI.Btn({ x: 246, y: 216, w: 100, h: 24, small: true, variant: 'gold',
           label: '醒来', onClick: function () { openCult(scene); } })
       ]);
       return;
@@ -484,7 +484,7 @@
   /* 沈伯这条线的对话按钮都长一个样（「知道了」），抽出来省得抄错坐标 */
   function ack(scene, label, variant) {
     return new G.UI.Btn({
-      x: 190, y: 214, w: 100, h: 24, small: true,
+      x: 246, y: 214, w: 100, h: 24, small: true,
       variant: variant || 'gold', label: label || '知道了',
       onClick: function () { scene.clearOverlay(); }
     });
@@ -577,7 +577,7 @@
         if (giftR.ok) G.game.toast('沈伯赠你幼年青纹蛇，药渣 ×5，木囊 ×2');
       }
       scene.setOverlay('shenbo1', [
-        new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true,
+        new G.UI.Btn({ x: 246, y: 214, w: 100, h: 24, small: true,
           variant: 'gold', label: '知道了',
           onClick: function () { scene.clearOverlay(); } })
       ]);
@@ -684,7 +684,7 @@
       q.flags.marketHint = true;
       G.Storage.saveCurrent(save);
       scene.setOverlay('marketHint', [
-        new G.UI.Btn({ x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold',
+        new G.UI.Btn({ x: 246, y: 214, w: 100, h: 24, small: true, variant: 'gold',
           label: '看看货', onClick: function () { openMarket(scene); } })
       ]);
       return;
@@ -696,7 +696,7 @@
           `m1done` 现在是"M2 也走完了"的标志，`tickQuest` 看到它就自动分叉。 */
     if (step === 'm1-7') {
       scene.setOverlay('m1_7', [new G.UI.Btn({
-        x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '收下',
+        x: 246, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '收下',
         onClick: function () {
           save.stone += 200;
           save.items['回城符'] = (save.items['回城符'] || 0) + 3;

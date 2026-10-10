@@ -559,10 +559,20 @@
   /* 画稿 → 屏幕 的缩放（把 ART_W×CANVAS_H 的画稿铺满 HERO_LW×HERO_LH）。 */
   var ART_TO_SCR = MAP_SCALE;
 
-  /* ⚠️⚠️ **主角是否使用成品素材**（默认 false，v2.9.1 起）。
-     见 `heroSprite` 里的三条理由：换装一致性 / 比例畸变 / 新程序化画质更好。
-     `char.hero.*` 素材**仍在用**（对话立绘 + 入世演出），只是地图角色不再取它。 */
-  var HERO_USE_MATERIAL = false;
+  /* ⚠️⚠️ **主角是否使用成品素材**（v2.13.0 起默认 **true**）。
+     v2.9.1 曾因"换装冲突 / 比例畸变 / 程序化画质更好"退役素材；
+     v2.13.0 逐条复核后**推翻**（畸变已用"等比内容+脚底锚定"解决，
+     画质实测差 ~160 倍细节量）—— 详见 `heroSprite` 里 v2.13.0 的长注释。
+     保留开关以便 A/B 与回退（`false` = 全部走程序化）。
+     ⚠️ 非默认外观（换装）仍**强制走程序化**（素材把衣服画死了）。 */
+  var HERO_USE_MATERIAL = true;
+
+  /* ⚠️ **走路手绘帧的开关**（v2.13.0 从 `HERO_USE_MATERIAL` 拆出）。
+     `sheet.hero.*` 是**旧细长比例**的手绘帧，与 `char.hero.*`（Q 版）画风不同 ——
+     开了会让战斗主角变成"细长少年"，与地图的 Q 版**不是一个人**（实测踩到）。
+     ⇒ 恒 `false`：手绘帧退役，走路/战斗都回落到"与地图同一张图"。
+     保留常量是为了留一条"将来重出手绘帧"的接入口。 */
+  var HERO_ANIM_MATERIAL = false;
 
   /* ⚠️⚠️ **主角是否参与 `A.pixelate`**（默认 false，v2.9.1 起）。
      见 `heroSprite` 里的长注释：像素化格(1.5) > 画稿像素(1.17) 会把细节全抹平。
@@ -595,6 +605,59 @@
       }
     } catch (e) { return -1; }
     return -1;
+  }
+
+  /* ⚠️ v2.13.0：**主角素材的"最高内容高"**（四向里最高的那个，= 侧身 202）。
+     用作统一缩放基准：`sc = HERO_LH / HERO_SRC_CONTENT_H` → 侧身刚好顶满占位盒高，
+     正面/背面按其真实内容高（173）显示（约 86% 盒高）。
+     为什么写死而不"每次量"：它是**素材的固有属性**（出图时就定了），
+     每次量会把"读取失败"静默变成另一个缩放基准（画风飘移）。
+     ⚠️ 换素材（重出 2× 分辨率等）时**这个数要一起改**；
+        契约 `hero.material.geom.contract` 会验"四向脚底对齐 + 不超盒"。 */
+  var HERO_SRC_CONTENT_H = 202;
+
+  /* ⚠️ v2.13.0：**主角素材的烘焙密度**（唯一真相源，契约按它算期望位图）。
+     = `S上限(4) × UI_R` —— UI 层被 `scale(UI_R)` 放大，素材位图必须覆盖
+     "最大显示物理像素"（`HERO_LW × UI_R × S`），否则会被放大发糊。
+     与 `battleDensity` / `AGE_STAGE_BAKE_SCALE` 同一条纪律。
+     ⚠️ 不按源素材 cap：主角素材会**按内容盒裁切后重绘**（不是整图缩放），
+        位图密度高一些能让"裁切 + 缩放"这一步更锐（源是 168px 宽，
+        但内容盒只有 109px 宽 → 有效密度由内容决定）。 */
+  function heroDensity() {
+    var ur = (G.game && G.game.UI_R) || 1;
+    return Math.max(2, Math.min(8, 4 * ur));
+  }
+
+  /* ⚠️ v2.13.0：**素材的 alpha 内容盒**（x/y/w/h）—— 素材路径的几何基准。
+     为什么要它：`char.hero.*` 是 168×252 的**方图带透明边距**，内容只占其中一块
+     （down 内容是 109×173、left 是 117×202，且四向**底边距同为 10**）。
+     直接按整图缩放 = 把"透明边距"也当尺寸 → 人物偏小且各向比例失真。
+     按内容盒缩放 + **脚底锚定**才对。
+     `PORTRAIT` 用的是"只取内容高"（够用），这里升级为**完整盒**（宽高都要）。
+     返回 null 表示识别不出（无 DOM / 素材未就绪）→ 调用方走 fallback。 */
+  function _heroContentBox(im) {
+    if (!im) return null;
+    try {
+      if (typeof document === 'undefined') return null;
+      var iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+      if (!iw || !ih) return null;
+      var t = document.createElement('canvas');
+      t.width = iw; t.height = ih;
+      var tx = t.getContext('2d');
+      tx.drawImage(im, 0, 0);
+      var d = tx.getImageData(0, 0, iw, ih).data;
+      var x0 = iw, x1 = -1, y0 = ih, y1 = -1;
+      for (var y = 0; y < ih; y++) {
+        for (var x = 0; x < iw; x++) {
+          if (d[(y * iw + x) * 4 + 3] > 8) {
+            if (x < x0) x0 = x; if (x > x1) x1 = x;
+            if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        }
+      }
+      if (x1 < 0 || y1 < 0) return null;
+      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    } catch (e) { return null; }
   }
   /* 全局头线：取所有有素材的方向里 content_top 最大的那个作为基线（最稳的视觉锚）。 */
   var _heroHeadTop = -1;
@@ -656,30 +719,59 @@
          · 入世演出（`heroAgeStage` 的 6/10/16 岁三档）
        ⚠️ 所以**不要删素材**，只是地图上的角色不再取它。
        ⚠️ 保留 `HERO_USE_MATERIAL` 开关（默认 false）以便 A/B 与回退。 */
+    /* ===== ⚠️⚠️ v2.13.0：**主角改用成品素材（默认开启）** =====
+       用户口径：「全面对标《烟雨江湖》…主角…保持一致」。
+
+       **为什么 v2.9.1 的"退役素材"决定被推翻**：
+         v2.9.1 退役素材有两条理由，现在**两条都不再成立**：
+         ① **比例畸变**：那是旧素材 168×252（比例 0.667）硬塞进 28×42（0.667 → 后改 0.545）
+            造成的。现在改用"**等比内容 + 脚底锚定**"（见下），**不再非均匀拉伸** → 无畸变。
+         ② **程序化画质更好**：实测**不成立** —— 程序化画稿只有 24×36（=864 个设计格），
+            而 `char.hero.*` 素材内容约 259×533（≈13.8 万像素）→ **细节量差约 160 倍**。
+            A/B 图（`_gen/_ab_hero.js`）直接对照：素材版有发丝/衣褶/剑/腰带，
+            程序化版是"方块头 + 圆点眼 + 梯形身"。
+
+       **换装冲突仍在**（素材把衣服画死）→ 沿用 `_lookIsDefault` 分流：
+         默认外观走**素材**，穿了非默认服饰走**程序化**（那里能按 look 上色）。
+         ⚠️ 这是**有意的取舍**：换装时形象会变成程序化（画风切换），
+            换来的是"平时（绝大多数时间）是精致的《烟雨江湖》级立绘"。
+
+       **几何算法（关键）**：`等比内容 + 脚底锚定`
+         · 取素材**alpha 内容盒**（`_heroContentBox`），按 `min(盒宽/内容宽, 盒高/内容高)` **等比**缩放
+         · 水平居中、**脚底钉到 `HERO_LH`**（脚底对齐地面，是"站在地上"的唯一锚点）
+         · 四向内容比例不同（0.48~0.62）→ 等比缩放后**各向高度自然不同**（侧身略高是正常的），
+           不做 v0.11.2 那种"头部强行对齐 + 非均匀压缩"（那正是畸变来源）。
+       ⚠️ `HERO_USE_MATERIAL` 开关保留（默认 true）以便回退。 */
     var _defLook = _lookIsDefault(lk);
     var im = (HERO_USE_MATERIAL && _defLook && G.Assets && G.Assets.img)
       ? G.Assets.img('char.hero.' + dir + '.' + step) : null;
     var c;
     if (im) {
-      /* ⚠️ 素材路径用 **HERO_LW/HERO_LH**（主角的占位盒），不是 NPC 的。
-         （v2.9.1 用 split/join 批量替换时误伤过这一处 —— 改常量时务必逐处核对。） */
-      var o = A.cv(HERO_LW, HERO_LH);
+      /* ⚠️ 素材路径用 **HERO_LW/HERO_LH**（主角的占位盒），不是 NPC 的。 */
+      var _dk = heroDensity();   /* 烘焙密度：S上限 × UI_R（见 heroDensity 注释） */
+      var o = A.cv(HERO_LW, HERO_LH, _dk);
       o.x.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
-      var stepY = step === 1 ? -1 : 0;
-      _ensureHeroHeadTop();
-      var top = _heroContentTop(im);
-      var ih = im.naturalHeight || im.height;
-      if (top >= 0 && _heroHeadTop >= 0 && top <= ih - 1) {
-        /* 把 content_top 钉到 _heroHeadTop 对应的 dest y，feet 钉到 HERO_LH。
-           9-arg drawImage：crop src 顶 top px 丢掉，把剩余塞进 dest 矩形。 */
-        var headDst = _heroHeadTop * HERO_LH / HERO_SRC_H;
-        var dstH = HERO_LH - headDst;
-        var srcH = ih - top;
-        o.x.drawImage(im, 0, top, im.naturalWidth || im.width, srcH,
-                       0, headDst + stepY, HERO_LW, dstH);
+      var stepY = step === 1 ? -1 : 0;                 /* 走路一帧轻微上提（原地踏步感） */
+      var cb = _heroContentBox(im);
+      if (cb) {
+        /* ⚠️ v2.13.0：**统一缩放基准 + 脚底锚定**（不是各自 contain）。
+           实测四向素材内容盒（同 168×252 画布）：
+             down 109×173 / up 83×173 / left,right 117×202 —— **底边距都是 10**，
+             但**上边距差 29px**（69 vs 40）→ 侧身比正面高 17%。
+           若"各自 contain"：侧身会顶满盒高、正面只占 86% → **四向身高跳变**
+           （走路切向时人忽高忽低，很怪）。
+           正解 = **按统一基准缩放**（`HERO_LH / 最高内容高`）+ **脚底锚定**：
+             · 侧身（202）= 满盒高；正面（173）= 86% 盒高
+             · 脚底都在盒底 → 走路时**脚下不动**，只有身高按素材自带比例变化（自然）
+           横向上：`contain by width` 仍要守（否则侧身 117 宽会出盒），取 min 即可。 */
+        var sc = HERO_LH / HERO_SRC_CONTENT_H;      /* 统一基准（见 `HERO_SRC_CONTENT_H`） */
+        sc = Math.min(sc, HERO_LW / cb.w);          /* 再守"不出盒宽" */
+        var dw = cb.w * sc, dh = cb.h * sc;
+        o.x.drawImage(im, cb.x, cb.y, cb.w, cb.h,
+          (HERO_LW - dw) / 2, HERO_LH - dh + stepY, dw, dh);
       } else {
-        /* Fallback：无法识别内容盒（无 DOM 或素材未就绪），沿用旧均匀缩放 */
+        /* Fallback：识别不出内容盒（无 DOM / 素材未就绪）→ 旧均匀缩放 */
         o.x.drawImage(im, 0, stepY, HERO_LW, HERO_LH);
       }
       c = o.c;
@@ -1024,17 +1116,38 @@
   function beastSprite(kind) {
     var ck0 = kind + '|' + battleDensity();
     if (beastCache[ck0]) return beastCache[ck0];
-    /* 素材层优先：主角查 battle.hero，其余查 battle.enemy.<kind> */
-    var key = kind === 'hero' ? 'battle.hero' : 'battle.enemy.' + kind;
+    /* ===== ⚠️⚠️ v2.13.0：主角战斗立绘改用 **地图同一张素材** =====
+       用户口径：「保证主角…人物描述…保持一致」。
+
+       **旧实现的问题**：主角走 `battle.hero`（192×192），那是**写实七头身**的成年侠客；
+       而地图/对话走 `char.hero.*`（168×252）是 **Q 版二头身**。
+       同一个人在两处**头身比完全不同**（1:7 vs 1:2.4）——
+       进战斗像"换了个人"，正是"人物描述不一致"。
+
+       **正解**：战斗主角取 `char.hero.down`（与地图、对话、入世**同一张图**）——
+       全项目主角形象**只有一个真相源**。
+       ⚠️ `battle.hero` 素材**保留在盘上**不删（可回退），但不再被取用。
+       ⚠️ 敌人不受影响（仍走 `battle.enemy.<kind>`）。 */
+    var key = kind === 'hero' ? 'char.hero.down' : 'battle.enemy.' + kind;
     var im = G.Assets && G.Assets.img ? G.Assets.img(key) : null;
     var c;
     if (im) {
-      /* 按"逻辑 40 × 源cap后的密度"烘 —— 避免"把源放大后再存"这道多余重采样 */
+      /* ⚠️ 主角素材是"方图带透明边距"→ 必须按**内容盒等比 + 脚底锚定**（与 heroSprite 同法），
+         否则人物会在战斗盒里偏小/偏移。敌人素材是"已裁好的方图"→ 直接铺。 */
       var dk = battleDensity(im.width || BEAST_LW);
       var o = A.cv(BEAST_LW, BEAST_LH, dk);
       o.x.imageSmoothingEnabled = true;
       if ('imageSmoothingQuality' in o.x) o.x.imageSmoothingQuality = 'high';
-      o.x.drawImage(im, 0, 0, BEAST_LW, BEAST_LH);
+      var hb = (kind === 'hero') ? _heroContentBox(im) : null;
+      if (hb) {
+        /* 与 `heroSprite` 同一套：统一基准（相对 HERO_SRC_CONTENT_H）+ 脚底锚定 + 守盒宽 */
+        var sc = BEAST_LH / HERO_SRC_CONTENT_H;
+        sc = Math.min(sc, BEAST_LW / hb.w);
+        var dw = hb.w * sc, dh = hb.h * sc;
+        o.x.drawImage(im, hb.x, hb.y, hb.w, hb.h, (BEAST_LW - dw) / 2, BEAST_LH - dh, dw, dh);
+      } else {
+        o.x.drawImage(im, 0, 0, BEAST_LW, BEAST_LH);
+      }
       c = o.c;
     } else {
       /* 程序化兜底：无源素材上限，按需求密度直接绘（矢量绘制，越高越清晰） */
@@ -2499,11 +2612,18 @@ function bossGen(plan, elem, f) {
        ③ **尺寸**：手绘帧按 `ANIM_W×ANIM_H`(28×46) 烘焙，而程序化现在
           是 `HERO_W×HERO_H`(40×73) → 两套尺寸并存必然对不齐锚点。
 
-       ⇒ 直接返回 `null`，让调用方回落到 `heroSprite`（程序化）。
+       ⇒ 直接返回 `null`，让调用方回落到 `heroSprite` / `beastSprite`。
           **素材没有删**（`sheet.hero.*` 仍在盘上），只是地图角色不再取它。
-       ⚠️ 保留 `HERO_USE_MATERIAL` 作为总开关：打开时两条素材路一起恢复，
-          便于 A/B 与回退。**不要只改一处**（那会造成"站立用新、走路用旧"）。 */
-    if (!HERO_USE_MATERIAL) { animCache[ck] = null; return null; }
+
+       ⚠️⚠️ v2.13.0：**这一路与 `HERO_USE_MATERIAL` 解耦**（新增独立常量）。
+          原因（实测踩到）：v2.13.0 把 `HERO_USE_MATERIAL` 打开（地图主角改走 Q 版素材）后，
+          `heroAnim` 被**连带恢复** → 战斗主角去取 `sheet.hero.*`（**旧手绘帧、细长比例**），
+          与地图的 Q 版**不是同一个人** → 战斗里又变回"换了个人"。
+          **一个开关管两条不同素材的路 = 隐性耦合**，必须拆开：
+            · `HERO_USE_MATERIAL`（地图主角）→ 素材 `char.hero.*`（Q 版）
+            · `HERO_ANIM_MATERIAL`（走路手绘帧）→ 素材 `sheet.hero.*`（旧细长帧）**恒 false**
+          两者画风不同，不能用一个开关。 */
+    if (!HERO_ANIM_MATERIAL) { animCache[ck] = null; return null; }
     /* 非默认外观：手绘帧换不了衣服 → 明确返回 null 交给程序化兜底。 */
     if (!_lookIsDefault(lk)) { animCache[ck] = null; return null; }
     var img = G.Assets && G.Assets.img ? G.Assets.img(def.keys[view]) : null;
@@ -2582,6 +2702,8 @@ function bossGen(plan, elem, f) {
     HERO_PAL: HERO,
     /* 地图角色的逻辑占位尺寸：渲染点必须用它，改 MAP_SCALE 时不会漏改一边 */
     HERO_W: HERO_LW, HERO_H: HERO_LH, MAP_SCALE: MAP_SCALE,
+    /* 主角素材的烘焙密度（唯一真相源，契约按它算期望位图大小） */
+    heroDensity: heroDensity, HERO_SRC_CONTENT_H: HERO_SRC_CONTENT_H,
     /* 画稿坐标尺寸（v2.9.0）：`heroParts` 里 `add(x,y,w,h)` 用的单位。
        ⚠️ 与 `HERO_W/H`（**屏幕占位**）是两件事 —— 前者是画稿，后者是画多大。
           探针 `_gen/_probe_hero_bbox.js` 用它判"部件有没有超出画布被裁"。 */

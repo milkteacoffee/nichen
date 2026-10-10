@@ -112,7 +112,7 @@
   /* ===== 进门钩子：遗言演出 → 阿七还命 → 转 m1-6 ===== */
   function aqiBtn(scene) {
     return new G.UI.Btn({
-      x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '接过',
+      x: 246, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '接过',
       onClick: function () {
         var save = G.game.save;
         save.items['解封符'] = (save.items['解封符'] || 0) + 2;
@@ -133,7 +133,7 @@
       q.step = 'm1-6';
       G.Storage.saveCurrent(save);
       scene.setOverlay('farewell', [new G.UI.Btn({
-        x: 190, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '合上他的眼',
+        x: 246, y: 214, w: 100, h: 24, small: true, variant: 'gold', label: '合上他的眼',
         onClick: function () {
           scene.clearOverlay();
           /* 抉择 1 = spare：阿七还命（紧接着演，不占另一次 enter） */

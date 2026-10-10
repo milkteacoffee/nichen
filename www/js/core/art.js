@@ -564,9 +564,19 @@
      ⚠️ v0.91.0：原为 224（= 16×14）；格子提到 24 后必须同步改成 24 的整数倍，
         否则 `(tx*TILE) % TS` 取到的子块与平铺位置**对不齐**（接缝处会断开）。
      ============================================================ */
-  var GTS = A.TILE * 9;              /* 必须是 A.TILE 的整数倍，便于按格取子矩形。
+  var GTS = A.TILE * 4;              /* 必须是 A.TILE 的整数倍，便于按格取子矩形。
                                         ⚠️ v2.12.0：从写死 216（=24×9）改为 **派生** ——
-                                           否则改 TILE 时会静默错位（跨格取子块对不上）。 */
+                                           否则改 TILE 时会静默错位（跨格取子块对不上）。
+                                        ⚠️⚠️ v2.13.0：**倍数从 9 降到 4**（=128 逻辑px）。
+                                           为什么：`ground.<区域>` 素材是 **448×448**，
+                                           原 `TS=288 逻辑` 时被铺到 `288×K(=4)=1152 物理px`
+                                           → **拉伸 2.57 倍**（地面发糊，"地图画质"差距的真因）。
+                                           改成 `128 逻辑 = 512 物理px` → 拉伸 **1.14 倍**（≈1:1），
+                                           清晰度提升 **2.25 倍**。
+                                           ⚠️ 为什么取 4 格而不是更小：TS 越小，重复周期越短
+                                              （周期 = TS×K 物理px），4 格 = 512px 已是"一屏(≤2560)内
+                                               重复 5 次"的下限；再小会看出"网格重复"。
+                                           ⚠️ 必须是 TILE 整数倍（契约 `map.scale` 会拦）。 */
   A.GROUND_TS = GTS;
 
   /* 不规则石片：顶点半径带种子的随机收缩 → 天然棱角，比正圆更像石头 */
@@ -2488,9 +2498,37 @@
      key 取美术 v0.2 §3 的 M0 七位（陆尘/沈伯/重伤老者/尘逆残影/杀手/刘掌柜/狼王）
      外加泛用的 villager。狼王只作敌人，立绘走 battle.enemy.wolfking，不在此表。
      ============================================================ */
-  var PORTRAIT_LW = 74, PORTRAIT_LH = 74;
+  /* ⚠️⚠️ v2.13.0：立绘从 **74×74 小方块** 改为 **150×190 大半身竖框**
+     （对标《烟雨江湖》的对话框大立绘：人物占对话框左侧约 40%，而非占一个小角）。
+
+     **为什么改**：用户口径「人物描述要对齐《烟雨江湖》」——
+       原先 74×74 的方框只占对话框左侧 20%，人物小、看不出形象；
+       而我们的 `portrait.*` 素材是 **512×512 方图**，其中人物是竖长条，
+       塞进正方形框里左侧右侧全是空 → 有效展示更小。
+
+     **比例依据**：素材内容比例 ≈ 0.79（如 `portrait.luchen` 内容 259×533 附近），
+       取 150×190（0.789）与内容同形 → 不裁不拉，人物完整。
+       ⚠️ 台词列宽 = `PANEL.w - 14 - 150 - 14 - 18` = **172**（仍够 13px 字排 13 字/行）。
+
+     **实现要点（重要）**：`portraitDraw` 内部有 60+ 处按 74×74 写死的坐标，
+       逐个乘会有遗漏风险。所以内部**保持按 74×74 绘制**，
+       在函数开头用 `x.scale()` 统一放大 —— 内部坐标一处都不用改
+       （与 v2.12.0「世界/UI 分层」同一思路：用一层变换收口）。
+       见 `portraitDraw` 与 `A.portrait` 的 `PORTRAIT_BASE`。 */
+  var PORTRAIT_W = 150, PORTRAIT_H = 190;
+  /* ⚠️ v2.13.0：`PORTRAIT_LW/LH` 保留为"**小尺寸/头像用**"的别名（= 74×74）。
+     历史：它俩原是"立绘逻辑尺寸"；立绘放大到 150×190 后，
+     **头像（`A.avatar`）与取景表本身仍按 74 的坐标系写**，
+     所以别名固定在小尺寸，不要再当"当前立绘尺寸"用。
+     · 要"立绘默认（大）尺寸" → `A.PORTRAIT_SIZE`
+     · 要"角色面板小尺寸"     → `A.PORTRAIT_PANEL`
+     · 要"头像/取景基准"      → `PORTRAIT_BASE`(74) 或这里的别名 */
+  var PORTRAIT_LW = PORTRAIT_BASE, PORTRAIT_LH = PORTRAIT_BASE;
+  /* 程序化立绘的**基准排版尺寸**（`portraitDraw` 内部坐标就按它写）。
+     放大时只改 `PORTRAIT_W/H`，内部靠 `x.scale()` 跟随。 */
+  var PORTRAIT_BASE = 74;
   /* 素材立绘按内容裁完后的"呼吸位"系数（见 A.portrait） */
-  var PORTRAIT_FIT = 0.92;
+  var PORTRAIT_FIT = 0.94;
 
   var PORTRAIT_P = {
     luchen: { hair: '#2b2833', skin: '#efc49c', robe: '#3f6f8c', robe2: '#2d5470',
@@ -2525,7 +2563,13 @@
   };
 
   function portraitDraw(x, P) {
-    var W = PORTRAIT_LW, H = PORTRAIT_LH;
+    /* ⚠️ v2.13.0：内部**一律按 `PORTRAIT_BASE`(74) 的坐标系绘制**，
+       用 `x.scale()` 放大到实际立绘尺寸 —— 这样下面 60+ 处坐标一处都不用改。
+       与 v2.12.0 的「世界/UI 分层」同一思路：**用一层变换收口，别逐处乘**。 */
+    var s = PORTRAIT_W / PORTRAIT_BASE;
+    x.save();
+    x.scale(s, s);
+    var W = PORTRAIT_BASE, H = PORTRAIT_BASE * (PORTRAIT_H / PORTRAIT_W);
     var cx = W / 2, hy = 27, hr = 16;         /* 头心与头半径 */
 
     /* 底：四角压暗的暗角 —— 立绘框落在深色面板里，没有暗角时半身像会"浮"在底色上 */
@@ -2703,6 +2747,7 @@
       });
       x.restore();
     }
+    x.restore();      /* ⚠️ v2.13.0：与函数开头的 `x.scale(s, s)` 成对 —— 漏了会污染后续所有绘制 */
   }
 
   /* 立绘的"素材兜底链"：这些角色本来就有 AI 生成的战斗立绘，
@@ -2754,8 +2799,18 @@
      ⚠️ 默认外观时**完全走原路**（缓存键不变、像素不变）—— 零回归。
      ⚠️ 这里**不引 sprites.js 的 lookOf**：art.js 在 sprites.js **之前**加载，
         直接调会拿到 undefined。改为读 `save.appear` 并只认 id（够用且无依赖）。 */
-  A.portrait = function (key) {
+  A.portrait = function (key, size) {
     key = key || 'villager';
+    /* ⚠️ v2.13.0：支持**显式尺寸**（唯一尺寸常量 `PORTRAIT_BASE/W/H` 仍是默认）。
+       为什么需要它：对话框要用**大半身 150×190**（对标《烟雨江湖》），
+       而角色面板左栏只有 168 宽、盒高 84 —— 塞进大立绘会溢出。
+       两处要的尺寸不同，所以不能让 `A.portrait` 只有一种尺寸。
+       ⚠️ 缓存键必须带尺寸（`portrait|key|WxH`）—— 不带会让"先烘的赢"，
+          对话里的大立绘与面板里的小立绘互相串用（静默）。 */
+    var LW = (size && size[0]) || PORTRAIT_W;
+    var LH = (size && size[1]) || PORTRAIT_H;
+    var _savedW = PORTRAIT_W, _savedH = PORTRAIT_H;
+    PORTRAIT_W = LW; PORTRAIT_H = LH;          /* portraitDraw 内部读这两个 */
     var lk = null;
     if (key === 'luchen' && G.Data && G.Data.appearance && G.game && G.game.save) {
       lk = G.Data.appearance.worn(G.game.save, 'robe');
@@ -2763,8 +2818,8 @@
       var isDef = !lk || lk.id === A2.DEFAULT.robe;
       if (isDef) lk = null;
     }
-    var ck = 'portrait|' + key + (lk ? '|' + A2Tag(lk) : '');
-    var o = cached(ck, PORTRAIT_LW, PORTRAIT_LH, function (x) {
+    var ck = 'portrait|' + key + '|' + LW + 'x' + LH + (lk ? '|' + A2Tag(lk) : '');
+    var o = cached(ck, LW, LH, function (x) {
       /* 换装路径：程序化画一个"穿着该袍"的半身像（不必精细，能读出颜色即可） */
       if (lk) {
         var base = PORTRAIT_P[key] || PORTRAIT_P.villager;
@@ -2789,18 +2844,23 @@
         var sw = cb ? cb[2] : iw, sh = cb ? cb[3] : ih;
         /* 按内容裁完还要留一点呼吸位：贴着框边看着像被切了（头顶留白 0.7px 就是这问题）。
            PORTRAIT_FIT 是"内容最多占框的多少"，0.92 大约上下各留 3px。 */
-        var s = Math.min(PORTRAIT_LW / sw, PORTRAIT_LH / sh) * PORTRAIT_FIT;
+        var s = Math.min(LW / sw, LH / sh) * PORTRAIT_FIT;
         var dw = sw * s, dh = sh * s;
         x.drawImage(im, sx, sy, sw, sh,
-          (PORTRAIT_LW - dw) / 2, (PORTRAIT_LH - dh) / 2, dw, dh);
+          (LW - dw) / 2, (LH - dh) / 2, dw, dh);
         return;
       }
       portraitDraw(x, PORTRAIT_P[key] || PORTRAIT_P.villager);
     });
-    return { c: o.c, ox: 0, oy: 0, w: PORTRAIT_LW, h: PORTRAIT_LH };
+    PORTRAIT_W = _savedW; PORTRAIT_H = _savedH;   /* 还原（`portraitDraw` 读的是全局） */
+    return { c: o.c, ox: 0, oy: 0, w: LW, h: LH };
   };
   function A2Tag(e) { return (e.id || '?') + (e.c || ''); }
-  A.PORTRAIT_SIZE = [PORTRAIT_LW, PORTRAIT_LH];
+  /* 默认尺寸 = **对话框大立绘**（v2.13.0 起 150×190）。
+     ⚠️ `PORTRAIT_SIZE` 是"默认"，`PORTRAIT_PANEL` 是角色面板左栏用的小尺寸
+        （168 宽的栏塞不下大立绘）。新增调用点**必须显式选一个**，别假定。 */
+  A.PORTRAIT_SIZE = [PORTRAIT_W, PORTRAIT_H];
+  A.PORTRAIT_PANEL = [74, 74];      /* 角色面板左栏（保持原尺寸，避免溢出） */
   A.PORTRAIT_KEYS = Object.keys(PORTRAIT_P);
   A.PORTRAIT_ART = PORTRAIT_ART;
 
