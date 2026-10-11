@@ -14116,6 +14116,76 @@ step(function () {
   console.log('  ✓ 空间分层：世界 640 / UI 480(×4/3) + 输入×UI_R + 浮层走 UI 口径 + 无裸整屏 480×272');
 }, 'space.split.contract');
 
+/* ---------- 渐进式预烘（v2.13.2）----------
+   用户诉求「地图画质」的代价面：整张地图 × `K` 的预烘层在 field 上达
+   **5632×3584 = 20.2M 像素**，一次性 **~2000ms** → 进图**黑屏 2 秒**（v2.12.x 起既有）。
+   `bench-frame.js` 首轮 field 报 19~23ms/帧 就是它（预烘摊进那一帧）。
+
+   修法：**大图分两段烘** —— 先 `K/2` 临时层立即显示（面积 1/4，约 500ms 内），
+   下一帧再升全倍率替换。地面是低频纹理，K/2 层放大后肉眼无差别（有 A/B 图佐证）。
+
+   本契约钉三件（都是**静默**失效）：
+     ① 大图必须**给得出临时层**（否则首次卡顿回归而不报错）；
+     ② 升到全倍率后 `_groundKey` 必须**稳定**（不稳定 = 每帧重烘 → 帧率暴跌）；
+     ③ 取源矩形必须用**这一层自己的倍率**（用 `G.Art.K` 会让临时层错位/黑块）。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+    const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const ex = stripC(read('www/js/core/explore.js'));
+
+    /* ① 分段逻辑存在 */
+    const eg = ex.slice(ex.indexOf('_ensureGround: function'), ex.indexOf('_bakeGroundAt: function'));
+    if (eg.indexOf('SPLIT_PX') < 0) bail('explore 未做"大图分段预烘"（首次进图会黑屏 ~2s）');
+    if (!/tmpKK|tmpK/.test(eg)) bail('explore 分段里没有"临时层"逻辑');
+    if (eg.indexOf('_bakeGroundAt(') < 0) bail('_ensureGround 未调用 _bakeGroundAt（预烘未抽成函数）');
+    /* 预烘函数必须**返回**层而不是写实例字段（否则两段无法共存） */
+    const bg = ex.slice(ex.indexOf('_bakeGroundAt: function'), ex.indexOf('_softRoads: function'));
+    if (!/\n\s*return c;/.test(bg)) bail('_bakeGroundAt 未 return 层（写实例字段会让两段互相覆盖）');
+    if (/_groundLayer\s*=\s*c;/.test(bg)) bail('_bakeGroundAt 仍在写 _groundLayer（应由 _ensureGround 统一写）');
+
+    /* ② 取源必须用"层自己的倍率" */
+    const dg = ex.slice(ex.indexOf('_drawGroundLayer: function'), ex.indexOf('_drawGroundLayer: function') + 900);
+    if (dg.indexOf('_groundLayer.width / (this.map.w * TILE)') < 0) {
+      bail('_drawGroundLayer 未按"层自己的倍率"取源 —— 临时层会错位/黑块');
+    }
+    if (/var gk = G\.Art\.K;/.test(dg)) {
+      bail('_drawGroundLayer 仍用 G.Art.K 取源 —— 临时层（K/2）会被错误裁剪');
+    }
+
+    /* ③ 行为：真进一次大图，必须**先出临时层再升全倍率**，且之后 key 稳定。
+       ⚠️ 必须**先清掉已有层** —— 前面的契约可能已经进过 field（层已缓存成全倍率），
+          不清就会看到"首帧就是全倍率"→ 假红（实测踩到）。 */
+    const save = G.game.save;
+    G.game.save = JSON.parse(JSON.stringify(save || {}));
+    G.game.save.map = 'field';
+    G.game.save.pos = { x: 10, y: 10 };
+    G.game.changeScene('field', { toSpawn: true });
+    const sc = G.game.scene;
+    if (!sc || sc.mapId !== 'field') bail('没能进 field（本契约的前置）');
+    sc._groundLayer = null; sc._groundKey = null;      /* 强制回到"未预烘"状态 */
+    sc.render(G.game.ctx);
+    const k0 = sc._groundKey, w0 = sc._groundLayer ? sc._groundLayer.width : 0;
+    sc.render(G.game.ctx);
+    const k1 = sc._groundKey, w1 = sc._groundLayer ? sc._groundLayer.width : 0;
+    if (!k0 || !k1) bail('field 预烘层没生成（_groundKey 为空）');
+    /* 第一帧必须是临时层（宽度小于第二帧），否则"分段"没生效 */
+    if (!(w0 > 0 && w1 > w0)) {
+      errors.push('field 首帧未用临时层（宽 ' + w0 + ' → 第二帧 ' + w1 + '）—— 分段没生效');
+    }
+    /* 第二帧起 key 必须稳定（否则每帧重烘） */
+    sc.render(G.game.ctx); sc.render(G.game.ctx);
+    if (sc._groundKey !== k1 || (sc._groundLayer && sc._groundLayer.width) !== w1) {
+      errors.push('field 预烘层在稳定后仍在重烘（key 不稳）—— 帧率会暴跌');
+    }
+    G.game.changeScene('title');
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('渐进预烘契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 渐进式预烘：大图先出临时层（K/2）再升全倍率 + 取源按层倍率 + 稳定后不重烘');
+}, 'ground.progressive.contract');
+
 /* ---------- 无头 harness 的时钟纪律（v2.12.1）----------
    真因（v2.12.0 定位，详见 HANDOVER §5.1b）：`game.js` 的顿帧用
    `_pauseUntil = performance.now() + ms`，而 `loop(now)` 收到的是 harness 的**虚拟时钟**。

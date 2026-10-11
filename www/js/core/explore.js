@@ -1726,20 +1726,55 @@
            · 烘焙内部也不逐格画：基础地面是周期纹理，"按 TS 对齐平铺"
              与"逐格取 (tx*TILE)%TS 子块"逐像素等价，blit 次数从整图格数
              （field 有 2000 格）降到 6 次左右，只有路格与路缘才逐格补画。 */
+      /* ⚠️⚠️ v2.13.2：**渐进式预烘**（消灭首次进图的长卡顿）。
+         实测问题：整张地图 × K(=4) 的预烘层在 field 上达 **5632×3584 = 20.2M 像素**，
+         一次性耗时 **~2000ms** —— 进图时**黑屏 2 秒**（v2.12.x 起就存在，本轮定位）。
+         `bench-frame.js` 首轮 `field` 报 19~23ms/帧 也是它（预烘摊进了那一帧）。
+
+         解法（两段式，视觉上无感）：
+           · **第 1 段**：用 `K/2` 倍率烘（面积 1/4 → 约 500ms），**立即显示**。
+             地面是低频纹理（草/石），K/2 层放大 2 倍显示几乎看不出差别。
+           · **第 2 段**：在**下一次 `_ensureGround` 调用**时用完整 `K` 重烘并替换。
+             （它由每帧渲染驱动，所以第二帧就会补上 —— 不需要额外的定时器。）
+         ⚠️ 两段的 key 必须**可区分**（`|tmpK` / `|fullK`），否则第二段被第一段挡住。
+         ⚠️ key 都要含 `K` 与调色板（换倍率/换世界要作废）。 */
       _ensureGround: function () {
         var K = G.Art.K, pal = this._pal();
-        /* key 里带上 K 与调色板：窗口缩放改了倍率、或轮回换了世界，
-           旧层必须作废，否则会残留错误倍率/配色的地面。 */
         var key = this.mapId + '|' + K + '|' + pal.ground + '|' + pal.rock
           + '|' + (ISO_ON && G.pixelOn && G.pixelOn() ? G.PIXEL : 1);
-        if (this._groundLayer && this._groundKey === key) return;
+        /* ⚠️ v2.13.2：**小图不分段**。
+           分段（临时层 → 全倍率）的价值只在"大图的一次性预烘很久"时体现
+           （field 达 20.2M 像素 ≈ 2s）。小图本身就 <300ms，分段反而多烘一次。
+           判据用**预烘层的像素量**（`世界逻辑 × K` 的乘积），阈值取实测拐点。 */
+        var px = (this.map.w * TILE * K) * (this.map.h * TILE * K);
+        var SPLIT_PX = 8e6;                    /* ≈ 8M 像素；field 20M 会分段，town 6.3M 不分段 */
+        var split = px > SPLIT_PX;
+        if (split) {
+          if (this._groundKey === key + '|fullK') return;              /* 已到全倍率 */
+          var tmpK = Math.max(1, Math.round(K / 2));
+          var stage = (this._groundKey === key + '|tmpK' + tmpK) ? 'full' : 'tmp';
+          var useK = stage === 'full' ? K : tmpK;
+          var kk = key + '|' + (stage === 'full' ? 'fullK' : 'tmpK' + tmpK);
+          this._groundLayer = this._bakeGroundAt(useK, pal);
+          this._groundKey = kk;
+        } else {
+          if (this._groundKey === key + '|fullK') return;
+          this._groundLayer = this._bakeGroundAt(K, pal);
+          this._groundKey = key + '|fullK';
+        }
+      },
+
+      /* 把整张地图烘成一张 `w×useK` 的层。`useK` 是**倍率**（不是逻辑尺寸）。
+         抽成独立函数是为了让"临时层/正式层"共用同一段绘制代码（避免两处分叉）。 */
+      _bakeGroundAt: function (useK, pal) {
         var m = this.map;
         var w = m.w * TILE, h = m.h * TILE;
         var c = document.createElement('canvas');
-        c.width = Math.round(w * K); c.height = Math.round(h * K);
+        c.width = Math.round(w * useK); c.height = Math.round(h * useK);
         var g = c.getContext('2d');
         g.imageSmoothingEnabled = false;
-        g.setTransform(K, 0, 0, K, 0, 0);
+        g.setTransform(useK, 0, 0, useK, 0, 0);
+        var K = useK;                 /* 下面沿用原变量名 */
 
         /* 1) 基础地面：整张周期纹理按 TS 对齐平铺（超出画布的部分自动裁掉） */
         var TS = G.Art.GROUND_TS;
@@ -1797,8 +1832,8 @@
         if (ISO_ON && G.pixelOn && G.pixelOn() && G.Art && G.Art.pixelate) {
           c = G.Art.pixelate(c, G.PIXEL);
         }
-        this._groundLayer = c;
-        this._groundKey = key;
+        return c;                 /* ⚠️ v2.13.2：本函数只**返回**层，不写实例字段 ——
+                                     字段由 `_ensureGround` 写（它要区分临时/正式两段）。 */
       },
 
       /* 软道路：路面层按噪声羽化的覆盖率与基础地面逐像素混合。
@@ -1856,7 +1891,12 @@
         this._ensureGround();
         x.imageSmoothingEnabled = false;
         if (this._groundLayer) {
-          var gk = G.Art.K;
+          /* ⚠️ v2.13.2：**必须用"这一层自己的倍率"**，不能用 `G.Art.K` ——
+             渐进式预烘的第 1 段是 `K/2` 的临时层，用 `K` 取源会越界/错位
+             （表现：第一帧地面错位或黑块，第二帧才好 —— 极难查的闪烁）。
+             从画布尺寸反推倍率（`层宽 / 世界逻辑宽`）最稳，两段自动正确。 */
+          var gk = this._groundLayer.width / (this.map.w * TILE);
+          if (!(gk > 0)) gk = G.Art.K;
           if (ISO_ON) {
             /* 等距：屏幕是**旋转**的 → 不能用"视口矩形"取源（那会取到世界的
                一个正矩形，旋转后盖不全屏幕）。改成**整张地图铺出去**：
