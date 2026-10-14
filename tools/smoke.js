@@ -14186,6 +14186,52 @@ step(function () {
   console.log('  ✓ 渐进式预烘：大图先出临时层（K/2）再升全倍率 + 取源按层倍率 + 稳定后不重烘');
 }, 'ground.progressive.contract');
 
+/* ---------- 程序化地面：像素量必须随 TILE 缩放（v2.13.3）----------
+   **本轮发现的坑**：`gFloor` 的"板高"写死 `16`，注释还写着"= 1 格"——
+   那是 `TILE=16` 时代的基准。`TILE` 16→24→32 之后，写死的 16 让
+   "1 格跨 2 排板" → 室内地板**密度错乱、纹理发糊**（截图实测：
+   室外石板清晰、室内木纹糊成一团）。
+
+   ⚠️ 这类"**写死的像素量 vs 随 TILE 缩放的量**"是本项目的高频静默缺陷：
+   改 `TILE` 时它不会报错，只是画面悄悄变糊/错位。
+   本契约用**源码闸**扫 `gFloor` 里是否还有裸的 16/12.4 这类"按旧 TILE 标定"的常量。 */
+step(function () {
+  const errors = [];
+  const bail = (m) => { errors.push(m); throw new Error('__bail__'); };
+  try {
+    const read = (p) => fs.readFileSync(path.join(WWW, p.replace(/^www\//, '')), 'utf8');
+    const stripC = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const art = stripC(read('www/js/core/art.js'));
+    const gf = art.slice(art.indexOf('function gFloor'), art.indexOf('function gCaveBody'));
+
+    /* 板高必须由 TILE 派生（不能写死 16） */
+    if (!/var PH = A\.TILE \/ 2;/.test(gf)) {
+      bail('gFloor 的板高未由 A.TILE 派生（写死会让 TILE 变化后地板密度错乱）');
+    }
+    /* 缩放基准必须在场 */
+    if (!/var S = A\.TILE \/ 16;/.test(gf)) {
+      bail('gFloor 缺缩放基准 S = A.TILE / 16（那些按旧 TILE 标定的像素量无法换算）');
+    }
+    /* 木纹纵向范围必须按 PH 取，不能写死 12.4（板变矮后会跑出板外）。
+       ⚠️ 判据要**同时覆盖有括号/无括号**两种写法 ——
+          只写 `r() * 12.4` 会漏掉 `r() * (12.4 * S)`（反例验证时踩到）。 */
+    if (/r\(\)\s*\*\s*\(?\s*12\.4/.test(gf)) {
+      errors.push('gFloor 木纹纵向范围仍写死 12.4 —— 应按 PH 取（否则木纹跨出板外）');
+    }
+    /* 所有矩形/线宽都要带 S（裸数 = 未缩放） */
+    const bare = [];
+    const IMPORTANT = [
+      [/fillRect\(0, y0 \+ 15\.1/, '板缝 y 偏移 15.1'],
+      [/x\.lineWidth = (?!\()0\.45 \+ r\(\) \* 0\.5;/, '木纹线宽未乘 S'],
+      [/fillRect\(sx, y0 \+ 0\.6, 0\.7, 14\.5\)/, '断板缝未乘 S']
+    ];
+    IMPORTANT.forEach(function (p) { if (p[0].test(gf)) bare.push(p[1]); });
+    if (bare.length) errors.push('gFloor 仍有未随 TILE 缩放的写死像素：' + bare.join('、'));
+  } catch (e) { if (e.message !== '__bail__') throw e; }
+  if (errors.length) throw new Error('地面程序化缩放契约失败：' + errors.length + ' 条\n  - ' + errors.join('\n  - '));
+  console.log('  ✓ 程序化地面：gFloor 板高随 TILE 派生 + 缩放基准在场 + 无写死像素量');
+}, 'ground.proc.scale.contract');
+
 /* ---------- 无头 harness 的时钟纪律（v2.12.1）----------
    真因（v2.12.0 定位，详见 HANDOVER §5.1b）：`game.js` 的顿帧用
    `_pauseUntil = performance.now() + ms`，而 `loop(now)` 收到的是 harness 的**虚拟时钟**。

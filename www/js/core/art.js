@@ -854,27 +854,39 @@
   function gFloor(x, pal) {
     var TS = GTS, r = rnd(9113);
     var wood = '#6b5136', dark = '#42301f', hi = '#84673f';
+    /* ⚠️⚠️ v2.13.3：**板高必须随 TILE 缩放**，且取**半格**（原写死 16，注释还写着"= 1 格"）。
+       历史：TILE=16 时板高 16 = 1 格；TILE 16→24→32 后写死的 16 让"1 格跨 2 排板"
+       → 室内地板**密度错乱且发糊**（截图实测：室外石板清晰、室内木纹糊成一团）。
+       为什么取**半格**（`TILE/2`）而不是 1 格：
+         `GTS` 已从 288 降到 128（4 格），若板高 = 1 格则纹理里只有 4 排板 →
+         **重复周期太短**（一屏内肉眼看出复制）。取半格 → 纹理里 8 排，
+         重复感消失，也更接近真实木地板的板宽比例。
+       ⚠️ 所有依赖"板高"的像素量（板缝投影/木纹纵向范围/断板缝高度）都要同比例缩放，
+          否则会画出"越界的缝"（只改板高不改缝 = 缝出现在板中间）。 */
+    var S = A.TILE / 16;               /* 缩放比：TILE=16 时为 1（历史基准） */
+    var PH = A.TILE / 2;               /* 板高 = 半格（视觉与重复周期的折中） */
     x.fillStyle = wood; x.fillRect(0, 0, TS, TS);
 
-    /* 横向长板：板高固定 16（= 1 格），铺起来不会有半格错位 */
-    for (var row = 0; row < TS / 16; row++) {
-      var y0 = row * 16;
+    /* 横向长板：板高 = 半格，铺起来不会有半格错位 */
+    for (var row = 0; row < TS / PH; row++) {
+      var y0 = row * PH;
       x.fillStyle = shade(wood, -0.06 + r() * 0.13);
-      x.fillRect(0, y0, TS, 16);
+      x.fillRect(0, y0, TS, PH);
       /* 板缝：下缘投影 + 上缘受光 */
       x.fillStyle = alpha(dark, 0.55);
-      x.fillRect(0, y0 + 15.1, TS, 0.9);
+      x.fillRect(0, y0 + PH - 0.9 * S, TS, 0.9 * S);
       x.fillStyle = alpha(hi, 0.20);
-      x.fillRect(0, y0, TS, 0.7);
-      /* 木纹：细长曲线，越靠板中越淡 */
+      x.fillRect(0, y0, TS, 0.7 * S);
+      /* 木纹：细长曲线，越靠板中越淡。
+         ⚠️ 纵向范围按 **PH** 取（不是写死的 12.4），否则板变矮后木纹会跑出板外。 */
       for (var g = 0; g < 6; g++) {
-        var gy = y0 + 1.8 + r() * 12.4;
-        var gx = r() * TS, gl = 16 + r() * 44;
+        var gy = y0 + PH * 0.12 + r() * (PH * 0.76);
+        var gx = r() * TS, gl = (16 + r() * 44) * S;
         x.strokeStyle = alpha(dark, 0.10 + r() * 0.13);
-        x.lineWidth = 0.45 + r() * 0.5;
+        x.lineWidth = (0.45 + r() * 0.5) * S;
         x.beginPath();
         x.moveTo(gx, gy);
-        x.bezierCurveTo(gx + gl * 0.32, gy - 1.2, gx + gl * 0.68, gy + 1.2, gx + gl, gy);
+        x.bezierCurveTo(gx + gl * 0.32, gy - 1.2 * S, gx + gl * 0.68, gy + 1.2 * S, gx + gl, gy);
         x.stroke();
       }
       /* 竖向断板缝：每行错开，否则整片读成"满铺条纹" */
@@ -882,13 +894,13 @@
       for (var s2 = 0; s2 < seams; s2++) {
         var sx = r() * TS;
         x.fillStyle = alpha(dark, 0.40);
-        x.fillRect(sx, y0 + 0.6, 0.7, 14.5);
+        x.fillRect(sx, y0 + 0.6 * S, 0.7 * S, PH - 1.5 * S);
       }
     }
 
     /* 木节 */
     var knots = [];
-    for (var k = 0; k < 5; k++) knots.push({ x: r() * TS, y: r() * TS, rr: 1.1 + r() * 1.6 });
+    for (var k = 0; k < 5; k++) knots.push({ x: r() * TS, y: r() * TS, rr: (1.1 + r() * 1.6) * S });
     wrapEach(x, TS, knots, function (o) { return o.rr * 2.2; }, function (xx, o, ox, oy) {
       xx.fillStyle = alpha(dark, 0.42);
       blob(xx, o.x + ox, o.y + oy, o.rr, 0.82);
@@ -896,9 +908,10 @@
       blob(xx, o.x + ox - o.rr * 0.26, o.y + oy - o.rr * 0.26, o.rr * 0.5, 0.82);
     });
 
-    /* 陈年磨损与浮尘 */
-    speckle(x, TS, wood, 23, 10, 2.5, 0.08, -0.10, 0.10, 0.20);
-    speckle(x, TS, wood, 71, 3, 2, 0.06, -0.07, 0.14, 0.14);
+    /* 陈年磨损与浮尘（数量 ×S² 保持"每格密度"不变） */
+    var NS = Math.max(1, Math.round(S * S));
+    speckle(x, TS, wood, 23 * NS, 10, 2.5 * S, 0.08, -0.10, 0.10, 0.20);
+    speckle(x, TS, wood, 71 * NS, 3, 2 * S, 0.06, -0.07, 0.14, 0.14);
   }
 
   /* ---------- 洞窟 ---------- */
