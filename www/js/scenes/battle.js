@@ -427,6 +427,11 @@
     _initUnits: function () {
       var save = G.game.save;
       var st = G.Player.computeStats(save);
+      /* 玩家天赋效果开战快照（v2.15.0）：把此前"只登记不结算"的战斗向天赋
+         （se/he/ls/rc/rf/drAll/ct/lowHpDef/rs/dr/bdur/mf/es/killAtk）接入统一口径，
+         下方各结算点只读 this.pfx，不重复合并。 */
+      this.pfx = G.Player.talentEffects(save);
+      this._killRamp = 0;
 
       /* 我方主动技（v0.69.0 激活制）：**只取 `save.skillEquip` 里已激发的功法**。
          ⚠️ 用户新需求覆盖旧设计 —— 归档《战斗系统修订 v2.1》§2 原写"所有已学功法
@@ -831,7 +836,8 @@
         for (var i = 0; i < alive.length; i++) sum += this._effSpd(alive[i]);
         var en = alive.length ? sum / alive.length : 0;
         var ch = en <= 0 ? 0.9 : my / (my + en);
-        ch = Math.max(0.10, Math.min(0.90, ch));
+        /* 天赋 es（神行百变等）：逃跑概率加百分点，上限 90% */
+        ch = Math.max(0.10, Math.min(0.90, ch + (this.pfx.es || 0)));
         if (Math.random() < ch) {
           this._log('你抽身而退。');
           this._cut([[0.5, function () { self._leave(); }]]);
@@ -1375,6 +1381,7 @@
     _act: function (atk, def, aKey, dKey, skill, done) {
       var self = this;
       skill = skill || { n: '攻击', mult: 1.0, elem: atk.elem || '无', kind: 'atk' };
+      this._curAtk = aKey;   /* 反伤需要知道当前攻击者 */
       var steps = [];
 
       if (skill.kind === 'charge') {
@@ -1552,6 +1559,8 @@
         if (aKey === 'P' && G.Player.dungeonBuffFx) {
           vampRate += G.Player.dungeonBuffFx(G.game.save).vamp || 0;
         }
+        /* 天赋 ls（嗜血狂魔）：主角造成伤害即吸血（此处在 step 闭包内，用 self） */
+        if (aKey === 'P' && self.pfx.ls) vampRate += self.pfx.ls;
         if (vampRate > 0 && totalHp > 0) {
           var vh = Math.round(totalHp * vampRate);
           if (vh > 0) { self._heal(aKey, vh); self._log(atk.name + ' 汲取气血，回复 ' + vh + '。'); }
@@ -1566,7 +1575,15 @@
         this._log(u.name + ' 体质特异，「' + t + '」不侵！');
         return;
       }
+      /* 天赋 rs（宁神/舒筋/安神）：主角受对应异常时按概率抵抗 */
+      if (u === this.p && this.pfx.rs && this.pfx.rs[t] && Math.random() < this.pfx.rs[t]) {
+        this._float(key, '抵抗', '#c8a8e8');
+        this._log('你凝志守心，「' + t + '」未能加身！');
+        return;
+      }
       var dur = t === '封' ? 2 : (t === '睡' ? 1 + Math.floor(Math.random() * 2) : 3);
+      /* 天赋 bdur（寒潭之体）：主角受灼烧时缩短持续回合（下限 1） */
+      if (u === this.p && t === '烧' && this.pfx.bdur) dur = Math.max(1, dur - this.pfx.bdur);
       u.statuses[t] = dur;
       this._float(key, t, '#c8a8e8');
       this._log(u.name + ' 陷入「' + t + '」！');
@@ -1612,12 +1629,23 @@
         }
         if (atkEb) base *= (1 + atkEb);
       }
+      /* 天赋 se（剑道通神）：主角施展攻击功法（非普攻）时伤害放大 */
+      if (atk === this.p && skill.kind === 'atk' && skill.n !== '攻击' && skill.n !== '普通攻击'
+        && this.pfx.se) base *= (1 + this.pfx.se);
+      /* 天赋 mf（五行亲和）：主角功法属性与自身首灵根相合时 +25% */
+      if (atk === this.p && this.pfx.mf && skill.elem && skill.elem !== '无'
+        && skill.elem === atk.elem) base *= 1.25;
+      /* 天赋 killAtk（越战越勇）：本场每杀一敌叠攻，上限 cap */
+      if (atk === this.p && this._killRamp) base *= (1 + this._killRamp);
       /* v0.76.0 连击加成：每combo +1%伤害，上限50% */
       var comboBonus = Math.min(this.COMBO_MAX_BONUS, this.comboCount * 0.01);
       base *= (1 + comboBonus);
       var guard = def.guard ? 0.55 : 1;
       var v = base * (0.9 + Math.random() * 0.2) * guard;
-      var crit = Math.random() < (atk.crit || 0.05);
+      /* 天赋 ct（沉着冷静/谨慎小道）：主角受击时降低对方暴击率 */
+      var critChance = atk.crit || 0.05;
+      if (def === this.p && this.pfx.ct) critChance = Math.max(0, critChance - this.pfx.ct);
+      var crit = Math.random() < critChance;
       if (crit) v *= (atk.critDmg || 1.5);
       return { dmg: Math.max(1, Math.round(v)), crit: crit, ec: ec };
     },
@@ -1634,6 +1662,8 @@
       ['毒', '烧'].forEach(function (k) {
         if (!u.statuses[k]) return;
         var d = Math.max(1, Math.round(k === '毒' ? u.maxhp * 0.05 : u.hp * 0.08));
+        /* 天赋 dr（避毒诀/避火诀）：主角受持续伤害时按比例减免 */
+        if (u === self.p && self.pfx.dr && self.pfx.dr[k]) d = Math.max(1, Math.round(d * (1 - self.pfx.dr[k])));
         u.hp = k === '烧' ? Math.max(1, u.hp - d) : Math.max(0, u.hp - d);
         self._float(key, '-' + d, k === '烧' ? '#ff9a5a' : '#a8e07a');
         self._log(u.name + ' 受「' + k + '」侵蚀，损失 ' + d + '。');
@@ -1725,6 +1755,17 @@
       if (!u) return 0;
       var dmg = r.dmg;
 
+      /* 主角受击减伤（天赋 drAll 太上忘情 + lowHpDef 百折不挠，气血<30% 时）：
+         在护盾/坐骑分担之前折减，避免减伤被护盾池吞掉而无感。 */
+      if (key === 'P' && dmg > 0) {
+        var rd = (this.pfx.drAll || 0)
+          + (this.pfx.lowHpDef && u.hp / u.maxhp < 0.30 ? this.pfx.lowHpDef : 0);
+        if (rd > 0) {
+          var nd = Math.max(1, Math.round(dmg * (1 - Math.min(0.8, rd))));
+          if (nd < dmg) { dmg = nd; this._float(key, '减伤', '#9fd8ff'); }
+        }
+      }
+
       /* v0.76.0 连击累加：只有攻击敌人且造成伤害才累加 */
       if (dmg > 0 && key !== 'P') {
         this.comboCount++;
@@ -1747,6 +1788,25 @@
         if (this.mount.hp <= 0) this._forceDismount('坐骑力竭，翻身落马！');
       }
       u.hp = Math.max(0, u.hp - dmg);
+
+      /* 天赋 killAtk（越战越勇）：主角击杀一敌，本场叠攻（每只只计一次） */
+      if (key !== 'P' && u.hp <= 0 && this._curAtk === 'P' && this.pfx.killAtk && !u._killCounted) {
+        u._killCounted = true;
+        this._killRamp = Math.min(this.pfx.killAtkCap || 0.15, (this._killRamp || 0) + this.pfx.killAtk);
+        this._log('越战越勇，攻势提升！');
+      }
+      /* 天赋 rc/rf（不灭战体/睚眦必报/防守反击）：主角受击概率反伤攻击者 */
+      if (key === 'P' && dmg > 0 && this.pfx.rc && this.pfx.rf && Math.random() < this.pfx.rc) {
+        var ak = this._curAtk && this._curAtk.charAt(0) === 'E' ? this._curAtk
+          : (this._aliveEs()[0] && this._aliveEs()[0].key);
+        var au = ak ? this._unit(ak) : null;
+        if (au && au.hp > 0) {
+          var rv = Math.max(1, Math.round(dmg * this.pfx.rf));
+          au.hp = Math.max(0, au.hp - rv);
+          this._float(ak, '-' + rv, '#ffb070');
+          this._log('护体反震，反弹 ' + rv + ' 点伤害！');
+        }
+      }
 
       /* v0.76.0 评级统计：主角受伤累计 */
       if (key === 'P' && dmg > 0) {
@@ -1781,6 +1841,8 @@
     _heal: function (key, amt) {
       var u = this._unit(key);
       if (!u) return;
+      /* 天赋 he（丹窍/青木等治疗增幅；幽冥之体为负）：主角受治疗按比例增减 */
+      if (key === 'P' && this.pfx && this.pfx.he) amt = Math.max(0, Math.round(amt * (1 + this.pfx.he)));
       u.hp = Math.min(u.maxhp, u.hp + amt);
       this._float(key, '+' + amt, '#8fe0a0');
     },

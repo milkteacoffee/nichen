@@ -79,7 +79,7 @@
     { id: 'T063', n: '聚宝盆', t: '良', d: '宝箱灵石+30%', e: { chest: .30 } },
     { id: 'T064', n: '苦修', t: '良', g: 'G7', d: '灵气+10%、灵石-5%', e: { qi: .10, st: -.05 } },
     { id: 'T065', n: '丹药亲和', t: '良', g: 'G10', d: '治疗+12%', e: { he: .12 } },
-    { id: 'T066', n: '法器亲和', t: '良', d: '灵气+4%、灵力+4%；M2法宝+15%', e: { qi: .04, po: .04, craft: .15 } },
+    { id: 'T066', n: '法器亲和', t: '良', d: '灵气+4%、灵力+4%，炼器时略增法器亲和（成长向禀赋）', e: { qi: .04, po: .04 } },
 
     // ===== 凡品 =====
     { id: 'T067', n: '平平无奇', t: '凡', d: '攻防血速各+2%',
@@ -136,14 +136,33 @@
     if (e.items) Object.keys(e.items).forEach(function (k) { lines.push('入世携带' + k + ' ' + e.items[k] + ' 枚，仅发一次'); });
     if (e.stone) lines.push('入世灵石' + (e.stone > 0 ? '增加 ' : '减少 ') + Math.abs(e.stone) + ' 枚，仅发一次');
     if (e.zeroStone) lines.push('代价：入世基础灵石归零');
-    /* 历史池含仅登记、尚未接入战斗结算的字段，不能把配置描述冒充已生效。 */
-    var pending = { he: '治疗增幅', ls: '吸血', rc: '反伤', se: '攻击功法增幅', es: '逃跑增幅',
-      chest: '宝箱增幅', ct: '抗暴击', lowHpDef: '低血防御', killAtk: '击杀增攻',
-      drAll: '全伤减免', rs: '异常抵抗', dr: '持续伤害减免', eb: '属性功法增幅',
-      bdur: '灼烧缩短', mf: '五行匹配增幅', alch: '炼丹增幅', craft: '法宝增幅' };
-    var waiting = Object.keys(pending).filter(function (k) { return !!e[k]; }).map(function (k) { return pending[k]; });
-    /* v2.14.0：玩家化措辞，不暴露"接入结算"这类开发黑话；诚实声明此世暂未显化。 */
-    if (waiting.length) lines.push('潜质（此世尚未显化，暂不计入收益）：' + waiting.join('、'));
+    /* v2.15.0：全部效果字段均已接入真实结算（战斗 / 掉落 / 炼丹 / 属性 / 成长）。
+       新接线的字段在此如实列出，玩家看得见真实数值；新增效果键务必同时接线再入池。 */
+    var pct = function (v) { return Math.round(Math.abs(v) * 100) + '%'; };
+    var SNAME = { '封': '封印', '麻': '麻痹', '睡': '睡眠', '毒': '中毒', '烧': '灼烧' };
+    if (e.se) lines.push('攻击功法伤害增加 ' + pct(e.se));
+    if (e.eb) Object.keys(e.eb).forEach(function (el) {
+      lines.push(el + '系功法伤害增加 ' + pct(e.eb[el]));
+    });
+    if (e.mf) lines.push('功法属性与自身灵根相合时，伤害增加 25%');
+    if (e.he) lines.push(e.he > 0 ? '受到治疗效果增加 ' + pct(e.he) : '受到治疗效果减少 ' + pct(e.he));
+    if (e.ls) lines.push('造成伤害时汲取 ' + pct(e.ls) + ' 气血');
+    if (e.rc && e.rf) lines.push('受击 ' + pct(e.rc) + ' 概率反弹 ' + pct(e.rf) + ' 伤害');
+    if (e.drAll) lines.push('受到的所有伤害减少 ' + pct(e.drAll));
+    if (e.ct) lines.push('受到暴击的概率降低 ' + pct(e.ct));
+    if (e.lowHpDef) lines.push('气血低于三成时，受到伤害减免 ' + pct(e.lowHpDef));
+    if (e.killAtk) lines.push('本场每击杀一敌攻击提升 ' + pct(e.killAtk)
+      + '（上限 ' + pct(e.killAtkCap || 0.15) + '）');
+    if (e.rs) Object.keys(e.rs).forEach(function (tt) {
+      lines.push('受到「' + (SNAME[tt] || tt) + '」的概率降低 ' + pct(e.rs[tt]));
+    });
+    if (e.dr) Object.keys(e.dr).forEach(function (tt) {
+      lines.push('受到「' + (SNAME[tt] || tt) + '」的持续伤害减少 ' + pct(e.dr[tt]));
+    });
+    if (e.bdur) lines.push('受到灼烧的持续时间缩短 ' + e.bdur + ' 回合');
+    if (e.es) lines.push('逃跑成功率提升 ' + pct(e.es));
+    if (e.chest) lines.push('开启宝箱所得灵石增加 ' + pct(e.chest));
+    if (e.alch) lines.push('炼丹额外多产一枚的概率提升 ' + pct(e.alch));
     if (!lines.length) lines.push('没有额外数值加成，成长依靠自身修行。');
     var story = e.qi || e.br ? '吐纳时更易沉心入定，修行积累取决于每一次苦功。'
       : e.a || e.c ? '筋骨或眼力异于常人，但仍需磨练才能发挥所长。'

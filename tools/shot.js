@@ -1203,6 +1203,7 @@ step(() => {
   s.cult = 'free'; s.sectId = null; s.sectRep = 0; s.cultSwitchUsed = false;
   /* 先切回干净镇内（此前停在战斗场景，面板叠在战场上构图无效）。 */
   G.game.changeScene('town', { toSpawn: true });
+  G.game.toasts.length = 0; G.game.lootFeed.length = 0;
   G.Overlays.openPanel(G.game.scene, 'sect');
 }, 'panel.sect');
 shot('34_panel_sect', 6);

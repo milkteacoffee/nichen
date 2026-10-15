@@ -2,7 +2,7 @@
 (function () {
   var ADD_KEYS = ['a', 'f', 'h', 's', 'qi', 'po', 'st', 'c', 'cd', 'ct', 'br',
     'he', 'ls', 'rc', 'rf', 'se', 'es', 'chest', 'lowHpDef', 'killAtk',
-    'killAtkCap', 'drAll'];
+    'killAtkCap', 'drAll', 'alch'];
   var MERGE_KEYS = ['rs', 'dr', 'eb'];
 
   function empty() {

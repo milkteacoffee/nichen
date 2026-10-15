@@ -37,7 +37,9 @@
       save.items[k] -= r.mats[k];
       if (save.items[k] <= 0) delete save.items[k];
     }
-    var cnt = 1 + (Math.random() < 0.25 ? 1 : 0);
+    /* 天赋 alch（丹窍）：多出一枚丹药的概率额外提升，上限 95% */
+    var extraP = Math.min(0.95, 0.25 + (G.Player.talentEffects(save).alch || 0));
+    var cnt = 1 + (Math.random() < extraP ? 1 : 0);
     save.items[r.n] = (save.items[r.n] || 0) + cnt;
     G.Storage.saveCurrent(save);
     return { ok: true, n: cnt };

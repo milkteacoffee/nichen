@@ -758,7 +758,12 @@
         var save = G.game.save;
         if (save.chestsOpened.indexOf(o.id) >= 0) { G.game.toast('宝箱已空'); return; }
         var sp = this.map.chests[o.id], loot = sp.loot;
-        if (loot.stone) { save.stone += loot.stone; G.game.toast('灵石 +' + loot.stone); }
+        /* 天赋 chest（天命之子/福星高照/聚宝盆）：宝箱灵石按比例增幅 */
+        var chestBonus = G.Player.talentEffects(save).chest || 0;
+        if (loot.stone) {
+          var cStone = Math.round(loot.stone * (1 + chestBonus));
+          save.stone += cStone; G.game.toast('灵石 +' + cStone);
+        }
         if (loot.items) Object.keys(loot.items).forEach(function (k) {
           save.items[k] = (save.items[k] || 0) + loot.items[k];
           G.game.toast(G.Player.itemName(k) + ' ×' + loot.items[k]);

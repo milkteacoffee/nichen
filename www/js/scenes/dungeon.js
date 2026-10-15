@@ -525,6 +525,8 @@
         var poGain = 10 + G.rng.int(0, 20);
         save.po = (save.po || 0) + poGain;
         var stone = 20 + G.rng.int(0, 30);
+        /* 天赋 chest：休整宝箱灵石同步增幅 */
+        stone = Math.round(stone * (1 + (G.Player.talentEffects(save).chest || 0)));
         save.stone += stone;
         lines.push('灵泉汩汩，气血尽复，灵力 +' + poGain);
         lines.push('开启宝箱，灵石 +' + stone);

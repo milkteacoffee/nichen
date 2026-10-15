@@ -12314,6 +12314,161 @@ step(function () {
     + ' + 探索奖励：100% 一次性（不重复 / 道具已登记）');
 }, 'battle.weather.reward.contract');
 
+/* ---------- 天赋待结算效果接入（v2.15.0）----------
+   历史上一批天赋"只登记不结算"（面板诚实标"潜质暂不计入"）。本契约钉死：
+   战斗/掉落/炼丹的 16 类效果必须真实进入结算，且池中不再有假字段。
+   ① 数值结算：进入战斗后 scene.pfx 聚合各键；用钉 RNG 的 _calc/_heal/_impact/_applyStatus 验证。
+   ② 源码闸：battle/explore/dungeon/alchemy 各钩子在位。
+   ③ 无假字段：talents.js 不再出现"暂不计入"，且没有任何天赋再用未接线的 craft。 */
+step(function () {
+  const g = G.game;
+  const s = JSON.parse(JSON.stringify(save));
+  s.quest = { step: 'free', flags: {} };
+  s.linggen = { kind: '单灵根', elems: ['木'], coef: { '木': 1.2 } };
+  s.talents = ['T002', 'T009', 'T029', 'T016', 'T043', 'T051', 'T059', 'T061',
+    'T021', 'T034', 'T031', 'T006', 'T017', 'T052'];
+  s.world.traits = [];
+  G.game.save = s;
+
+  /* 聚合口径：炼丹/宝箱字段也要进 talentEffects */
+  const fx = G.Player.talentEffects(s);
+  const need = { se: .25, drAll: .10, ls: .15, rc: .30, rf: .50, ct: .10,
+    lowHpDef: .15, bdur: 2, chest: .50, alch: .15, killAtk: .03, killAtkCap: .15 };
+  Object.keys(need).forEach(function (k) {
+    if (Math.abs((fx[k] || 0) - need[k]) > 1e-9) {
+      errors.push('天赋聚合 ' + k + ' 应为 ' + need[k] + '，实为 ' + fx[k]);
+    }
+  });
+  if (fx.mf !== true) errors.push('T034 五行亲和 mf 应聚合为 true');
+  if (!(fx.es >= .3)) errors.push('逃跑 es 应叠加（T031+T006 ≥0.3），实为 ' + fx.es);
+  if (!fx.rs || fx.rs['麻'] !== .40) errors.push('异常抵抗 rs.麻 应为 .40，实为 ' + (fx.rs && fx.rs['麻']));
+  if (!fx.dr || fx.dr['烧'] !== .50) errors.push('持续伤害减免 dr.烧 应为 .50，实为 ' + (fx.dr && fx.dr['烧']));
+
+  G.game.changeScene('battle', {
+    enemy: G.Data.makeEnemy('青纹蛇', 6, '青纹蛇'), mapId: 'field'
+  });
+  pump(2, 'talent.fx.battle');
+  const b = G.game.scene;
+  if (!b.pfx) { errors.push('战斗未建立 pfx 天赋快照'); G.game.changeScene('title'); return; }
+  if (b.p.elem !== '木') errors.push('测试前置：单木灵根首元素应为木，实为 ' + b.p.elem);
+
+  const pinR = (v) => { Math.random = function () { return v; }; };
+  const realR = Math.random;
+  const mid = function (dmg) {
+    const arr = [];
+    for (let i = 0; i < 60; i++) arr.push(dmg());
+    arr.sort(function (p, q) { return p - q; });
+    return arr[Math.floor(arr.length / 2)];
+  };
+
+  /* ① se 攻击功法增幅（非普攻） */
+  pinR(0.5);
+  const dSe = mid(function () { return b._calc(b.p, b.es[0], { n: '流云剑', mult: 1, kind: 'atk', elem: '无' }).dmg; });
+  const bakSe = b.pfx.se; b.pfx.se = 0;
+  const dSe0 = mid(function () { return b._calc(b.p, b.es[0], { n: '流云剑', mult: 1, kind: 'atk', elem: '无' }).dmg; });
+  b.pfx.se = bakSe;
+  if (!(dSe > dSe0 * 1.15)) errors.push('se 攻击功法增幅没进伤害（' + dSe + ' vs ' + dSe0 + '）');
+
+  /* ② mf 五行匹配（功法属性=首灵根） */
+  const dMf = mid(function () { return b._calc(b.p, b.es[0], { n: '缠藤指', mult: 1, kind: 'atk', elem: '木' }).dmg; });
+  const bakMf = b.pfx.mf; b.pfx.mf = false;
+  const dMf0 = mid(function () { return b._calc(b.p, b.es[0], { n: '缠藤指', mult: 1, kind: 'atk', elem: '木' }).dmg; });
+  b.pfx.mf = bakMf;
+  if (!(dMf > dMf0 * 1.15)) errors.push('mf 五行匹配没进伤害（' + dMf + ' vs ' + dMf0 + '）');
+
+  /* ③ ct 抗暴击：构造暴击率 5% 的攻击者，采样暴击率（沙箱 Math 无法钉）。
+        有 ct=.10 时暴击率应压到 0；对照组（ct=0）约 5%。 */
+  const atkU = { atk: 5000, def: 0, crit: .05, critDmg: 1.5, elem: '无', eb: {}, buffs: { atk: 0, turns: 0 } };
+  const critRate = function (ctVal) {
+    const bak = b.pfx.ct; b.pfx.ct = ctVal;
+    let k = 0;
+    for (let i = 0; i < 400; i++) {
+      if (b._calc(atkU, b.p, { n: '攻击', mult: 1, kind: 'atk', elem: '无' }).crit) k++;
+    }
+    b.pfx.ct = bak;
+    return k / 400;
+  };
+  const crWith = critRate(.10), crNo = critRate(0);
+  if (crWith > 0.01) errors.push('ct 抗暴击后暴击率应≈0，实为 ' + crWith);
+  if (crNo < 0.02) errors.push('ct 对照组暴击率应≈5%，实为 ' + crNo);
+
+  /* ④ he 治疗增幅 */
+  pinR(0.5);
+  b.p.hp = 1; b.p.maxhp = 99999; b._heal('P', 40); const hHe = b.p.hp;   /* 40*1.25=50 */
+  const bakHe = b.pfx.he; b.pfx.he = 0; b.p.hp = 1; b._heal('P', 40); const hHe0 = b.p.hp;
+  b.pfx.he = bakHe;
+  if (hHe !== 51 || hHe0 !== 41) errors.push('he 治疗增幅异常（有 ' + hHe + ' / 无 ' + hHe0 + '，期望 51/41）');
+
+  /* ⑤ drAll 全伤减免（护盾/坐骑均为 0） */
+  pinR(0.5);
+  b.p.shield = 0; b.mount = null;
+  b.p.hp = Math.round(b.p.maxhp * 0.6);
+  let dealt = b._impact('P', { dmg: 100, crit: false, ec: 1 }, '无');
+  if (!(dealt >= 85 && dealt <= 95)) errors.push('drAll 全伤减免应为 90，实为 ' + dealt);
+
+  /* ⑥ lowHpDef 低血防御（气血<30% 时额外 15%） */
+  const bakAll = b.pfx.drAll; b.pfx.drAll = 0;
+  b.p.shield = 0; b.p.hp = Math.round(b.p.maxhp * 0.1);
+  dealt = b._impact('P', { dmg: 100, crit: false, ec: 1 }, '无');
+  b.pfx.drAll = bakAll;
+  if (!(dealt >= 82 && dealt <= 88)) errors.push('lowHpDef 低血防御应为 85，实为 ' + dealt);
+
+  /* ⑦ rs 异常抵抗：麻痹（T059）。采样命中（施加成功）率：有抵抗≈60%，无抵抗≈100%。 */
+  const applyRate = function (rs) {
+    const bak = b.pfx.rs; b.pfx.rs = rs;
+    let k = 0;
+    for (let i = 0; i < 400; i++) {
+      b.p.statuses = {}; b._applyStatus(b.p, 'P', '麻');
+      if (b.p.statuses['麻']) k++;
+    }
+    b.pfx.rs = bak;
+    return k / 400;
+  };
+  const arRs = applyRate({ '麻': .40 }), arNo = applyRate({});
+  if (arRs > 0.8 || arNo < 0.98) {
+    errors.push('rs 异常抵抗异常（有抵抗命中率 ' + arRs + ' 应≈.60 / 无 ' + arNo + ' 应≈1）');
+  }
+
+  /* ⑧ bdur 灼烧缩短：基础 3 回合 - 2 = 1 */
+  pinR(0.99); b.p.statuses = {}; b._applyStatus(b.p, 'P', '烧');
+  if (b.p.statuses['烧'] !== 1) errors.push('bdur 灼烧应缩短为 1 回合，实为 ' + b.p.statuses['烧']);
+
+  /* ⑨ dr 持续伤害减免：烧 8% 当前气血应减半 */
+  pinR(0.5); b.p.statuses = { '烧': 1 }; b.p.hp = 1000; b.p.maxhp = 1000;
+  b._tickStatus(b.p, 'P');
+  if (b.p.hp < 958 || b.p.hp > 962) errors.push('dr 灼烧减免应为 40（1000→960），实为 ' + (1000 - b.p.hp));
+
+  Math.random = realR;
+
+  /* ⑩ 源码闸：各系统钩子在位 */
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const bt = strip(fs.readFileSync(path.join(WWW, 'js/scenes/battle.js'), 'utf8'));
+  ['this.pfx.se', 'this.pfx.mf', 'this.pfx.ct', 'this.pfx.he', 'self.pfx.ls', 'this.pfx.rc',
+    'this.pfx.drAll', 'this.pfx.lowHpDef', 'this.pfx.rs', 'this.pfx.dr', 'this.pfx.bdur',
+    'this.pfx.es', 'this._killRamp'].forEach(function (tok) {
+      if (bt.indexOf(tok) < 0) errors.push('源码闸：battle.js 缺天赋结算钩子 ' + tok);
+    });
+  const ex = strip(fs.readFileSync(path.join(WWW, 'js/core/explore.js'), 'utf8'));
+  if (ex.indexOf('talentEffects(save).chest') < 0) errors.push('源码闸：野外宝箱未接 chest');
+  const dn = strip(fs.readFileSync(path.join(WWW, 'js/scenes/dungeon.js'), 'utf8'));
+  if (dn.indexOf('talentEffects(save).chest') < 0) errors.push('源码闸：秘境休整宝箱未接 chest');
+  const al = strip(fs.readFileSync(path.join(WWW, 'js/data/alchemy.js'), 'utf8'));
+  if (al.indexOf('talentEffects(save).alch') < 0) errors.push('源码闸：炼丹未接 alch');
+
+  /* ⑪ 无假字段：天赋详情不再有"暂不计入"，池中无 craft 字段 */
+  const td = fs.readFileSync(path.join(WWW, 'js/data/talents.js'), 'utf8');
+  if (td.indexOf('暂不计入') >= 0) errors.push('天赋详情仍出现"暂不计入"（仍有假效果未声明）');
+  if (/(^|[,s{])crafts*:/.test(td)) errors.push('天赋池仍含未接线的 craft 字段');
+  G.Data.talents.forEach(function (t) {
+    if (G.Data.talentDetail(t).text.indexOf('暂不计入') >= 0) {
+      errors.push('天赋 ' + t.id + ' 详情仍标"暂不计入"');
+    }
+  });
+
+  G.game.changeScene('title');
+  console.log('  ✓ 天赋结算：se/mf/ct/he/drAll/lowHpDef/rs/bdur/dr 数值生效 + 掉落/炼丹/逃跑/反伤/吸血/击杀源码闸 + 无假字段');
+}, 'talent.effect.settlement.contract');
+
 /* ---------- 新物种立绘（v1.3.0）----------
    用户口径：「给新物种雷貂补手绘立绘（现在是程序化 bossGen）」。
 
