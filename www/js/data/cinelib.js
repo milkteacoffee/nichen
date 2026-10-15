@@ -10,7 +10,7 @@
     arc1: [
       { imgs: ['cine.fan_raid'], video: 'assets/video/cine_fan_raid.mp4', dur: 4.6,
         captions: [{ t: 0.3, text: '那一夜，火光把白鹿礁外的海，都烧红了。' }] },
-      { imgs: ['cine.fan_soul'], dur: 4.6,
+      { imgs: ['cine.fan_soul'], video: 'assets/video/cine_fan_soul.mp4', dur: 4.6,
         captions: [{ t: 0.3, text: '他没能护住爷爷，也没能抓住，她离体的那缕魂。' }] }
     ],
     arc2: [
@@ -47,7 +47,7 @@
 
   var ENDING = {
     dream: [
-      { imgs: ['cine.chenmeng'], dur: 5.4,
+      { imgs: ['cine.chenmeng'], video: 'assets/video/cine_chenmeng.mp4', dur: 5.4,
         captions: [
           { t: 0.3, text: '他选择入梦，与残影相守，再不肯醒。' },
           { t: 3.1, text: '镜花水月——于他，也算一场团圆。' }
