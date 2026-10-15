@@ -1107,7 +1107,7 @@
       skillContrib(sd, lv, save), 11, COL[sd.elem] || G.UI.C.jadeHi);
 
     G.UI.text(x, { x: SP.x + 14, y: SK.hintY },
-      '主修功法只此一本（被动不占位）；未激发时战斗默认用等级最高的一本。', 10, G.UI.C.textDim);
+      '主修功法只此一本（被动不占位）；未激发时战斗默认用精进最深的一本。', 10, G.UI.C.textDim);
   }
 
 
@@ -1324,13 +1324,27 @@
     if (!sel) pick(view.rows[0]);
     if (!sel) return;
 
-    /* 右上角：主线页顺带报**章节进度**（v0.63.0）—— 用户第 6 点说"主线太少了"，
-       光加内容不报进度，玩家在面板上还是看不出主线有多长。 */
-    var chProg = (tab === 'main' && G.Data.Chapters)
-      ? G.Data.Chapters.progressOf(save) : null;
-    shell(x, '任　务', tab === 'main'
-      ? ('主线 · 章节 ' + (chProg ? (chProg.done + '/' + chProg.total) : '—'))
-      : '支线');
+    /* 右上角：主线页报**诸世（Arcs）进度**（v2.14.0）——
+       v0.84 起旧十章链休眠（Chapters.pendingFor 恒 null，主线由六个固定情感世
+       Arcs 接管）；原「主线 · 章节 N/10」在真机上章节永远不会被标记完成，恒为
+       0/10，是误导性死 UI。这里直接读 meta.progress.story.arcs 的已了世数。 */
+    var mainLabel = (tab === 'main') ? '主线' : '支线';
+    if (tab === 'main' && G.Arcs && typeof G.Arcs.list === 'function' && G.game.meta) {
+      var _tot = G.Arcs.list().length;
+      var _done = 0, _curName = '';
+      try {
+        var _ss = (G.game.meta.progress && G.game.meta.progress.story
+          && G.game.meta.progress.story.arcs) || null;
+        if (_ss) {
+          _done = (_ss.done || []).length;
+          var _cur = _ss.current ? G.Arcs.byId(_ss.current) : null;
+          if (!_cur) _cur = G.Arcs.next(G.game.meta);
+          _curName = _cur ? _cur.n : '';
+        }
+      } catch (e) { _curName = ''; }
+      mainLabel = '主线 · 诸世 ' + _done + '/' + _tot + (_curName ? ' · ' + _curName : '');
+    }
+    shell(x, '任　务', mainLabel);
 
     /* ---- 左栏：可点列表 ---- */
     var chev = function (cx, cy, up) {
@@ -1899,6 +1913,9 @@
       var y = AL.y0 + i * AL.rowH, c = G.Alchemy.canCraft(save, r);
       G.UI.textOut(x, { x: AL.lx, y: y - 1 }, r.n, 11, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
       drawMatsInline(x, save, r.mats, AL.lx + 56, y);
+      /* v2.14.0：禁用按钮必须给出原因（未拜师/境界不足/材料不足），否则玩家
+         看到材料够却点不动，是"静默死按钮"。原因右对齐贴在按钮左侧。 */
+      if (!c.ok) G.UI.text(x, { x: AL.btnX - 6, y: y - 1 }, c.reason, 8, '#d9a86a', 'right');
     });
   }
   function buildAlchemy(btns, scene) {
@@ -1932,6 +1949,7 @@
       G.UI.textOut(x, { x: FG.lx, y: y - 1 }, G.Forge.outName(r), 11, c.ok ? G.UI.C.goldHi : G.UI.C.textDim);
       G.UI.text(x, { x: FG.lx + 46, y: y - 1 }, r.d, 8, G.UI.C.textDim);
       drawMatsInline(x, save, r.mats, FG.lx + 116, y);
+      if (!c.ok) G.UI.text(x, { x: FG.btnX - 6, y: y - 1 }, c.reason, 8, '#d9a86a', 'right');
     });
   }
   function buildForge(btns, scene) {
@@ -1956,7 +1974,11 @@
   }
 
   /* 拜师（v0.60）：寻名师学炼丹/炼器/采药/采矿。每艺只显示下一位可拜的师父。 */
-  var MS = { lx: P.x + 14, y0: P.y + 36, rowH: 40 };
+  /* v2.14.0：行高 37、三行卡片式（半透明行底）——原先束脩/备注从 x=265 起，
+     与面板中央的主角立绘、右侧拜师钮三重叠字，且长备注钻到按钮下。 */
+  /* 按钮起于 P.x+P.w-72=396；卡片止于 390、留 6 间隙；cardW=338 */
+  var MS = { lx: P.x + 14, y0: P.y + 30, rowH: 37, cardX: P.x + 6,
+    cardRX: P.x + P.w - 78, cardW: P.w - 84 };
   var PROF_IDS = ['herb', 'alchemy', 'mine', 'forge'];
   var LV_NAME = ['未习', '入门', '精通', '宗师'];
   function drawMasters(x, scene) {
@@ -1965,18 +1987,27 @@
     PROF_IDS.forEach(function (id, k) {
       var def = G.Professions.list[id], lv = G.Professions.levelOf(save, id);
       var by = MS.y0 + k * MS.rowH;
-      G.UI.text(x, { x: MS.lx, y: by }, def.n, 12.5, G.UI.C.goldHi);
-      G.UI.text(x, { x: MS.lx + 46, y: by }, '当前：' + LV_NAME[lv], 10,
+      /* 半透明行底：无论主角立绘在面板后哪个位置，文字都读得清 */
+      x.fillStyle = 'rgba(8,13,24,0.70)';
+      x.fillRect(MS.cardX, by - 3, MS.cardW, MS.rowH - 4);
+      x.strokeStyle = 'rgba(216,183,104,0.18)'; x.lineWidth = 1;
+      x.strokeRect(MS.cardX + 0.5, by - 2.5, MS.cardW - 1, MS.rowH - 5);
+      G.UI.text(x, { x: MS.lx, y: by - 2 }, def.n, 12.5, G.UI.C.goldHi);
+      G.UI.text(x, { x: MS.lx + 46, y: by - 1 }, '当前：' + LV_NAME[lv], 10,
         lv ? G.UI.C.jadeHi : G.UI.C.textDim);
       if (lv >= 3) {
-        G.UI.text(x, { x: MS.lx + 140, y: by }, '已臻宗师，无师可拜', 9.5, G.UI.C.textDim);
+        G.UI.text(x, { x: MS.lx + 140, y: by - 1 }, '已臻宗师，无师可拜', 9.5, G.UI.C.textDim);
         return;
       }
       var t = def.lv[lv], c = G.Professions.canLearn(save, G.game.meta, id, lv + 1);
-      G.UI.text(x, { x: MS.lx, y: by + 16 }, '师：' + t.master + '（' + t.place + '）',
+      /* 第二行：师（左）/ 束脩（右对齐到按钮左侧，不再钻到按钮下） */
+      G.UI.text(x, { x: MS.lx, y: by + 12 }, '师：' + t.master + '（' + t.place + '）',
         9.5, c.ok ? G.UI.C.text : G.UI.C.textDim);
-      G.UI.text(x, { x: MS.lx + 205, y: by + 16 },
-        '束脩 ' + (t.cost || '免') + '　' + t.note, 9, G.UI.C.textDim);
+      G.UI.text(x, { x: MS.cardRX, y: by + 12 },
+        '束脩 ' + (t.cost || '免'), 9, G.UI.C.goldHi, 'right');
+      /* 第三行：备注（左）；不能拜师时右对齐给原因，避免静默死按钮 */
+      G.UI.text(x, { x: MS.lx, y: by + 24 }, t.note, 8.5, G.UI.C.textDim);
+      if (!c.ok) G.UI.text(x, { x: MS.cardRX, y: by + 24 }, c.reason, 8.5, '#d9a86a', 'right');
     });
   }
   function buildMasters(btns, scene) {
@@ -1986,7 +2017,7 @@
       if (lv >= 3) return;
       var c = G.Professions.canLearn(save, G.game.meta, id, lv + 1);
       var by = MS.y0 + k * MS.rowH;
-      btns.push(new G.UI.Btn({ x: P.x + P.w - 72, y: by - 3, w: 60, h: 18, small: true,
+      btns.push(new G.UI.Btn({ x: P.x + P.w - 72, y: by + 7, w: 60, h: 18, small: true,
         variant: c.ok ? 'gold' : 'ghost', label: '拜师', disabled: !c.ok,
         onClick: function () {
           var r = G.Professions.learn(save, G.game.meta, id, lv + 1);
@@ -2012,7 +2043,8 @@
        · 点下去先落数据、再播一段打坐演出（脉动光晕 + 灵气上升 + 大字报数）。
      ⚠️ 收益只能走 `G.Time.meditate`（内部取 `Player.needQi`）——
         自己另算一套必然与破境需求分叉，症状是"闭关十年还不够破一阶"。 */
-  var MD = { lx: P.x + 14, y0: P.y + 38, rowH: 24 };
+  /* v2.14.0：rowH 24→22、y0 上移，给账本三行留出与返回钮(y=214)的间距 */
+  var MD = { lx: P.x + 14, y0: P.y + 34, rowH: 22 };
   var MED_ANIM_SEC = 1.8;
   function medResultLine(save, scene) {
     var r = scene.medResult;
@@ -2022,7 +2054,7 @@
   }
   function drawMeditate(x, scene) {
     var save = G.game.save;
-    shell(x, '闭　关', G.Time.label(save));
+    shell(x, '闭　关', '第 ' + (save.life || 1) + ' 世');
     var r = G.Player.rates(save);
     var coef = G.Time.linggenCoef(save);
     var gl = save.globalLevel || 1;
@@ -2049,10 +2081,10 @@
       '寿元 ' + (save.age || 16) + ' / ' + G.Player.lifespanOf(gl)
       + '　·　灵气 ' + have + ' / ' + need + '（本阶）'
       + '　·　首灵根 ×' + coef, 10, G.UI.C.text);
-    G.UI.text(x, { x: MD.lx, y: infoY + 13 },
+    G.UI.text(x, { x: MD.lx, y: infoY + 11 },
       '灵气加成 +' + Math.round((r.qi || 0) * 100) + '%　·　' + G.Time.ratioText()
       + '　·　秘境中时间流速 ×' + G.Time.SCENE_MULT.dungeon, 9, G.UI.C.textDim);
-    G.UI.text(x, { x: MD.lx, y: infoY + 25 }, medResultLine(save, scene), 9.5,
+    G.UI.text(x, { x: MD.lx, y: infoY + 22 }, medResultLine(save, scene), 9.5,
       scene.medResult ? G.UI.C.jadeHi : G.UI.C.textDim);
 
     /* 打坐演出：脉动光晕 + 灵气上升 + 大字报数（约 1.8 秒）。
@@ -2245,12 +2277,13 @@
         '贡献来自副本通关（首杀 +20 / 刷取 +8）。', 10, G.UI.C.textDim);
       var SH = (G.Data.sects && G.Data.sects.SHOP) || [];
       /* 两列几何：内容宽 422，左右各留 14、列间留 12 → 列宽 191；
-         5 行 ×16 收在 y+100..179，返回按钮（y+184）不打架。 */
+         v2.14.0：5 行 ×16 从 y+94 起（末行 y+158 按钮止于 y+173），
+         距返回按钮（y+184）留 11px，原 y+100 起末行顶到返回钮。 */
       var SH_COL_W = (P.w - 14 * 2 - 12) / 2;
       SH.forEach(function (it, i) {
         var col = i % 2, row = Math.floor(i / 2);
         var cx = P.x + 14 + col * (SH_COL_W + 12);
-        var cy = P.y + 100 + row * 16;
+        var cy = P.y + 94 + row * 16;
         var can = (save.sectRep || 0) >= it.cost;
         /* 小图标：普通道具走 ITEM_ICON_ID，法宝直接用 id（itemIcon 会补 equip. 前缀）；
            功法商品（v0.90.1）用属性徽记 `skill.<拼音>`（与功法面板同一套取图）。 */
@@ -2412,7 +2445,7 @@
       SH.forEach(function (it, i) {
         var col = i % 2, row = Math.floor(i / 2);
         var cx = P.x + 14 + col * (SH_COL_W + 12);
-        var cy = P.y + 100 + row * 16;
+        var cy = P.y + 94 + row * 16;
         var can = (save.sectRep || 0) >= it.cost;
         btns.push(new G.UI.Btn({
           x: cx + SH_COL_W - 58, y: cy, w: 58, h: 15, small: true, fs: 9,

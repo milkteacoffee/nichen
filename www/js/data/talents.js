@@ -142,7 +142,8 @@
       drAll: '全伤减免', rs: '异常抵抗', dr: '持续伤害减免', eb: '属性功法增幅',
       bdur: '灼烧缩短', mf: '五行匹配增幅', alch: '炼丹增幅', craft: '法宝增幅' };
     var waiting = Object.keys(pending).filter(function (k) { return !!e[k]; }).map(function (k) { return pending[k]; });
-    if (waiting.length) lines.push('尚待接入结算：' + waiting.join('、') + '（不计入当前收益）');
+    /* v2.14.0：玩家化措辞，不暴露"接入结算"这类开发黑话；诚实声明此世暂未显化。 */
+    if (waiting.length) lines.push('潜质（此世尚未显化，暂不计入收益）：' + waiting.join('、'));
     if (!lines.length) lines.push('没有额外数值加成，成长依靠自身修行。');
     var story = e.qi || e.br ? '吐纳时更易沉心入定，修行积累取决于每一次苦功。'
       : e.a || e.c ? '筋骨或眼力异于常人，但仍需磨练才能发挥所长。'

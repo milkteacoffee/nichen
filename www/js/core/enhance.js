@@ -60,7 +60,7 @@
     if (!eq) return { ok: false, msg: '未知装备' };
 
     var lv = getLevel(save, equipId);
-    if (lv >= 10) return { ok: false, msg: '已达最高强化等级' };
+    if (lv >= 10) return { ok: false, msg: '已达最高强化（+10）' };
 
     var cost = calcCost(eq.tier, lv);
     var stone = G.Player.stoneCount(save);
@@ -129,7 +129,7 @@
         ok: true,
         success: false,
         lv: lv,
-        msg: text + '\n强化失败，等级保持 +' + lv
+        msg: text + '\n强化失败，强化保持 +' + lv
       };
     }
   }

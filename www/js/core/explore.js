@@ -3250,7 +3250,7 @@
             }
             if (fx.qiWane) lines.push('打坐灵气　-' + Math.round(fx.qiWane * 100) + '%');
             var enc = fx.enc || {};
-            if (enc.lvBias) lines.push('野怪等级　+' + enc.lvBias);
+            if (enc.lvBias) lines.push('野怪境界　+' + enc.lvBias + ' 阶');
             if (enc.pairAdd) lines.push('结伴出没　+' + Math.round(enc.pairAdd * 100) + '%');
             if (enc.elemBias) {
               Object.keys(enc.elemBias).forEach(function (k) {

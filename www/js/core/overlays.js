@@ -100,7 +100,12 @@
         { tex: false, shadow: false });
       var chars = String(title || '').replace(/[\s　]/g, '').split('');
       if (!chars.length) return;
+      /* v2.14.0：长标题自适应 —— 竖排标题写死 lh=21 时，"兽栏·饲料、妖囊与骑术"
+         这类 11 字标题总高超过竖带，末字溢出面板底边（截图可见）。按可用高度
+         反推行距/字号，短标题（≤6 字）仍保持 21/15 的原排版。 */
       var fs = 15, lh = 21;
+      var cap = Math.floor((b.h - 12) / Math.max(1, chars.length));
+      if (cap < lh) { lh = Math.max(11, cap); fs = Math.min(15, lh - 5); }
       var top = b.y + (b.h - chars.length * lh) / 2;
       chars.forEach(function (c, i) {
         G.UI.text(x, { x: b.x + b.w / 2, y: top + i * lh + (lh - fs) / 2 }, c,

@@ -1222,6 +1222,7 @@ step(() => {
   s.cult = 'sect'; s.sectId = 'qxj'; s.sectRep = 120; s.sectRank = 'inner';
   s.cultSwitchUsed = true;
   G.game.changeScene('town', { toSpawn: true });
+  G.game.toasts.length = 0; G.game.lootFeed.length = 0;
   G.Overlays.openPanel(G.game.scene, 'sect');
 }, 'panel.sect.joined');
 shot('34b_panel_sect_joined', 6);
@@ -1229,6 +1230,7 @@ shot('34b_panel_sect_joined', 6);
 step(() => {
   const s = G.game.save;
   s.cult = 'sect'; s.sectId = 'qxj'; s.sectRep = 120; s.sectRank = 'inner';
+  G.game.toasts.length = 0; G.game.lootFeed.length = 0;
   G.game.scene.sectView = 'shop';
   G.Overlays.openPanel(G.game.scene, 'sect', true);
 }, 'panel.sect.shop');
@@ -1569,39 +1571,42 @@ step(() => {
 }, 'encounter.se8');
 shot('50_encounter_bandit', 2);
 
-/* ③ 主线章节链（v0.63.0，用户第 6 点）：任务面板「主线」页要能看见章节行与进度 */
+/* ③ 主线诸世进度（v2.14.0）：旧十章链 v0.84 已休眠，主线由六世 Arcs 接管 ——
+   任务面板右上角报「诸世 X/6」，不再是真机恒为 0/10 的死章节计数。这里构造已了 2 世。 */
 step(() => {
   const s = G.game.save;
   s.globalLevel = 200; s.maxGlobalLevel = 200;
-  s.chapters = ['c1', 'c2'];            /* 已完成两章 → 列表挂出第三章 */
+  G.Arcs.ensure(G.game.meta);
+  const ids = G.Arcs.list().map((a) => a.id);
+  const arcs = G.game.meta.progress.story.arcs;
+  arcs.done = ids.slice(0, 2); arcs.current = null;
   s.daoHeart = 2;
-  s.quest.step = 'm1done';
   G.game.changeScene('town', { toSpawn: true });
   clearStoryModal();
   const sc = G.game.scene;
   sc.questTab = 'main';
-  sc.questSel = 'ch:c3';
+  sc.questSel = null;
   G.Overlays.openPanel(sc, 'quest', true);
   clearStoryModal();
 }, 'panel.quest.chapter');
 shot('51_panel_quest_chapter', 2);
 
-/* ③b 末章被九关闸卡住（v0.73.0）：境界拉满但**本世九关一关没过** ——
-   此前 c10 只看 gl>=649，"九关尽过"只是台词，打 6 关就能看到结局。
-   现在面板必须说清"为什么过不去"（挂一行进度引导，而不是让玩家以为卡 bug）。 */
+/* ③b 诸世走到末世（v2.14.0）：已了 5 世、正在第 6 世，
+   面板右上角应报「诸世 5/6 · <arc6>」。旧九关章闸已随十章链休眠，不再构造 ch:c10。 */
 step(() => {
   const s = G.game.save;
   s.globalLevel = 700; s.maxGlobalLevel = 700;
-  /* 前九章全做完 → 只剩末章；但九关一关未过 */
-  s.chapters = G.Data.Chapters.list.slice(0, 9).map((c) => c.id);
+  G.Arcs.ensure(G.game.meta);
+  const ids = G.Arcs.list().map((a) => a.id);
+  const arcs = G.game.meta.progress.story.arcs;
+  arcs.done = ids.slice(0, 5); arcs.current = ids[5];
   s.daoCleared = [];
   s.daoHeart = 2;
-  s.quest.step = 'm1done';
   G.game.changeScene('town', { toSpawn: true });
   clearStoryModal();
   const sc = G.game.scene;
   sc.questTab = 'main';
-  sc.questSel = 'ch:c10';
+  sc.questSel = null;
   G.Overlays.openPanel(sc, 'quest', true);
   clearStoryModal();
 }, 'panel.quest.daoGate');
