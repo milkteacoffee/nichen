@@ -539,7 +539,28 @@ step(function () {
       }
     });
   });
-  notes.push('副本数据：' + D.ARCH.length + ' 原型 × 3 档可造 Boss；秘术名字/效果成对');
+  /* ⑤ #39 差异化：每处小世界都要有形貌/法则文案（此前 35 个原型开场为空）；
+     法则必须是 3 行（2 形貌 + 1 法则），且最后一行是「此界法则——」。 */
+  D.ARCH.forEach(function (a) {
+    const fl = D.worldFlavor(a.id);
+    if (!fl || !Array.isArray(fl) || fl.length !== 3) {
+      errors.push('原型 ' + a.id + '（' + a.n + '）缺少 3 行小世界形貌/法则文案');
+      return;
+    }
+    if (fl[2].indexOf('此界法则——') !== 0) {
+      errors.push('原型 ' + a.id + ' 的第三行不是「此界法则——」：' + fl[2]);
+    }
+  });
+
+  /* ⑥ #39 差异化：每种元素都要能派生出同相杂兵（否则该界杂兵全落回杀手） */
+  const elemNoTrash = [];
+  D.ARCH.forEach(function (a) {
+    if (D.TRASH[a.id]) return;
+    if (!D.TRASH_ELEM || !D.TRASH_ELEM[a.elem]) elemNoTrash.push(a.id + '(' + a.elem + ')');
+  });
+  if (elemNoTrash.length) errors.push('这些元素没有同相杂兵映射（会全落回杀手）：' + elemNoTrash.join(', '));
+
+  notes.push('副本数据：' + D.ARCH.length + ' 原型 × 3 档可造 Boss；秘术名字/效果成对；' + D.ARCH.length + ' 处小世界形貌/法则齐、杂兵按元素同相');
 }, 'dungeon.data.contract');
 
 /* 0d) NPC 精灵 / 人物立绘接线（磁盘级）：与 dungeon.boss.assets 同理。
