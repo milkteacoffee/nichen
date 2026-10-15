@@ -1109,19 +1109,19 @@
           '缺「' + bs.pill + '」　' + bs.pillHint, 9.5, 'rgba(226,170,120,0.95)');
       }
 
-      O.sec(x, LX, P.y + 104, '四界十九境');
+      O.sec(x, LX, P.y + 100, '四界十九境');
       var REALMS = G.Player.REALMS || [], WORLDS = G.Player.WORLDS || [];
-      var colW = 91, gy = P.y + 118;
+      var colW = 91, gy = P.y + 112;
       WORLDS.forEach(function (w, ci) {
         var cx = LX + ci * colW;
         G.UI.text(x, { x: cx, y: gy }, w.n, 10.5, G.UI.C.gold);
         REALMS.filter(function (r) { return r.y0 >= w.start && r.y1 <= w.cap; })
           .forEach(function (r, k) {
-            var ry = gy + 18 + k * 14;
+            var ry = gy + 16 + k * 12;
             var cur = (gl >= r.y0 && gl <= r.y1);
             var past = gl > r.y1;
             if (cur) {
-              G.UI.rr(x, { x: cx - 3, y: ry - 1.5, w: colW - 8, h: 13 }, 3);
+              G.UI.rr(x, { x: cx - 3, y: ry - 1.5, w: colW - 8, h: 11 }, 3);
               x.fillStyle = 'rgba(216,183,104,0.16)'; x.fill();
             }
             G.UI.text(x, { x: cx, y: ry }, r.n, 10,

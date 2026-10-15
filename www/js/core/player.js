@@ -74,8 +74,8 @@
 
   /* ===== 四界天花板（境界 v3.6 / 副本 v3.3）===== */
   var WORLDS = [
-    { id: 'fan',  n: '凡界', start: 1,   cap: 252 },
-    { id: 'ling', n: '灵界', start: 253, cap: 360 },
+    { id: 'fan',  n: '凡界', start: 1,   cap: 288 },
+    { id: 'ling', n: '灵界', start: 289, cap: 360 },
     { id: 'xian', n: '仙界', start: 361, cap: 576 },
     { id: 'dao',  n: '道界', start: 577, cap: 684 }
   ];

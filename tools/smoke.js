@@ -697,7 +697,7 @@ step(function () {
   }
   /* 灵界存档应能选到灵界专属「灵潮」（扫足够多天，概率几乎必然命中） */
   const lingSave = {
-    worldSeed: 777, gt: 0, globalLevel: 260, items: {}, stone: 100, qi: 100, po: 0,
+    worldSeed: 777, gt: 0, globalLevel: 300, items: {}, stone: 100, qi: 100, po: 0,
     hp: 100
   };
   let tide = false;
@@ -3207,10 +3207,10 @@ step(function () {
   }
   if (G.game.sceneName !== s.scene) errors.push(`降世后应进入 ${s.scene}，实际 ${G.game.sceneName}`);
 
-  /* 指定灵界 → gl253 + 雷泽荒原 */
+  /* 指定灵界 → gl289（大乘）+ 雷泽荒原 */
   s = descend('ling', false);
   if (G.Player.activeWorldId(G.game.meta) !== 'ling') errors.push('指定灵界降世未生效');
-  if (s.globalLevel !== 253) errors.push(`灵界降世起始 gl 应为 253，实际 ${s.globalLevel}`);
+  if (s.globalLevel !== 289) errors.push(`灵界降世起始 gl 应为 289，实际 ${s.globalLevel}`);
   if (s.scene !== G.Data.regions.mapIdOf('ling1')) errors.push(`灵界降世落点应为 ling1，实际 ${s.scene}`);
   if (s.entrances.ling.length !== 5) errors.push('灵界降世未抽 5 处副本落位');
 
