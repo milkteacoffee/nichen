@@ -54,7 +54,7 @@
      当前在谈哪条支线由 `G.SideCur` 传递（数据层的 `sideQuests.talk` 写入，
      两个镇共用同一个游标）—— 同时只可能开一个对话覆盖层，够用。 */
   var SIDE_NPC = { washer: '浣衣妇', woodman: '老樵夫', market: '刘掌柜' };
-  var SIDE_PORTRAIT = { washer: 'villager', woodman: 'villager', market: 'keeper' };
+  var SIDE_PORTRAIT = { washer: 'villager_f', woodman: 'villager', market: 'keeper' };
 
   var DIALOGS = {
     shenbo1: function (save) {
@@ -114,7 +114,7 @@
     },
 
     chatWasher: {
-      title: '青溪镇 · 井边', name: '浣衣妇', portrait: 'villager',
+      title: '青溪镇 · 井边', name: '浣衣妇', portrait: 'villager_f',
       lines: ['“这井水甜，比山泉还养人。”', '“后山近来不太平，”', '“莫要一个人往深处走。”']
     },
     chatWoodman: {
@@ -314,10 +314,56 @@
     ]);
   }
 
+  /* G3：打开车马行/渡船的出行面板（mode 决定费率与措辞） */
+  var TR_ROW_H = 22, TR_ROW_Y0 = 58, TR_MAX = 7;
+  function openTravel(scene, mode) {
+    if (!G.Data.Travel) { G.game.toast('暂无出行服务'); return; }
+    if (G.Data.Travel.isFree(G.game.save)) {
+      G.game.toast('化神之上可直接在地图面板点节点免费传送');
+    }
+    scene.travelMode = mode;
+    var save = G.game.save;
+    var dests = G.Data.Travel.destinations(save, mode);
+    scene.travelDests = dests;
+    var btns = [];
+    /* 目的地行：隐形按钮（plain），文字在 renderOverlay 画；灵石不足禁用 */
+    var n = Math.min(TR_MAX, dests.length);
+    for (var i = 0; i < n; i++) {
+      (function (i, rid, fee) {
+        var afford = (save.stone || 0) >= fee;
+        btns.push(new G.UI.Btn({
+          x: SP.x + 14, y: TR_ROW_Y0 + i * TR_ROW_H, w: SP.w - 28, h: TR_ROW_H - 3,
+          variant: 'plain', label: '', disabled: !afford,
+          onClick: function () {
+            var r = G.Data.Travel.go(scene, rid, mode);
+            if (!r.ok) G.game.toast(r.msg);
+          }
+        }));
+      })(i, dests[i].r.id, dests[i].fee);
+    }
+    /* 底部：回城符（神行回落脚点）+ 关闭 */
+    btns.push(new G.UI.Btn({
+      x: SP.x + 18, y: SP.y + SP.h - 30, w: 130, h: 22, small: true, variant: 'ghost',
+      label: '回城符（回落脚点）',
+      onClick: function () {
+        var r = G.Data.Travel.recall(scene);
+        if (!r.ok) G.game.toast(r.msg);
+      }
+    }));
+    btns.push(new G.UI.Btn({
+      x: SP.x + SP.w - 118, y: SP.y + SP.h - 30, w: 100, h: 22, small: true,
+      label: '关闭',
+      onClick: function () { scene.clearOverlay(); }
+    }));
+    scene.setOverlay('travel', btns);
+  }
+
   var NPC_ACTS = {
     shenbo: function (scene) { shenBo(scene); },
     market: function (scene) { openMarket(scene); },
     probe: function (scene) { talkProbe(scene); },
+    carriage: function (scene) { openTravel(scene, 'carriage'); },
+    ferry: function (scene) { openTravel(scene, 'boat'); },
     'chat.washer': function (scene) {
       if (sideTalk(scene, 'washer')) return;
       openChat(scene, 'chatWasher');
@@ -837,6 +883,40 @@
     var d = DIALOGS[scene.overlay];
     if (d) {
       G.Overlays.dialog(x, typeof d === 'function' ? d(save) : d);
+      return;
+    }
+    if (scene.overlay === 'travel') {
+      var mode = scene.travelMode || 'carriage';
+      var dests = scene.travelDests || [];
+      G.Overlays.dim(x);
+      G.UI.panel(x, SP, '#141927');
+      G.UI.text(x, { x: SP.x + 18, y: SP.y + 10 },
+        mode === 'boat' ? '渡船 · 水路' : '车马行 · 陆路', 16, G.UI.C.goldHi);
+      G.UI.text(x, { x: SP.x + SP.w - 18, y: SP.y + 12 },
+        '灵石 ' + save.stone, 13, G.UI.C.text, 'right');
+      G.UI.text(x, { x: SP.x + 18, y: SP.y + 34 },
+        '前往已探明之地（' + (mode === 'boat' ? '水路更省' : '按距离计费') + '）', 11, G.UI.C.textDim);
+      if (!dests.length) {
+        G.UI.text(x, { x: SP.x + 18, y: SP.y + 80 },
+          '尚无可前往之地 —— 先徒步去探索周边。', 12, G.UI.C.textDim);
+      } else {
+        var n = Math.min(TR_MAX, dests.length);
+        for (var i = 0; i < n; i++) {
+          var d = dests[i], yy = TR_ROW_Y0 + i * TR_ROW_H;
+          var afford = (save.stone || 0) >= d.fee;
+          /* 行底（淡金框，hover 由按钮高亮） */
+          x.strokeStyle = 'rgba(216,183,104,0.18)'; x.lineWidth = 0.7;
+          x.strokeRect(SP.x + 14, yy - 1, SP.w - 28, TR_ROW_H - 3);
+          G.UI.text(x, { x: SP.x + 22, y: yy + 5 }, d.r.n, 12,
+            afford ? G.UI.C.text : G.UI.C.textDim);
+          G.UI.text(x, { x: SP.x + SP.w - 24, y: yy + 5 },
+            d.fee + ' 灵石', 11, afford ? G.UI.C.gold : G.UI.C.textDim, 'right');
+        }
+        if (dests.length > TR_MAX) {
+          G.UI.text(x, { x: SP.x + SP.w - 18, y: SP.y + SP.h - 40 },
+            '另有 ' + (dests.length - TR_MAX) + ' 处（先到访近处）', 10, G.UI.C.textDim, 'right');
+        }
+      }
       return;
     }
     if (scene.overlay === 'market' || scene.overlay === 'apothecary') {

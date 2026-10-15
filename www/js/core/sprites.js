@@ -997,10 +997,20 @@
     var hat = kind === 'keeper';
     var beard = kind === 'elder';
 
+    var female = kind === 'villager_f' || kind === 'girl';
     add(4.0, 2.6, 8.0, 6.4, pal.skin);
-    add(3.2, 1.0, 9.6, 3.4, pal.hair);
-    add(3.2, 3.4, 1.7, 3.8, pal.hair);
-    add(11.1, 3.4, 1.7, 3.8, pal.hair);
+    if (female) {
+      /* 女性：头顶圆髻 + 木簪，两侧长发略长（不画男子短发鬓角） */
+      add(3.2, 1.2, 9.6, 3.2, pal.hair);
+      add(6.0, 0.0, 4.0, 1.8, pal.hair);
+      add(3.0, 3.4, 1.8, 4.6, pal.hair);
+      add(11.2, 3.4, 1.8, 4.6, pal.hair);
+      add(6.6, 0.5, 2.8, 0.5, '#b8a070');
+    } else {
+      add(3.2, 1.0, 9.6, 3.4, pal.hair);
+      add(3.2, 3.4, 1.7, 3.8, pal.hair);
+      add(11.1, 3.4, 1.7, 3.8, pal.hair);
+    }
     add(4.0, 7.4, 8.0, 1.6, pal.skinSh);
     add(5.9, 5.6, 1.2, 1.3, '#201d28');
     add(9.0, 5.6, 1.2, 1.3, '#201d28');
@@ -1057,17 +1067,18 @@
        玩家得认得出"这人不对劲"，否则 m1-2 的目标是隐形的。 */
     var cult = kind === 'cultist';
     var girl = kind === 'girl';
+    var fv = kind === 'villager_f';
     var pal = {
-      hair: kind === 'elder' ? '#cfccc0' : (cult ? '#231d24' : (girl ? '#3a2a30' : '#2b2833')),
-      skin: '#e8b890',
+      hair: kind === 'elder' ? '#cfccc0' : (cult ? '#231d24' : (girl ? '#3a2a30' : (fv ? '#3c3540' : '#2b2833'))),
+      skin: fv ? '#eec09a' : '#e8b890',
       /* 主色与暗部**必须拉开明度**：只差一点点的话，程序化立绘会糊成一块红方块
          （第一版 6d3038 / 4a1f27 就是这样，远看像邮筒）。 */
       robe: kind === 'elder' ? '#6b7a68' : kind === 'keeper' ? '#7a6a52'
-        : (cult ? '#7a343d' : (girl ? '#a86a8a' : '#8a8a92')),
+        : (cult ? '#7a343d' : (girl ? '#a86a8a' : (fv ? '#96707c' : '#8a8a92'))),
       robeDark: kind === 'elder' ? '#4c5949' : kind === 'keeper' ? '#5a4d3a'
-        : (cult ? '#3d171c' : (girl ? '#7d4a64' : '#66666e')),
-      collar: cult ? '#c9a2a6' : (girl ? '#f0d8d0' : '#e6ddc2'),
-      belt: girl ? '#8a5a72' : '#5a4632', shoe: '#2c2a30'
+        : (cult ? '#3d171c' : (girl ? '#7d4a64' : (fv ? '#775560' : '#66666e'))),
+      collar: cult ? '#c9a2a6' : (girl ? '#f0d8d0' : (fv ? '#ecd9c8' : '#e6ddc2')),
+      belt: girl ? '#8a5a72' : (fv ? '#7a5a66' : '#5a4632'), shoe: '#2c2a30'
     };
     if (kind === 'child') {
       pal.hair = '#332a22';

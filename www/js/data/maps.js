@@ -53,7 +53,7 @@
          位置必须避开道路 —— 镇里的主路只有 1 格宽，NPC 站上去就把路堵死了。
          NPC 只有正面一套画法（程序化或 char.npc.<kind>），所以不配朝向。 */
       npcs: [
-        { id: 'washer', kind: 'villager', name: '浣衣妇', portrait: 'villager',
+        { id: 'washer', kind: 'villager_f', name: '浣衣妇', portrait: 'villager_f',
           x: 31, y: 25, act: 'chat.washer' },
         { id: 'woodman', kind: 'villager', name: '老樵夫', portrait: 'villager',
           x: 10, y: 18, act: 'chat.woodman' },
@@ -62,7 +62,13 @@
            用**字符串**而不是函数：契约测试要能"把存档拨到那一步再建一次图"来验占位，
            函数式条件没法从外部驱动，等于这条 NPC 的占格检查永远测不到。 */
         { id: 'probe', kind: 'cultist', name: '行脚商', portrait: 'cultist',
-          x: 35, y: 21, act: 'probe', condStep: 'm1-2' }
+          x: 35, y: 21, act: 'probe', condStep: 'm1-2' },
+        /* G3 世界内付费传送（对标烟雨）：车马行 → 已探明区域，按距离收灵石；
+           渡船 → 走水路，约 75 折。站位避开主路（y=20 是东出主路）。 */
+        { id: 'coachman', kind: 'keeper', name: '车马夫', portrait: 'keeper',
+          x: 20, y: 26, act: 'carriage' },
+        { id: 'ferryman', kind: 'villager', name: '老船夫', portrait: 'villager',
+          x: 12, y: 26, act: 'ferry' }
       ],
       exits: [
         { x0: 24, x1: 27, y: 32, to: 'field', spawn: { x: 34, y: 52 }, label: '翠微山' },

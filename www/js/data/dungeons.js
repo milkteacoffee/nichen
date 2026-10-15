@@ -1128,7 +1128,13 @@
     n_yanjiang: '熔岩之躯', n_jiguang: '极光洗髓', n_leishi: '雷石引',
     n_anyuan: '暗渊潜行', n_shengguang: '圣光庇佑', n_hundun: '混沌吞纳',
     n_xieqi: '血色煞气', n_tianjing: '天机演算', n_zixiao: '紫霄引雷',
-    n_taichu: '太初元炁', n_lunhui: '轮回念'
+    n_taichu: '太初元炁', n_lunhui: '轮回念',
+    /* ===== 身法秘术（G4 轻功开图，v2.15.6）=====
+       与战斗签名秘术不同：这三条是**探索能力**，不参与战斗数值，
+       只决定能否越过特殊地形（水面/断崖/高崖）。
+       m_* = 身法（movement）；每条对应一种特殊地形，见 SECRET_EFFECTS 的 move。
+       获得途径：奇遇高人点化 / 门派传承 / 特定副本，本世生效（口径同既有秘术）。 */
+    m_shuishang: '水上漂', m_yanxing: '雁行功', m_yufeng: '御风诀'
   };
   function secretById(id) {
     return SECRETS[id] ? { id: id, n: SECRETS[id] } : null;
@@ -1186,7 +1192,12 @@
     n_tianjing: { cat: '圣', spd: .10, def: .05 },
     n_zixiao: { cat: '神', mangshan: 3 },
     n_taichu: { cat: '圣', atk: .05, def: .05, hp: .05, spd: .05 },
-    n_lunhui: { cat: '神', startShield: .18 }
+    n_lunhui: { cat: '神', startShield: .18 },
+    /* 身法秘术：纯探索门控，无战斗字段。move 对应特殊地形 kind：
+       water=水面 / chasm=断崖裂隙 / high=高崖绝壁。 */
+    m_shuishang: { cat: '身法', move: 'water' },
+    m_yanxing: { cat: '身法', move: 'chasm' },
+    m_yufeng: { cat: '身法', move: 'high' }
   };
   function secretEffectById(id) { return SECRET_EFFECTS[id] || null; }
 
@@ -1199,6 +1210,34 @@
   function gradeOf(save, id) {
     var v = save.secrets && save.secrets[id];
     return typeof v === 'number' ? v : 1;
+  }
+
+  /* ===== 身法秘术（G4）=====
+     特殊地形 kind → 对应身法秘术 id / 名称 / 提示。
+     御剑（金丹起）与飞行坐骑天然可越过一切身法地形，故 engine 侧
+     若 canFly 也直接放行（见 explore._blocked）。 */
+  var SHENFA_OF = {
+    water: { id: 'm_shuishang', n: '水上漂', hint: '此处需『水上漂』一类身法，方可踏水而过' },
+    chasm: { id: 'm_yanxing', n: '雁行功', hint: '此处需『雁行功』一类身法，方可凌空渡隙' },
+    high: { id: 'm_yufeng', n: '御风诀', hint: '此处需『御风诀』一类身法，方可登高涉险' }
+  };
+  /* 是否拥有某种身法（或可御剑/乘飞行坐骑）。 */
+  function hasShenfa(save, kind) {
+    if (!save) return false;
+    var sf = SHENFA_OF[kind];
+    if (sf && save.secrets && save.secrets[sf.id]) return true;
+    if (G.Player && G.Player.canFly && G.Player.canFly(save)) return true;
+    return false;
+  }
+  /* 授予身法秘术（奇遇/门派/副本统一走这里）。 */
+  function grantShenfa(save, kind) {
+    var sf = SHENFA_OF[kind];
+    if (!sf || !save.secrets) return false;
+    if (!save.secrets[sf.id]) {
+      save.secrets[sf.id] = secretGrade(G.Player && G.Player.worldOfGL ? G.Player.worldOfGL(save.gl) : 'fan');
+      return true;
+    }
+    return false;
   }
 
   /* ============================================================
@@ -1507,6 +1546,9 @@
     secretEffectById: secretEffectById,
     secretGrade: secretGrade,
     gradeOf: gradeOf,
+    SHENFA_OF: SHENFA_OF,
+    hasShenfa: hasShenfa,
+    grantShenfa: grantShenfa,
     /* 道界接口 */
     daoById: daoById,
     daoCount: daoCount,

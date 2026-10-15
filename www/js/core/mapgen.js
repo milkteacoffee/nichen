@@ -519,6 +519,66 @@
       if (painted) md._roadPainted = painted;
     })();
 
+    /* ===== 身法秘地（G4 轻功开图，v2.15.6）=====
+       必须在**随机散布/明雷之前**占角：先生成、再 mark，后续树石野怪都会
+       主动避开这片 4×4，秘地才不会被装饰占满（放在 scatter 之后会一角难求）。
+       生成型区域（有 terr）在一角放一个被特殊地形围住的秘地：
+         · 一圈 1 格厚的特殊地形（水面/断崖/高崖），默认实心、走不进；
+         · 圈内 2×2 空地，中心放一只宝箱（必得灵石，概率残卷/丹药）。
+       只有习得对应身法（或御剑/飞行坐骑）才能越过环、进圈开箱。
+       ⚠️ 放在角落，主区域本来就连通，秘地是可选奖励，连通性契约不破。
+       ⚠️ 特殊地形类型只由 terr 决定；选角用 rng（此时 rng 调用少，基线可控）。 */
+    var shenfaGrid = [];
+    for (var sy = 0; sy < h; sy++) { shenfaGrid[sy] = []; for (var sx = 0; sx < w; sx++) shenfaGrid[sy][sx] = ''; }
+    var SHENFA_TERR = {
+      marsh: 'water', water: 'water', valley: 'water',
+      ridge: 'chasm', peak: 'chasm',
+      cave: 'high', mine: 'high', moor: 'high', desert: 'high', ruin: 'high', lava: 'high', void: 'high'
+    };
+    var sfKind = md.terr ? SHENFA_TERR[md.terr] : '';
+    if (sfKind) {
+      var SZ = 4;
+      var corners = [
+        { x: 2, y: 2 }, { x: w - 2 - SZ, y: 2 },
+        { x: 2, y: h - 2 - SZ }, { x: w - 2 - SZ, y: h - 2 - SZ }
+      ];
+      var c0 = rng.int(0, 3);
+      for (var ci = 0; ci < 4; ci++) {
+        var cc = corners[(c0 + ci) % 4];
+        var ok = true;
+        for (var cyy = cc.y; cyy < cc.y + SZ && ok; cyy++) {
+          for (var cxx = cc.x; cxx < cc.x + SZ; cxx++) {
+            if (cxx < 0 || cyy < 0 || cxx >= w || cyy >= h) { ok = false; break; }
+            if (ground[cyy][cxx].t === 'path') { ok = false; break; }
+            if (isMarked(cxx, cyy)) { ok = false; break; }
+            if (exitCells[cxx + ',' + cyy]) { ok = false; break; }
+          }
+        }
+        if (!ok) continue;
+        /* 画环：4×4 外框 = 特殊地形、实心 */
+        for (var i = 0; i < SZ; i++) {
+          for (var j = 0; j < SZ; j++) {
+            var isRing = (i === 0 || i === SZ - 1 || j === 0 || j === SZ - 1);
+            var gx = cc.x + j, gy = cc.y + i;
+            if (isRing) {
+              ground[gy][gx] = { t: sfKind, v: rng.int(0, 5) };
+              solid[gy][gx] = true;
+              shenfaGrid[gy][gx] = sfKind;
+              mark(gx, gy);
+            }
+          }
+        }
+        /* 内 2×2 中心放宝箱（交互点在宝箱正下方 = 环内下格） */
+        var cx = cc.x + 1, cy = cc.y + 1;
+        var sp = { id: 'sfchest_' + mapId.replace(/[^a-z0-9]/gi, ''), kind: 'chest', x: cx, y: cy,
+          sf: true, loot: { stone: [12, 30], scroll: .35, pill: .3 } };
+        solid[cy][cx] = true; mark(cx, cy);
+        chests[sp.id] = sp;
+        setInteract(cx, cy + 1, { type: 'chest', id: sp.id });
+        break;
+      }
+    }
+
     /* ===== 随机散布 =====
        ⚠️ v0.96.0：装饰数量必须补 **格子像素变大** 这一层（用户「地图放大后很空」）。
 
@@ -638,7 +698,7 @@
       md: md, w: w, h: h, solid: solid, ground: ground,
       decor: decor, interact: interact, exitCells: exitCells,
       chests: chests, boss: boss, rng: rng, npcs: npcs, scriptBattles: scriptBattles,
-      gatherNodes: gatherNodes, roams: roams
+      gatherNodes: gatherNodes, roams: roams, shenfa: shenfaGrid
     };
   }
 

@@ -2572,7 +2572,10 @@
     aran: { hair: '#2f2a34', skin: '#f2c9a4', robe: '#b06a72', robe2: '#8d4f58',
       collar: '#f0e6d4', eye: '#2b2530', brow: '#2f2a34' },
     villager: { hair: '#3a3440', skin: '#e6b98e', robe: '#8a8a92', robe2: '#66666e',
-      collar: '#e6ddc2', eye: '#241f2b', brow: '#3a3440' }
+      collar: '#e6ddc2', eye: '#241f2b', brow: '#3a3440' },
+    /* 浣衣妇等女性村民：暖布衣裙、妇人发髻（female 走 portraitDraw 的女性分支） */
+    villager_f: { hair: '#3c3540', skin: '#eec09a', robe: '#96707c', robe2: '#775560',
+      collar: '#ecd9c8', eye: '#2a2024', brow: '#4a3a40', female: true }
   };
 
   function portraitDraw(x, P) {
@@ -2655,6 +2658,11 @@
       x.beginPath();
       x.ellipse(cx + s * hr * 0.88, hy + 3.4, 2.6, 4.0, 0, 0, 6.2832);
       x.fillStyle = shade(P.skin, -0.10); x.fill();
+      /* 女性耳坠 */
+      if (P.female) {
+        x.beginPath(); x.arc(cx + s * hr * 0.92, hy + 7.8, 1.05, 0, 6.2832);
+        x.fillStyle = '#d8c89a'; x.fill();
+      }
     });
 
     /* 右颊与下颌的侧影 */
@@ -2666,7 +2674,16 @@
     [-1, 1].forEach(function (s) {
       var ex = cx + s * 5.4;
       x.fillStyle = P.brow;
-      x.fillRect(ex - 2.6, hy - 5.2, 5.2, 1.3);
+      if (P.female) {
+        /* 女性：细而弯的柳叶眉（不画男子粗直眉） */
+        x.lineWidth = 1.05; x.strokeStyle = P.brow;
+        x.beginPath();
+        x.moveTo(ex - 2.6, hy - 4.4);
+        x.quadraticCurveTo(ex, hy - 5.9, ex + 2.6, hy - 4.6);
+        x.stroke();
+      } else {
+        x.fillRect(ex - 2.6, hy - 5.2, 5.2, 1.3);
+      }
       x.beginPath(); x.ellipse(ex, hy + 0.6, 2.2, 1.6, 0, 0, 6.2832);
       x.fillStyle = '#f2ece0'; x.fill();
       x.beginPath(); x.arc(ex, hy + 0.6, 1.25, 0, 6.2832);
@@ -2719,12 +2736,25 @@
     /* 发髻与鬓发（戴帽/戴兜帽时不画，免得从帽檐下钻出来） */
     if (!P.hood && !P.hat) {
       x.fillStyle = P.hair;
-      x.beginPath(); x.ellipse(cx, hy - hr * 0.98, 5.2, 4.2, 0, 0, 6.2832); x.fill();
-      [-1, 1].forEach(function (s) {
-        x.beginPath();
-        x.ellipse(cx + s * hr * 0.80, hy + 6.5, 2.8, 7.0, 0, 0, 6.2832);
-        x.fill();
-      });
+      if (P.female) {
+        /* 妇人发髻：脑后圆髻 + 髻顶小挽 + 木簪，两侧长发垂肩（不画男子鬓发） */
+        x.beginPath(); x.ellipse(cx, hy - hr * 1.00, 5.6, 4.6, 0, 0, 6.2832); x.fill();
+        x.beginPath(); x.ellipse(cx, hy - hr * 1.20, 2.5, 2.1, 0, 0, 6.2832); x.fill();
+        x.lineWidth = 1; x.strokeStyle = '#b8a070';
+        x.beginPath(); x.moveTo(cx - 3.4, hy - hr * 0.98); x.lineTo(cx + 3.6, hy - hr * 1.22); x.stroke();
+        [-1, 1].forEach(function (s) {
+          x.beginPath();
+          x.ellipse(cx + s * hr * 0.88, hy + 8.2, 2.1, 8.8, 0, 0, 6.2832);
+          x.fill();
+        });
+      } else {
+        x.beginPath(); x.ellipse(cx, hy - hr * 0.98, 5.2, 4.2, 0, 0, 6.2832); x.fill();
+        [-1, 1].forEach(function (s) {
+          x.beginPath();
+          x.ellipse(cx + s * hr * 0.80, hy + 6.5, 2.8, 7.0, 0, 0, 6.2832);
+          x.fill();
+        });
+      }
     }
 
     /* 头巾/帽（掌柜） */

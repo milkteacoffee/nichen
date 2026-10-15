@@ -123,6 +123,8 @@ SIZES = {
     'char.npc.villager': (168, 252),
     #   cultist = 血煞教探子（M1 §4 m1-2，化名"行脚商"）—— ✅ 已出图（2026-09-26）
     'char.npc.cultist': (168, 252),
+    #   villager_f = 女性村民（浣衣妇专用）—— ⏳ 逻辑名先预登记，图未到走程序化兜底
+    'char.npc.villager_f': (168, 252),
     # 对话立绘（逻辑框 74×74，见 art.js PORTRAIT_LW/LH）
     #   74×4 倍超采样 = 296 是"不被放大"的下限，这里给到 512 留足余量、避免 K=4 时发虚
     'portrait.shenbo': (512, 512),
@@ -134,6 +136,8 @@ SIZES = {
     'portrait.aran': (512, 512),
     #   cultist = 血煞教探子（M1 §4）—— ✅ 已出图（2026-09-26）
     'portrait.cultist': (512, 512),
+    #   villager_f = 女性村民（浣衣妇专用）—— ⏳ 逻辑名先预登记，图未到走程序化兜底
+    'portrait.villager_f': (512, 512),
     # ===== 道具图标 =====
     #   储物面板格子逻辑 44px，K=4 → 176 设备像素；给到 256 留余量。
     #   取图逻辑名 = `item.<id>`，中文道具名 → id 的映射见 panels.js: ITEM_ICON_ID。
@@ -420,6 +424,7 @@ PIXEL_KEYS = set([
     # ⚠️ 只列 `char.npc.*`，**不含 `char.hero.*`** —— 主角仍走"程序化换装"那条路
     #    （换装依赖矩形分层，成品图把衣服画死了，两者互斥）。
     'char.npc.villager', 'char.npc.elder', 'char.npc.keeper', 'char.npc.cultist',
+    'char.npc.villager_f',
 ])
 
 

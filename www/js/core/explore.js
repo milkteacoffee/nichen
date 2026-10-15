@@ -346,6 +346,8 @@
           }
           return;
         }
+        /* 随机奇遇「!」弹出（encounters，G1）：弹出期间冻结操作，0.7s 后展开事件 */
+        if (G.Data.Encounters && G.Data.Encounters.tickPop(this, dt)) return;
         if (this.mark) { this.mark.t -= dt; if (this.mark.t <= 0) this.mark = null; }
         if (this.hintT < 20) this.hintT += dt;
         /* 破境天劫（v0.26.0）：必须在 `if (this.overlay) return;` **之前**推进 ——
@@ -511,6 +513,8 @@
         if (this.map.md.safe) return;
         /* 御剑飞行时**不触发暗雷** —— 这是"飞"最直观的收益 */
         if (this._flying()) return;
+        /* 随机奇遇（G1）：野外、非飞行即可累计，不限路面/地形（奇遇在路上也能遇） */
+        if (G.Data.Encounters) G.Data.Encounters.tickStep(this);
         this.steps += 1;
         if (this.prot > 0) { this.prot -= 1; return; }
         var zone = this._zone(y);
@@ -822,6 +826,10 @@
            ⚠️ 反例：上面 `p.y < 4` 的死区判据用的是 UI 空间（UI_H=272）——
               那一层属于"界面边缘"，本来就该用 UI 口径。 */
         var wpx = p.x * G.game.UI_R, wpy = p.y * G.game.UI_R;
+        /* G8：先判「交互圆钮」命中（圆钮浮在目标头顶、超出 tile 拾取区，
+           必须在反投影之前拦截，否则点到上方空格）。命中 → 走过去交互。 */
+        var btnT = this._interactBtnHit(wpx, wpy);
+        if (btnT) { this._walkToInteract(btnT.x, btnT.y); return; }
         var tx, ty;
         if (ISO_ON) {
           /* ⚠️ v1.9.0 等距反投影：屏幕点先经逆矩阵回到"世界像素（相对玩家）"，
@@ -865,6 +873,14 @@
            门的交互点其实是"房屋正下方那一格"，玩家会直接点房子本身，
            所以这里放宽到 2 格半径，点整栋房子都能进。 */
         if (this.map.solid[ty][tx]) {
+          /* 身法特殊地形（G4）：无对应身法 → 明确提示缺什么，而不是默默走不过。 */
+          var sfp = this.map.shenfa && this.map.shenfa[ty] ? this.map.shenfa[ty][tx] : '';
+          if (sfp && G.Data.dungeons && G.Data.dungeons.SHENFA_OF
+            && !(G.Data.dungeons.hasShenfa && G.Data.dungeons.hasShenfa(save, sfp))) {
+            G.game.toast(G.Data.dungeons.SHENFA_OF[sfp].hint, 2.6);
+            this.mark = { x: tx, y: ty, t: 0.55 };
+            return;
+          }
           var near = this._nearInteract(tx, ty, 2);
           if (near) this._walkToInteract(near.x, near.y);
           return;
@@ -891,6 +907,41 @@
           }
         }
         return best;
+      },
+
+      /* G8：找玩家**交互半径内**最近的可交互物（对标烟雨「靠近浮现交互按钮」）。
+         扫描以玩家为中心、半径 r 的方框，命中 map.interact 即候选；
+         曼哈顿距离最近者胜（同距取更靠下/右，稳定）。返回 {o,x,y,d} 或 null。
+         ⚠️ 只在**无覆盖层、非移动**时浮现（移动中按钮会乱跳）。 */
+      _nearestInteract: function (r) {
+        var save = G.game.save, p = save.pos, best = null;
+        for (var dy = -r; dy <= r; dy++) {
+          for (var dx = -r; dx <= r; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            var nx = p.x + dx, ny = p.y + dy;
+            if (nx < 0 || ny < 0 || nx >= this.map.w || ny >= this.map.h) continue;
+            var o = this.map.interact[nx + ',' + ny];
+            if (!o) continue;
+            var d = Math.abs(dx) + Math.abs(dy);
+            if (!best || d < best.d || (d === best.d && (ny > best.y || (ny === best.y && nx > best.x)))) {
+              best = { o: o, x: nx, y: ny, d: d };
+            }
+          }
+        }
+        return best;
+      },
+
+      /* G8：交互圆钮的命中判定（世界像素坐标）。圆钮 = 交互格中心抬高 14px、
+         半径约 11（含一点余量）。命中返回目标 tile {x,y}，否则 null。 */
+      _interactBtnHit: function (wpx, wpy) {
+        if (this.overlay || this.moving) return null;
+        var t = this._nearestInteract(2);
+        if (!t) return null;
+        var q = this._proj(t.x * TILE + 8, t.y * TILE + 8 - this._elevPx(t.x, t.y));
+        var bx = q.x, by = q.y - 14;
+        var dx = wpx - bx, dy = wpy - by;
+        if (dx * dx + dy * dy <= 12 * 12) return { x: t.x, y: t.y };
+        return null;
       },
 
       /* 走到 (tx,ty) 的某个相邻可行走格，到位后自动交互。
@@ -945,9 +996,17 @@
           var mn = Math.min(dx, dy), mx = Math.max(dx, dy);
           return (mx - mn) + mn * SQ2;
         }
-        /* 该格是否能站（目标格豁免实心） */
+        /* 该格是否能站（目标格豁免实心）。
+           ⚠️ 必须与 _blocked 同口径：身法特殊地形（水面/断崖/高崖）持有对应
+              身法则可过，否则 A* 会把"已学会水上漂"的玩家仍挡在水外。 */
         function passable(nx, ny, allowSolid) {
           if (nx < 0 || ny < 0 || nx >= self.map.w || ny >= self.map.h) return false;
+          var sfp = self.map.shenfa && self.map.shenfa[ny] ? self.map.shenfa[ny][nx] : '';
+          if (sfp) {
+            if (allowSolid) return true;
+            return !!(G.Data.dungeons && G.Data.dungeons.hasShenfa
+              && G.Data.dungeons.hasShenfa(G.game.save, sfp));
+          }
           if (solid[ny][nx] && !allowSolid) return false;
           return true;
         }
@@ -1450,6 +1509,8 @@
           else if (o.roam) self._drawRoam(x, o.roam, camX, camY);
           else self._drawDecor(x, o, camX, camY);
         });
+        /* 随机奇遇头顶「!」（G1，世界层，随玩家） */
+        if (G.Data.Encounters) G.Data.Encounters.drawPop(x, this);
 
         /* 宝箱 / Boss / 秘境裂隙 / 界门 */
         (this.map.md.special || []).forEach(function (sp) {
@@ -1557,6 +1618,8 @@
           G.Overlays.renderTribulation(x, this);
         } else if (this.overlay === 'storyevent' && G.Data.StoryEvents) {
           G.Data.StoryEvents.render(x, this);
+        } else if (this.overlay === 'encounter' && G.Data.Encounters) {
+          G.Data.Encounters.render(x, this);
         } else if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
         if (_popen) x.restore();
@@ -1791,6 +1854,11 @@
 
         /* 2) 道路：整片软蒙版 + 噪声羽化，路面像被踩进土里（v0.60，用户第 5 点） */
         this._softRoads(m, g, K, pal);
+        /* ⚠️ G4 修复：_softRoads 末尾会把 transform 重置为 identity（1x），
+           而后面的瓦片感 / 特殊地形都按"逻辑坐标 + useK 缩放"绘制。
+           不恢复的话，它们会被画在 1x 的左上角，特殊地形（水面/断崖/高崖）
+           整圈错位、看着像没画。这里统一恢复 useK 变换。 */
+        g.setTransform(K, 0, 0, K, 0, 0);
 
         /* 3) 等距瓦片感（v1.9.3 加强）——**逐格画瓦片**（缝 + 芯）。
            ⚠️ 为什么不能只改 `gGrass`（v1.9.2 的教训）：
@@ -1822,6 +1890,9 @@
             }
           }
         }
+
+        /* 4) 身法特殊地形（G4）：水面 / 断崖 / 高崖，逐格画出来（在瓦片感之上） */
+        this._drawShenfaTiles(m, g, pal);
 
         /* ===== 像素化（v2.0.0）=====
            地面预烘层是**整张地图**的高清图（K 倍），像素化必须在这一层做 ——
@@ -1889,6 +1960,59 @@
         pctx.globalCompositeOperation = 'source-over';
         g.setTransform(1, 0, 0, 1, 0, 0);
         g.drawImage(pc, 0, 0);
+      },
+
+      /* 身法特殊地形逐格绘制（G4）。g 是地面烘焙上下文（世界坐标，已 setTransform K）。
+         · water 水面：青蓝底 + 高光波纹弧（静态烘焙；波纹按坐标错开）
+         · chasm 断崖：深黑裂隙 + 锯齿边（读成"裂开的深渊"）
+         · high 高崖：岩壁灰褐 + 竖向节理（读成"陡峭石壁"）
+         ⚠️ 用坐标哈希让每格纹理错开，避免一圈环看着像复制粘贴。 */
+      _drawShenfaTiles: function (m, g, pal) {
+        var has = false;
+        for (var y = 0; y < m.h; y++) for (var x = 0; x < m.w; x++) {
+          if (m.shenfa && m.shenfa[y] && m.shenfa[y][x]) { has = true; }
+        }
+        if (!has) return;
+        for (var ty = 0; ty < m.h; ty++) {
+          for (var tx = 0; tx < m.w; tx++) {
+            var kind = (m.shenfa && m.shenfa[ty]) ? m.shenfa[ty][tx] : '';
+            if (!kind) continue;
+            var px = tx * TILE, py = ty * TILE;
+            var hh = hashTile(tx, ty, 'shenfa');
+            if (kind === 'water') {
+              g.fillStyle = '#3a6a86'; g.fillRect(px, py, TILE, TILE);
+              g.fillStyle = 'rgba(90,150,180,0.55)'; g.fillRect(px, py, TILE, 6);
+              /* 波纹：2~3 道浅色弧（按哈希错开） */
+              g.strokeStyle = 'rgba(210,235,245,0.5)'; g.lineWidth = 1;
+              for (var w = 0; w < 3; w++) {
+                var cy = py + 8 + ((hh * 9 + w * 8) % 18);
+                g.beginPath();
+                g.arc(px + 8 + (hh * 12 % 10), cy, 4 + (w % 2), 0.15 * Math.PI, 0.85 * Math.PI);
+                g.stroke();
+              }
+            } else if (kind === 'chasm') {
+              g.fillStyle = '#1a1410'; g.fillRect(px, py, TILE, TILE);
+              /* 锯齿裂边：沿边画深浅三角 */
+              g.fillStyle = '#3a2c22';
+              for (var c = 0; c < 4; c++) {
+                var cx2 = px + c * 8 + (hh * 5 % 4);
+                g.beginPath();
+                g.moveTo(cx2, py); g.lineTo(cx2 + 4, py + 6 + (hh * 7 % 5)); g.lineTo(cx2 + 8, py);
+                g.fill();
+              }
+              g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(px, py + TILE - 8, TILE, 8);
+            } else { /* high 高崖石壁 */
+              g.fillStyle = '#6a5e54'; g.fillRect(px, py, TILE, TILE);
+              /* 竖向节理：2~3 道暗线 + 顶部受光 */
+              g.fillStyle = 'rgba(255,240,210,0.3)'; g.fillRect(px, py, TILE, 4);
+              g.fillStyle = 'rgba(40,32,26,0.5)';
+              for (var v = 0; v < 3; v++) {
+                var vx = px + 4 + ((hh * 11 + v * 9) % 24);
+                g.fillRect(vx, py + 4, 1, TILE - 6);
+              }
+            }
+          }
+        }
       },
 
       /* 每帧的地面：从预烘好的整图层里取视口这一块（1 次 blit） */
@@ -2801,6 +2925,13 @@
       /* 通行判定**唯一入口**：走路与飞行都走它，别在别处再写 `map.solid[...]` */
       _blocked: function (x, y) {
         if (x < 0 || y < 0 || x >= this.map.w || y >= this.map.h) return true;
+        /* 身法特殊地形（G4）：水面/断崖/高崖。持有对应身法秘术（或御剑/飞行坐骑）可过。 */
+        var sf = this.map.shenfa && this.map.shenfa[y] ? this.map.shenfa[y][x] : '';
+        if (sf) {
+          var save = G.game.save;
+          if (G.Data.dungeons && G.Data.dungeons.hasShenfa && G.Data.dungeons.hasShenfa(save, sf)) return false;
+          return true;
+        }
         if (!this.map.solid[y][x]) return false;
         if (!this._flying() && !this._mountAir()) return true;
         this._ensureFlyGrid();
@@ -3133,25 +3264,84 @@
         x.restore();
       },
 
-      /* 可交互提示：角色正面对的格子若有交互物，浮一个脉动的小箭头。
-         纯点击操作没有 A 键，必须让"这里能点"变得可见。 */
+      /* G8 可交互提示：玩家进入交互半径（2 格）→ 最近的交互物头顶浮现
+         一个金色小圆钮（对话/进入/采集图标），对标烟雨「靠近浮现交互按钮」。
+         纯点击操作没有 A 键，必须让"这里能点"变得可见；点圆钮等价于点目标。
+         ⚠️ 圆钮画在交互格上（点击落点即该格 → onTap 走 _walkToInteract）。 */
       _drawInteractHint: function (x, camX, camY) {
         if (this.overlay || this.moving) return;
-        var save = G.game.save;
-        var f = this._front(save.pos, this.dir);
-        if (!this.map.interact[f.x + ',' + f.y]) return;
-        /* ⚠️ v1.8.0：画在世界层 restore 之后（屏幕系）→ 纵向除 VIEW_Y 才能与世界对齐 */
-        var _q = this._proj(f.x * TILE + 8, f.y * TILE - this._elevPx(f.x, f.y)); var px = _q.x, py = _q.y;
+        var t = this._nearestInteract(2);
+        if (!t) return;
+        var o = t.o;
+        /* 交互格中心 → 抬高 14px 浮在目标头顶（ISO 菱形上半约 16px，仍在该格拾取区） */
+        var _q = this._proj(t.x * TILE + 8, t.y * TILE + 8 - this._elevPx(t.x, t.y));
+        var px = _q.x, py = _q.y - 14;
         var pu = 0.5 + 0.5 * Math.sin(performance.now() / 240);
+        var R = 9.5;
         x.save();
-        x.globalAlpha = 0.55 + 0.45 * pu;
-        x.fillStyle = 'rgba(232,201,106,0.95)';
-        x.beginPath();
-        x.moveTo(px, py + 2);
-        x.lineTo(px - 4, py - 4);
-        x.lineTo(px + 4, py - 4);
-        x.closePath(); x.fill();
+        /* 外圈呼吸光晕 */
+        x.globalAlpha = 0.25 + 0.3 * pu;
+        x.fillStyle = 'rgba(232,201,106,0.9)';
+        x.beginPath(); x.arc(px, py, R + 3, 0, 6.2832); x.fill();
+        x.globalAlpha = 1;
+        /* 圆钮底（深色半透明）+ 金边 */
+        x.fillStyle = 'rgba(14,18,30,0.92)';
+        x.beginPath(); x.arc(px, py, R, 0, 6.2832); x.fill();
+        x.strokeStyle = 'rgba(232,201,106,' + (0.7 + 0.3 * pu) + ')';
+        x.lineWidth = 1.4; x.beginPath(); x.arc(px, py, R, 0, 6.2832); x.stroke();
+        /* 类型图标（白色小图形） */
+        x.fillStyle = '#f3e6c2'; x.strokeStyle = '#f3e6c2'; x.lineWidth = 1;
+        this._interactGlyph(x, o, px, py);
         x.restore();
+        /* 悬浮名（复用建筑/结构口径） */
+        this._interactGlyphHover(o, px, py, R);
+      },
+
+      /* 圆钮内的类型小图标 */
+      _interactGlyph: function (x, o, px, py) {
+        x.save();
+        x.translate(px, py);
+        if (o.type === 'npc') {                 /* 对话气泡 */
+          x.fillStyle = '#f3e6c2';
+          x.beginPath();
+          x.ellipse(0, -1, 5, 3.8, 0, 0, 6.2832); x.fill();
+          x.beginPath(); x.moveTo(-2, 2); x.lineTo(-3, 5); x.lineTo(1, 2.5); x.closePath(); x.fill();
+          x.fillStyle = '#1a2030';
+          x.beginPath(); x.arc(-2, -1, 0.8, 0, 6.2832); x.arc(0, -1, 0.8, 0, 6.2832); x.arc(2, -1, 0.8, 0, 6.2832); x.fill();
+        } else if (o.type === 'chest') {        /* 宝箱 */
+          x.strokeRect(-4.5, -2, 9, 6);
+          x.beginPath(); x.moveTo(-4.5, -2); x.lineTo(-4.5, -4); x.lineTo(4.5, -4); x.lineTo(4.5, -2); x.stroke();
+          x.beginPath(); x.arc(0, 0, 0.9, 0, 6.2832); x.fill();
+        } else if (o.type === 'boss') {         /* 战 */
+          x.font = 'bold 11px sans-serif'; x.textAlign = 'center';
+          x.fillText('!', 0, 4);
+        } else {                                /* 门 / 入口 / 界门：门框 */
+          x.strokeRect(-3.5, -5, 7, 10);
+          x.beginPath(); x.moveTo(0, -5); x.lineTo(0, 5); x.stroke();
+          x.beginPath(); x.arc(1.6, 0, 0.8, 0, 6.2832); x.fill();
+        }
+        x.restore();
+      },
+
+      /* 圆钮的悬浮名（给目标一个可读的"做什么"） */
+      _interactGlyphHover: function (o, px, py, R) {
+        var name = this._interactLabel(o);
+        if (!name) return;
+        G.UI.hover({ x: px - R - 2, y: py - R - 2, w: R * 2 + 4, h: R * 2 + 4 },
+          { title: name.title, text: name.text });
+      },
+
+      _interactLabel: function (o) {
+        if (o.type === 'npc') {
+          var n = (o.npc && (o.npc.n || o.npc.name)) || '路人';
+          return { title: n, text: '靠近后点击可交谈。' };
+        }
+        if (o.type === 'chest') return { title: '宝箱', text: '点击开启，取走遗物。' };
+        if (o.type === 'boss') return { title: '首领', text: '点击挑战。' };
+        if (o.type === 'gate' || o.type === 'door' || o.type === 'entrance' || o.type === 'worldgate' || o.type === 'ruin') {
+          return { title: '入口', text: '点击进入。' };
+        }
+        return null;
       },
 
       /* 当前场景名：室内图取地图自带 label（洞府/药铺/…），

@@ -119,7 +119,9 @@
   }
   /* 可在面板里直接使用的道具（战斗外的即时收益） */
   var ITEM_USE = {
-    '回春丹': { heal: 0.40 }, '大还丹': { heal: 0.75 }, '聚气散': { qi: 500 }
+    '回春丹': { heal: 0.40 }, '大还丹': { heal: 0.75 }, '聚气散': { qi: 500 },
+    /* G3 对标烟雨：回城符（神行符）一键回落脚点，走 G.Data.Travel.recall。 */
+    '回城符': { recall: true }
   };
 
   /* 道具图标逻辑名（v0.19.0）：中文道具名 → `item.<id>`。
@@ -1641,6 +1643,14 @@
     var save = G.game.save;
     var u = ITEM_USE[k];
     if (!u || !save.items[k]) return;
+    if (u.recall) {
+      if (G.Data.Travel) {
+        var r = G.Data.Travel.recall(scene);
+        if (!r.ok) { G.game.toast(r.msg); return; }
+        return;
+      }
+      return;
+    }
     if (u.heal) {
       var st = G.Player.computeStats(save);
       if (save.hp >= st.maxhp) { G.game.toast('气血已满'); return; }

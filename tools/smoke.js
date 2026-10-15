@@ -261,8 +261,9 @@ const notes = [];
 /* 有意走程序化兜底的素材键（详见 npc.portrait.assets 契约里的注释） */
 /* 有意走程序化兜底的角色键（新角色先接线、美术后补）。
    ⚠️ **出图之后必须从这张表里删掉** —— 留着会让"图丢了"变成静默通过。
-   2026-09-26：char.npc.cultist / portrait.cultist 已出图（血煞探子·行脚商），故清空。 */
-const PROC_FALLBACK_OK = new Set([]);
+   2026-09-26：char.npc.cultist / portrait.cultist 已出图（血煞探子·行脚商），故清空。
+   2026-10-15：新增女性村民 villager_f（浣衣妇专用），图未到、逻辑名已在 assets-build 预登记。 */
+const PROC_FALLBACK_OK = new Set(['char.npc.villager_f', 'portrait.villager_f']);
 for (const rel of srcs) {
   const p = path.join(WWW, rel);
   if (!fs.existsSync(p)) { errors.push(`缺失脚本：${rel}`); continue; }
@@ -528,9 +529,10 @@ step(function () {
   if (noEffect.length) errors.push('这些原型 drop 指向的秘术**无效果**（拿到也没用）：' + noEffect.join(', '));
 
   /* ④ 效果字段必须**引擎真的会读**（写了没人读 = 静默无效）。
-     白名单 = battle._applySecretPassives 已实现的字段。 */
+     白名单 = battle._applySecretPassives 已实现的字段；
+     `move` 为身法秘术（G4）的特殊地形门控字段，由 hasShenfa / SHENFA_OF 读取。 */
   const KNOWN_FX = ['cat', 'vamp', 'zhuxie', 'kurong', 'mangshan', 'startShield',
-    'atk', 'def', 'hp', 'spd', 'cast'];
+    'atk', 'def', 'hp', 'spd', 'cast', 'move'];
   Object.keys(D.SECRET_EFFECTS || {}).forEach(function (id) {
     const ef = D.SECRET_EFFECTS[id];
     Object.keys(ef).forEach(function (k) {
@@ -641,6 +643,209 @@ step(function () {
     }
   }
 }, 'npc.portrait.assets');
+
+/* 0e) 随机奇遇（G1，对标烟雨「江湖奇遇」）：池结构 / 每日计划确定性 / 世界过滤 / 走路触发。
+      与 StoryEvents 的一次性机缘不同，本系统是"走路随机、每日按种子刷新、可重复"。 */
+step(function () {
+  if (!G.Data.Encounters) { errors.push('缺少随机奇遇模块 G.Data.Encounters'); return; }
+  const E = G.Data.Encounters;
+  const pool = E.pool || [];
+  if (pool.length < 15) errors.push('随机奇遇池事件不足 15 条（实为 ' + pool.length + '）');
+
+  /* ① 结构：id 唯一；标题/台词/选项齐全；每条至少一条活路（非 dead 选项） */
+  const seenIds = {};
+  pool.forEach(function (ev) {
+    if (!ev.id) { errors.push('存在无 id 的奇遇事件'); return; }
+    if (seenIds[ev.id]) errors.push('奇遇 id 重复：' + ev.id);
+    seenIds[ev.id] = true;
+    if (!ev.title || !ev.lines || !ev.lines.length) errors.push('奇遇 ' + ev.id + ' 缺标题或台词');
+    if (!ev.choices || ev.choices.length < 2) { errors.push('奇遇 ' + ev.id + ' 选项少于 2 个'); return; }
+    let safe = false;
+    ev.choices.forEach(function (c) {
+      if (typeof c.t !== 'string' || typeof c.run !== 'function')
+        errors.push('奇遇 ' + ev.id + ' 存在缺文案或缺 run 的选项');
+      if (!c.dead) safe = true;
+    });
+    if (!safe) errors.push('奇遇 ' + ev.id + ' 所有选项都是死路（必须至少留一条活路）');
+    /* 世界限制只允许用合法世界 id */
+    if (ev.world && ['fan', 'ling', 'xian', 'dao'].indexOf(ev.world) < 0)
+      errors.push('奇遇 ' + ev.id + ' 非法的世界限制：' + ev.world);
+  });
+
+  /* ② 每日计划：确定性（同种子同日两次结果一致）；并能扫出"有/无"两种结果 */
+  const fanSave = {
+    worldSeed: 777, gt: 0, globalLevel: 5, items: {}, stone: 100, qi: 100, po: 0,
+    hp: 100
+  };
+  let gotPlan = false, gotNull = false;
+  for (let d = 0; d < 60; d++) {
+    const a = E.planFor(fanSave, d);
+    const b = E.planFor(fanSave, d);
+    if (a && b) {
+      if (a.ev.id !== b.ev.id || a.atStep !== b.atStep)
+        errors.push('奇遇计划不确定：worldSeed=777 day=' + d + ' 两次结果不一致');
+      gotPlan = true;
+    } else gotNull = true;
+  }
+  if (!gotPlan) errors.push('60 天内未扫出任何奇遇计划（概率/池异常）');
+  if (!gotNull) errors.push('60 天内每天都有奇遇（概率门失效，应约 55% 无）');
+
+  /* ③ 世界过滤：凡界存档绝不选到带世界限制（灵/仙/道）的事件 */
+  for (let d = 0; d < 200; d++) {
+    const p = E.planFor(fanSave, d);
+    if (p && p.ev.world) errors.push('凡界存档选到了 ' + p.ev.world + ' 界专属事件：' + p.ev.id);
+  }
+  /* 灵界存档应能选到灵界专属「灵潮」（扫足够多天，概率几乎必然命中） */
+  const lingSave = {
+    worldSeed: 777, gt: 0, globalLevel: 260, items: {}, stone: 100, qi: 100, po: 0,
+    hp: 100
+  };
+  let tide = false;
+  for (let d = 0; d < 600; d++) {
+    const p = E.planFor(lingSave, d);
+    if (p && p.ev.id === 'ec_tide') { tide = true; break; }
+  }
+  if (!tide) errors.push('灵界存档 600 天内未选到灵界专属「灵潮」（世界过滤可能过严）');
+
+  /* ④ 走路触发：强制一个 atStep=5 的计划，走 5 格 → 头顶「!」→ 推进后进入 encounter 覆盖层 */
+  const s = {
+    life: 1, worldSeed: 777, gt: 0, globalLevel: 5,
+    items: {}, stone: 100, qi: 100, po: 0, hp: 100,
+    quest: { step: 'free', flags: {} }, pos: { x: 10, y: 10 }
+  };
+  G.game.save = s;
+  G.game.changeScene('field', { toSpawn: true });
+  const sc = G.game.scene;
+  sc.prot = 0;
+  /* 直接给一个固定计划（day=0，save.gt=0 → dayIndex=0，ensure 不会重建） */
+  s.enc = { day: 0, steps: 0, fired: false, plan: { ev: pool[0], atStep: 5 } };
+  for (let i = 0; i < 5; i++) E.tickStep(sc);
+  if (!sc._encPop) { errors.push('走到计划步数后未弹出头顶「!」'); }
+  else {
+    /* 推进 0.8s（>0.7s 的弹出时长）→ 应展开事件、进入 encounter 覆盖层 */
+    E.tickPop(sc, 0.8);
+    if (sc.overlay !== 'encounter' || !sc._encEv)
+      errors.push('感叹号结束后未进入奇遇覆盖层（overlay=' + sc.overlay + '）');
+  }
+}, 'encounter.system');
+
+/* G8：靠近浮现交互按钮（对标烟雨）。进镇 → 立于 NPC 旁 → 最近交互命中、
+   圆钮命中、走远无；圆钮命中点在目标头顶（超出 tile 拾取区）。 */
+step(function () {
+  const s = {
+    life: 1, worldSeed: 777, gt: 0, globalLevel: 5,
+    items: {}, stone: 100, qi: 100, po: 0, hp: 100,
+    quest: { step: 'free', flags: {} }, pos: { x: 30, y: 25 }
+  };
+  G.game.save = s;
+  G.game.changeScene('town');
+  const sc = G.game.scene;
+  sc.prot = 0;
+  sc.overlay = null; sc.moving = false;
+  /* ① 立于浣衣妇(31,25) 旁 → 最近交互为该 NPC */
+  const near = sc._nearestInteract(2);
+  if (!near || near.x !== 31 || near.y !== 25 || near.o.type !== 'npc')
+    errors.push('G8：立于 NPC 旁未取到最近交互（' + JSON.stringify(near && { x: near.x, y: near.y, t: near.o.type }) + '）');
+  else {
+    /* ② 圆钮命中：按钮 = 交互格中心抬高 14px */
+    const q = sc._proj(31 * 32 + 8, 25 * 32 + 8 - sc._elevPx(31, 25));
+    const hit = sc._interactBtnHit(q.x, q.y - 14);
+    if (!hit || hit.x !== 31 || hit.y !== 25)
+      errors.push('G8：圆钮中心未命中（' + JSON.stringify(hit) + '）');
+    /* 圆钮边缘（半径 11 内）也应命中 */
+    if (!sc._interactBtnHit(q.x + 10, q.y - 14))
+      errors.push('G8：圆钮边缘 10px 未命中');
+    /* ③ 偏离按钮 30px 不应命中 */
+    if (sc._interactBtnHit(q.x + 40, q.y - 14))
+      errors.push('G8：圆钮外 40px 误命中');
+  }
+  /* ④ 走到无交互区域 → 最近交互为空、按钮不命中 */
+  s.pos = { x: 5, y: 5 };
+  if (sc._nearestInteract(2)) errors.push('G8：无交互区域误报最近交互');
+  if (sc._interactBtnHit(0, 0)) errors.push('G8：无交互区域按钮误命中');
+}, 'interact.button');
+
+/* G9：全部 NPC 数据一致性（id/名字/性别/立绘）。防止再出现「女性 NPC 配男性立绘」。
+   遍历 G.Data.maps 所有 npcs：①有 id/name/kind/portrait；②同图 id 唯一；
+   ③portrait 是合法立绘键；④女性 kind 必须配女性立绘（villager_f）。 */
+step(function () {
+  const validKeys = (G.Art && G.Art.PORTRAIT_KEYS) || [];
+  const maps = (G.Data && G.Data.maps) || {};
+  let npcCount = 0;
+  Object.keys(maps).forEach(function (mapId) {
+    const mp = maps[mapId];
+    const npcs = mp.npcs || [];
+    const seen = {};
+    npcs.forEach(function (n) {
+      npcCount++;
+      if (!n.id) { errors.push('G9：地图 ' + mapId + ' 存在无 id 的 NPC'); return; }
+      if (seen[n.id]) errors.push('G9：地图 ' + mapId + ' NPC id 重复：' + n.id);
+      seen[n.id] = true;
+      if (!n.name) errors.push('G9：NPC ' + mapId + '/' + n.id + ' 缺名字');
+      if (!n.kind) errors.push('G9：NPC ' + mapId + '/' + n.id + ' 缺 kind');
+      if (!n.portrait) errors.push('G9：NPC ' + mapId + '/' + n.id + ' 缺 portrait');
+      else if (validKeys.indexOf(n.portrait) < 0)
+        errors.push('G9：NPC ' + mapId + '/' + n.id + ' 立绘键非法：' + n.portrait);
+      /* 性别一致：kind 含 _f / 女性 kind 必须用女性立绘，反之亦然 */
+      const kindFemale = n.kind === 'villager_f' || n.kind.indexOf('_f') >= 0;
+      const portFemale = n.portrait === 'villager_f' || n.portrait.indexOf('_f') >= 0;
+      if (kindFemale !== portFemale)
+        errors.push('G9：NPC ' + mapId + '/' + n.id + ' 性别与立绘不匹配（kind=' + n.kind + ' portrait=' + n.portrait + '）');
+    });
+  });
+  if (npcCount < 5) errors.push('G9：全地图 NPC 总数过少（' + npcCount + '），遍历可能未生效');
+}, 'npc.consistency');
+
+/* G3：世界内付费传送（车马行/渡船/回城符）。
+   ① 只列本世界、已到访、非当前；② 同目的地水路费用 < 陆路；
+   ③ 出行扣灵石并换场景、灵石不足给失败；④ 回城符消耗并回落脚点。 */
+step(function () {
+  if (!G.Data.Travel) { errors.push('G3：G.Data.Travel 缺失（检查加载顺序）'); return; }
+  /* 走完整自由世流程拿一个真实存档 */
+  G.game.start();
+  G.game.changeScene('reincarnation');
+  var r = G.game.scene; r.enter(); r.freeLife = true; r.finish();
+  G.game.changeScene('town');
+  var s = G.game.save;
+  s.visited = {}; s.visited['fan2'] = 1; s.visited['fan4'] = 1;
+  var Tv = G.Data.Travel;
+  /* ① 陆路目的地：只含 fan2/fan4，不含当前 fan1、不含未到访 */
+  var car = Tv.destinations(s, 'carriage');
+  var carIds = car.map(function (d) { return d.r.id; });
+  if (carIds.indexOf('fan2') < 0 || carIds.indexOf('fan4') < 0)
+    errors.push('G3：陆路目的地缺已到访区域');
+  if (carIds.indexOf('fan1') >= 0) errors.push('G3：目的地不应含当前区域');
+  /* ② 水路更省：逐目的地 boat fee ≤ carriage fee */
+  var boat = Tv.destinations(s, 'boat');
+  var carFee = {}; car.forEach(function (d) { carFee[d.r.id] = d.fee; });
+  boat.forEach(function (d) {
+    if (d.fee > carFee[d.r.id])
+      errors.push('G3：水路 ' + d.r.id + ' 费用不应高于陆路');
+  });
+  /* ③ 出行：灵石足够 → 扣费、换场景 */
+  s.stone = 500;
+  var go = Tv.go(G.game.scene, 'fan2', 'carriage');
+  if (!go.ok) errors.push('G3：灵石充足时出行失败：' + go.msg);
+  if (G.game.sceneName !== 'field') errors.push('G3：出行后未切到 field');
+  if (s.stone !== 500 - carFee['fan2']) errors.push('G3：出行扣费错误');
+  /* 灵石不足：给一个天价目的地（直接调 go，stone 清零） */
+  s.stone = 0;
+  G.game.changeScene('town');
+  var poor = Tv.go(G.game.scene, 'fan2', 'carriage');
+  if (poor.ok) errors.push('G3：灵石不足不应出行成功');
+  /* 未到访不可选 */
+  s.stone = 500;
+  var unseen = Tv.go(G.game.scene, 'fan5', 'carriage');
+  if (unseen.ok) errors.push('G3：未到访区域不应出行');
+  /* ④ 回城符：给 2 张 → recall 消耗 1 张、回到 fan1（落脚点） */
+  s.stone = 500;
+  G.game.changeScene('field');
+  s.items = s.items || {}; s.items['回城符'] = 2;
+  var rc = Tv.recall(G.game.scene);
+  if (!rc.ok) errors.push('G3：回城符回落失败：' + rc.msg);
+  if (G.game.sceneName !== 'town') errors.push('G3：回城符未回到落脚点');
+  if (s.items['回城符'] !== 1) errors.push('G3：回城符未消耗');
+}, 'travel.system');
 
 /* 1) 启动 → 标题 */
 step(() => G.game.start(), 'start');
@@ -1411,6 +1616,10 @@ step(function () {
   const rngBackup = G.rng;
   G.rng = new G.RNG(20260926);
   const N = 1200;
+  /* 天气等级上浮（wBias）：本世界（水泽）落雨，野怪等级合法 +1。
+     _rollUnit 里 L = int(enc) + bias + wBias，故越界判据必须把 wBias 计入，
+     否则会把"雨天更凶"的合法设计误判成越界。wBias 与 _fogOn 同生共死。 */
+  const wBias = (G.game.encLvBias && G.game._fogOn !== false) ? G.game.encLvBias() : 0;
   ['front', 'mid', 'back'].forEach(function (id) {
     const zone = (sc.map.md.zones || []).filter((z) => z.id === id)[0];
     if (!zone) { errors.push('缺少分区：' + id); return; }
@@ -1422,9 +1631,10 @@ step(function () {
       units.forEach(function (u) {
         seen[id + '.' + u.species] = true;
         const bias = (zone.bias && zone.bias[u.species]) || 0;
-        if (u.level < zone.enc.min + bias || u.level > zone.enc.max + bias) {
+        const lo = zone.enc.min + bias + wBias, hi = zone.enc.max + bias + wBias;
+        if (u.level < lo || u.level > hi) {
           errors.push(id + ' 区 ' + u.species + ' 等级越界：' + u.level
-            + '（应 ' + (zone.enc.min + bias) + '..' + (zone.enc.max + bias) + '）');
+            + '（应 ' + lo + '..' + hi + '）');
         }
       });
     }
@@ -14284,7 +14494,9 @@ step(function () {
       bail('explore.render 未 scale(1/UI_R) 抵消 —— 地图会被放大 1.33、角色溢出屏幕');
     }
     /* explore 的世界↔UI 分界：两个探针函数必须在 UI 段（restore 之后）之前画 */
-    const rrend = exsrc.slice(exsrc.indexOf('render: function'), exsrc.indexOf('_drawBloodVeil: function'));
+    /* 归一化换行：Windows 上 core.autocrlf=true 会把 *.js 检出为 CRLF，
+       而下面的精确锚点用 \n —— 不先归一化会在 CRLF 检出上稳定假红。 */
+    const rrend = exsrc.slice(exsrc.indexOf('render: function'), exsrc.indexOf('_drawBloodVeil: function')).replace(/\r\n/g, '\n');
     const iRestore = rrend.indexOf('x.restore();\n        var _uiSpace = true;');
     const iHint = rrend.indexOf('this._drawInteractHint');
     const iHud = rrend.indexOf('this._drawHUD(x)');
