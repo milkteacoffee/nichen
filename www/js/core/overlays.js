@@ -651,21 +651,22 @@
       G.UI.text(x, { x: LX, y: P.y + 38 }, '法 宝', 12, G.UI.C.gold);
       G.UI.divider(x, LX + LW / 2, P.y + 50, LW, 'rgba(216,183,104,0.22)');
       G.UI.text(x, { x: LX, y: P.y + 60 }, '三槽：武器 / 防具 / 饰品', 10, G.UI.C.textDim);
-      G.UI.text(x, { x: LX, y: P.y + 76 }, '来自炼器 · 任务', 10, G.UI.C.textDim);
-      /* v0.76.0 阶段九：添加强化提示 */
-      G.UI.text(x, { x: LX, y: P.y + 90 }, '点击已装备法宝可强化', 10, G.UI.C.jadeHi);
+      G.UI.text(x, { x: LX, y: P.y + 76 }, '来自炼器 · 任务 · 刷怪', 10, G.UI.C.textDim);
       var fx = EQ ? EQ.sum(save.equip) : null;
+      var parts = [];
       if (fx) {
-        var parts = [];
         if (fx.a) parts.push('攻+' + Math.round(fx.a * 100) + '%');
         if (fx.f) parts.push('防+' + Math.round(fx.f * 100) + '%');
         if (fx.h) parts.push('血+' + Math.round(fx.h * 100) + '%');
         if (fx.s) parts.push('速+' + Math.round(fx.s * 100) + '%');
         if (fx.c) parts.push('暴+' + Math.round(fx.c * 100) + '%');
         if (fx.cd) parts.push('暴伤+' + Math.round(fx.cd * 100) + '%');
-        G.UI.text(x, { x: LX, y: P.y + 100 }, parts.length ? ('合计 ' + parts.join('　')) : '未佩法宝',
-          10.5, parts.length ? G.UI.C.jadeHi : G.UI.C.textDim);
       }
+      /* v2.15.4：合计与「未佩法宝」共用一行（按有无佩戴切换），空状态不再叠字；
+         强化提示只在真有佩戴时于下一行显示（原空状态下它与「未佩法宝」仅隔 10px）。 */
+      G.UI.text(x, { x: LX, y: P.y + 92 }, parts.length ? ('合计 ' + parts.join('　')) : '未佩法宝',
+        10.5, parts.length ? G.UI.C.jadeHi : G.UI.C.textDim);
+      if (parts.length) G.UI.text(x, { x: LX, y: P.y + 107 }, '点击已装备法宝可强化', 10, G.UI.C.jadeHi);
 
       G.UI.text(x, { x: RX, y: P.y + 38 }, '已 有 法 宝', 12, G.UI.C.gold);
       G.UI.divider(x, RX + RW / 2, P.y + 50, RW, 'rgba(216,183,104,0.22)');

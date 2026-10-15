@@ -1775,7 +1775,7 @@
   var ARTS = [
     { id: 'alchemy', n: '炼丹', by: '丹炉', d: '材料各地采集 · 每日刷新' },
     { id: 'forge', n: '炼器', by: '锻台', d: '配方需先识得，方可炼制' },
-    { id: 'array', n: '阵法', by: '阵盘', d: '仅主城与宗门可交易' },
+    { id: 'array', n: '阵法', by: '阵盘', d: '布阵增益 · 主城宗门购得' },
     { id: 'beast', n: '灵兽', by: '兽栏', d: '捕兽器捕捉 · 或主线赠予' }
   ];
 
@@ -2326,12 +2326,12 @@
         G.UI.text(x, { x: P.x + 22, y: P.y + 118 },
           '在身：斩妖 ' + b.need + ' 只（还差 ' + G.Player.bountyLeft(save) + '）· 赏 ' + b.stone + ' 灵石',
           10, G.UI.C.text);
-      } else {
-        G.UI.text(x, { x: P.x + 22, y: P.y + 118 }, '未接悬赏 —— 接一件换灵石。', 10, G.UI.C.textDim);
       }
+      /* v2.15.4：未接悬赏时不再画「未接悬赏」整行——下方 4 个悬赏按钮（y+120）自明；
+         原提示与按钮同 y 被整行盖住。底部引导顺移到 y+150/168，避开按钮行。 */
       /* 拜入入口已移至「宗门」子页（用户口径） */
-      G.UI.text(x, { x: P.x + 14, y: P.y + 144 }, '欲拜入宗门？切到「宗门」子页择一。', 10.5, G.UI.C.gold);
-      G.UI.text(x, { x: P.x + 14, y: P.y + 162 },
+      G.UI.text(x, { x: P.x + 14, y: P.y + 150 }, '欲拜入宗门？切到「宗门」子页择一。', 10.5, G.UI.C.gold);
+      G.UI.text(x, { x: P.x + 14, y: P.y + 168 },
         save.cultSwitchUsed ? '此世已改换门庭一次，来世再议。'
                             : '拜入后散修自悟功法将废功。', 10, G.UI.C.textDim);
       return;
@@ -2495,7 +2495,7 @@
           btns.push(new G.UI.Btn({
             /* ⚠️ 按钮数变多了（v0.90.1 加了带功法报酬的 b4），96 间距会顶出面板。
                P.w-290 起、4 枚各 90 → 需要 4×90 + 3×6 = 378，起点得左移到 P.w-392。 */
-            x: P.x + P.w - 392 + i * 96, y: P.y + 96, w: 90, h: 22, small: true, fs: 9,
+            x: P.x + P.w - 392 + i * 96, y: P.y + 120, w: 90, h: 22, small: true, fs: 9,
             variant: bb.skill ? 'gold' : 'default',
             label: bb.n + ' ' + bb.need + (bb.skill ? '·功' : ''),
             onClick: function () {
