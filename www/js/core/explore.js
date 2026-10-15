@@ -1519,6 +1519,7 @@
           if (sp.kind === 'entrance') self._drawEntrance(x, sp, camX, camY);
           if (sp.kind === 'worldgate') self._drawWorldgate(x, sp, camX, camY);
           if (sp.kind === 'well') self._drawWellSpecial(x, sp, camX, camY);
+          if (sp.kind === 'landmark') self._drawLandmark(x, sp, camX, camY);
         });
 
         /* 洞窟暗幕（火把可视范围）。bloodcave 是 cave 的换色变体（M1 §5.1），
@@ -2741,6 +2742,154 @@
         }
       },
 
+      /* ===== 区域独有地标（G5）=====
+         按 regions.landmarkOf 的 art 原型，程序化绘制一个约 2 格高的大地标。
+         每种原型造型不同，远处即可辨认；悬浮给名称与描述。 */
+      _drawLandmark: function (x, sp, camX, camY) {
+        var rid = this.mapId;
+        var lm = G.Data.regions.landmarkOf(rid);
+        if (!lm) return;
+        var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y));
+        var px = _q.x, py = _q.y;
+        var t = G.game.time || 0;
+        var W = 46, H = 56;   /* 地标绘制盒（约 1.5 格宽、近 2 格高） */
+        var bx = px + 8 - W / 2, by = py - H;
+        x.save();
+        /* 落地大阴影 */
+        x.fillStyle = 'rgba(0,0,0,0.26)';
+        x.beginPath();
+        x.ellipse(px + 8, py + 2, W * 0.42, 6, 0, 0, 6.2832);
+        x.fill();
+        x.translate(Math.round(bx), Math.round(by));
+        var art = lm.art;
+        var pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
+        if (art === 'stele') {
+          /* 石碑：底座 + 碑身 + 碑额，无字碑偏暗 */
+          x.fillStyle = '#6b6558'; x.fillRect(8, 44, 30, 8);
+          x.fillStyle = '#7d7768'; x.fillRect(12, 10, 22, 36);
+          x.fillStyle = '#8e8878'; x.fillRect(14, 12, 18, 32);
+          x.fillStyle = '#5d5748'; x.fillRect(10, 6, 26, 8);
+          if (lm.n === '天规碑') { x.fillStyle = 'rgba(220,190,110,' + (0.5 + 0.4 * pulse) + ')'; x.fillRect(16, 18, 14, 2); }
+        } else if (art === 'cliff') {
+          /* 断崖：参差的岩壁，顶部被削平 */
+          x.fillStyle = '#5d5648';
+          x.beginPath(); x.moveTo(6, 52); x.lineTo(8, 14); x.lineTo(18, 8); x.lineTo(30, 10);
+            x.lineTo(40, 16); x.lineTo(40, 52); x.closePath(); x.fill();
+          x.fillStyle = '#6e6758';
+          x.beginPath(); x.moveTo(10, 52); x.lineTo(12, 18); x.lineTo(22, 14); x.lineTo(34, 16);
+            x.lineTo(36, 52); x.closePath(); x.fill();
+          x.fillStyle = '#4a4438'; x.fillRect(8, 14, 32, 4);   /* 削平的断口 */
+        } else if (art === 'bamboo') {
+          /* 紫竹：莹紫竹节 + 顶部竹叶 */
+          x.strokeStyle = '#7a5a9a'; x.lineWidth = 6; x.lineCap = 'round';
+          x.beginPath(); x.moveTo(23, 52); x.lineTo(23, 12); x.stroke();
+          x.strokeStyle = '#9a7aba'; x.lineWidth = 2;
+          x.beginPath(); x.moveTo(23, 52); x.lineTo(23, 12); x.stroke();
+          x.strokeStyle = '#6a4a8a'; x.lineWidth = 1;
+          for (var bn = 18; bn < 50; bn += 8) { x.beginPath(); x.moveTo(20, bn); x.lineTo(26, bn); x.stroke(); }
+          x.fillStyle = '#8a6aaa';
+          x.beginPath(); x.ellipse(23, 10, 12, 5, -0.5, 0, 6.2832); x.fill();
+          x.fillStyle = 'rgba(190,160,230,' + (0.4 + 0.3 * pulse) + ')';
+          x.beginPath(); x.ellipse(23, 10, 6, 2.5, -0.5, 0, 6.2832); x.fill();
+        } else if (art === 'trestle') {
+          /* 栈桥：朽木支架 + 铁轨没入黑暗 */
+          x.fillStyle = '#3a332a'; x.fillRect(4, 6, 14, 46);
+          x.fillStyle = '#6a5a42'; x.fillRect(6, 20, 36, 5); x.fillRect(6, 34, 30, 5);
+          x.strokeStyle = '#4a3e2c'; x.lineWidth = 2;
+          x.beginPath(); x.moveTo(10, 20); x.lineTo(40, 14); x.moveTo(10, 39); x.lineTo(36, 33); x.stroke();
+        } else if (art === 'lava') {
+          /* 地火裂缝：焦黑裂缝 + 明灭赤浆 */
+          x.fillStyle = '#3a2a22';
+          x.beginPath(); x.moveTo(20, 6); x.lineTo(28, 18); x.lineTo(22, 30); x.lineTo(28, 44);
+            x.lineTo(24, 52); x.lineTo(18, 44); x.lineTo(24, 30); x.lineTo(18, 18); x.closePath(); x.fill();
+          x.fillStyle = 'rgba(230,110,40,' + (0.5 + 0.5 * pulse) + ')';
+          x.beginPath(); x.moveTo(22, 12); x.lineTo(25, 22); x.lineTo(21, 32); x.lineTo(25, 44);
+            x.lineTo(22, 48); x.lineTo(20, 32); x.lineTo(23, 22); x.closePath(); x.fill();
+        } else if (art === 'tower') {
+          /* 高台/塔：多层石塔 + 顶尖 */
+          x.fillStyle = '#6a6456'; x.fillRect(14, 20, 18, 32);
+          x.fillStyle = '#7b7566'; x.fillRect(12, 12, 22, 8); x.fillRect(10, 6, 26, 6);
+          x.fillStyle = '#5a5448'; x.fillRect(22, 0, 2, 8);
+          x.fillStyle = 'rgba(200,180,255,' + (0.4 + 0.4 * pulse) + ')'; x.fillRect(20, 26, 6, 2);
+        } else if (art === 'spring') {
+          /* 泉眼：石圈 + 幽蓝水光 */
+          x.fillStyle = '#5d5748'; x.beginPath(); x.ellipse(23, 40, 18, 10, 0, 0, 6.2832); x.fill();
+          x.fillStyle = 'rgba(90,160,220,' + (0.6 + 0.4 * pulse) + ')';
+          x.beginPath(); x.ellipse(23, 40, 13, 6.5, 0, 0, 6.2832); x.fill();
+          x.fillStyle = 'rgba(200,235,255,' + (0.5 + 0.4 * pulse) + ')';
+          x.beginPath(); x.ellipse(20, 38, 5, 2, 0, 0, 6.2832); x.fill();
+        } else if (art === 'altar') {
+          /* 血池祭坛：石坛 + 翻涌血浆 */
+          x.fillStyle = '#5d4a48'; x.fillRect(8, 24, 30, 26);
+          x.fillStyle = '#6e5a58'; x.fillRect(10, 18, 26, 8);
+          x.fillStyle = 'rgba(180,40,40,' + (0.6 + 0.4 * pulse) + ')';
+          x.beginPath(); x.ellipse(23, 22, 11, 4, 0, 0, 6.2832); x.fill();
+        } else if (art === 'ruin') {
+          /* 古堡残墙：高低错落的风蚀墙 */
+          x.fillStyle = '#8a7a56'; x.fillRect(8, 24, 10, 28); x.fillRect(26, 16, 12, 36);
+          x.fillStyle = '#9a8a66'; x.fillRect(10, 26, 6, 24); x.fillRect(28, 18, 8, 32);
+          x.fillStyle = '#5a4a36'; x.fillRect(10, 34, 6, 8); x.fillRect(30, 26, 4, 8);
+        } else if (art === 'swords') {
+          /* 万剑碑林：几把插地断剑 */
+          var swordPos = [[12, 30], [22, 20], [32, 28], [18, 40], [30, 42]];
+          swordPos.forEach(function (sp2, i) {
+            x.fillStyle = '#5a5e6a'; x.fillRect(sp2[0], sp2[1], 2, 22);
+            x.fillStyle = '#7a7e8a'; x.fillRect(sp2[0] - 2, sp2[1] - 2, 6, 3);
+          });
+        } else if (art === 'gate') {
+          /* 天门阙：白玉高门 */
+          x.fillStyle = '#a8b0bc'; x.fillRect(6, 14, 8, 38); x.fillRect(32, 14, 8, 38);
+          x.fillStyle = '#b8c0cc'; x.fillRect(4, 8, 12, 8); x.fillRect(30, 8, 12, 8);
+          x.fillStyle = '#9aa0ac'; x.fillRect(14, 10, 18, 6);
+          x.fillStyle = 'rgba(200,230,255,' + (0.4 + 0.4 * pulse) + ')'; x.fillRect(14, 16, 18, 2);
+        } else if (art === 'furnace') {
+          /* 八卦丹炉：大炉 + 灵火 */
+          x.fillStyle = '#5a4a3a'; x.fillRect(10, 24, 26, 28);
+          x.fillStyle = '#6a5a4a'; x.fillRect(12, 16, 22, 10);
+          x.fillStyle = 'rgba(230,140,60,' + (0.6 + 0.4 * pulse) + ')';
+          x.beginPath(); x.ellipse(23, 16, 9, 3, 0, 0, 6.2832); x.fill();
+          x.fillStyle = '#4a3a2c'; x.fillRect(14, 40, 4, 12); x.fillRect(28, 40, 4, 12);
+        } else if (art === 'dock') {
+          /* 渡口：木栈道 + 桩 */
+          x.fillStyle = '#6a5a42'; x.fillRect(4, 30, 38, 6); x.fillRect(8, 40, 30, 5);
+          x.fillStyle = '#4a3e2c'; x.fillRect(8, 20, 3, 32); x.fillRect(36, 24, 3, 28);
+        } else if (art === 'peach') {
+          /* 老桃树/桂树：蟠曲树干 + 花树冠 */
+          x.strokeStyle = '#6a5240'; x.lineWidth = 5; x.lineCap = 'round';
+          x.beginPath(); x.moveTo(23, 52); x.quadraticCurveTo(16, 34, 24, 22); x.stroke();
+          x.fillStyle = (lm.n === '桂树寒阙') ? '#7a9a5a' : '#c98aa0';
+          x.beginPath(); x.ellipse(23, 16, 16, 12, 0, 0, 6.2832); x.fill();
+          x.fillStyle = (lm.n === '桂树寒阙') ? '#9abe7a' : 'rgba(240,180,200,' + (0.6 + 0.4 * pulse) + ')';
+          x.beginPath(); x.ellipse(20, 13, 8, 6, 0, 0, 6.2832); x.fill();
+        } else if (art === 'platform') {
+          /* 玉台：方形白玉台 */
+          x.fillStyle = '#8a8e9a'; x.fillRect(6, 30, 34, 10);
+          x.fillStyle = '#9a9eaa'; x.fillRect(8, 22, 30, 10);
+          x.fillStyle = '#aab0bc'; x.fillRect(10, 16, 26, 8);
+          x.fillStyle = 'rgba(200,230,255,' + (0.3 + 0.3 * pulse) + ')'; x.fillRect(12, 18, 22, 2);
+        } else if (art === 'lotus') {
+          /* 功德金莲：莲台 */
+          x.fillStyle = '#b89a4a'; x.beginPath(); x.ellipse(23, 40, 18, 8, 0, 0, 6.2832); x.fill();
+          x.fillStyle = 'rgba(220,180,80,' + (0.6 + 0.4 * pulse) + ')';
+          for (var pt = 0; pt < 6; pt++) {
+            var pa = pt * 1.05;
+            x.beginPath(); x.ellipse(23 + Math.cos(pa) * 8, 38 + Math.sin(pa) * 4, 6, 3, pa, 0, 6.2832); x.fill();
+          }
+        } else if (art === 'void') {
+          /* 混沌渊：翻涌的暗紫漩涡 */
+          x.fillStyle = '#3a2e44'; x.beginPath(); x.ellipse(23, 40, 19, 10, 0, 0, 6.2832); x.fill();
+          x.strokeStyle = 'rgba(120,90,150,' + (0.5 + 0.5 * pulse) + ')'; x.lineWidth = 2;
+          for (var vd = 0; vd < 3; vd++) {
+            x.beginPath(); x.ellipse(23, 40, 15 - vd * 4, 7 - vd * 2, t * 0.5 + vd, 0, 6.2832); x.stroke();
+          }
+        }
+        x.restore();
+        /* 悬浮名称与描述 */
+        if (!this.overlay) {
+          G.UI.hover({ x: bx, y: by, w: W, h: H }, { title: lm.n, text: lm.d });
+        }
+      },
+
       _drawChest: function (x, sp, camX, camY) {
         var opened = G.game.save.chestsOpened.indexOf(sp.id) >= 0;
         var _q = this._proj(sp.x * TILE, sp.y * TILE - this._elevPx(sp.x, sp.y)); var px = _q.x, py = _q.y;
@@ -3157,6 +3306,12 @@
         x.ellipse(px, py - 1, HW * 0.32, HW * 0.12, 0, 0, 6.2832);
         x.fill();
         x.restore();
+        /* G6 待机呼吸：以脚底为锚点的纵向胸腔起伏（NPC 也"活着"），相位按 NPC 位置错开 */
+        var nBreath = 1 + 0.014 * Math.sin(G.game.time * 2.1 + (n.x * 0.7 + n.y * 0.5));
+        x.save();
+        x.translate(px, py);
+        x.scale(1, nBreath);
+        x.translate(-px, -py);
         var nfr = G.Sprites.npcAnim ? G.Sprites.npcAnim(n.kind) : null;
         if (nfr) {
           var nph = G.game.time % 3.2, nfi = nph < 0.18 ? 1 : 0;
@@ -3167,6 +3322,7 @@
         } else {
           x.drawImage(G.Sprites.npc(n.kind), Math.round(px - HW / 2), Math.round(top), HW, HH);
         }
+        x.restore();
         var mk = hooks.npcMark ? hooks.npcMark(n) : null;
         if (mk) this._drawNpcMark(x, px, top - 4, mk);
       },
@@ -3203,9 +3359,16 @@
         var spr = G.Sprites.beastResolve
           ? G.Sprites.beastResolve(r.artKey || null, spKey)
           : (G.Sprites.beast ? G.Sprites.beast(spKey) : null);
+        /* G6 待机呼吸：以脚底为锚点的纵向起伏（野怪也在"喘"） */
+        x.save();
+        x.translate(gx, gy);
+        x.scale(1, 1 + 0.02 * Math.sin(G.game.time * 2.2 + r.ph * 6.2832));
+        x.translate(-gx, -gy);
         if (spr) {
           x.drawImage(spr, Math.round(gx - HW / 2), Math.round(top), HW, HH);
-        } else {
+        }
+        x.restore();
+        if (!spr) {
           /* 兜底：无素材时画一只简笔色块，保证"看得见有野怪"这条不丢 */
           x.save();
           x.fillStyle = '#7a4a3a';

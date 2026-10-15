@@ -44,6 +44,15 @@
      因为地图上的明雷（explore.js）也要用它取同一张图 —— 只有一份真相源，
      才能保证"地图上看到哪只"与"进战斗打哪只"长相一致。 */
   var SPECIES_SPRITE = G.Data.SPECIES_SPRITE;
+  /* 元素 → 聚气光球色（G6 施法） */
+  var ELEM_GLOW = {
+    '金': 'rgba(240,210,120,0.9)', '木': 'rgba(120,210,110,0.9)',
+    '水': 'rgba(110,170,240,0.9)', '火': 'rgba(240,120,70,0.9)',
+    '土': 'rgba(200,170,100,0.9)', '雷': 'rgba(240,220,110,0.9)',
+    '冰': 'rgba(150,220,250,0.9)', '风': 'rgba(160,220,200,0.9)',
+    '毒': 'rgba(150,210,90,0.9)', '血': 'rgba(220,90,110,0.9)',
+    '暗': 'rgba(160,110,210,0.9)', '无': 'rgba(170,200,255,0.9)'
+  };
   /* 灵兽物种 id → 程序化战斗图（无专用图时的兜底） */
   var BEAST_UNIT_SPRITE = {
     b_qingwenshe: 'snake', b_bilinmang: 'snake', b_qingjiao: 'snake',
@@ -366,6 +375,7 @@
       this.lunge = {}; this.lungeT = {};
       this.flash = {};
       this.chargeMark = {};
+      this.deathT = {}; this.castT = {};
       this.miss = {};                 /* 连续失手计数（命中保底） */
       this.auto = false;
       this.over = false;
@@ -685,10 +695,12 @@
       var self = this;
       this.shown = {};
       this.lunge = {}; this.lungeT = {}; this.flash = {}; this.chargeMark = {};
+      this.deathT = {}; this.castT = {};
       this._keys().forEach(function (k) {
         var u = self._unit(k);
         self.shown[k] = u.hp;
         self.lunge[k] = 0; self.lungeT[k] = 0; self.flash[k] = 0; self.chargeMark[k] = null;
+        self.deathT[k] = -1; self.castT[k] = 0;
       });
     },
 
@@ -1468,9 +1480,27 @@
         return;
       }
 
-      steps.push([0.18, function () {
-        if (skill.n !== '攻击' && skill.n !== '普通攻击') self._log(atk.name + ' 施展「' + skill.n + '」！');
-        else self._log(atk.name + ' 发起攻击。');
+      /* G6 施法（cast）：法术/仙术先聚气（掌心元素光球），再扑出——
+         与普通攻击区分开，读得出"在念咒"。普通攻击无此步。 */
+      var isSpell = skill.n !== '攻击' && skill.n !== '普通攻击' && skill.elem && skill.elem !== '无';
+      if (isSpell) {
+        steps.push([0.24, function () {
+          self._log(atk.name + ' 施展「' + skill.n + '」！');
+          self.castT[aKey] = 1;
+          self._curSpellElem = skill.elem;
+        }]);
+      }
+      /* 前摇（G7）：先短暂后撤蓄力（wind-up），再快速扑出——
+         有了"收"的对比，"放"的一击才有力（预判原则）。 */
+      steps.push([0.08, function () {
+        if (!isSpell) {
+          if (skill.n !== '攻击' && skill.n !== '普通攻击') self._log(atk.name + ' 施展「' + skill.n + '」！');
+          else self._log(atk.name + ' 发起攻击。');
+        }
+        self.lungeT[aKey] = aKey === 'P' ? -7 : 6;
+      }]);
+      steps.push([0.14, function () {
+        self.castT[aKey] = 0;
         self.lungeT[aKey] = aKey === 'P' ? 34 : -30;
       }]);
       steps.push([0.26, function () {
@@ -1739,8 +1769,9 @@
       /* 受击后退（v0.54.0）：远离攻击者方向的短促位移，update 中弹回 */
       if (!this.knock) this.knock = {};
       this.knock[key] = (key === 'P') ? -7 : 7;
-      /* 暴击顿帧（90ms）：整个演出短暂冻结，压出命中重量 */
-      if (r.crit) this.hitStop = Math.max(this.hitStop || 0, 0.09);
+      /* 暴击顿帧（90ms）：整个演出短暂冻结，压出命中重量；
+         普通命中也给 35ms 轻顿帧（G7 打击感），让每一击都有"咬到肉"的反馈 */
+      this.hitStop = Math.max(this.hitStop || 0, r.crit ? 0.09 : 0.035);
 
       /* v0.76.0 打击感强化：顿帧+震屏（使用全局系统） */
       if (G.game) {
@@ -2372,6 +2403,9 @@
           + ((self.lungeT[key] || 0) - (self.lunge[key] || 0)) * k;
         self.flash[key] = Math.max(0, (self.flash[key] || 0) - dt * 3.2);
         if (self.knock) self.knock[key] = (self.knock[key] || 0) + ((0) - (self.knock[key] || 0)) * k;
+        /* G6 倒地计时：单位已死且死亡计时已启动则累加 */
+        var uu = self._unit(key);
+        if (uu && uu.hp <= 0 && self.deathT[key] >= 0) self.deathT[key] += dt;
       });
       if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 22);
       this._tickFx(dt);
@@ -2610,32 +2644,92 @@
         u.sprite || SPECIES_SPRITE[u.species] || 'snake');
       if (!isP && u.boss) s = Math.max(s, 72);
 
-      /* 已倒下：只留一个淡影，不再画立绘与名牌 */
+      /* ===== 倒地（G6 状态机·down）：先侧倒、再淡出，最后只留淡影 =====
+         不再"一死就整块消失"，而是真实地歪倒在地（rotate 以脚底为锚）。 */
       if (u.hp <= 0) {
-        x.save();
-        x.globalAlpha = 0.18;
-        x.fillStyle = '#000';
-        x.beginPath();
-        x.ellipse(cx, by + 2, s * 0.30, s * 0.09, 0, 0, 6.2832);
-        x.fill();
-        x.restore();
+        if (this.deathT[key] < 0) this.deathT[key] = 0;
+        var dt0 = this.deathT[key];
+        if (dt0 < 0.55) {
+          var kd = Math.min(1, dt0 / 0.32);          /* 0.32s 内完成侧倒 */
+          var fall = 1 - Math.pow(1 - kd, 3);          /* ease-out 倒地 */
+          x.save();
+          x.fillStyle = 'rgba(0,0,0,0.40)';
+          x.beginPath();
+          x.ellipse(cx, by + 2, s * 0.34, s * 0.10, 0, 0, 6.2832);
+          x.fill();
+          x.globalAlpha = kd < 0.8 ? 1 : Math.max(0, 1 - (dt0 - 0.32) / 0.23);
+          x.translate(cx, by);
+          x.rotate((isP ? 1 : -1) * fall * 1.35);       /* 侧倒约 77° */
+          x.drawImage(spr, Math.round(-s / 2), Math.round(-s), s, s);
+          x.restore();
+        } else {
+          x.save();
+          x.globalAlpha = 0.16;
+          x.fillStyle = '#000';
+          x.beginPath();
+          x.ellipse(cx, by + 2, s * 0.30, s * 0.09, 0, 0, 6.2832);
+          x.fill();
+          x.restore();
+        }
         return;
       }
 
       x.save();
-      /* 影子 */
+      /* 影子（前冲时影子略拉长，强化扑击感） */
       x.fillStyle = 'rgba(0,0,0,0.40)';
       x.beginPath();
-      x.ellipse(cx, by + 2, s * 0.34, s * 0.10, 0, 0, 6.2832);
+      var lungeLean = Math.max(0, Math.abs(lunge) / 34);
+      x.ellipse(cx, by + 2, s * (0.34 + lungeLean * 0.10), s * 0.10, 0, 0, 6.2832);
       x.fill();
 
-      /* 待机呼吸（v0.54.0）：原地时极轻微起伏；前冲/受击/后退时不叠加 */
-      var sway = (Math.abs(lunge) < 1 && Math.abs(knock) < 1 && (this.flash[key] || 0) < 0.25)
-        ? Math.sin(this.t * 2.6 + (isP ? 0 : 1.4)) : 0;
-      if (sway) x.translate(0, sway);
+      /* 待机呼吸（G6 状态机·idle）：以脚底为锚点的纵向胸腔起伏（scaleY），
+         不再是整块上下平移；前冲/受击/后退时不叠加。 */
+      var atRest = Math.abs(lunge) < 1 && Math.abs(knock) < 1 && (this.flash[key] || 0) < 0.25;
+      if (atRest) {
+        var breath = 1 + 0.016 * Math.sin(this.t * 2.2 + (isP ? 0 : 1.4));
+        x.translate(cx, by);
+        x.scale(1, breath);
+        x.translate(-cx, -by);
+      }
+
+      /* 前冲俯身（G7）：扑击时身体前倾——以脚底为锚点，朝攻击方向微微倾斜，
+         避免"整块纸片平移"的观感；受击后退时反向微仰。 */
+      if (Math.abs(lunge) > 2) {
+        var leanDir = isP ? 1 : -1;
+        x.translate(cx, by);
+        x.rotate(leanDir * 0.10 * lungeLean);
+        x.translate(-cx, -by);
+      }
+      if (Math.abs(knock) > 2) {
+        var backDir = isP ? -1 : 1;
+        x.translate(cx, by);
+        x.rotate(backDir * 0.07 * Math.min(1, Math.abs(knock) / 7));
+        x.translate(-cx, -by);
+      }
 
       /* 单位 */
       x.drawImage(spr, Math.round(cx - s / 2), Math.round(by - s), s, s);
+
+      /* G6 施法聚气（cast）：掌心元素光球随呼吸涨大，外有扩散环 */
+      if (this.castT[key] > 0) {
+        var elemCol = ELEM_GLOW[u.elem] || ELEM_GLOW[this._curSpellElem] || '#9ac8ff';
+        var gx = cx, gy = by - s * 0.52;
+        var pulse = 0.5 + 0.5 * Math.sin(this.t * 14);
+        var gr = s * (0.12 + 0.05 * pulse);
+        x.save();
+        x.globalCompositeOperation = 'lighter';
+        var grad = x.createRadialGradient(gx, gy, 0, gx, gy, gr * 2.2);
+        grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+        grad.addColorStop(0.4, elemCol);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        x.globalAlpha = 0.9;
+        x.fillStyle = grad;
+        x.beginPath(); x.arc(gx, gy, gr * 2.2, 0, 6.2832); x.fill();
+        x.globalAlpha = 0.5 * pulse;
+        x.strokeStyle = elemCol; x.lineWidth = 1.5;
+        x.beginPath(); x.arc(gx, gy, gr * (1.6 + pulse), 0, 6.2832); x.stroke();
+        x.restore();
+      }
 
       /* 命中闪光（v0.18.0 起**主角走红色**）。
          用户口径："战斗界面主角应该是红色受击的动画帧"。

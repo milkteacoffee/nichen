@@ -287,6 +287,25 @@
        （用户第 24 点：「实际场景和地图名称要一致」。） */
     var rn = G.Data.regions.nameOf(regionId, save);
 
+    /* 区域独有地标（G5）：在中心附近找一块非路、非建筑的位置放大地标。
+       放在 special 里（kind='landmark'），explore 用 regions.landmarkOf 取原型绘制。 */
+    var lm = G.Data.regions.landmarkOf(regionId);
+    if (lm) {
+      var lmPlaced = false;
+      /* 从中心向外螺旋找一块 2×2 空地 */
+      for (var lr0 = 2; lr0 < 10 && !lmPlaced; lr0++) {
+        for (var ly0 = -lr0; ly0 <= lr0 && !lmPlaced; ly0++) {
+          for (var lx0 = -lr0; lx0 <= lr0 && !lmPlaced; lx0++) {
+            var lx1 = cx + lx0, ly1 = cy + ly0;
+            if (lx1 < 2 || ly1 < 2 || lx1 > w - 3 || ly1 > h - 3) continue;
+            if (taken[lx1 + ',' + ly1] || roads[lx1 + ',' + ly1]) continue;
+            special.push({ id: 'landmark', kind: 'landmark', x: lx1, y: ly1 });
+            lmPlaced = true;
+          }
+        }
+      }
+    }
+
     var md = {
       id: regionId, regionId: regionId, n: rn, label: rn,
       tex: regionId,   /* 区域专属底图键（ground.<regionId>） */
