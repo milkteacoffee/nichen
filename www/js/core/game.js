@@ -327,6 +327,9 @@
       }
       this._pauseUntil = 0;
 
+      /* v2.15.2：单帧异常保护 —— 整个帧体包在 try 里，rAF 在 finally 保证调度，
+         任何一处（过场回调/场景更新/渲染）抛错都只跳过本帧、打印日志，绝不停摆。 */
+      try {
       /* dt 必须**上下都夹**：上夹 50ms 防切回前台时一帧跳几秒；
          下夹 0 防时间源回拨 —— 只要 dt 变负，所有 `-= dt` 的计时器就一起倒着走
          （闪白越收越亮、战斗 cue 永不结束、Toast 永不消失）。
@@ -497,8 +500,12 @@
       if (G.Story) G.Story.render(x);
       x.restore();
 
-      inp.endFrame();
-      requestAnimationFrame(this.loop.bind(this));
+      } catch (e) {
+        if (typeof console !== "undefined") console.error("主循环单帧异常（已跳过本帧，继续运行）", e);
+      } finally {
+        try { if (inp && inp.endFrame) inp.endFrame(); } catch (e2) {}
+        requestAnimationFrame(this.loop.bind(this));
+      }
     },
 
     /* 天道低语：顶部金框谶语，淡入 → 停留 → 淡出，不阻断操作 */
