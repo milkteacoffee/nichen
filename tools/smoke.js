@@ -847,6 +847,73 @@ step(function () {
   if (s.items['回城符'] !== 1) errors.push('G3：回城符未消耗');
 }, 'travel.system');
 
+/* G2：NPC 好感养成（对标烟雨）。
+   每个可养成 NPC 有喜好/档位解锁；陌生→熟识→信任→亲密；奖励幂等；互斥关闭。 */
+step(function () {
+  if (!G.Data.Affinity) { errors.push('G2：G.Data.Affinity 缺失（检查加载顺序）'); return; }
+  const A = G.Data.Affinity;
+  const npcs = Object.keys(A.NPC);
+  if (npcs.length < 5) errors.push('G2：可养成 NPC 不足 5 个（实为 ' + npcs.length + '）');
+
+  /* 干净存档 */
+  const s = {
+    items: {}, stone: 100, aff: {}, affGot: {}, globalLevel: 1,
+    secrets: {}, gl: 1,
+    quest: { step: 'free', flags: {} }, pos: { x: 10, y: 10 }
+  };
+  G.game.save = s;
+
+  /* ① 每个 NPC：有喜好（≥1，且喜好物是已定义道具）；每档解锁内容合法 */
+  npcs.forEach(function (id) {
+    const def = A.NPC[id];
+    const likes = Object.keys(def.likes || {});
+    if (!likes.length) errors.push('G2：' + id + ' 没有喜好物品');
+    likes.forEach(function (it) {
+      if (['回春丹', '妖丹', '聚气散', '大还丹', '解毒丹'].indexOf(it) < 0)
+        errors.push('G2：' + id + ' 喜好了未定义道具：' + it);
+    });
+    /* 解锁档位 1/2/3 都存在 */
+    [1, 2, 3].forEach(function (t) {
+      if (!def.unlock || !def.unlock[t]) { errors.push('G2：' + id + ' 缺第 ' + t + ' 档解锁'); return; }
+      const u = def.unlock[t];
+      if (['line', 'item', 'shenfa'].indexOf(u.t) < 0)
+        errors.push('G2：' + id + ' 第 ' + t + ' 档解锁类型非法：' + u.t);
+      if (u.t === 'item' && !u.id) errors.push('G2：' + id + ' 第 ' + t + ' 档 item 缺 id');
+      if (u.t === 'shenfa' && !u.k) errors.push('G2：' + id + ' 第 ' + t + ' 档 shenfa 缺 k');
+    });
+  });
+
+  /* ② 档位推进：add 逐步升档，到点触发 up */
+  const before = A.tierOf(s, 'washer');
+  if (before !== 0) errors.push('G2：初始档位应为陌生');
+  const r1 = A.add(s, 'washer', 10);
+  if (!r1.up || r1.to !== 1) errors.push('G2：好感 10 应升至熟识');
+  const r2 = A.add(s, 'washer', 15);
+  if (r2.to !== 2) errors.push('G2：好感 25 应升至信任');
+  /* 信任档 item 奖励已发放（幂等） */
+  if (!s.items['eq_yupei']) errors.push('G2：信任档未发放暖玉佩');
+  const r3 = A.add(s, 'washer', 20);
+  if (r3.to !== 3) errors.push('G2：好感 45 应升至亲密');
+  if (!s.items['eq_hulu']) errors.push('G2：亲密档未发放药王葫芦');
+  /* 幂等：再 add 不重复发奖 */
+  const gotKeys = Object.keys(s.affGot).length;
+  A.add(s, 'washer', 50);
+  if (Object.keys(s.affGot).length !== gotKeys) errors.push('G2：档位奖励未幂等，重复发放');
+
+  /* ③ shenfa 奖励：ferryman 亲密 → 水上漂；coachman 亲密 → 雁行功 */
+  A.add(s, 'ferryman', 45);
+  A.add(s, 'coachman', 45);
+  if (!G.Data.dungeons.hasShenfa(s, 'water')) errors.push('G2：老船夫亲密未传水上漂');
+  if (!G.Data.dungeons.hasShenfa(s, 'chasm')) errors.push('G2：车马夫亲密未传雁行功');
+
+  /* ④ 互斥：给两个互斥 NPC 打标，验证 isClosed 关闭逻辑 */
+  A.NPC._testA = { name: '甲', likes: { '回春丹': 1 }, unlock: { 1: { t: 'line' }, 2: { t: 'line' }, 3: { t: 'line' } }, mutex: '_testB' };
+  A.NPC._testB = { name: '乙', likes: { '回春丹': 1 }, unlock: { 1: { t: 'line' }, 2: { t: 'line' }, 3: { t: 'line' } }, mutex: '_testA' };
+  A.add(s, '_testA', 45);
+  if (!A.isClosed(s, '_testB')) errors.push('G2：与甲亲密后，乙应被互斥关闭');
+  delete A.NPC._testA; delete A.NPC._testB;
+}, 'affinity.system');
+
 /* 1) 启动 → 标题 */
 step(() => G.game.start(), 'start');
 pump(30, 'title');
@@ -4694,11 +4761,11 @@ step(function () {
   if (!B.canRide(mk('b_huangzongma','adult'))) errors.push('成年坐骑应可骑');
   if (B.canRide(mk('b_chiyanlang','adult'))) errors.push('战种不应可骑');
   const mig = G.Storage._migrate({ version: 6, cult: 'free', skills: {} });
-  if (mig.version !== 11 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
+  if (mig.version !== 12 || !Array.isArray(mig.beasts) || mig.riding !== null || !mig.rideSkill) {
     errors.push('v6→v7 存档迁移缺灵兽字段');
   }
   const migM = G.Storage._migrate({ version: 6, xianli: 0 });
-  if (migM.version !== 11 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
+  if (migM.version !== 12 || !migM.bestiary) errors.push('v6→v7 meta 迁移缺图鉴字段');
 }, 'beasts.data.contract');
 
 /* ---------- 灵兽管理器契约（v0.44.0，B2，《灵兽 v1.1》） ----------
@@ -11451,7 +11518,7 @@ pump(4, 'danger.warn.leave');
   var meta = G.Storage._migrate({ version: 7, xianli: 0,
     perfusion: { body: 0, qi: 0, po: 0, stone: 0, rescue: 0 },
     past: [], heaven: { memory: [] } });
-  if (meta.version !== 11) e2.push('迁移后版本应为 11');
+  if (meta.version !== 12) e2.push('迁移后版本应为 12');
   if (!meta.memory || !meta.bonds || !meta.progress.story) e2.push('剧情结构未补齐');
   var r1 = G.Story.sealLife(meta, {}, 1);
   var sealedFan = Object.keys(meta.memory.fragments).length;
@@ -11564,7 +11631,7 @@ step(function () {
     check(!G.Player.acquireHome(s).ok && s.stone === 17, '重复租洞府再次扣款');
     check(G.Storage.loadCurrent().homeOwned === true, '洞府所有权未落盘');
     const old = G.Storage._migrate({ version: 9, stone: 12 });
-    check(old.homeOwned === true && old.version === 11 && old.stone === 12, '旧档洞府迁移损失');
+    check(old.homeOwned === true && old.version === 12 && old.stone === 12, '旧档洞府迁移损失');
     const fresh = G.Storage._migrate({ version: 9, homeOwned: false });
     check(fresh.homeOwned === false, '迁移把无洞府变成有洞府');
   }

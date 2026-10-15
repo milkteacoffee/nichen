@@ -355,6 +355,15 @@
       label: '关闭',
       onClick: function () { scene.clearOverlay(); }
     }));
+    /* G2：交情（好感养成）—— 陆路=车马夫，渡船=老船夫 */
+    var affId = mode === 'boat' ? 'ferryman' : 'coachman';
+    if (G.Data.Affinity && G.Data.Affinity.isNPC(affId)) {
+      btns.push(new G.UI.Btn({
+        x: SP.x + 158, y: SP.y + SP.h - 30, w: 96, h: 22, small: true,
+        label: '交情·' + G.Data.Affinity.tierName(save, affId),
+        onClick: function () { G.Data.Affinity.open(scene, affId); }
+      }));
+    }
     scene.setOverlay('travel', btns);
   }
 
@@ -366,10 +375,12 @@
     ferry: function (scene) { openTravel(scene, 'boat'); },
     'chat.washer': function (scene) {
       if (sideTalk(scene, 'washer')) return;
+      if (G.Data.Affinity && G.Data.Affinity.isNPC('washer')) { G.Data.Affinity.open(scene, 'washer'); return; }
       openChat(scene, 'chatWasher');
     },
     'chat.woodman': function (scene) {
       if (sideTalk(scene, 'woodman')) return;
+      if (G.Data.Affinity && G.Data.Affinity.isNPC('woodman')) { G.Data.Affinity.open(scene, 'woodman'); return; }
       openChat(scene, 'chatWoodman');
     },
     market: function (scene) {
@@ -803,6 +814,14 @@
       x: 190, y: 232, w: 100, h: 20, small: true,
       label: '离开', onClick: function () { scene.clearOverlay(); }
     }));
+    /* G2：交情（好感养成） */
+    if (G.Data.Affinity && G.Data.Affinity.isNPC('market')) {
+      btns.push(new G.UI.Btn({
+        x: 300, y: 232, w: 100, h: 20, small: true,
+        label: '交情·' + G.Data.Affinity.tierName(save, 'market'),
+        onClick: function () { G.Data.Affinity.open(scene, 'market'); }
+      }));
+    }
     scene.setOverlay('market', btns);
   }
 

@@ -1,6 +1,6 @@
 /* 存档：meta 永久档 + 当世档；版本迁移；.bak 兜底 */
 (function () {
-  var VERSION = 11;
+  var VERSION = 12;
   var K_META = 'nichen_meta';
   var K_SAVE = 'nichen_save';
 
@@ -286,6 +286,15 @@
       if (data.version < 11) {
         if (this._isMeta(data) && G.Arcs) G.Arcs.ensure(data);
         data.version = 11;
+      }
+      /* v11 → v12：NPC 好感养成（G2）—— save 侧 aff（好感值）/ affGot（已发奖励）。
+         meta 侧不需要（好感是当世关系，轮回后重置）。 */
+      if (data.version < 12) {
+        if (!this._isMeta(data)) {
+          if (data.aff == null) data.aff = {};
+          if (data.affGot == null) data.affGot = {};
+        }
+        data.version = 12;
       }
       return data;
     },

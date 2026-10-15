@@ -1620,6 +1620,8 @@
           G.Data.StoryEvents.render(x, this);
         } else if (this.overlay === 'encounter' && G.Data.Encounters) {
           G.Data.Encounters.render(x, this);
+        } else if (this.overlay === 'affinity' && G.Data.Affinity) {
+          G.Data.Affinity.renderPanel(x, this);
         } else if (hooks.renderOverlay && this.overlay) hooks.renderOverlay(x, this);
         for (var b = 0; b < this.buttons.length; b++) this.buttons[b].render(x);
         if (_popen) x.restore();

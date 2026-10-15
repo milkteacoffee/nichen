@@ -808,6 +808,10 @@
         save.daoHeart = Math.max(-10, Math.min(10, (save.daoHeart || 0) + hd));
       }
       if (G.Player.chronicle) G.Player.chronicle(save, 'side:' + q.id, '了却一桩：' + q.n);
+      /* G2：完成支线 → 对 giver 好感 +12（足以从陌生到熟识，再赠礼/对话继续） */
+      if (q.giver && G.Data.Affinity && G.Data.Affinity.isNPC(q.giver)) {
+        G.Data.Affinity.add(save, q.giver, 12);
+      }
       if (G.Storage && G.Storage.saveCurrent) G.Storage.saveCurrent(save);
       return { ok: true, text: q.out, reward: r };
     },
