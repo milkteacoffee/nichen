@@ -402,13 +402,17 @@
          ⚠️ explore 是世界场景：它在自己的 render 开头 `scale(1/UI_R)` **抵消**这一层，
             所以地图/角色/相机仍是 640 口径（各绘制点不用改）。
          ⚠️ 不在变换里测绘制耗时（`_tDraw` 在缩放外，量到的仍是真实负担）。 */
+      /* v2.15.1：过场打开时视频(DOM 全黑)或静帧(底黑)都完全盖住场景，
+         不再以 120fps 重渲被遮住的场景，把 CPU/GPU 让给视频解码，避免全屏
+         视频与高频场景抢合成器导致卡顿/抓帧超时。 */
+      var csOpen = !!(G.Cutscene && G.Cutscene.isOpen());
       x.save();
       x.scale(this.UI_R, this.UI_R);
-      if (this.scene.render) this.scene.render(x);
+      if (!csOpen && this.scene.render) this.scene.render(x);
       x.restore();
       /* 环境粒子：画在场景之上、悬停/面板之外（打开覆盖层时方法内部自行跳过）。
          ⚠️ 它按 `this.W/H`（世界口径）散布 → 也走世界空间，故不套 UI 缩放。 */
-      this._renderAmbient(x);
+      if (!csOpen) this._renderAmbient(x);
       /* 昼夜色温 + 体积雾**不在这里挂载** ——
          它们在 `explore.render` 的"世界层收口处"（`_zoom` 恢复之后、`_drawHUD` 之前）调用。
          原因：`_drawHUD` 是**场景内部**方法，也在 `scene.render()` 之内；

@@ -14,7 +14,7 @@
   var BAR = 30;                 // 上下黑边高度（静帧）
   var FADE = 0.7;               // 交叉淡化时长
   var CAP_BOTTOM = 46;          // 字幕距底
-  var dom = null, videoEl = null, capEl = null, skipEl = null;
+  var dom = null, videoEl = null, capEl = null, skipEl = null, loadEl = null;
 
   var C = {
     open: false,
@@ -233,7 +233,12 @@
       videoEl.style.width = '100%'; videoEl.style.height = '100%';
       videoEl.style.objectFit = 'cover';
       videoEl.muted = true; videoEl.playsInline = true;
+      videoEl.preload = 'auto';
       videoEl.addEventListener('ended', function () { videoEl._ended = true; });
+      /* 首帧可播才隐藏加载提示；缓冲/等待时再显示，避免黑屏空等 */
+      videoEl.addEventListener('playing', function () { if (loadEl) loadEl.style.display = 'none'; self._clearVidTimer(); });
+      videoEl.addEventListener('canplay', function () { if (loadEl) loadEl.style.display = 'none'; self._clearVidTimer(); });
+      videoEl.addEventListener('waiting', function () { if (loadEl && dom.style.display !== 'none') loadEl.style.display = 'block'; });
       capEl = document.createElement('div');
       capEl.style.position = 'absolute';
       capEl.style.left = '5%'; capEl.right = '5%'; capEl.style.bottom = '7%';
@@ -252,7 +257,16 @@
       skipEl.style.padding = '4px 10px';
       skipEl.style.cursor = 'pointer';
       skipEl.addEventListener('click', function (e) { e.stopPropagation(); self.finish(); });
-      dom.appendChild(videoEl); dom.appendChild(capEl); dom.appendChild(skipEl);
+      loadEl = document.createElement('div');
+      loadEl.innerHTML = '（影像加载中）';
+      loadEl.style.position = 'absolute';
+      loadEl.style.left = '0'; loadEl.style.top = '46%'; loadEl.style.width = '100%';
+      loadEl.style.textAlign = 'center';
+      loadEl.style.color = 'rgba(230,230,230,0.75)';
+      loadEl.style.fontSize = '16px';
+      loadEl.style.fontFamily = '"LXGW WenKai",KaiTi,serif';
+      loadEl.style.display = 'none';
+      dom.appendChild(videoEl); dom.appendChild(capEl); dom.appendChild(loadEl); dom.appendChild(skipEl);
       document.body.appendChild(dom);
       return dom;
     },
@@ -264,9 +278,22 @@
       videoEl._ended = false;
       videoEl.src = s.video;
       capEl.innerHTML = '';
+      if (loadEl) loadEl.style.display = 'block';
+      /* 关键：上一段 stop 时 removeAttribute('src')，重设 src 后必须 load()
+         复位媒体元素，否则同页第二世起播放会 ERR_ABORTED / 卡在 readyState 0。 */
+      try { videoEl.load(); } catch (e) {}
+      this._clearVidTimer();
+      var self2 = this;
+      this._vidTimer = setTimeout(function () {
+        /* 6 秒仍未就绪（慢网/无硬件解码）→ 不再让剧情干等，切静帧兜底 */
+        if (self2.open && self2.mode === 'video' && (!videoEl || videoEl.readyState < 2)) {
+          self2._toStillFallback();
+        }
+      }, 6000);
       var p = videoEl.play();
       if (p && p.catch) p.catch(function () {
         /* 自动播放受限或加载失败 → 回退静帧 */
+        if (loadEl) loadEl.style.display = 'none';
         dom.style.display = 'none';
         self.mode = 'still'; self.t = 0;
       });
@@ -278,9 +305,26 @@
       if (capEl.innerHTML !== txt) capEl.innerHTML = txt;
     },
 
-    _stopVideo: function () {
+    _clearVidTimer: function () {
+      if (this._vidTimer) { clearTimeout(this._vidTimer); this._vidTimer = null; }
+    },
+    _toStillFallback: function () {
+      this._clearVidTimer();
+      if (loadEl) loadEl.style.display = 'none';
       if (dom) dom.style.display = 'none';
-      if (videoEl) { try { videoEl.pause(); } catch (e) {} videoEl.removeAttribute('src'); videoEl._ended = false; }
+      if (videoEl) { try { videoEl.pause(); } catch (e) {} }
+      this.mode = 'still'; this.t = 0;
+    },
+    _stopVideo: function () {
+      this._clearVidTimer();
+      if (dom) dom.style.display = 'none';
+      if (loadEl) loadEl.style.display = 'none';
+      if (videoEl) {
+        try { videoEl.pause(); } catch (e) {}
+        videoEl.removeAttribute('src');
+        try { videoEl.load(); } catch (e) {}   /* 复位媒体元素，保证下一段能干净加载 */
+        videoEl._ended = false;
+      }
       if (capEl) capEl.innerHTML = '';
     }
   };

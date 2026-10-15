@@ -50,6 +50,7 @@
 
     _reply: function (text) {
       G.TianDao.Field.hide();
+      this.lastReply = text;
       this.round += 1;
       this.mode = this.round >= 3 ? 'done' : 'presets';
       if (this.round >= 3) {
@@ -59,12 +60,12 @@
         this._buildButtons();
         return;
       }
-      this._ask('deathGateReply', { reply: text });
+      this._ask('deathGateReply', { reply: text, round: this.round });
     },
 
     _useFallback: function () {
       var trigger = this.round === 0 ? 'deathGate' : 'deathGateReply';
-      var line = G.TianDao.fallback(trigger, {});
+      var line = G.TianDao.fallback(trigger, { reply: this.lastReply, round: this.round });
       this.busy = false;
       this.line = line;
       this.tw = new G.UI.Typewriter(line, 42);

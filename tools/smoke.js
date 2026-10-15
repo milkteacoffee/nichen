@@ -12469,6 +12469,58 @@ step(function () {
   console.log('  ✓ 天赋结算：se/mf/ct/he/drAll/lowHpDef/rs/bdur/dr 数值生效 + 掉落/炼丹/逃跑/反伤/吸血/击杀源码闸 + 无假字段');
 }, 'talent.effect.settlement.contract');
 
+/* ---------- 天道审判离线兜底契约（v2.15.1，真机走查发现） ----------
+   问题：断网/无模型时，deathGateReply 直接复用 deathGate 的阶段数组，
+   首死 si=0 → 玩家每答一句，天道都重复"凡人修行为何？逆天者…"，毫无反应。
+   断言：① deathGateReply 绝不等于开场问句；
+        ② 随应答情绪（逆/痴/长生/默然）给出不同反应；
+        ③ 第 1、2 轮台词递进（同种情绪两句不同）。 */
+step(function () {
+  const errors = [];
+  const metaBak = G.game.meta;
+  G.game.meta = { heaven: { talks: 0 } };
+  try {
+    const opening = G.TianDao.fallback('deathGate', { cause: '战乱' });
+    const kinds = {
+      defy: '我要报仇，我命由我不由天，迟早杀上天庭！',
+      grief: '我要把爷爷和晚晴一个一个都带回来，复活他们。',
+      long: '弟子只求长生，求大道永恒。',
+      silent: '（默然叩首，不发一言）'
+    };
+    const r1 = {}, r2 = {};
+    Object.keys(kinds).forEach(function (k) {
+      r1[k] = G.TianDao.fallback('deathGateReply', { reply: kinds[k], round: 1 });
+      r2[k] = G.TianDao.fallback('deathGateReply', { reply: kinds[k], round: 2 });
+    });
+    /* ① 不得重复开场问句 */
+    Object.keys(kinds).forEach(function (k) {
+      if (r1[k] === opening || r2[k] === opening)
+        errors.push('天道应答兜底重复开场问句（' + k + '）：' + r1[k]);
+      if (!r1[k] || !r2[k]) errors.push('天道应答兜底为空（' + k + '）');
+    });
+    /* ② 同种情绪两轮递进，不重复 */
+    Object.keys(kinds).forEach(function (k) {
+      if (r1[k] === r2[k]) errors.push('天道第 1/2 轮应答未递进（' + k + '）：' + r1[k]);
+    });
+    /* ③ 情绪分流：逆→冷斥、痴→执念/沙、长生→长生/土 */
+    if (!/逆|化灰|必见|记下/.test(r1.defy + r2.defy)) errors.push('逆天应答未见冷斥：' + r1.defy);
+    if (!/沙|痴|执念|唤回/.test(r1.grief + r2.grief)) errors.push('执念应答未见共情：' + r1.grief);
+    if (!/长生|土|天骄/.test(r1.long + r2.long)) errors.push('求长生应答未见回应：' + r1.long);
+    /* ④ 四情绪在第 1 轮应彼此区分（至少不全部相同） */
+    const set1 = new Set([r1.defy, r1.grief, r1.long, r1.silent]);
+    if (set1.size < 3) errors.push('天道兜底对不同情绪应答趋同（仅 ' + set1.size + ' 种）');
+    /* ⑤ 源码闸：heaven 兜底带上 round/reply */
+    const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const hv = strip(fs.readFileSync(path.join(WWW, 'js/scenes/heaven.js'), 'utf8'));
+    if (hv.indexOf('{ reply: this.lastReply, round: this.round }') < 0)
+      errors.push('heaven._useFallback 未透传 round/reply');
+  } finally {
+    G.game.meta = metaBak;
+  }
+  if (errors.length) throw new Error(errors.join('\n'));
+  console.log('  ✓ 天道审判离线兜底：随应答情绪分流 + 两轮递进，不重复开场问句');
+}, 'heaven.fallback.contract');
+
 /* ---------- 新物种立绘（v1.3.0）----------
    用户口径：「给新物种雷貂补手绘立绘（现在是程序化 bossGen）」。
 
@@ -14194,7 +14246,9 @@ step(function () {
       bail('game.js loop 未把场景/浮层包在 scale(UI_R) 里 —— 画面只会占左上 3/4');
     }
     /* 两处包裹：场景体 + 尾部浮层（过场/hover 也在同一段 save 里） */
-    const sceneWrapped = /x\.scale\(this\.UI_R, this\.UI_R\);\s*if \(this\.scene\.render\) this\.scene\.render\(x\);/.test(loopBody);
+    /* v2.15.1：过场打开时允许跳过被全屏遮住的场景体渲染（!csOpen && ...），
+       缩放在先、scene.render 仍紧邻包裹。 */
+    const sceneWrapped = /x\.scale\(this\.UI_R, this\.UI_R\);\s*if \([^;]*this\.scene\.render\) this\.scene\.render\(x\);/.test(loopBody);
     if (!sceneWrapped) {
       bail('game.js loop 的场景渲染未被 scale(UI_R) 紧邻包裹 —— 画面只会占左上 3/4');
     }

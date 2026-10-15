@@ -335,7 +335,8 @@
       var si = this.STAGES.indexOf(this.stageOf(G.game.meta));
       if (trigger === 'chat')
         return this.fallbackChat(extra && extra.text, G.game.meta, si);
-      if (trigger === 'deathGate' || trigger === 'deathGateReply') {
+      /* 开场问：随整体感应阶段递进（首死为第一句） */
+      if (trigger === 'deathGate') {
         return [
           '凡人修行为何？逆天者，古来无存。',
           '去而复返，你身上有本座熟悉的气息。',
@@ -343,6 +344,34 @@
           '三界六道无来处。你不属于此界。',
           '珠在你手，你我终有一战。'
         ][si];
+      }
+      /* 应答：断网/无模型时，依玩家应答的情绪与轮次给不同反应，
+         让天道有脾气、有威压，而不是重复同一句。 */
+      if (trigger === 'deathGateReply') {
+        var rply = String((extra && extra.reply) || '');
+        var kind = 'silent';
+        if (/我命由我|不由天|逆天|逆你|抗天|反天|斗一斗|战你|杀你|不伏|不服|报仇|血煞|一?个?一?个?都带|带回|救回|复活|救|活|还|护/.test(rply)) {
+          if (/报仇|血煞|杀|战|逆|斗|不伏|不服|我命由我/.test(rply)) kind = 'defy';
+          else kind = 'grief';
+        } else if (/长生|求道|修炼|成仙|大道|道心/.test(rply)) {
+          kind = 'long';
+        }
+        var line = {
+          1: {
+            defy: '你心有逆骨。天道无情——逆者，化灰。',
+            grief: '生死有命，枯荣有数。你想唤回的，不过是指间沙。',
+            long: '长生？呵。多少天骄，都成了岁月里的一捧土。',
+            silent: '无话？也好，魂入轮回，本就不必言语。'
+          },
+          2: {
+            defy: '好，好得很。本座记下你了——珠芒再起，你我必见。',
+            grief: '执念入骨。痴儿……带着这痴，去来世吧。',
+            long: '求长生者，多死于求长生的路上。去罢。',
+            silent: '轮回不等人。去罢，生死簿上，自有你的去处。'
+          }
+        };
+        var rnd = extra && extra.round ? Math.min(2, Math.max(1, extra.round)) : 1;
+        return (line[rnd] && line[rnd][kind]) || '去罢。生死簿上，自有你的去处。';
       }
       if (trigger === 'whisper') {
         if ((extra && extra.event || '').indexOf('首领') >= 0)

@@ -613,7 +613,12 @@
       G.UI.rr(x, 150, 150, 168, 40, 6); x.fill();
       x.fillStyle = 'rgba(120,150,190,0.1)';
       G.UI.rr(x, 330, 150, 120, 40, 6); x.fill();
-      G.UI.text(x, { x: 234, y: 208 }, '命定：' + next.n + '（' + next.theme + '）', 11, G.UI.C.goldHi, 'center');
+      /* theme 是 arc 背景绘制的内部 slug（reef/sect/cottage/manor/dojo/mirror），
+         不得直接上屏；映射成玩家可读的地名，取不到就只显示世名，不泄露英文。 */
+      var THEME_PLACE = { reef: '海边渔村', sect: '宗门山门', cottage: '山间草庐',
+        manor: '故园人家', dojo: '传道道场', mirror: '道则幻境' };
+      var place = THEME_PLACE[next.theme] ? '（' + THEME_PLACE[next.theme] + '）' : '';
+      G.UI.text(x, { x: 234, y: 208 }, '命定：' + next.n + place, 11, G.UI.C.goldHi, 'center');
       var hint = '命定之世有固定牵挂与失去，是主线必经之途。';
       G.UI.wrap(x, hint, 10, 150).slice(0, 2).forEach(function (l, i) {
         G.UI.text(x, { x: 234, y: 222 + i * 12 }, l, 10, G.UI.C.textDim, 'center');
